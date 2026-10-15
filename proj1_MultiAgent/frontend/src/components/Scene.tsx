@@ -2,66 +2,34 @@
 
 import { Canvas } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
-
-function Floor() {
-    return (
-        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
-            <planeGeometry args={[10, 10]} />
-            <meshStandardMaterial color="#e8e0d5" />
-        </mesh>
-    )
-}
-
-function Wall({ position, rotation }: { position: [number, number, number], rotation?: [number, number, number] }) {
-    return (
-        <mesh position={position} rotation={rotation || [0, 0, 0]} castShadow receiveShadow>
-            <boxGeometry args={[10, 1.2, 0.15]} />
-            <meshStandardMaterial color="#d4cbc0" />
-        </mesh>
-    )
-}
-
-function Room() {
-    return (
-        <group>
-            <Floor />
-
-            {/* Tường sau */}
-            <Wall position={[0, 0.6, -5]} />
-
-            {/* Tường trước (thấp hơn một chút để nhìn vào) */}
-            <Wall position={[0, 0.6, 5]} />
-
-            {/* Tường trái */}
-            <Wall position={[-5, 0.6, 0]} rotation={[0, Math.PI / 2, 0]} />
-
-            {/* Tường phải */}
-            <Wall position={[5, 0.6, 0]} rotation={[0, Math.PI / 2, 0]} />
-        </group>
-    )
-}
+import { Physics } from '@react-three/rapier'
+import Room from './office/Room'
 
 export default function Scene() {
     return (
         <div className="w-full h-screen bg-zinc-900">
             <Canvas
                 shadows
-                camera={{ position: [8, 8, 8], fov: 45 }}
+                camera={{ position: [12, 12, 12], fov: 38 }}
             >
-                <ambientLight intensity={0.6} />
+                <ambientLight intensity={0.55} />
                 <directionalLight
-                    position={[10, 15, 10]}
-                    intensity={1.2}
+                    position={[12, 18, 10]}
+                    intensity={1.3}
                     castShadow
-                    shadow-mapSize={[1024, 1024]}
+                    shadow-mapSize={[2048, 2048]}
                 />
 
-                <Room />
+                {/* Bật thế giới vật lý */}
+                <Physics gravity={[0, -9.81, 0]}>
+                    <Room />
+                </Physics>
 
                 <OrbitControls
-                    maxPolarAngle={Math.PI / 2.2}
-                    minDistance={6}
-                    maxDistance={20}
+                    maxPolarAngle={Math.PI / 2.3}
+                    minDistance={8}
+                    maxDistance={25}
+                    target={[0, 0, 0]}
                 />
             </Canvas>
         </div>

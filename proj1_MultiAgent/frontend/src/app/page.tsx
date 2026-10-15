@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import Scene from '@/components/Scene'
+import TaskPanel from '@/components/ui/TaskPanel'
 
 export default function Home() {
   const [backendStatus, setBackendStatus] = useState('Đang kiểm tra...')
@@ -21,6 +22,7 @@ export default function Home() {
     <div className="relative w-full h-screen">
       {/* 3D Scene */}
       <Scene />
+      <TaskPanel />
 
       {/* Overlay trạng thái Backend */}
       <div className="absolute top-4 left-4 bg-black/70 text-white px-4 py-2 rounded-lg text-sm">

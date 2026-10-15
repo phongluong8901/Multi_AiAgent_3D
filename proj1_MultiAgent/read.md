@@ -23,6 +23,8 @@ npm install -D typescript tsx @types/express @types/cors @types/node
 npm install three @react-three/fiber @react-three/drei
 npm install -D @types/three
 
+npm install @react-three/rapier
+
 # --- run
 cd proj1_MultiAgent
 --- cd backend
