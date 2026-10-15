@@ -19,6 +19,9 @@ cd proj1_MultiAgent
 npm install express cors
 npm install -D typescript tsx @types/express @types/cors @types/node
 
+npm install ws
+npm install -D @types/ws
+
 --- cd frontend
 npm install three @react-three/fiber @react-three/drei
 npm install -D @types/three

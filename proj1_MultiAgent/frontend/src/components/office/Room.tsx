@@ -10,8 +10,40 @@ import Sofa from './Sofa'
 import PingPong from './PingPong'
 import ServerRack from './ServerRack'
 import Agent from '../agents/Agent'
+import { AgentState } from '@/hooks/useGateway'
 
-export default function Room() {
+type RoomProps = {
+    agents?: AgentState[]
+}
+
+const WAYPOINTS: Record<string, [number, number, number][]> = {
+    ben: [
+        [-4.2, 0, -1.2],
+        [-5.5, 0, -1.2],
+        [-5.5, 0, 1.5],
+        [-3.5, 0, 1.5],
+    ],
+    cory: [
+        [-1.5, 0, -1.2],
+        [-1.5, 0, 0.8],
+        [0.5, 0, 0.8],
+        [0.5, 0, 3.5],
+    ],
+    allan: [
+        [1.2, 0, -1.2],
+        [1.2, 0, 0.8],
+        [2.8, 0, 0.8],
+        [2.8, 0, 3],
+    ],
+    luke: [
+        [4.5, 0, 0.2],
+        [5.8, 0, 0.2],
+        [5.8, 0, 2.5],
+        [3.8, 0, 2.5],
+    ],
+}
+
+export default function Room({ agents = [] }: RoomProps) {
     return (
         <group>
             <Floor />
@@ -23,22 +55,19 @@ export default function Room() {
             <Wall position={[7, 0.7, 0]} rotation={[0, Math.PI / 2, 0]} size={[14, 1.4, 0.15]} />
 
             {/* ========== 3 BÀN NHÂN VIÊN ========== */}
-            {/* Nhân viên 1 */}
             <Desk position={[-4.2, 0, -2.8]} />
             <Chair position={[-4.2, 0, -1.85]} />
             <Computer position={[-4.2, 0, -2.8]} />
 
-            {/* Nhân viên 2 */}
             <Desk position={[-1.5, 0, -2.8]} />
             <Chair position={[-1.5, 0, -1.85]} />
             <Computer position={[-1.5, 0, -2.8]} />
 
-            {/* Nhân viên 3 */}
             <Desk position={[1.2, 0, -2.8]} />
             <Chair position={[1.2, 0, -1.85]} />
             <Computer position={[1.2, 0, -2.8]} />
 
-            {/* ========== BÀN SẾP (riêng, phía bên phải) ========== */}
+            {/* ========== BÀN SẾP ========== */}
             <Desk position={[4.5, 0, -1.5]} />
             <Chair position={[4.5, 0, -0.55]} />
             <Computer position={[4.5, 0, -1.5]} />
@@ -64,63 +93,19 @@ export default function Room() {
             <Plant position={[-6, 0, 0]} />
             <Plant position={[6, 0, 0]} />
 
-            {/* ========== NHÂN VẬT ========== */}
-            {/* Ben */}
-            <Agent
-                position={[-4.2, 0, -1.85]}
-                color="#4299e1"
-                name="Ben"
-                speed={1.4}
-                waypoints={[
-                    [-4.2, 0, -1.85],
-                    [-3.2, 0, 1.5],
-                    [-3.2, 0, 2.5],
-                    [-4.5, 0, 0.5],
-                ]}
-            />
-
-            {/* Cory */}
-            <Agent
-                position={[-1.5, 0, -1.85]}
-                color="#48bb78"
-                name="Cory"
-                speed={1.1}
-                waypoints={[
-                    [-1.5, 0, -1.85],
-                    [0, 0, 0],
-                    [0.5, 0, 4],
-                    [-1, 0, 2],
-                ]}
-            />
-
-            {/* Allan */}
-            <Agent
-                position={[1.2, 0, -1.85]}
-                color="#ed8936"
-                name="Allan"
-                speed={1.3}
-                waypoints={[
-                    [1.2, 0, -1.85],
-                    [2, 0, 1],
-                    [1, 0, 3],
-                    [0, 0, 1.5],
-                ]}
-            />
-
-            {/* Luke (sếp) */}
-            <Agent
-                position={[4.5, 0, -0.55]}
-                color="#9f7aea"
-                name="Luke"
-                speed={0.9}
-                waypoints={[
-                    [4.5, 0, -0.55],
-                    [5, 0, 1.5],
-                    [3.5, 0, 2],
-                    [4.5, 0, 0.5],
-                ]}
-            />
-
+            {/* ========== NHÂN VẬT (từ Gateway) ========== */}
+            {agents.map((agent) => (
+                <Agent
+                    key={agent.id}
+                    position={agent.position}
+                    color={agent.color}
+                    name={agent.name}
+                    status={agent.status}
+                    speech={agent.speech}
+                    speed={agent.id === 'luke' ? 0.9 : 1.2}
+                    waypoints={WAYPOINTS[agent.id] ?? []}
+                />
+            ))}
         </group>
     )
 }

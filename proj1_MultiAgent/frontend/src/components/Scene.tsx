@@ -4,14 +4,16 @@ import { Canvas } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
 import { Physics } from '@react-three/rapier'
 import Room from './office/Room'
+import { AgentState } from '@/hooks/useGateway'
 
-export default function Scene() {
+type Props = {
+    agents: AgentState[]
+}
+
+export default function Scene({ agents }: Props) {
     return (
         <div className="w-full h-screen bg-zinc-900">
-            <Canvas
-                shadows
-                camera={{ position: [12, 12, 12], fov: 38 }}
-            >
+            <Canvas shadows camera={{ position: [12, 12, 12], fov: 38 }}>
                 <ambientLight intensity={0.55} />
                 <directionalLight
                     position={[12, 18, 10]}
@@ -20,9 +22,8 @@ export default function Scene() {
                     shadow-mapSize={[2048, 2048]}
                 />
 
-                {/* Bật thế giới vật lý */}
                 <Physics gravity={[0, -9.81, 0]}>
-                    <Room />
+                    <Room agents={agents} />
                 </Physics>
 
                 <OrbitControls
