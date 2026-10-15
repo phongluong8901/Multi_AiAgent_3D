@@ -21,6 +21,7 @@ npm install -D typescript tsx @types/express @types/cors @types/node
 
 --- cd frontend
 npm install three @react-three/fiber @react-three/drei
+npm install -D @types/three
 
 # --- run
 cd proj1_MultiAgent
@@ -28,6 +29,7 @@ cd proj1_MultiAgent
 npm run dev
 
 --- cd frontend
+npm run dev
 
 
 # --- docker
