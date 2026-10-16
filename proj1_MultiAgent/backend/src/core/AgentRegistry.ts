@@ -17,6 +17,10 @@ export class AgentRegistry {
         }
     }
 
+    public getAgent(id: string): SimulatedAgent | undefined {
+        return this.agents.get(id)
+    }
+
     public tickAll() {
         for (const agent of this.agents.values()) {
             agent.tick()
@@ -30,11 +34,15 @@ export class AgentRegistry {
         }
     }
 
-    public updateAgentStatus(id: string, status: AgentStatus, speech?: string | null) {
+    public updateAgentStatus(id: string, status: AgentStatus, speech?: string | null): boolean {
         const agent = this.agents.get(id)
         if (agent) {
             agent.data.status = status
-            if (speech !== undefined) agent.data.speech = speech
+            if (speech !== undefined) {
+                agent.data.speech = speech
+            }
+            return true
         }
+        return false
     }
 }

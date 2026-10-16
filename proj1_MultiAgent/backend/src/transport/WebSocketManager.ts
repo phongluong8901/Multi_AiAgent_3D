@@ -24,6 +24,7 @@ export class WebSocketManager {
             // Gửi welcome và state mặc định (Mặc định cho vào room 'global-world')
             client.subscriptions.add('global-world')
             client.send('WELCOME', { clientId })
+            client.send('state', registry.getState())
             client.send('WORLD_STATE', registry.getState())
 
             // Lắng nghe message từ client gửi lên

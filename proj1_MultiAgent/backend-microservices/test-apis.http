@@ -1,0 +1,87 @@
+### 0. Kiểm tra API Gateway
+GET http://localhost:4000/
+
+### 1. [User Service] Đăng ký tài khoản mới
+POST http://localhost:4000/api/v1/users/register
+Content-Type: application/json
+
+{
+  "username": "phongluong",
+  "email": "phongluong@example.com",
+  "password": "Password123@",
+  "role": "admin"
+}
+
+### 2. [User Service] Đăng nhập
+POST http://localhost:4000/api/v1/users/login
+Content-Type: application/json
+
+{
+  "email": "phongluong@example.com",
+  "password": "Password123@"
+}
+
+### 3. [User Service] Lấy danh sách Users
+GET http://localhost:4000/api/v1/users
+
+### 4. [Room Service] Tạo phòng họp mới
+POST http://localhost:4000/api/v1/rooms
+Content-Type: application/json
+
+{
+  "name": "Virtual Office Main Hall",
+  "description": "Phong hop tong quan 3D",
+  "maxCapacity": 20
+}
+
+### 5. [Room Service] Lấy danh sách phòng họp
+GET http://localhost:4000/api/v1/rooms
+
+### 6. [Chat Service] Lấy lịch sử chat của phòng (thay ROOM_ID bằng ID thật)
+GET http://localhost:4000/api/v1/chats/history/room_test_123
+
+### 7. [Agent Service] Tạo Tool mới
+POST http://localhost:4000/api/v1/tools
+Content-Type: application/json
+
+{
+  "id": "calculator_tool",
+  "name": "Calculator",
+  "description": "Cong cu tinh toan so hoc co ban"
+}
+
+### 8. [Agent Service] Lấy danh sách Tools
+GET http://localhost:4000/api/v1/tools
+
+### 9. [Agent Service] Tạo Prompt mới
+POST http://localhost:4000/api/v1/prompts
+Content-Type: application/json
+
+{
+  "id": "assistant_prompt",
+  "title": "Tro ly ao",
+  "content": "Ban la mot tro ly AI trong khong gian 3D chuyen nghiep."
+}
+
+### 10. [Agent Service] Lấy danh sách Prompts
+GET http://localhost:4000/api/v1/prompts
+
+### 11. [Agent Service] Tạo Agent mới
+POST http://localhost:4000/api/v1/agents
+Content-Type: application/json
+
+{
+  "id": "agent_alpha",
+  "name": "Agent Alpha 3D",
+  "color": "#3182ce",
+  "status": "idle",
+  "speech": "Xin chao! Toi la Agent Alpha.",
+  "pos_x": 0.0,
+  "pos_y": 1.0,
+  "pos_z": 0.0,
+  "prompt_id": "assistant_prompt",
+  "tool_ids": ["calculator_tool"]
+}
+
+### 12. [Agent Service] Lấy danh sách Agents
+GET http://localhost:4000/api/v1/agents

@@ -40,7 +40,7 @@ export function useGateway(url = 'ws://localhost:4000/ws') {
             ws.onmessage = (event) => {
                 try {
                     const msg = JSON.parse(event.data)
-                    if (msg.type === 'state') {
+                    if (msg.type === 'state' || msg.type === 'WORLD_STATE') {
                         setState(msg.payload)
                     }
                 } catch (e) {

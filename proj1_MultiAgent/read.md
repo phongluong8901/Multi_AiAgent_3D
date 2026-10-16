@@ -22,11 +22,16 @@ npm install -D typescript tsx @types/express @types/cors @types/node
 npm install ws
 npm install -D @types/ws
 
+npm install @langchain/langgraph @langchain/core @langchain/groq
+npm install dotenv
+
 --- cd frontend
 npm install three @react-three/fiber @react-three/drei
 npm install -D @types/three
 
 npm install @react-three/rapier
+npm install dotenv
+
 
 # --- run
 cd proj1_MultiAgent
@@ -39,6 +44,11 @@ npm run dev
 
 # --- docker
 
+
 # --- cicd
 
 # --- deploy
+
+# --- link
+- grog
+https://console.groq.com/keys
