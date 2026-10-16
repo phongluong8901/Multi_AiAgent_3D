@@ -1,5 +1,5 @@
 services:
-  # --- PostgreSQL Database ---
+  # --- PostgreSQL Database (for agent-service) ---
   db:
     image: postgres:15-alpine
     container_name: agents_db_postgres
@@ -28,11 +28,46 @@ services:
     volumes:
       - mongo_data:/data/db
     healthcheck:
-      test: ["CMD-SHELL", "mongosh --quiet --eval \"db.adminCommand('ping')\""]
+      test: ["CMD-SHELL", 'mongosh --quiet --eval "db.adminCommand(''ping'')"']
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 20s
+    restart: always
+
+  # --- RabbitMQ Message Broker ---
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: rabbitmq_broker
+    ports:
+      - "5672:5672" # AMQP protocol port
+      - "15672:15672" # Management UI (admin / admin)
+    environment:
+      RABBITMQ_DEFAULT_USER: admin
+      RABBITMQ_DEFAULT_PASS: admin123
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: always
+
+  # --- Redis (Short-term Memory Cache) ---
+  redis:
+    image: redis:7-alpine
+    container_name: redis_cache
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     restart: always
 
   # --- Node.js TypeScript User Microservice ---
@@ -45,8 +80,10 @@ services:
       - PORT=5001
       - MONGO_URI=mongodb://mongo:27017/users_db
       - JWT_SECRET=super_secret_key_2026
+      - JWT_EXPIRES_IN=7d
     depends_on:
-      - mongo
+      mongo:
+        condition: service_healthy
     restart: always
 
   # --- Node.js TypeScript Room Microservice ---
@@ -58,8 +95,12 @@ services:
     environment:
       - PORT=5002
       - MONGO_URI=mongodb://mongo:27017/rooms_db
+      - RABBITMQ_URL=amqp://admin:admin123@rabbitmq:5672
     depends_on:
-      - mongo
+      mongo:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
     restart: always
 
   # --- Node.js TypeScript Chat & Real-time Microservice ---
@@ -71,14 +112,21 @@ services:
     environment:
       - PORT=5003
       - MONGO_URI=mongodb://mongo:27017/chats_db
+      - RABBITMQ_URL=amqp://admin:admin123@rabbitmq:5672
+      - AGENT_SERVICE_URL=http://agent-service:8000
     depends_on:
-      - mongo
+      mongo:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
     restart: always
 
   # --- FastAPI Agent Microservice ---
   agent-service:
     build: ./agent-service
     container_name: agents_service
+    env_file:
+      - ./agent-service/.env
     ports:
       - "8000:8000"
     environment:
@@ -86,8 +134,15 @@ services:
       - DEBUG=True
       - PORT=8000
       - DATABASE_URL=postgresql+psycopg2://postgres_user:postgres_password@db:5432/agents_db
+      - REDIS_URL=redis://redis:6379/0
+      - RABBITMQ_URL=amqp://admin:admin123@rabbitmq:5672
     depends_on:
-      - db
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
     restart: always
 
   # --- API Gateway (Cổng giao tiếp duy nhất cho Client) ---
@@ -102,6 +157,7 @@ services:
       - ROOM_SERVICE_URL=http://room-service:5002
       - CHAT_SERVICE_URL=http://chat-service:5003
       - AGENT_SERVICE_URL=http://agent-service:8000
+      - JWT_SECRET=super_secret_key_2026
     depends_on:
       - user-service
       - room-service
@@ -109,6 +165,21 @@ services:
       - agent-service
     restart: always
 
+  # --- Next.js Frontend ---
+  # frontend:
+  #   build: ./frontend-microservices
+  #   container_name: frontend_app
+  #   ports:
+  #     - "3000:3000"
+  #   environment:
+  #     - NEXT_PUBLIC_GATEWAY_URL=http://localhost:4000
+  #     - NEXT_PUBLIC_SOCKET_URL=http://localhost:4000
+  #   depends_on:
+  #     - api-gateway
+  #   restart: always
+
 volumes:
   postgres_data:
   mongo_data:
+  rabbitmq_data:
+  redis_data:

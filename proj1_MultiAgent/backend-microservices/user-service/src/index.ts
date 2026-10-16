@@ -3,6 +3,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import { connectDB } from "./config/db";
 import userRoutes from "./routes/user.routes";
+import profileRoutes from "./routes/profile.routes";
 
 import crypto from "crypto";
 if (!(globalThis as any).crypto) {
@@ -20,10 +21,16 @@ app.use(express.json());
 
 // Routes
 app.use("/api/v1/users", userRoutes);
+app.use("/api/v1/users", profileRoutes); // /me, /me/agents, /logout
 
 // Root endpoint check
 app.get("/", (req, res) => {
     res.status(200).json({ message: "User Service is running smoothly!" });
+});
+
+// Health check
+app.get("/health", (req, res) => {
+    res.status(200).json({ status: "ok", service: "user-service" });
 });
 
 // Start Server & Connect MongoDB

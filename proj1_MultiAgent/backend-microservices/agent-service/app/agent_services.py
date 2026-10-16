@@ -1,7 +1,10 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
-from app.core.database import engine, Base
+from app.core.database import SessionLocal, engine, Base
+from app.core.seeders import run_all_seeders
+# Import all models so SQLAlchemy registers them with Base.metadata
+from app.models import agent, prompt, tool, memory  # noqa: F401
 from app.api.v1.api import api_router
 
 import time
@@ -11,7 +14,16 @@ def init_db(max_retries: int = 10, delay: int = 2):
     for attempt in range(1, max_retries + 1):
         try:
             Base.metadata.create_all(bind=engine)
-            print("[agent-service] Database tables initialized successfully.")
+            
+            # --- Chạy toàn bộ seeders (Prompts, Tools, Agents) ---
+            db = SessionLocal()
+            try:
+                run_all_seeders(db)
+            finally:
+                db.close()
+            # ---------------------------------------------------
+
+            print("[agent-service] Database tables and seeders initialized successfully.")
             return
         except Exception as e:
             if attempt == max_retries:

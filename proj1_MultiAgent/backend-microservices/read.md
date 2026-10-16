@@ -42,6 +42,9 @@ pip install fastapi uvicorn sqlalchemy psycopg2-binary pydantic python-dotenv
 pip install "psycopg[binary]"
 
 pip install pydantic-settings
+pip install beautifulsoup4 lxml
+
+pip install transformers torch
 
 --- user-service
 npm install --save-dev @types/node
@@ -50,6 +53,7 @@ npm install -D tsx
 --- gateway-service
 
 --- room-service
+npm install amqplib
 
 
 # --- run
@@ -89,3 +93,14 @@ docker compose down
 - xoa va dat lai
 
 docker compose down -v
+
+# --- link
+- swagger agent
+http://localhost:4000/docs
+
+- tavily search
+https://app.tavily.com/home
+- google search
+https://console.cloud.google.com/apis/credentials?project=carapp2026-57b5c
+- google engine search
+https://programmablesearchengine.google.com/controlpanel/all

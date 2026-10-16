@@ -6,7 +6,9 @@ export interface IUser extends Document {
     passwordHash: string;
     role: "admin" | "employee" | "guest";
     avatarUrl?: string;
+    bio?: string;
     status: "online" | "offline" | "busy";
+    ownedAgentIds: string[];  // List of agent IDs from agent-service
     createdAt: Date;
     updatedAt: Date;
 }
@@ -18,7 +20,9 @@ const UserSchema = new Schema<IUser>(
         passwordHash: { type: String, required: true },
         role: { type: String, enum: ["admin", "employee", "guest"], default: "employee" },
         avatarUrl: { type: String, default: "" },
+        bio: { type: String, default: "" },
         status: { type: String, enum: ["online", "offline", "busy"], default: "offline" },
+        ownedAgentIds: { type: [String], default: [] },
     },
     { timestamps: true }
 );
