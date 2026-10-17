@@ -30,6 +30,66 @@ export class RoomRepository {
         );
     }
 
+    async updateRoom(id: string, updateData: Partial<IRoom>): Promise<IRoom | null> {
+        return await RoomModel.findByIdAndUpdate(id, { $set: updateData }, { new: true });
+    }
+
+    async updateActiveAgents(roomId: string, activeAgents: string[]): Promise<IRoom | null> {
+        return await RoomModel.findByIdAndUpdate(
+            roomId,
+            { $set: { activeAgents } },
+            { new: true }
+        );
+    }
+
+    async addUserAgent(roomId: string, userAgent: any): Promise<IRoom | null> {
+        return await RoomModel.findByIdAndUpdate(
+            roomId,
+            {
+                $pull: { userAgents: { agentId: userAgent.agentId } },
+            },
+            { new: true }
+        ).then(async (room) => {
+            if (!room) return null;
+            return await RoomModel.findByIdAndUpdate(
+                roomId,
+                {
+                    $push: { userAgents: userAgent },
+                    $addToSet: { activeAgents: userAgent.agentId },
+                },
+                { new: true }
+            );
+        });
+    }
+
+    async addAgent(roomId: string, agentId: string): Promise<IRoom | null> {
+        return await RoomModel.findByIdAndUpdate(
+            roomId,
+            { $addToSet: { activeAgents: agentId } },
+            { new: true }
+        );
+    }
+
+    async removeAgent(roomId: string, agentId: string): Promise<IRoom | null> {
+        return await RoomModel.findByIdAndUpdate(
+            roomId,
+            {
+                $pull: { activeAgents: agentId, userAgents: { agentId } },
+            },
+            { new: true }
+        );
+    }
+
+    async removeUserAgent(roomId: string, agentId: string): Promise<IRoom | null> {
+        return await RoomModel.findByIdAndUpdate(
+            roomId,
+            {
+                $pull: { userAgents: { agentId } },
+            },
+            { new: true }
+        );
+    }
+
     async delete(id: string): Promise<boolean> {
         const result = await RoomModel.findByIdAndDelete(id);
         return result !== null;

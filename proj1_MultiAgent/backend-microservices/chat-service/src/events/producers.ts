@@ -13,23 +13,27 @@ export async function publishChatMessage(payload: {
     targetAgentId?: string;
     createdAt?: Date;
 }) {
-    const channel = getChannel();
-    if (!channel) {
-        console.warn("[chat-service] RabbitMQ channel not available to publish message");
-        return;
+    try {
+        const channel = getChannel();
+        if (!channel) {
+            console.warn("[chat-service] RabbitMQ channel not available, skipping publish.");
+            return;
+        }
+
+        const routingKey = payload.targetAgentId 
+            ? `chat.message.direct.${payload.targetAgentId}`
+            : "chat.message.broadcast";
+
+        channel.publish(
+            CHAT_EXCHANGE,
+            routingKey,
+            Buffer.from(JSON.stringify(payload)),
+            { persistent: true }
+        );
+        console.log(`[chat-service] Published event ${routingKey} to ${CHAT_EXCHANGE}`);
+    } catch (err: any) {
+        console.warn(`[chat-service] publishChatMessage failed (MQ unavailable): ${err.message}`);
     }
-
-    const routingKey = payload.targetAgentId 
-        ? `chat.message.direct.${payload.targetAgentId}`
-        : "chat.message.broadcast";
-
-    channel.publish(
-        CHAT_EXCHANGE,
-        routingKey,
-        Buffer.from(JSON.stringify(payload)),
-        { persistent: true }
-    );
-    console.log(`[chat-service] Published event ${routingKey} to ${CHAT_EXCHANGE}`);
 }
 
 export async function publishAgentPrompt(payload: {
@@ -39,15 +43,21 @@ export async function publishAgentPrompt(payload: {
     userName: string;
     userId: string;
 }) {
-    const channel = getChannel();
-    if (!channel) return;
+    try {
+        const channel = getChannel();
+        if (!channel) return;
 
-    const routingKey = `agent.prompt.${payload.agentId}`;
-    channel.publish(
-        AGENT_EXCHANGE,
-        routingKey,
-        Buffer.from(JSON.stringify(payload)),
-        { persistent: true }
-    );
-    console.log(`[chat-service] Published prompt request to agent ${payload.agentId}`);
+        const routingKey = `agent.prompt.${payload.agentId}`;
+        channel.publish(
+            AGENT_EXCHANGE,
+            routingKey,
+            Buffer.from(JSON.stringify(payload)),
+            { persistent: true }
+        );
+        console.log(`[chat-service] Published prompt request to agent ${payload.agentId}`);
+    } catch (err: any) {
+        console.warn(`[chat-service] publishAgentPrompt failed (MQ unavailable): ${err.message}`);
+        // Re-throw so dispatcher knows to fall back to direct HTTP call
+        throw err;
+    }
 }

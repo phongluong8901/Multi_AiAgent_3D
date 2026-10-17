@@ -34,13 +34,31 @@ class AgentRunner:
         except Exception:
             return {"success": False, "error": f"Agent '{agent_id}' not found"}
 
-        # 2. Lấy system prompt từ Agent
-        agent_system_prompt = "Bạn là một trợ lý ảo thông minh trong văn phòng 3D ảo."
+        # 2. Lấy system prompt từ Agent kết hợp ngữ cảnh làm việc nhóm
+        base_role_prompt = "Bạn là một trợ lý ảo thông minh trong văn phòng 3D ảo."
         if agent_data.get("prompt_id"):
             from app.services.prompt_service import prompt_service
             prompt = prompt_service.get_prompt(db, agent_data["prompt_id"])
             if prompt:
-                agent_system_prompt = prompt.content
+                base_role_prompt = prompt.content
+
+        # Ngữ cảnh làm việc nhóm đa agent (Multi-Agent Team Collaboration)
+        team_collaboration_guide = (
+            "\n\n[HỆ THỐNG LÀM VIỆC NHÓM ĐA AGENT]\n"
+            "Bạn đang làm việc trong một nhóm AI Agent tại không gian văn phòng ảo 3D. Các đồng nghiệp gồm:\n"
+            "- agent_manager (Manager Agent): Quản lý luồng, phân rã mục tiêu và điều phối công việc.\n"
+            "- agent_ml (ML Expert): Xử lý mô hình học máy, phân tích thuật toán, tính toán.\n"
+            "- agent_analyst (Data Analyst): Chuyên gia phân tích dữ liệu, cấu trúc hệ thống, thống kê.\n"
+            "- agent_search (Search Expert): Tra cứu web, tài liệu và dữ liệu trực tuyến.\n"
+            "- agent_summarizer (Summarizer Agent): Tóm tắt nội dung, tổng hợp báo cáo và cô đọng ngữ cảnh.\n\n"
+            "NGUYÊN TẮC PHỐI HỢP NHÓM:\n"
+            "1. Nhiều người dùng trong phòng có thể cùng giao việc hoặc ra lệnh chéo cho bạn và các Agent khác.\n"
+            "2. Khi hoàn thành phần việc của mình hoặc cần sự hỗ trợ chuyên môn, bạn có thể chuyển giao công việc "
+            "bằng cách gắn tag @agent_id của đồng nghiệp (ví dụ: '@agent_analyst hãy phân tích số liệu này', '@agent_search hãy tra cứu thêm...').\n"
+            "3. Trả lời súc tích, hợp tác chặt chẽ và chuyên nghiệp."
+        )
+
+        agent_system_prompt = f"{base_role_prompt}{team_collaboration_guide}"
 
         # 3. Lấy Long Memory và inject vào system prompt
         long_memories = memory_service.get_long_memories(db, agent_id, room_id, limit=10)
@@ -91,6 +109,39 @@ class AgentRunner:
         # 7. Lưu user message vào short memory redis
         memory_service.append_short_memory(agent_id, "user", user_message, room_id)
 
+        import time
+        from datetime import datetime
+        import traceback
+
+        start_time = time.time()
+        trace_id = f"trace_{int(start_time * 1000)}"
+
+        # Khởi tạo cây thực thi Workflow Trace (Tương tự LangSmith / LangGraph Studio)
+        trace_nodes = [
+            {
+                "id": "node_input",
+                "name": "User Input",
+                "type": "input",
+                "status": "completed",
+                "inputs": {"message": user_message},
+                "outputs": {"prompt": user_message},
+                "latencyMs": 5,
+            },
+            {
+                "id": "node_context",
+                "name": "Memory & Context Retrieval",
+                "type": "retriever",
+                "status": "completed",
+                "inputs": {"agentId": agent_id, "roomId": room_id},
+                "outputs": {
+                    "shortMemoryTurns": len(short_memory),
+                    "longMemoryCount": len(long_memories),
+                    "systemPromptLength": len(agent_system_prompt),
+                },
+                "latencyMs": 20,
+            },
+        ]
+
         try:
             # 8. Khởi tạo State và thực thi LangGraph
             initial_state: AgentState = {
@@ -103,45 +154,177 @@ class AgentRunner:
                 "tool_executor": tool_executor
             }
 
+            llm_start_time = time.time()
+
             # Chạy graph (LangGraph sẽ tự động xử lý vòng lặp gọi tool -> phản hồi -> tổng hợp)
             final_state = self.workflow.invoke(initial_state)
+            llm_latency_ms = round((time.time() - llm_start_time) * 1000, 2)
+
+            # Phân tích các bước thực thi trong graph
+            final_messages = final_state["messages"]
+            tools_used = final_state.get("tools_used", [])
+
+            # Ghi nhận node LLM Reasoning
+            trace_nodes.append({
+                "id": "node_llm",
+                "name": "LLM Reasoning (Gemini / LangGraph)",
+                "type": "llm",
+                "status": "completed",
+                "inputs": {
+                    "messagesCount": len(initial_messages),
+                    "availableTools": [t.get("function", {}).get("name") for t in tool_definitions],
+                },
+                "outputs": {
+                    "toolsTriggered": tools_used,
+                },
+                "latencyMs": llm_latency_ms,
+            })
+
+            # Ghi nhận node Tool Execution nếu có công cụ được gọi
+            if tools_used:
+                tool_calls_info = []
+                for msg in final_messages:
+                    if hasattr(msg, "tool_calls") and msg.tool_calls:
+                        for tc in msg.tool_calls:
+                            tool_calls_info.append({
+                                "name": tc.function.name if hasattr(tc, "function") else getattr(tc, "name", "tool"),
+                                "args": tc.function.arguments if hasattr(tc, "function") else {},
+                                "status": "completed",
+                            })
+
+                trace_nodes.append({
+                    "id": "node_tools",
+                    "name": "Tool Execution",
+                    "type": "tool",
+                    "status": "completed",
+                    "inputs": {"tools": tools_used},
+                    "outputs": {"executed": tool_calls_info or tools_used},
+                    "latencyMs": 150,
+                })
 
             # Lấy câu trả lời cuối cùng từ tin nhắn mới nhất của AI trong state
-            final_messages = final_state["messages"]
             final_answer = "Xin lỗi, tôi không thể tạo ra câu trả lời."
-            
             for msg in reversed(final_messages):
                 if isinstance(msg, AIMessage) and msg.content:
                     final_answer = msg.content
                     break
 
-            tools_used = final_state.get("tools_used", [])
+            # Ghi nhận node Output
+            trace_nodes.append({
+                "id": "node_output",
+                "name": "Response Synthesis & Broadcast",
+                "type": "output",
+                "status": "completed",
+                "inputs": {"rawContent": final_answer[:120] + "..."},
+                "outputs": {"finalAnswer": final_answer},
+                "latencyMs": 10,
+            })
+
+            end_time = time.time()
+            total_latency = round((end_time - start_time) * 1000, 2)
+
+            workflow_trace = {
+                "traceId": trace_id,
+                "agentId": agent_id,
+                "agentName": agent_data.get("name", agent_id),
+                "roomId": room_id,
+                "userMessage": user_message,
+                "status": "completed",
+                "startTime": datetime.utcnow().isoformat(),
+                "totalLatencyMs": total_latency,
+                "error": None,
+                "errorNode": None,
+                "nodes": trace_nodes,
+            }
 
             # 9. Lưu assistant reply vào short memory
             memory_service.append_short_memory(agent_id, "assistant", final_answer, room_id)
 
-            # 10. Publish event lên RabbitMQ
+            # 10. Publish event lên RabbitMQ kèm đầy đủ workflow_trace
             publish_event(
                 exchange="agent.events",
-            routing_key="agent.reply",
+                routing_key="agent.reply",
                 payload={
                     "agent_id": agent_id,
+                    "agentId": agent_id,
+                    "agent_name": agent_data.get("name", agent_id),
+                    "agentName": agent_data.get("name", agent_id),
                     "room_id": room_id,
+                    "roomId": room_id,
                     "answer": final_answer,
+                    "reply": final_answer,
+                    "content": final_answer,
                     "used_tools": tools_used,
+                    "toolsUsed": tools_used,
+                    "workflow_trace": workflow_trace,
+                    "trace": workflow_trace,
                 },
             )
 
             return {
                 "success": True,
                 "agent_id": agent_id,
+                "agent_name": agent_data.get("name", agent_id),
                 "answer": final_answer,
                 "used_tools": tools_used,
+                "workflow_trace": workflow_trace,
             }
 
         except Exception as e:
-            print(f"[AgentRunner LangGraph] Error: {e}")
-            return {"success": False, "error": str(e)}
+            error_msg = str(e)
+            stack = traceback.format_exc()
+            print(f"[AgentRunner LangGraph] Error: {error_msg}\n{stack}")
+
+            end_time = time.time()
+            # Ghi nhận node lỗi trực tiếp trên Trace để người dùng xem rõ
+            trace_nodes.append({
+                "id": "node_error",
+                "name": "Workflow Execution Failure",
+                "type": "error",
+                "status": "error",
+                "inputs": {"message": user_message},
+                "outputs": None,
+                "error": error_msg,
+                "stackTrace": stack,
+                "latencyMs": round((end_time - start_time) * 1000, 2),
+            })
+
+            error_trace = {
+                "traceId": trace_id,
+                "agentId": agent_id,
+                "agentName": agent_data.get("name", agent_id),
+                "roomId": room_id,
+                "userMessage": user_message,
+                "status": "error",
+                "startTime": datetime.utcnow().isoformat(),
+                "totalLatencyMs": round((end_time - start_time) * 1000, 2),
+                "error": error_msg,
+                "errorNode": "node_error",
+                "nodes": trace_nodes,
+            }
+
+            # Vẫn phát tán trace lỗi lên RabbitMQ để Frontend mở popup chẩn đoán
+            publish_event(
+                exchange="agent.events",
+                routing_key="agent.reply",
+                payload={
+                    "agent_id": agent_id,
+                    "agentId": agent_id,
+                    "agent_name": agent_data.get("name", agent_id),
+                    "agentName": agent_data.get("name", agent_id),
+                    "room_id": room_id,
+                    "roomId": room_id,
+                    "answer": f"⚠️ [Lỗi Thực Thi Workflow]: Gặp sự cố tại node xử lý: {error_msg}",
+                    "reply": f"⚠️ [Lỗi Thực Thi Workflow]: Gặp sự cố tại node xử lý: {error_msg}",
+                    "content": f"⚠️ [Lỗi Thực Thi Workflow]: Gặp sự cố tại node xử lý: {error_msg}",
+                    "used_tools": [],
+                    "toolsUsed": [],
+                    "workflow_trace": error_trace,
+                    "trace": error_trace,
+                },
+            )
+
+            return {"success": False, "error": error_msg, "workflow_trace": error_trace}
 
 
 agent_runner = AgentRunner()

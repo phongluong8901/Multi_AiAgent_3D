@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { userService } from "../services/user.service";
+import { AuthRequest } from "../middlewares/auth.middleware";
 
 export class UserController {
     async register(req: Request, res: Response) {
@@ -35,6 +36,66 @@ export class UserController {
             return res.status(200).json({ success: true, data: user });
         } catch (error: any) {
             return res.status(404).json({ success: false, message: error.message });
+        }
+    }
+
+    /** GET /api/v1/users/me — Lấy profile của chính mình */
+    async getMe(req: AuthRequest, res: Response) {
+        try {
+            const userId = req.user?.userId;
+            if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
+            const user = await userService.getUserById(userId);
+            return res.status(200).json({ success: true, data: user });
+        } catch (error: any) {
+            return res.status(404).json({ success: false, message: error.message });
+        }
+    }
+
+    /** PUT /api/v1/users/me — Cập nhật profile */
+    async updateMe(req: AuthRequest, res: Response) {
+        try {
+            const userId = req.user?.userId;
+            if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
+            const updated = await userService.updateProfile(userId, req.body);
+            return res.status(200).json({ success: true, data: updated });
+        } catch (error: any) {
+            return res.status(400).json({ success: false, message: error.message });
+        }
+    }
+
+    /** GET /api/v1/users/me/agents — Danh sách agent sở hữu */
+    async getMyAgents(req: AuthRequest, res: Response) {
+        try {
+            const userId = req.user?.userId;
+            if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
+            const result = await userService.getOwnedAgents(userId);
+            return res.status(200).json({ success: true, data: result.ownedAgentIds });
+        } catch (error: any) {
+            return res.status(500).json({ success: false, message: error.message });
+        }
+    }
+
+    /** POST /api/v1/users/me/agents/:agentId — Đăng ký sở hữu Agent */
+    async addMyAgent(req: AuthRequest, res: Response) {
+        try {
+            const userId = req.user?.userId;
+            if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
+            const updated = await userService.addOwnedAgent(userId, req.params.agentId as string);
+            return res.status(200).json({ success: true, data: updated });
+        } catch (error: any) {
+            return res.status(400).json({ success: false, message: error.message });
+        }
+    }
+
+    /** DELETE /api/v1/users/me/agents/:agentId — Hủy sở hữu Agent */
+    async removeMyAgent(req: AuthRequest, res: Response) {
+        try {
+            const userId = req.user?.userId;
+            if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
+            const updated = await userService.removeOwnedAgent(userId, req.params.agentId as string);
+            return res.status(200).json({ success: true, data: updated });
+        } catch (error: any) {
+            return res.status(400).json({ success: false, message: error.message });
         }
     }
 }

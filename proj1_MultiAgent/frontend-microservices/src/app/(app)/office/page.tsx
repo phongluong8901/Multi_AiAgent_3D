@@ -14,6 +14,7 @@ const MANAGER_ID = 'agent_manager'
 export default function OfficePage() {
     const { agents, connected, error } = useAgents()
     const [dialogOpen, setDialogOpen] = useState(false)
+    const [mapType, setMapType] = useState<'office' | 'outdoor'>('office')
     const [taskTitle, setTaskTitle] = useState<string | null>(null)
     const [steps, setSteps] = useState<PipelineStep[]>([])
 
@@ -24,7 +25,7 @@ export default function OfficePage() {
 
     return (
         <div className="relative w-full h-[calc(100vh-3.5rem)]">
-            <Scene agents={agents} />
+            <Scene agents={agents} mapType={mapType} />
             <TaskPanel />
             <TaskPipelinePanel taskTitle={taskTitle} steps={steps} />
 
@@ -32,16 +33,31 @@ export default function OfficePage() {
                 <div className="bg-black/70 text-white text-xs px-3 py-1.5 rounded-lg">
                     API: {connected ? 'Connected' : 'Disconnected'}
                     {error ? ` — ${error}` : ` — ${agents.length} agents`}
-                    <span className="ml-2 text-amber-400">· Mock pipeline</span>
+                    <span className="ml-2 text-amber-400">· {mapType === 'outdoor' ? '🌳 Outdoor Campus' : '🏢 Office'}</span>
                 </div>
 
-                <button
-                    type="button"
-                    onClick={() => setDialogOpen(true)}
-                    className="bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium px-4 py-2 rounded-lg shadow-lg"
-                >
-                    + Giao task (Mock)
-                </button>
+                <div className="flex items-center gap-2">
+                    <button
+                        type="button"
+                        onClick={() => setMapType(mapType === 'office' ? 'outdoor' : 'office')}
+                        className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-3 py-2 rounded-lg shadow-lg transition flex items-center gap-1"
+                    >
+                        {mapType === 'office' ? '🌳 Đổi sang Ngoài Trời' : '🏢 Đổi sang Văn Phòng'}
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setDialogOpen(true)}
+                        className="bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold px-3 py-2 rounded-lg shadow-lg transition"
+                    >
+                        + Giao task (Mock)
+                    </button>
+                    <a
+                        href="/rooms"
+                        className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-3 py-2 rounded-lg shadow-lg transition flex items-center gap-1"
+                    >
+                        👥 Vào Team Rooms →
+                    </a>
+                </div>
             </div>
 
             <AssignTaskDialog

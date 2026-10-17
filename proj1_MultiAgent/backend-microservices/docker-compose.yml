@@ -12,11 +12,11 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres_user -d agents_db"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres_user -d agents_db || exit 1"]
       interval: 10s
       timeout: 5s
-      retries: 5
-      start_period: 20s
+      retries: 10
+      start_period: 30s
     restart: always
 
   # --- Shared MongoDB Database ---
@@ -28,11 +28,11 @@ services:
     volumes:
       - mongo_data:/data/db
     healthcheck:
-      test: ["CMD-SHELL", 'mongosh --quiet --eval "db.adminCommand(''ping'')"']
+      test: ["CMD-SHELL", "echo 'db.runCommand({ping: 1}).ok' | mongosh localhost:27017/test --quiet || exit 1"]
       interval: 10s
       timeout: 5s
-      retries: 5
-      start_period: 20s
+      retries: 10
+      start_period: 30s
     restart: always
 
   # --- RabbitMQ Message Broker ---
@@ -48,10 +48,10 @@ services:
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
     healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 10
       start_period: 30s
     restart: always
 
@@ -67,7 +67,7 @@ services:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 10
     restart: always
 
   # --- Node.js TypeScript User Microservice ---
@@ -82,8 +82,7 @@ services:
       - JWT_SECRET=super_secret_key_2026
       - JWT_EXPIRES_IN=7d
     depends_on:
-      mongo:
-        condition: service_healthy
+      - mongo
     restart: always
 
   # --- Node.js TypeScript Room Microservice ---
@@ -97,10 +96,8 @@ services:
       - MONGO_URI=mongodb://mongo:27017/rooms_db
       - RABBITMQ_URL=amqp://admin:admin123@rabbitmq:5672
     depends_on:
-      mongo:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
+      - mongo
+      - rabbitmq
     restart: always
 
   # --- Node.js TypeScript Chat & Real-time Microservice ---
@@ -115,10 +112,8 @@ services:
       - RABBITMQ_URL=amqp://admin:admin123@rabbitmq:5672
       - AGENT_SERVICE_URL=http://agent-service:8000
     depends_on:
-      mongo:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
+      - mongo
+      - rabbitmq
     restart: always
 
   # --- FastAPI Agent Microservice ---
@@ -132,13 +127,13 @@ services:
     environment:
       - PROJECT_NAME=Agents Service
       - DEBUG=True
+      - RABBITMQ_URL=amqp://admin:admin123@rabbitmq:5672
+      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=postgresql+psycopg2://postgres_user:postgres_password@db:5432/agents_db
     depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
+      - db
+      - redis
+      - rabbitmq
     restart: always
 
   # --- API Gateway (Cổng giao tiếp duy nhất cho Client) ---

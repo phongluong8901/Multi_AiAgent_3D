@@ -85,3 +85,89 @@ Content-Type: application/json
 
 ### 12. [Agent Service] Lấy danh sách Agents
 GET http://localhost:4000/api/v1/agents
+
+### 13. [Room Service] Đồng bộ nhóm Agent vào Room
+POST http://localhost:4000/api/v1/rooms/room_test_123/agents
+Content-Type: application/json
+
+{
+  "activeAgents": ["agent_manager", "agent_ml", "agent_analyst", "agent_search", "agent_summarizer"]
+}
+
+### 14. [Chat Service] Lấy danh sách thành viên & Agent Online trong phòng
+GET http://localhost:4000/api/v1/chats/presence/room_test_123
+
+### 15. [Chat Service] Gửi tin nhắn ra lệnh chéo cho Agent trong phòng
+POST http://localhost:4000/api/v1/chats/send
+Content-Type: application/json
+
+{
+  "roomId": "room_test_123",
+  "senderId": "user_alice",
+  "senderName": "Alice",
+  "senderType": "user",
+  "message": "@agent_search Hãy tra cứu xu hướng AI Agent năm 2026 và @agent_ml hãy tính toán mô hình."
+}
+
+### 16. [Chat Service] Báo cáo sự hiện diện của User (Presence)
+POST http://localhost:4000/api/v1/chats/presence/room_test_123
+Content-Type: application/json
+
+{
+  "user": {
+    "id": "user_bob",
+    "name": "Bob Developer",
+    "avatar": "https://api.dicebear.com/7.x/bottts/svg?seed=bob",
+    "color": "#10b981"
+  }
+}
+
+### 17. [Chat Service] Realtime Server-Sent Events (SSE) Stream
+GET http://localhost:4000/api/v1/chats/stream/room_test_123
+Accept: text/event-stream
+
+### 18. [User Service] Lấy thông tin Profile cá nhân
+GET http://localhost:4000/api/v1/users/me
+Authorization: Bearer YOUR_JWT_TOKEN_HERE
+
+### 19. [User Service] Cập nhật Profile cá nhân (name, bio, avatar)
+PUT http://localhost:4000/api/v1/users/me
+Authorization: Bearer YOUR_JWT_TOKEN_HERE
+Content-Type: application/json
+
+{
+  "name": "Phong Luong Senior AI",
+  "bio": "Lead Multi-Agent Architecture & Cloud Systems",
+  "avatar": "https://api.dicebear.com/7.x/bottts/svg?seed=PhongLuong"
+}
+
+### 20. [User Service] Lấy danh sách Agent của riêng User
+GET http://localhost:4000/api/v1/users/me/agents
+Authorization: Bearer YOUR_JWT_TOKEN_HERE
+
+### 21. [User Service] Đăng ký sở hữu Agent
+POST http://localhost:4000/api/v1/users/me/agents/agent_ml
+Authorization: Bearer YOUR_JWT_TOKEN_HERE
+
+### 22. [Room Service] Thêm Agent vào phòng (Add Agent to Room)
+POST http://localhost:4000/api/v1/rooms/room_test_123/agents/agent_ml
+Content-Type: application/json
+
+### 23. [Room Service] Rút bớt Agent khỏi phòng (Remove Agent from Room)
+DELETE http://localhost:4000/api/v1/rooms/room_test_123/agents/agent_ml
+
+### 24. [Room Service] Gán sở hữu Agent cho User trong phòng (User-Agent Binding)
+POST http://localhost:4000/api/v1/rooms/room_test_123/user-agents
+Content-Type: application/json
+
+{
+  "userId": "user_alice",
+  "userName": "Alice Leader",
+  "userColor": "#3b82f6",
+  "agentId": "agent_ml",
+  "agentName": "ML Expert"
+}
+
+### 25. [Room Service] Hủy gán sở hữu Agent trong phòng
+DELETE http://localhost:4000/api/v1/rooms/room_test_123/user-agents/agent_ml
+

@@ -32,9 +32,43 @@ def init_db(max_retries: int = 10, delay: int = 2):
             print(f"[agent-service] Waiting for database... ({attempt}/{max_retries})")
             time.sleep(delay)
 
+def start_rabbitmq_consumer():
+    from app.core.rabbitmq_client import consume_events
+    from app.services.agent_runner import agent_runner
+
+    def handle_agent_prompt(data: dict):
+        try:
+            agent_id = data.get("agentId") or data.get("agent_id")
+            room_id = data.get("roomId") or data.get("room_id")
+            user_message = data.get("userPrompt") or data.get("message") or ""
+            if not agent_id or not user_message:
+                print(f"[agent-service MQ] Missing agentId or userPrompt: {data}")
+                return
+
+            print(f"[agent-service MQ] Processing prompt for agent '{agent_id}' in room '{room_id}'")
+            db = SessionLocal()
+            try:
+                agent_runner.run_agent(db=db, agent_id=agent_id, user_message=user_message, room_id=room_id)
+            finally:
+                db.close()
+        except Exception as e:
+            print(f"[agent-service MQ] Error processing prompt: {e}")
+
+    try:
+        consume_events(
+            exchange="agent.events",
+            routing_key="agent.prompt.#",
+            queue_name="agent_prompt_queue",
+            callback=handle_agent_prompt,
+        )
+        print("[agent-service] RabbitMQ consumer thread started for queue 'agent_prompt_queue'")
+    except Exception as err:
+        print(f"[agent-service] Warning: Could not start RabbitMQ consumer: {err}")
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    start_rabbitmq_consumer()
     yield
 
 app = FastAPI(

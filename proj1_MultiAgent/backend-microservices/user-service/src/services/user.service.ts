@@ -80,6 +80,7 @@ export class UserService {
         // Only allow safe fields
         const safeData: Record<string, any> = {};
         if (data.username) safeData.username = data.username;
+        if ((data as any).name) safeData.username = (data as any).name;
         if (data.avatarUrl !== undefined) safeData.avatarUrl = data.avatarUrl;
         if (data.bio !== undefined) safeData.bio = data.bio;
 

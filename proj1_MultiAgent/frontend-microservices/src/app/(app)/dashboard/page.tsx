@@ -26,20 +26,30 @@ export default function DashboardPage() {
                 <Card label="Blocked" value={blocked} />
             </div>
 
-            <div className="grid md:grid-cols-2 gap-4">
+            <div className="grid md:grid-cols-3 gap-4">
                 <Link
-                    href="/office"
-                    className="rounded-xl border border-zinc-800 bg-zinc-900 p-5 hover:border-zinc-600 transition"
+                    href="/rooms"
+                    className="rounded-2xl border border-blue-500/30 bg-gradient-to-br from-blue-950/40 to-zinc-900 p-5 hover:border-blue-500/60 transition shadow-lg shadow-blue-500/5 group"
                 >
-                    <h2 className="font-medium">Office 3D</h2>
-                    <p className="text-sm text-zinc-400 mt-1">Xem agents trong văn phòng</p>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400 font-semibold border border-blue-500/30">
+                        Multi-User & Multi-Agent
+                    </span>
+                    <h2 className="font-bold text-white text-base mt-2 group-hover:text-blue-400 transition">Team Rooms 👥</h2>
+                    <p className="text-xs text-zinc-400 mt-1">Vào phòng chung kết hợp nhiều Agent & ra lệnh chéo</p>
                 </Link>
                 <Link
-                    href="/agents/setup"
-                    className="rounded-xl border border-zinc-800 bg-zinc-900 p-5 hover:border-zinc-600 transition"
+                    href="/office"
+                    className="rounded-2xl border border-zinc-800 bg-zinc-900/90 p-5 hover:border-zinc-700 transition"
                 >
-                    <h2 className="font-medium">Setup Agent</h2>
-                    <p className="text-sm text-zinc-400 mt-1">Tạo agent mới</p>
+                    <h2 className="font-semibold text-white">Office 3D 🏢</h2>
+                    <p className="text-xs text-zinc-400 mt-1">Xem văn phòng ảo 3D thời gian thực</p>
+                </Link>
+                <Link
+                    href="/agents"
+                    className="rounded-2xl border border-zinc-800 bg-zinc-900/90 p-5 hover:border-zinc-700 transition"
+                >
+                    <h2 className="font-semibold text-white">Quản Lý Agent 🤖</h2>
+                    <p className="text-xs text-zinc-400 mt-1">Cấu hình prompt, tools và mô hình</p>
                 </Link>
             </div>
 
