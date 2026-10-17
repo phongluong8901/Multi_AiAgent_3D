@@ -7,9 +7,11 @@ import * as THREE from 'three'
 import { Html } from '@react-three/drei'
 import AgentSpeechBubble from './AgentSpeechBubble'
 import AgentNameTag from './AgentNameTag'
+import AgentBody from './AgentBody'
 
 type Props = {
     position: [number, number, number]
+    deskPosition?: [number, number, number]
     color?: string
     name?: string
     status?: 'idle' | 'working' | 'meeting' | 'blocked'
@@ -20,26 +22,64 @@ type Props = {
 
 export default function Agent({
     position,
+    deskPosition,
     color = '#4299e1',
     name = 'Agent',
     status = 'idle',
     speech = null,
     waypoints = [],
-    speed = 1.8,
+    speed = 1.0,
 }: Props) {
     const body = useRef<RapierRigidBody>(null)
     const currentIndex = useRef(0)
     const isWaiting = useRef(false)
     const waitUntil = useRef(0)
 
+    const shouldSit = status === 'working' || status === 'blocked'
+    // Ghế hơi trước bàn — trùng Chair trong Room
+    const desk = deskPosition ?? position
+    const seatPos: [number, number, number] = [desk[0], 0, desk[2]]
+
     useFrame((state) => {
-        if (!body.current || waypoints.length === 0) return
+        if (!body.current) return
+
+        if (shouldSit) {
+            const pos = body.current.translation()
+            const target = new THREE.Vector3(seatPos[0], 0, seatPos[2])
+            const current = new THREE.Vector3(pos.x, 0, pos.z)
+            const dist = target.distanceTo(current)
+
+            if (dist > 0.12) {
+                const dir = target.clone().sub(current).normalize()
+                body.current.setLinvel(
+                    { x: dir.x * speed, y: 0, z: dir.z * speed },
+                    true
+                )
+                const angle = Math.atan2(dir.x, dir.z)
+                body.current.setRotation(
+                    { x: 0, y: Math.sin(angle / 2), z: 0, w: Math.cos(angle / 2) },
+                    true
+                )
+            } else {
+                // Khóa tại ghế
+                body.current.setLinvel({ x: 0, y: 0, z: 0 }, true)
+                body.current.setTranslation(
+                    { x: seatPos[0], y: 0, z: seatPos[2] },
+                    true
+                )
+                // Quay mặt vào bàn (z âm = về phía desk)
+                body.current.setRotation({ x: 0, y: 1, z: 0, w: 0 }, true)
+            }
+            return
+        }
+
+        if (waypoints.length === 0) {
+            body.current.setLinvel({ x: 0, y: 0, z: 0 }, true)
+            return
+        }
 
         if (isWaiting.current) {
-            if (state.clock.elapsedTime > waitUntil.current) {
-                isWaiting.current = false
-            }
-            // Đứng yên khi chờ
+            if (state.clock.elapsedTime > waitUntil.current) isWaiting.current = false
             body.current.setLinvel({ x: 0, y: 0, z: 0 }, true)
             return
         }
@@ -47,31 +87,22 @@ export default function Agent({
         const target = new THREE.Vector3(...waypoints[currentIndex.current])
         const currentPos = body.current.translation()
         const current = new THREE.Vector3(currentPos.x, 0, currentPos.z)
-
         const direction = target.clone().sub(current)
         const distance = direction.length()
 
         if (distance < 0.25) {
             isWaiting.current = true
-            waitUntil.current = state.clock.elapsedTime + 1.8 + Math.random()
+            waitUntil.current = state.clock.elapsedTime + 1.5 + Math.random()
             currentIndex.current = (currentIndex.current + 1) % waypoints.length
             body.current.setLinvel({ x: 0, y: 0, z: 0 }, true)
             return
         }
 
         direction.normalize()
-
-        // Dùng vận tốc thay vì set vị trí → sẽ bị chặn bởi vật cản
         body.current.setLinvel(
-            {
-                x: direction.x * speed,
-                y: 0,
-                z: direction.z * speed,
-            },
+            { x: direction.x * speed, y: 0, z: direction.z * speed },
             true
         )
-
-        // Xoay mặt theo hướng đi
         const angle = Math.atan2(direction.x, direction.z)
         body.current.setRotation(
             { x: 0, y: Math.sin(angle / 2), z: 0, w: Math.cos(angle / 2) },
@@ -79,52 +110,25 @@ export default function Agent({
         )
     })
 
+    const labelY = shouldSit ? 1.55 : 2.15
+
     return (
         <RigidBody
             ref={body}
             position={position}
             colliders={false}
-            enabledRotations={[false, true, false]} // chỉ cho xoay trục Y
-            linearDamping={1}
+            enabledRotations={[false, true, false]}
+            linearDamping={2}
             type="dynamic"
         >
-            {/* Collider hình viên nang (giống người) */}
-            <CapsuleCollider args={[0.5, 0.25]} position={[0, 0.9, 0]} />
+            <CapsuleCollider
+                args={shouldSit ? [0.25, 0.28] : [0.45, 0.28]}
+                position={[0, shouldSit ? 0.55 : 0.85, 0]}
+            />
 
-            {/* Hình dáng */}
-            <group>
-                <mesh position={[0, 1.55, 0]} castShadow>
-                    <sphereGeometry args={[0.22, 16, 16]} />
-                    <meshStandardMaterial color="#f6e05e" />
-                </mesh>
+            <AgentBody color={color} sitting={shouldSit} />
 
-                <mesh position={[0, 1.05, 0]} castShadow>
-                    <boxGeometry args={[0.4, 0.55, 0.25]} />
-                    <meshStandardMaterial color={color} />
-                </mesh>
-
-                <mesh position={[-0.28, 1.05, 0]} castShadow>
-                    <boxGeometry args={[0.12, 0.45, 0.12]} />
-                    <meshStandardMaterial color={color} />
-                </mesh>
-
-                <mesh position={[0.28, 1.05, 0]} castShadow>
-                    <boxGeometry args={[0.12, 0.45, 0.12]} />
-                    <meshStandardMaterial color={color} />
-                </mesh>
-
-                <mesh position={[-0.12, 0.45, 0]} castShadow>
-                    <boxGeometry args={[0.14, 0.5, 0.14]} />
-                    <meshStandardMaterial color="#2d3748" />
-                </mesh>
-
-                <mesh position={[0.12, 0.45, 0]} castShadow>
-                    <boxGeometry args={[0.14, 0.5, 0.14]} />
-                    <meshStandardMaterial color="#2d3748" />
-                </mesh>
-            </group>
-
-            <Html position={[0, 2.15, 0]} center distanceFactor={8} zIndexRange={[100, 0]}>
+            <Html position={[0, labelY, 0]} center distanceFactor={8} zIndexRange={[100, 0]}>
                 <div className="flex flex-col items-center gap-1 pointer-events-none select-none">
                     {speech && <AgentSpeechBubble text={speech} />}
                     <AgentNameTag name={name} status={status} />

@@ -14,3 +14,6 @@ pika
 # torch
 # transformers
 # huggingface-hub
+langgraph
+langchain-core
+google-genai

@@ -4,9 +4,7 @@ import { Canvas } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
 import { Physics } from '@react-three/rapier'
 import Room from './office/Room'
-import { AgentState } from '@/hooks/useGateway'
 import { Agent } from '@/lib/api'
-
 
 type Props = {
     agents: Agent[]
@@ -14,8 +12,8 @@ type Props = {
 
 export default function Scene({ agents }: Props) {
     return (
-        <div className="w-full h-screen bg-zinc-900">
-            <Canvas shadows camera={{ position: [12, 12, 12], fov: 38 }}>
+        <div className="w-full h-full min-h-[calc(100vh-3.5rem)] bg-zinc-900">
+            <Canvas shadows camera={{ position: [16, 16, 16], fov: 40 }}>
                 <ambientLight intensity={0.55} />
                 <directionalLight
                     position={[12, 18, 10]}
@@ -30,8 +28,8 @@ export default function Scene({ agents }: Props) {
 
                 <OrbitControls
                     maxPolarAngle={Math.PI / 2.3}
-                    minDistance={8}
-                    maxDistance={25}
+                    minDistance={10}
+                    maxDistance={35}
                     target={[0, 0, 0]}
                 />
             </Canvas>

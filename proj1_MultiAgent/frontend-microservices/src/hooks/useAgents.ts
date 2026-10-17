@@ -1,7 +1,18 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { agentsApi, Agent } from '@/lib/api'
+import { agentsApi, Agent, AgentStatus } from '@/lib/api'
+
+function normalizeAgent(a: Agent): Agent {
+    const pos = Array.isArray(a.position) ? a.position : [0, 0, 0]
+    return {
+        ...a,
+        position: [Number(pos[0]) || 0, Number(pos[1]) || 0, Number(pos[2]) || 0],
+        status: (a.status as AgentStatus) || 'idle',
+        speech: a.speech ?? null,
+        color: a.color || '#4299e1',
+    }
+}
 
 export function useAgents(pollMs = 3000) {
     const [agents, setAgents] = useState<Agent[]>([])
@@ -12,16 +23,7 @@ export function useAgents(pollMs = 3000) {
     const refresh = useCallback(async () => {
         try {
             const data = await agentsApi.list()
-            // Đảm bảo position luôn là tuple 3 số
-            const normalized = data.map((a) => ({
-                ...a,
-                position: (Array.isArray(a.position)
-                    ? a.position
-                    : [0, 0, 0]) as [number, number, number],
-                status: (a.status as Agent['status']) || 'idle',
-                speech: a.speech ?? null,
-            }))
-            setAgents(normalized)
+            setAgents((data ?? []).map(normalizeAgent))
             setConnected(true)
             setError(null)
         } catch (e) {

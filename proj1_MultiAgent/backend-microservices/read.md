@@ -36,6 +36,12 @@ npm install express dotenv cors http-proxy-middleware
 npm install -D typescript @types/node @types/express @types/cors tsx
 npx tsc --init
 
+--- frontend-microservices
+cd proj1_MultiAgent
+cd frontend-microservices
+
+
+
 # --- install
 --- agent-service
 pip install fastapi uvicorn sqlalchemy psycopg2-binary pydantic python-dotenv
@@ -69,6 +75,8 @@ npm run dev
 
 --- gateway-service
 
+--- 
+
 # --- docker compose
 cd proj1_MultiAgent
 cd backend-microservices
@@ -81,7 +89,7 @@ docker compose up --build -d
 
 - build rieng
 docker compose up --build -d user-service
-docker compose up --build -d room-service
+docker compose up --build -d room-service 
 docker compose up --build -d chat-service
 docker compose up --build -d agent-service
 docker compose up --build -d api-gateway-service
@@ -104,3 +112,7 @@ https://app.tavily.com/home
 https://console.cloud.google.com/apis/credentials?project=carapp2026-57b5c
 - google engine search
 https://programmablesearchengine.google.com/controlpanel/all
+- langsmith
+https://smith.langchain.com/
+- apikey genai
+https://aistudio.google.com/api-keys

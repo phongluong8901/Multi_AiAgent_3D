@@ -10,37 +10,33 @@ import Sofa from './Sofa'
 import PingPong from './PingPong'
 import ServerRack from './ServerRack'
 import Agent from '../agents/Agent'
-import { AgentState } from '@/hooks/useGateway'
+import { Agent as AgentType } from '@/lib/api'
 
 type RoomProps = {
-    agents?: AgentState[]
+    agents?: AgentType[]
 }
 
-const WAYPOINTS: Record<string, [number, number, number][]> = {
-    ben: [
-        [-4.2, 0, -1.2],
-        [-5.5, 0, -1.2],
-        [-5.5, 0, 1.5],
-        [-3.5, 0, 1.5],
-    ],
-    cory: [
-        [-1.5, 0, -1.2],
-        [-1.5, 0, 0.8],
-        [0.5, 0, 0.8],
-        [0.5, 0, 3.5],
-    ],
-    allan: [
-        [1.2, 0, -1.2],
-        [1.2, 0, 0.8],
-        [2.8, 0, 0.8],
-        [2.8, 0, 3],
-    ],
-    luke: [
-        [4.5, 0, 0.2],
-        [5.8, 0, 0.2],
-        [5.8, 0, 2.5],
-        [3.8, 0, 2.5],
-    ],
+/** Phòng lớn hơn — bàn cách xa nhau */
+const DESK_SLOTS: [number, number, number][] = [
+    [-6, 0, -4],   // trùng Chair
+    [-2, 0, -4],
+    [2, 0, -4],
+    [6, 0, -3],
+    [-6, 0, 2],
+    [6, 0, 2],
+]
+
+/** Đường đi vòng HÀNH LANG — không cắt qua bàn */
+function buildWalkPath(desk: [number, number, number]): [number, number, number][] {
+    const [x, , z] = desk
+    // Đi phía trước bàn (z lớn hơn), rồi vòng sang 2 bên
+    return [
+        [x, 0, z + 1.2],       // trước bàn
+        [x + 2.5, 0, z + 1.2], // sang phải (hành lang)
+        [x + 2.5, 0, z + 4],   // đi xuống
+        [x - 2.5, 0, z + 4],   // sang trái
+        [x - 2.5, 0, z + 1.2], // về
+    ]
 }
 
 export default function Room({ agents = [] }: RoomProps) {
@@ -48,64 +44,69 @@ export default function Room({ agents = [] }: RoomProps) {
         <group>
             <Floor />
 
-            {/* Tường */}
-            <Wall position={[0, 0.7, -7]} size={[14, 1.4, 0.15]} />
-            <Wall position={[0, 0.7, 7]} size={[14, 1.4, 0.15]} />
-            <Wall position={[-7, 0.7, 0]} rotation={[0, Math.PI / 2, 0]} size={[14, 1.4, 0.15]} />
-            <Wall position={[7, 0.7, 0]} rotation={[0, Math.PI / 2, 0]} size={[14, 1.4, 0.15]} />
+            {/* Tường phòng to 24x24 */}
+            <Wall position={[0, 0.9, -12]} size={[24, 1.8, 0.2]} />
+            <Wall position={[0, 0.9, 12]} size={[24, 1.8, 0.2]} />
+            <Wall position={[-12, 0.9, 0]} rotation={[0, Math.PI / 2, 0]} size={[24, 1.8, 0.2]} />
+            <Wall position={[12, 0.9, 0]} rotation={[0, Math.PI / 2, 0]} size={[24, 1.8, 0.2]} />
 
-            {/* ========== 3 BÀN NHÂN VIÊN ========== */}
-            <Desk position={[-4.2, 0, -2.8]} />
-            <Chair position={[-4.2, 0, -1.85]} />
-            <Computer position={[-4.2, 0, -2.8]} />
+            {/* Hàng bàn phía sau (z âm) */}
+            <Desk position={[-6, 0, -5.2]} />
+            <Chair position={[-6, 0, -4]} />
+            <Computer position={[-6, 0, -5.2]} />
 
-            <Desk position={[-1.5, 0, -2.8]} />
-            <Chair position={[-1.5, 0, -1.85]} />
-            <Computer position={[-1.5, 0, -2.8]} />
+            <Desk position={[-2, 0, -5.2]} />
+            <Chair position={[-2, 0, -4]} />
+            <Computer position={[-2, 0, -5.2]} />
 
-            <Desk position={[1.2, 0, -2.8]} />
-            <Chair position={[1.2, 0, -1.85]} />
-            <Computer position={[1.2, 0, -2.8]} />
+            <Desk position={[2, 0, -5.2]} />
+            <Chair position={[2, 0, -4]} />
+            <Computer position={[2, 0, -5.2]} />
 
-            {/* ========== BÀN SẾP ========== */}
-            <Desk position={[4.5, 0, -1.5]} />
-            <Chair position={[4.5, 0, -0.55]} />
-            <Computer position={[4.5, 0, -1.5]} />
+            <Desk position={[6, 0, -4.2]} />
+            <Chair position={[6, 0, -3]} />
+            <Computer position={[6, 0, -4.2]} />
 
-            {/* ========== KHU HỌP ========== */}
-            <RoundTable position={[-3.2, 0, 2.5]} />
+            {/* Bàn phụ 2 bên */}
+            <Desk position={[-6, 0, 0.8]} />
+            <Chair position={[-6, 0, 2]} />
+            <Computer position={[-6, 0, 0.8]} />
 
-            {/* ========== KHU NGHỈ ========== */}
-            <Sofa position={[3.2, 0, 3.8]} rotation={[0, -Math.PI / 5, 0]} />
-            <Sofa position={[5.3, 0, 2.5]} rotation={[0, Math.PI / 2.2, 0]} />
+            <Desk position={[6, 0, 0.8]} />
+            <Chair position={[6, 0, 2]} />
+            <Computer position={[6, 0, 0.8]} />
 
-            {/* ========== BÓNG BÀN ========== */}
-            <PingPong position={[0.5, 0, 5.2]} />
+            {/* Khu họp / nghỉ — để giữa-dưới, tránh đường đi chính */}
+            <RoundTable position={[0, 0, 6]} />
+            <Sofa position={[-4, 0, 9]} rotation={[0, 0.3, 0]} />
+            <Sofa position={[-2, 0, 10]} rotation={[0, -0.4, 0]} />
+            <PingPong position={[5, 0, 9]} />
 
-            {/* ========== SERVER + TỦ ========== */}
-            <ServerRack position={[-6.2, 0, -5.5]} />
-            <ServerRack position={[-5.3, 0, -5.5]} />
-            <Cabinet position={[6.2, 0, -5]} />
+            <ServerRack position={[-10, 0, -10]} />
+            <ServerRack position={[-9.1, 0, -10]} />
+            <Cabinet position={[10, 0, -10]} />
 
-            {/* Cây cảnh */}
-            <Plant position={[-6, 0, 5.5]} />
-            <Plant position={[6, 0, 5.5]} />
-            <Plant position={[-6, 0, 0]} />
-            <Plant position={[6, 0, 0]} />
+            <Plant position={[-10, 0, 10]} />
+            <Plant position={[10, 0, 10]} />
+            <Plant position={[-10, 0, 0]} />
+            <Plant position={[10, 0, 0]} />
 
-            {/* ========== NHÂN VẬT (từ Gateway) ========== */}
-            {agents.map((agent) => (
-                <Agent
-                    key={agent.id}
-                    position={agent.position}
-                    color={agent.color}
-                    name={agent.name}
-                    status={agent.status}
-                    speech={agent.speech}
-                    speed={agent.id === 'luke' ? 0.9 : 1.2}
-                    waypoints={WAYPOINTS[agent.id] ?? []}
-                />
-            ))}
+            {agents.map((agent, index) => {
+                const desk = DESK_SLOTS[index % DESK_SLOTS.length]
+                return (
+                    <Agent
+                        key={agent.id}
+                        position={desk}
+                        deskPosition={desk}
+                        color={agent.color}
+                        name={agent.name}
+                        status={agent.status}
+                        speech={agent.speech}
+                        speed={1.0}
+                        waypoints={buildWalkPath(desk)}
+                    />
+                )
+            })}
         </group>
     )
 }

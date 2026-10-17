@@ -132,10 +132,6 @@ services:
     environment:
       - PROJECT_NAME=Agents Service
       - DEBUG=True
-      - PORT=8000
-      - DATABASE_URL=postgresql+psycopg2://postgres_user:postgres_password@db:5432/agents_db
-      - REDIS_URL=redis://redis:6379/0
-      - RABBITMQ_URL=amqp://admin:admin123@rabbitmq:5672
     depends_on:
       db:
         condition: service_healthy

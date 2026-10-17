@@ -1,17 +1,21 @@
-import json
+from langchain_core.messages import AIMessage
 from typing import Optional
 from sqlalchemy.orm import Session
+from langchain_core.messages import SystemMessage, HumanMessage
 
 from app.core.llm.llm_registry import llm_registry
 from app.services.tool_executor import tool_executor
 from app.services.agent_service import agent_service
 from app.services.memory_service import memory_service
 from app.core.rabbitmq_client import publish_event
+from app.services.langgraph_flow.agent_graph import AgentWorkflow, AgentState
 
 
 class AgentRunner:
     def __init__(self):
         self.llm_client = llm_registry.get_client()
+        # Khởi tạo và biên dịch sẵn LangGraph Workflow
+        self.workflow = AgentWorkflow(self.llm_client, tool_executor).compile()
 
     def run_agent(
         self,
@@ -21,7 +25,8 @@ class AgentRunner:
         room_id: Optional[str] = None,
     ) -> dict:
         """
-        Chạy agent với đầy đủ context: system prompt, short memory, long memory, tools.
+        Chạy agent thông qua LangGraph workflow với đầy đủ context: 
+        System Prompt, Long Memory, Short Memory, và Tools.
         """
         # 1. Lấy thông tin Agent thực từ DB
         try:
@@ -46,7 +51,7 @@ class AgentRunner:
         # 4. Lấy Short Memory (conversation history) từ Redis
         short_memory = memory_service.get_short_memory(agent_id, room_id)
 
-        # 5. Xây dựng tool definitions từ tools của agent
+        # 5. Xây dựng tool definitions
         tool_definitions = []
         agent_tools = agent_data.get("tools", [])
         for tool in agent_tools:
@@ -68,86 +73,62 @@ class AgentRunner:
                 },
             })
 
-        # 6. Xây dựng messages: system + short memory history + user message hiện tại
-        messages = [{"role": "system", "content": agent_system_prompt}]
-        messages.extend(short_memory)
-        messages.append({"role": "user", "content": user_message})
+        # 6. Xây dựng danh sách messages ban đầu
+        initial_messages = [SystemMessage(content=agent_system_prompt)]
+        
+        # Chuyển đổi lịch sử short_memory từ dict sang langchain message objects
+        for m in short_memory:
+            role = m.get("role")
+            content = m.get("content", "")
+            if role == "user":
+                initial_messages.append(HumanMessage(content=content))
+            elif role == "assistant":
+                initial_messages.append(AIMessage(content=content))
 
-        # 7. Lưu user message vào short memory
+        # Thêm tin nhắn hiện tại của user
+        initial_messages.append(HumanMessage(content=user_message))
+
+        # 7. Lưu user message vào short memory redis
         memory_service.append_short_memory(agent_id, "user", user_message, room_id)
 
         try:
-            # 8. Gửi yêu cầu lên LLM
-            response = self.llm_client.chat_completion(
-                messages=messages,
-                tools=tool_definitions if tool_definitions else None,
-            )
+            # 8. Khởi tạo State và thực thi LangGraph
+            initial_state: AgentState = {
+                "messages": initial_messages,
+                "agent_id": agent_id,
+                "room_id": room_id,
+                "tool_definitions": tool_definitions,
+                "tools_used": [],
+                "llm_client": self.llm_client,
+                "tool_executor": tool_executor
+            }
 
-            response_message = response.choices[0].message
-            tool_calls = response_message.tool_calls
+            # Chạy graph (LangGraph sẽ tự động xử lý vòng lặp gọi tool -> phản hồi -> tổng hợp)
+            final_state = self.workflow.invoke(initial_state)
 
-            # 9. Nếu LLM quyết định gọi tool
-            if tool_calls:
-                messages.append(response_message)
+            # Lấy câu trả lời cuối cùng từ tin nhắn mới nhất của AI trong state
+            final_messages = final_state["messages"]
+            final_answer = "Xin lỗi, tôi không thể tạo ra câu trả lời."
+            
+            for msg in reversed(final_messages):
+                if isinstance(msg, AIMessage) and msg.content:
+                    final_answer = msg.content
+                    break
 
-                for tool_call in tool_calls:
-                    tool_name = tool_call.function.name
-                    tool_args = (
-                        json.loads(tool_call.function.arguments)
-                        if tool_call.function.arguments
-                        else {}
-                    )
-                    print(f"🤖 [Agent {agent_id}] Calling tool: {tool_name} | args: {tool_args}")
+            tools_used = final_state.get("tools_used", [])
 
-                    tool_result_str = tool_executor.execute(tool_name, tool_args)
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": tool_call.id,
-                        "name": tool_name,
-                        "content": tool_result_str,
-                    })
-
-                # 10. Gọi lại LLM để tổng hợp kết quả tool
-                second_response = self.llm_client.chat_completion(messages=messages)
-                final_answer = second_response.choices[0].message.content
-
-                # 11. Lưu assistant reply vào short memory
-                memory_service.append_short_memory(agent_id, "assistant", final_answer, room_id)
-
-                # 12. Publish event lên RabbitMQ
-                publish_event(
-                    exchange="agent.events",
-                    routing_key="agent.reply",
-                    payload={
-                        "agent_id": agent_id,
-                        "room_id": room_id,
-                        "answer": final_answer,
-                        "used_tools": [tc.function.name for tc in tool_calls],
-                    },
-                )
-
-                return {
-                    "success": True,
-                    "agent_id": agent_id,
-                    "answer": final_answer,
-                    "used_tools": [tc.function.name for tc in tool_calls],
-                }
-
-            # 13. Không cần tool
-            final_answer = response_message.content
-
-            # Lưu vào short memory
+            # 9. Lưu assistant reply vào short memory
             memory_service.append_short_memory(agent_id, "assistant", final_answer, room_id)
 
-            # Publish event
+            # 10. Publish event lên RabbitMQ
             publish_event(
                 exchange="agent.events",
-                routing_key="agent.reply",
+            routing_key="agent.reply",
                 payload={
                     "agent_id": agent_id,
                     "room_id": room_id,
                     "answer": final_answer,
-                    "used_tools": [],
+                    "used_tools": tools_used,
                 },
             )
 
@@ -155,11 +136,11 @@ class AgentRunner:
                 "success": True,
                 "agent_id": agent_id,
                 "answer": final_answer,
-                "used_tools": [],
+                "used_tools": tools_used,
             }
 
         except Exception as e:
-            print(f"[AgentRunner] Error: {e}")
+            print(f"[AgentRunner LangGraph] Error: {e}")
             return {"success": False, "error": str(e)}
 
 
