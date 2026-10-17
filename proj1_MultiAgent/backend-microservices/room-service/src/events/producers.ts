@@ -3,7 +3,7 @@ import { getChannel } from "./rabbitmq";
 const EXCHANGE = "room.events";
 
 export async function publishRoomEvent(
-    routingKey: "room.created" | "room.updated" | "room.deleted" | "room.member.joined" | "room.member.left",
+    routingKey: "room.created" | "room.updated" | "room.deleted" | "room.member.joined" | "room.member.left" | "room.agent.assigned" | "room.agent.unassigned",
     payload: Record<string, any>
 ): Promise<void> {
     try {

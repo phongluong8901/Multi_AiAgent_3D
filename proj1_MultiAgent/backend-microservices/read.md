@@ -55,12 +55,20 @@ pip install transformers torch
 --- user-service
 npm install --save-dev @types/node
 npm install -D tsx
+npm install google-auth-library
+npm install nodemailer
+npm install --save-dev @types/nodemailer
 
 --- gateway-service
+npm install jsonwebtoken
+npm install --save-dev @types/jsonwebtoken
 
 --- room-service
 npm install amqplib
 
+--- frontend-microservices
+npm install @react-oauth/google
+npm install axios
 
 # --- run
 cd proj1_MultiAgent
@@ -92,7 +100,7 @@ docker compose up --build -d user-service
 docker compose up --build -d room-service 
 docker compose up --build -d chat-service
 docker compose up --build -d agent-service
-docker compose up --build -d api-gateway-service
+docker compose up --build -d api-gateway
 
 
 - xoa
@@ -102,10 +110,15 @@ docker compose down
 
 docker compose down -v
 
-# --- link
+# --- link port
 - swagger agent
 http://localhost:4000/docs
 
+- redis
+
+- rabbitMQ
+
+# --- link setup
 - tavily search
 https://app.tavily.com/home
 - google search
@@ -116,3 +129,7 @@ https://programmablesearchengine.google.com/controlpanel/all
 https://smith.langchain.com/
 - apikey genai
 https://aistudio.google.com/api-keys
+- oauth2.0
+https://console.cloud.google.com/apis/credentials?project=microservice-multiagent3d
+- smtp mail - passgoogle app
+https://myaccount.google.com/apppasswords

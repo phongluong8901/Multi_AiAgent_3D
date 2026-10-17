@@ -12,7 +12,11 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres_user -d agents_db || exit 1"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -h 127.0.0.1 -U postgres_user -d agents_db || exit 1",
+        ]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -28,7 +32,11 @@ services:
     volumes:
       - mongo_data:/data/db
     healthcheck:
-      test: ["CMD-SHELL", "echo 'db.runCommand({ping: 1}).ok' | mongosh localhost:27017/test --quiet || exit 1"]
+      test:
+        [
+          "CMD-SHELL",
+          "echo 'db.runCommand({ping: 1}).ok' | mongosh localhost:27017/test --quiet || exit 1",
+        ]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -74,13 +82,10 @@ services:
   user-service:
     build: ./user-service
     container_name: users_service
+    env_file:
+      - ./user-service/.env
     ports:
       - "5001:5001"
-    environment:
-      - PORT=5001
-      - MONGO_URI=mongodb://mongo:27017/users_db
-      - JWT_SECRET=super_secret_key_2026
-      - JWT_EXPIRES_IN=7d
     depends_on:
       - mongo
     restart: always

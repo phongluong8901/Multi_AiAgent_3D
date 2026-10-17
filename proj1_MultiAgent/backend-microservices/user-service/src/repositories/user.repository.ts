@@ -18,6 +18,14 @@ export class UserRepository {
         return await UserModel.findOne({ email });
     }
 
+    async findByGoogleId(googleId: string): Promise<IUser | null> {
+        return await UserModel.findOne({ googleId });
+    }
+
+    async findByVerificationToken(token: string) {
+        return await UserModel.findOne({ verificationToken: token });
+    }
+
     async update(id: string, updateData: Partial<IUser>): Promise<IUser | null> {
         return await UserModel.findByIdAndUpdate(id, updateData, { new: true }).select("-passwordHash");
     }

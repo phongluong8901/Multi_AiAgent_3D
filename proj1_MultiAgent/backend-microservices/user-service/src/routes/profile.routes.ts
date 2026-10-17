@@ -1,18 +1,17 @@
 import { Router } from "express";
-import { authMiddleware } from "../middlewares/auth.middleware";
 import { profileController } from "../controllers/profile.controller";
 
 const router = Router();
 
-// Protected routes — yêu cầu JWT token
-router.get("/me", authMiddleware, (req, res) => profileController.getMyProfile(req as any, res));
-router.put("/me", authMiddleware, (req, res) => profileController.updateMyProfile(req as any, res));
-router.put("/me/status", authMiddleware, (req, res) => profileController.updateStatus(req as any, res));
-router.post("/logout", authMiddleware, (req, res) => profileController.logout(req as any, res));
+// Protected routes — API Gateway đã chịu trách nhiệm check token và forward thông tin user qua headers
+router.get("/me", (req, res) => profileController.getMyProfile(req, res));
+router.put("/me", (req, res) => profileController.updateMyProfile(req, res));
+router.put("/me/status", (req, res) => profileController.updateStatus(req, res));
+router.post("/logout", (req, res) => profileController.logout(req, res));
 
 // Agent management
-router.get("/me/agents", authMiddleware, (req, res) => profileController.getMyAgents(req as any, res));
-router.post("/me/agents/:agentId", authMiddleware, (req, res) => profileController.addAgentToProfile(req as any, res));
-router.delete("/me/agents/:agentId", authMiddleware, (req, res) => profileController.removeAgentFromProfile(req as any, res));
+router.get("/me/agents", (req, res) => profileController.getMyAgents(req, res));
+router.post("/me/agents/:agentId", (req, res) => profileController.addAgentToProfile(req, res));
+router.delete("/me/agents/:agentId", (req, res) => profileController.removeAgentFromProfile(req, res));
 
 export default router;

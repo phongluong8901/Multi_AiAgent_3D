@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 
 export const connectDB = async (maxRetries = 15, delay = 2000): Promise<void> => {
-    const mongoUri = process.env.MONGO_URI || "mongodb://localhost:27017/virtual_office_users";
+    const mongoUri = process.env.MONGO_URI || "mongodb://localhost:27017/users_db";
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
             await mongoose.connect(mongoUri);
