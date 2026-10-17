@@ -100,6 +100,85 @@ export class UserController {
         }
     }
 
+    /** POST /api/v1/users/forgot-password */
+    async forgotPassword(req: Request, res: Response) {
+        try {
+            const { email } = req.body;
+            const result = await userService.forgotPassword(email);
+            return res.status(200).json({ success: true, data: result });
+        } catch (error: any) {
+            return res.status(error.statusCode || 400).json({ success: false, message: error.message });
+        }
+    }
+
+    /** POST /api/v1/users/reset-password */
+    async resetPassword(req: Request, res: Response) {
+        try {
+            const result = await userService.resetPassword(req.body);
+            return res.status(200).json({ success: true, data: result });
+        } catch (error: any) {
+            return res.status(error.statusCode || 400).json({ success: false, message: error.message });
+        }
+    }
+
+    /** POST /api/v1/users/change-password (Protected) */
+    async changePassword(req: Request, res: Response) {
+        try {
+            const userId = req.headers["x-user-id"] as string;
+            if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
+
+            const result = await userService.changePassword(userId, req.body);
+            return res.status(200).json({ success: true, data: result });
+        } catch (error: any) {
+            return res.status(error.statusCode || 400).json({ success: false, message: error.message });
+        }
+    }
+
+    /** POST /api/v1/users/refresh-token */
+    async refreshToken(req: Request, res: Response) {
+        try {
+            const token = req.cookies?.refreshToken || req.body.refreshToken;
+            const result = await userService.refreshTokenService(token);
+            return res.status(200).json({ success: true, data: result });
+        } catch (error: any) {
+            return res.status(error.statusCode || 403).json({ success: false, message: error.message });
+        }
+    }
+
+    /** POST /api/v1/users/logout */
+    async logout(req: Request, res: Response) {
+        try {
+            const userId = req.headers["x-user-id"] as string;
+            const refreshToken = req.cookies?.refreshToken || req.body.refreshToken;
+
+            await userService.logoutService(userId, refreshToken);
+
+            // Xóa cookie nếu có dùng cookie
+            res.clearCookie("refreshToken");
+
+            return res.status(200).json({ success: true, message: "Đăng xuất thành công." });
+        } catch (error: any) {
+            return res.status(500).json({ success: false, message: error.message });
+        }
+    }
+
+    /** PUT /api/v1/users/me/avatar — Upload & cập nhật ảnh đại diện */
+    async updateAvatar(req: Request, res: Response) {
+        try {
+            const userId = req.headers["x-user-id"] as string;
+            if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
+
+            if (!req.file) {
+                return res.status(400).json({ success: false, message: "Không có file ảnh nào được gửi lên." });
+            }
+
+            const result = await userService.updateAvatar(userId, req.file.buffer);
+            return res.status(200).json({ success: true, data: result });
+        } catch (error: any) {
+            return res.status(error.statusCode || 400).json({ success: false, message: error.message });
+        }
+    }
+
     /** GET /api/v1/users/me/agents — Danh sách agent sở hữu */
     async getMyAgents(req: Request, res: Response) {
         try {

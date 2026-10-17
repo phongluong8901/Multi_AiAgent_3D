@@ -1,0 +1,11 @@
+1. user-service
+- oauth2.0
+- login, register, forgot password, change password
+- cookies
+- refresh token - logout
+- authorization: guest(nguoi dung khach), seller (nguoi ban model - chay ho model AI), user (nguoi thue model hoac tu chay model), admin (giam sat toan he thong)
+- rate limiting
+- rabbitmq for register, forgot password
+- redis - token(blacklist)
+- github oauth
+- Audit Logging

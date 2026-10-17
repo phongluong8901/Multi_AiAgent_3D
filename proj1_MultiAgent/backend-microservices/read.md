@@ -59,6 +59,12 @@ npm install google-auth-library
 npm install nodemailer
 npm install --save-dev @types/nodemailer
 
+npm install amqplib
+npm install --save-dev @types/amqplib
+
+npm install cloudinary multer
+npm install --save-dev @types/multer
+
 --- gateway-service
 npm install jsonwebtoken
 npm install --save-dev @types/jsonwebtoken

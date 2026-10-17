@@ -1,12 +1,14 @@
 import { userRepository } from "../repositories/user.repository";
 import { hashPassword, comparePassword } from "../utils/hash.util";
-import { generateToken } from "../utils/jwt.util";
+import { generateRefreshToken, generateToken } from "../utils/jwt.util";
 import { AppError } from "../utils/exceptions";
 import { RegisterInput, LoginInput, UpdateProfileInput } from "../types/user.types";
 import { OAuth2Client } from "google-auth-library";
 import { UserValidator } from "../middlewares/user.validation";
 import { sendEmail } from "../email/user.email";
 import { generateOtpCode, getOtpExpirationTime } from "../utils/otp";
+import { UserModel } from "../models/user.model";
+import { uploadBufferToCloudinary } from "../utils/cloudinary.util";
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
@@ -305,6 +307,163 @@ export class UserService {
         const updated = await userRepository.update(userId, { status });
         if (!updated) throw new AppError("Không tìm thấy người dùng.", 404);
         return { id: userId, status };
+    }
+
+    /** Yêu cầu quên mật khẩu (Gửi OTP qua email) */
+    async forgotPassword(email: string) {
+        if (!email) throw new AppError("Vui lòng cung cấp email.", 400);
+
+        const user = await userRepository.findByEmail(email.toLowerCase().trim());
+        if (!user) {
+            // Bảo mật: Không nên báo lỗi rõ ràng nếu email không tồn tại, nhưng ở đồ án có thể báo 404 hoặc thông báo chung
+            throw new AppError("Không tìm thấy tài khoản với email này.", 404);
+        }
+
+        const resetPasswordOtp = generateOtpCode();
+        const resetPasswordExpiresAt = getOtpExpirationTime(10); // Hạn 10 phút
+
+        await userRepository.update(user._id.toString(), {
+            resetPasswordOtp,
+            resetPasswordExpiresAt,
+        });
+
+        await sendEmail(
+            user.email,
+            "Mã OTP đặt lại mật khẩu Claw Office",
+            `<h3>Xin chào ${user.username},</h3>
+             <p>Bạn đã yêu cầu đặt lại mật khẩu. Mã OTP của bạn là:</p>
+             <h2 style="color: #2563eb; letter-spacing: 2px;">${resetPasswordOtp}</h2>
+             <p>Mã này có hiệu lực trong vòng 10 phút.</p>`
+        );
+
+        return { message: "Mã OTP đặt lại mật khẩu đã được gửi qua email của bạn." };
+    }
+
+    /** Đặt lại mật khẩu mới bằng OTP */
+    async resetPassword(data: { email: string; otp: string; newPassword: string }) {
+        const { email, otp, newPassword } = data;
+        if (!email || !otp || !newPassword) {
+            throw new AppError("Vui lòng cung cấp đầy đủ email, mã OTP và mật khẩu mới.", 400);
+        }
+
+        if (newPassword.length < 6) {
+            throw new AppError("Mật khẩu mới phải có ít nhất 6 ký tự.", 400);
+        }
+
+        const user = await userRepository.findByEmail(email.toLowerCase().trim());
+        if (!user) throw new AppError("Không tìm thấy người dùng.", 404);
+
+        if (!user.resetPasswordOtp || user.resetPasswordOtp !== otp) {
+            throw new AppError("Mã OTP không chính xác.", 400);
+        }
+
+        if (user.resetPasswordExpiresAt && new Date() > new Date(user.resetPasswordExpiresAt)) {
+            throw new AppError("Mã OTP đã hết hạn.", 400);
+        }
+
+        const passwordHash = await hashPassword(newPassword);
+
+        await userRepository.update(user._id.toString(), {
+            passwordHash,
+            resetPasswordOtp: undefined,
+            resetPasswordExpiresAt: undefined,
+        });
+
+        return { message: "Đặt lại mật khẩu thành công! Bạn có thể đăng nhập bằng mật khẩu mới." };
+    }
+
+    /** Đổi mật khẩu khi đã đăng nhập */
+    async changePassword(userId: string, data: { oldPassword: string; newPassword: string }) {
+        const { oldPassword, newPassword } = data;
+        if (!oldPassword || !newPassword) {
+            throw new AppError("Vui lòng nhập mật khẩu cũ và mật khẩu mới.", 400);
+        }
+
+        if (newPassword.length < 6) {
+            throw new AppError("Mật khẩu mới phải có ít nhất 6 ký tự.", 400);
+        }
+
+        const user = await userRepository.findById(userId);
+        if (!user || !user.passwordHash) {
+            throw new AppError("Không tìm thấy người dùng.", 404);
+        }
+
+        const isMatch = await comparePassword(oldPassword, user.passwordHash);
+        if (!isMatch) {
+            throw new AppError("Mật khẩu cũ không chính xác.", 400);
+        }
+
+        const passwordHash = await hashPassword(newPassword);
+        await userRepository.update(userId, { passwordHash });
+
+        return { message: "Đổi mật khẩu thành công." };
+    }
+
+    /** Tạo Refresh Token khi login / google login thành công */
+    // (Bạn có thể gọi hàm này bên trong login/googleLogin để cấp thêm refresh token nếu muốn dùng cookie)
+    async generateRefreshTokenForUser(userId: string) {
+        const refreshToken = generateRefreshToken({ userId }, "7d");
+        await userRepository.update(userId, { refreshToken });
+        return refreshToken;
+    }
+
+    /** Làm mới Access Token từ Refresh Token */
+    async refreshTokenService(incomingToken: string) {
+        if (!incomingToken) {
+            throw new AppError("Không tìm thấy Refresh Token.", 401);
+        }
+
+        // Verify token (hoặc dùng jwt.verify trực tiếp)
+        // Giả sử dùng hàm jwt utility hoặc jwt.verify:
+        // const decoded: any = jwt.verify(incomingToken, process.env.REFRESH_TOKEN_SECRET || process.env.JWT_SECRET!);
+
+        // Hoặc kiểm tra trong DB xem user nào đang giữ refreshToken này:
+        const user = await UserModel.findOne({ refreshToken: incomingToken });
+        if (!user) {
+            throw new AppError("Refresh Token không hợp lệ hoặc đã hết hạn.", 403);
+        }
+
+        const newAccessToken = generateToken({
+            userId: user._id.toString(),
+            email: user.email,
+            role: user.role,
+        });
+
+        return { token: newAccessToken };
+    }
+
+    /** Đăng xuất (Thu hồi refresh token) */
+    async logoutService(userId?: string, refreshToken?: string) {
+        if (userId) {
+            await userRepository.update(userId, { refreshToken: "", status: "offline" });
+        } else if (refreshToken) {
+            await UserModel.findOneAndUpdate({ refreshToken }, { refreshToken: "", status: "offline" });
+        }
+        return { message: "Đăng xuất thành công." };
+    }
+
+    async updateAvatar(userId: string, fileBuffer: Buffer) {
+        if (!fileBuffer) {
+            throw new AppError("Vui lòng tải lên một file ảnh.", 400);
+        }
+
+        // 1. Upload ảnh lên Cloudinary lấy URL bảo mật
+        const avatarUrl = await uploadBufferToCloudinary(fileBuffer);
+
+        // 2. Cập nhật vào MongoDB
+        const updated = await userRepository.update(userId, { avatarUrl });
+        if (!updated) {
+            throw new AppError("Không tìm thấy người dùng để cập nhật avatar.", 404);
+        }
+
+        const userObj = (updated as any).toObject ? (updated as any).toObject() : updated;
+        delete userObj.passwordHash;
+
+        return {
+            message: "Cập nhật ảnh đại diện thành công!",
+            avatarUrl,
+            user: userObj,
+        };
     }
 
     async getOwnedAgents(userId: string) {

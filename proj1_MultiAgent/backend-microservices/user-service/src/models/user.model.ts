@@ -9,10 +9,13 @@ export interface IUser extends Document {
     avatarUrl?: string;
     bio?: string;
     status: "online" | "offline" | "busy";
-    ownedAgentIds: string[];  // List of agent IDs from agent-service
-    isVerified: boolean;      // Trạng thái kích hoạt tài khoản
-    otpCode?: string;         // Mã OTP xác thực
-    otpExpiresAt?: Date;      // Thời gian hết hạn của mã OTP
+    ownedAgentIds: string[];
+    isVerified: boolean;
+    otpCode?: string;
+    otpExpiresAt?: Date;
+    refreshToken?: string;              // Lưu refresh token để quản lý phiên
+    resetPasswordOtp?: string;          // OTP quên mật khẩu
+    resetPasswordExpiresAt?: Date;      // Thời gian hết hạn OTP quên mật khẩu
     createdAt: Date;
     updatedAt: Date;
 }
@@ -28,9 +31,12 @@ const UserSchema = new Schema<IUser>(
         bio: { type: String, default: "" },
         status: { type: String, enum: ["online", "offline", "busy"], default: "offline" },
         ownedAgentIds: { type: [String], default: [] },
-        isVerified: { type: Boolean, default: false }, // Mặc định tài khoản đăng ký mới là chưa kích hoạt
+        isVerified: { type: Boolean, default: false },
         otpCode: { type: String, required: false },
         otpExpiresAt: { type: Date, required: false },
+        refreshToken: { type: String, default: "" },
+        resetPasswordOtp: { type: String, required: false },
+        resetPasswordExpiresAt: { type: Date, required: false },
     },
     { timestamps: true }
 );
