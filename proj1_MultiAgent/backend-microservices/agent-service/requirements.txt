@@ -1,0 +1,19 @@
+fastapi
+uvicorn
+sqlalchemy
+psycopg2-binary
+pydantic
+pydantic-settings
+python-dotenv
+requests
+beautifulsoup4
+lxml
+openai
+redis
+pika
+# torch
+# transformers
+# huggingface-hub
+langgraph
+langchain-core
+google-genai
