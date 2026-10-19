@@ -34,6 +34,10 @@ export interface GoogleAuthPayload {
     idToken: string;
 }
 
+export interface GithubAuthPayload {
+    code: string
+}
+
 export const authService = {
     register: async (payload: RegisterPayload) => {
         const res = await authApi.post('/register', payload);
@@ -58,5 +62,10 @@ export const authService = {
     googleAuth: async (payload: GoogleAuthPayload) => {
         const res = await authApi.post('/google', payload);
         return res.data;
+    },
+
+    githubAuth: async (payload: GithubAuthPayload) => {
+        const res = await authApi.post('/github', payload)
+        return res.data
     },
 };

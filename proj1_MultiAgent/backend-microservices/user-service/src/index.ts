@@ -1,41 +1,28 @@
-import express from "express";
-import cors from "cors";
+// src/index.ts
 import dotenv from "dotenv";
+import app from "./app";
 import { connectDB } from "./config/db";
-import userRoutes from "./routes/user.routes";
-import profileRoutes from "./routes/profile.routes";
-
-import crypto from "crypto";
-if (!(globalThis as any).crypto) {
-    (globalThis as any).crypto = crypto;
-}
+import { connectRabbitMQ } from "./config/rabbitmq"; // Import hàm kết nối RabbitMQ
+import { startEmailWorker } from "./workers/email.worker"; // Import worker gửi email ngầm (nếu có)
+import { connectRedis } from "./config/redis";
 
 dotenv.config();
 
-const app = express();
 const PORT = process.env.PORT || 5001;
 
-// Middleware
-app.use(cors());
-app.use(express.json());
+// Khởi tạo kết nối đồng thời MongoDB Atlas và RabbitMQ trước khi chạy server
+Promise.all([
+    connectDB(),
+    connectRabbitMQ(),
+    connectRedis()
+]).then(() => {
+    // Khởi động Background Worker lắng nghe RabbitMQ (nếu bạn dùng mô hình worker gửi email)
+    startEmailWorker();
 
-// Routes
-app.use("/api/v1/users", userRoutes);
-app.use("/api/v1/users", profileRoutes); // /me, /me/agents, /logout
-
-// Root endpoint check
-app.get("/", (req, res) => {
-    res.status(200).json({ message: "User Service is running smoothly!" });
-});
-
-// Health check
-app.get("/health", (req, res) => {
-    res.status(200).json({ status: "ok", service: "user-service" });
-});
-
-// Start Server & Connect MongoDB
-connectDB().then(() => {
     app.listen(PORT, () => {
         console.log(`[user-service] Server is running on http://localhost:${PORT}`);
     });
+}).catch((error) => {
+    console.error("[user-service] Failed to start server due to connection error:", error);
+    process.exit(1);
 });

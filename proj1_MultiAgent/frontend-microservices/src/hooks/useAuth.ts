@@ -1,136 +1,220 @@
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import {
     authService,
     RegisterPayload,
     LoginPayload,
     VerifyOtpPayload,
     ResendOtpPayload,
-    GoogleAuthPayload
-} from '@/services/auth.api';
-import { setSession } from '@/lib/auth';
+    GoogleAuthPayload,
+    GithubAuthPayload,
+} from '@/services/auth.api'
+import { setSession } from '@/lib/auth'
+import { notify } from '@/lib/toast'
+
+function pickTokenAndUser(data: any) {
+    const payload = data?.data ?? data
+    const token =
+        payload?.accessToken || payload?.token || payload?.access_token
+    const user = payload?.user
+    if (!token || !user) {
+        throw new Error('Response thiếu accessToken hoặc user')
+    }
+    return {
+        token,
+        user: {
+            id: String(user.id || user._id),
+            name: user.username || user.name || user.email,
+            email: user.email,
+        },
+    }
+}
 
 export function useAuth() {
-    const router = useRouter();
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState<string | null>(null);
-    const [message, setMessage] = useState<string | null>(null);
+    const router = useRouter()
+    const [loading, setLoading] = useState(false)
+    const [error, setError] = useState<string | null>(null)
+    const [message, setMessage] = useState<string | null>(null)
 
     const clearMessages = () => {
-        setError(null);
-        setMessage(null);
-    };
+        setError(null)
+        setMessage(null)
+    }
 
-    // Đăng ký tài khoản
     const register = async (payload: RegisterPayload) => {
-        clearMessages();
-        setLoading(true);
+        clearMessages()
+        setLoading(true)
         try {
-            const data = await authService.register(payload);
+            const data = await authService.register(payload)
             if (data.success) {
-                // Đăng ký xong chuyển sang trang Verify OTP
-                router.replace(`/verify-otp?email=${encodeURIComponent(payload.email)}`);
+                notify.success('Đăng ký thành công', {
+                    description: 'Vui lòng kiểm tra email để lấy mã OTP',
+                })
+                router.replace(
+                    `/verify-otp?email=${encodeURIComponent(payload.email)}`
+                )
             }
-            return data;
+            return data
         } catch (err: any) {
-            const msg = err.response?.data?.message || 'Đăng ký thất bại';
-            setError(msg);
-            throw new Error(msg);
+            const msg =
+                err.response?.data?.message || err.message || 'Đăng ký thất bại'
+            setError(msg)
+            notify.error('Đăng ký thất bại', { description: msg })
+            throw new Error(msg)
         } finally {
-            setLoading(false);
+            setLoading(false)
         }
-    };
+    }
 
-    // Xác thực mã OTP
     const verifyOtp = async (payload: VerifyOtpPayload) => {
-        clearMessages();
-        setLoading(true);
+        clearMessages()
+        setLoading(true)
         try {
-            const data = await authService.verifyOtp(payload);
+            const data = await authService.verifyOtp(payload)
             if (data.success) {
-                setMessage(data.data?.message || 'Xác thực OTP thành công!');
-                setTimeout(() => {
-                    router.replace('/login');
-                }, 1500);
+                const okMsg =
+                    data.data?.message || 'Xác thực OTP thành công! Bạn có thể đăng nhập.'
+                setMessage(okMsg)
+                notify.success('Xác thực thành công', {
+                    description: 'Chuyển sang trang đăng nhập...',
+                })
+                setTimeout(() => router.replace('/login'), 1200)
             }
-            return data;
+            return data
         } catch (err: any) {
-            const msg = err.response?.data?.message || 'Xác thực OTP thất bại';
-            setError(msg);
-            throw new Error(msg);
+            const msg =
+                err.response?.data?.message || err.message || 'Xác thực OTP thất bại'
+            setError(msg)
+            notify.error('OTP không hợp lệ', { description: msg })
+            throw new Error(msg)
         } finally {
-            setLoading(false);
+            setLoading(false)
         }
-    };
+    }
 
-    // Gửi lại mã OTP
     const resendOtp = async (payload: ResendOtpPayload) => {
-        clearMessages();
-        setLoading(true);
+        clearMessages()
+        setLoading(true)
         try {
-            const data = await authService.resendOtp(payload);
+            const data = await authService.resendOtp(payload)
             if (data.success) {
-                setMessage('Mã OTP mới đã được gửi tới email của bạn.');
+                const okMsg = 'Mã OTP mới đã được gửi tới email của bạn.'
+                setMessage(okMsg)
+                notify.success('Đã gửi lại OTP', {
+                    description: payload.email,
+                })
             }
-            return data;
+            return data
         } catch (err: any) {
-            const msg = err.response?.data?.message || 'Không thể gửi lại mã OTP';
-            setError(msg);
-            throw new Error(msg);
+            const msg =
+                err.response?.data?.message ||
+                err.message ||
+                'Không thể gửi lại mã OTP'
+            setError(msg)
+            notify.error('Gửi OTP thất bại', { description: msg })
+            throw new Error(msg)
         } finally {
-            setLoading(false);
+            setLoading(false)
         }
-    };
+    }
 
-    // Đăng nhập truyền thống
     const login = async (payload: LoginPayload) => {
-        clearMessages();
-        setLoading(true);
+        clearMessages()
+        setLoading(true)
         try {
-            const data = await authService.login(payload);
+            const data = await authService.login(payload)
             if (data.success) {
-                const { token, user } = data.data;
-                setSession(token, {
-                    id: user.id,
-                    name: user.username,
-                    email: user.email,
-                });
-                router.replace('/dashboard');
+                const { token, user } = pickTokenAndUser(data)
+                setSession(token, user)
+                notify.success('Đăng nhập thành công', {
+                    description: `Xin chào, ${user.name}`,
+                })
+                router.replace('/dashboard')
             }
-            return data;
+            return data
         } catch (err: any) {
-            const msg = err.response?.data?.message || 'Đăng nhập thất bại';
-            setError(msg);
-            throw new Error(msg);
+            const msg =
+                err.response?.data?.message || err.message || 'Đăng nhập thất bại'
+            setError(msg)
+            notify.error('Đăng nhập thất bại', { description: msg })
+            throw new Error(msg)
         } finally {
-            setLoading(false);
+            setLoading(false)
         }
-    };
+    }
 
-    // Đăng nhập / Đăng ký qua Google
     const googleLogin = async (payload: GoogleAuthPayload) => {
-        clearMessages();
-        setLoading(true);
+        clearMessages()
+        setLoading(true)
         try {
-            const data = await authService.googleAuth(payload);
+            const data = await authService.googleAuth(payload)
             if (data.success) {
-                const { token, user } = data.data;
-                setSession(token, {
-                    id: user.id,
-                    name: user.username,
-                    email: user.email,
-                });
-                router.replace('/dashboard');
+                const { token, user } = pickTokenAndUser(data)
+                setSession(token, user)
+                notify.success('Đăng nhập Google thành công', {
+                    description: `Xin chào, ${user.name}`,
+                })
+                router.replace('/dashboard')
             }
-            return data;
+            return data
         } catch (err: any) {
-            const msg = err.response?.data?.message || 'Đăng nhập Google thất bại';
-            setError(msg);
-            throw new Error(msg);
+            const msg =
+                err.response?.data?.message ||
+                err.message ||
+                'Đăng nhập Google thất bại'
+            setError(msg)
+            notify.error('Google login thất bại', { description: msg })
+            throw new Error(msg)
         } finally {
-            setLoading(false);
+            setLoading(false)
         }
-    };
+    }
+
+    const startGithubLogin = () => {
+        const clientId = process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID
+        if (!clientId) {
+            const msg = 'Thiếu NEXT_PUBLIC_GITHUB_CLIENT_ID'
+            setError(msg)
+            notify.error(msg)
+            return
+        }
+        const redirectUri = `${window.location.origin}/auth/github/callback`
+        const scope = 'read:user user:email'
+        const url =
+            `https://github.com/login/oauth/authorize` +
+            `?client_id=${encodeURIComponent(clientId)}` +
+            `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+            `&scope=${encodeURIComponent(scope)}`
+        notify.info('Chuyển tới GitHub...')
+        window.location.href = url
+    }
+
+    const githubLogin = async (payload: GithubAuthPayload) => {
+        clearMessages()
+        setLoading(true)
+        try {
+            const data = await authService.githubAuth(payload)
+            if (data.success) {
+                const { token, user } = pickTokenAndUser(data)
+                setSession(token, user)
+                notify.success('Đăng nhập GitHub thành công', {
+                    description: `Xin chào, ${user.name}`,
+                })
+                router.replace('/dashboard')
+            }
+            return data
+        } catch (err: any) {
+            const msg =
+                err.response?.data?.message ||
+                err.message ||
+                'Đăng nhập GitHub thất bại'
+            setError(msg)
+            notify.error('GitHub login thất bại', { description: msg })
+            throw new Error(msg)
+        } finally {
+            setLoading(false)
+        }
+    }
 
     return {
         loading,
@@ -141,6 +225,8 @@ export function useAuth() {
         resendOtp,
         login,
         googleLogin,
+        startGithubLogin,
+        githubLogin,
         clearMessages,
-    };
+    }
 }

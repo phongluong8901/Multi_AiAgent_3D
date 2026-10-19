@@ -1,25 +1,25 @@
 import { userRepository } from "../repositories/user.repository";
 import { hashPassword, comparePassword } from "../utils/hash.util";
-import { generateRefreshToken, generateToken } from "../utils/jwt.util";
+import { generateRefreshToken, generateToken, verifyToken } from "../utils/jwt.util";
 import { AppError } from "../utils/exceptions";
 import { RegisterInput, LoginInput, UpdateProfileInput } from "../types/user.types";
 import { OAuth2Client } from "google-auth-library";
 import { UserValidator } from "../middlewares/user.validation";
-import { sendEmail } from "../email/user.email";
 import { generateOtpCode, getOtpExpirationTime } from "../utils/otp";
-import { UserModel } from "../models/user.model";
+import { UserModel, IUser } from "../models/user.model";
 import { uploadBufferToCloudinary } from "../utils/cloudinary.util";
+import { sendToQueue } from "../config/rabbitmq";
+import { redisClient } from "../config/redis";
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 export class UserService {
-    /** Đăng ký tài khoản truyền thống (Gửi mã OTP 6 số qua email) */
+    /** Đăng ký tài khoản truyền thống (Gửi mã OTP qua RabbitMQ) */
     async register(data: RegisterInput) {
         UserValidator.validateRegister(data);
 
         const existing = await userRepository.findByEmail(data.email);
         if (existing) {
-            // Nếu đã tồn tại nhưng chưa kích hoạt, cho phép cấp lại OTP mới
             if (!existing.isVerified) {
                 const otpCode = generateOtpCode();
                 const otpExpiresAt = getOtpExpirationTime(5); // Hạn 5 phút
@@ -29,14 +29,14 @@ export class UserService {
                     otpExpiresAt,
                 });
 
-                await sendEmail(
-                    data.email,
-                    "Mã OTP xác thực tài khoản Claw Office",
-                    `<h3>Xin chào ${existing.username},</h3>
+                await sendToQueue({
+                    email: data.email,
+                    subject: "Mã OTP xác thực tài khoản Claw Office",
+                    htmlContent: `<h3>Xin chào ${existing.username},</h3>
                      <p>Tài khoản của bạn chưa được kích hoạt. Mã OTP xác thực mới của bạn là:</p>
                      <h2 style="color: #2563eb; letter-spacing: 2px;">${otpCode}</h2>
                      <p>Mã này có hiệu lực trong vòng 5 phút.</p>`
-                );
+                });
 
                 return {
                     message: "Tài khoản chưa được kích hoạt. Chúng tôi đã gửi lại mã OTP mới qua email của bạn.",
@@ -47,8 +47,6 @@ export class UserService {
         }
 
         const passwordHash = await hashPassword(data.password);
-
-        // Sinh mã OTP và thời gian hết hạn
         const otpCode = generateOtpCode();
         const otpExpiresAt = getOtpExpirationTime(5);
 
@@ -57,21 +55,21 @@ export class UserService {
             email: data.email.toLowerCase().trim(),
             passwordHash,
             role: data.role || "employee",
-            isVerified: false, // Chưa kích hoạt
+            isVerified: false,
             otpCode,
             otpExpiresAt,
         });
 
-        // Gửi mã OTP qua email
-        await sendEmail(
-            data.email,
-            "Mã OTP xác thực tài khoản Claw Office",
-            `<h3>Xin chào ${data.username},</h3>
+        // Đẩy sự kiện gửi mã OTP qua RabbitMQ
+        await sendToQueue({
+            email: data.email,
+            subject: "Mã OTP xác thực tài khoản Claw Office",
+            htmlContent: `<h3>Xin chào ${data.username},</h3>
              <p>Cảm ơn bạn đã đăng ký tài khoản tại Claw Office.</p>
              <p>Mã OTP xác thực tài khoản của bạn là:</p>
              <h2 style="color: #2563eb; letter-spacing: 2px;">${otpCode}</h2>
              <p>Mã này có hiệu lực trong vòng 5 phút. Vui lòng không chia sẻ mã này cho bất kỳ ai.</p>`
-        );
+        });
 
         const userObj = newUser.toObject();
         delete (userObj as any).passwordHash;
@@ -103,12 +101,10 @@ export class UserService {
             throw new AppError("Mã OTP không chính xác.", 400);
         }
 
-        // Kiểm tra hạn sử dụng của OTP
         if (user.otpExpiresAt && new Date() > new Date(user.otpExpiresAt)) {
             throw new AppError("Mã OTP đã hết hạn. Vui lòng yêu cầu gửi lại mã mới.", 400);
         }
 
-        // Cập nhật trạng thái kích hoạt và xóa bỏ OTP đã dùng
         await userRepository.update(user._id.toString(), {
             isVerified: true,
             otpCode: undefined,
@@ -118,7 +114,7 @@ export class UserService {
         return { message: "Xác thực tài khoản thành công! Bạn có thể đăng nhập ngay bây giờ." };
     }
 
-    /** Gửi lại mã OTP mới */
+    /** Gửi lại mã OTP mới qua RabbitMQ */
     async resendOtp(email: string) {
         if (!email) {
             throw new AppError("Vui lòng cung cấp email.", 400);
@@ -141,13 +137,13 @@ export class UserService {
             otpExpiresAt,
         });
 
-        await sendEmail(
-            user.email,
-            "Mã OTP mới cho Claw Office",
-            `<p>Mã OTP mới của bạn là:</p>
+        await sendToQueue({
+            email: user.email,
+            subject: "Mã OTP mới cho Claw Office",
+            htmlContent: `<p>Mã OTP mới của bạn là:</p>
              <h2 style="color: #2563eb; letter-spacing: 2px;">${otpCode}</h2>
              <p>Mã có hiệu lực trong vòng 5 phút.</p>`
-        );
+        });
 
         return { message: "Đã gửi lại mã OTP mới qua email." };
     }
@@ -161,7 +157,6 @@ export class UserService {
             throw new AppError("Email hoặc mật khẩu không chính xác.", 401);
         }
 
-        // Kiểm tra xem tài khoản đã kích hoạt OTP chưa
         if (!user.isVerified) {
             throw new AppError("Tài khoản chưa được xác thực OTP. Vui lòng kiểm tra email để kích hoạt.", 403);
         }
@@ -173,14 +168,27 @@ export class UserService {
 
         await userRepository.update(user._id.toString(), { status: "online" });
 
-        const token = generateToken({
+        const accessToken = generateToken({
             userId: user._id.toString(),
             email: user.email,
             role: user.role,
         });
 
+        //save in mongo
+        // const refreshToken = generateRefreshToken({ userId: user._id.toString() }, "7d");
+
+        //save in redis
+        const refreshToken = generateRefreshToken({ userId: user._id.toString() }, "7d");
+        // Lưu Refresh Token vào Redis (hết hạn sau 7 ngày = 604800 giây)
+        await redisClient.set(`refresh_token:${user._id.toString()}`, refreshToken, {
+            EX: 7 * 24 * 60 * 60,
+        });
+
+        await userRepository.update(user._id.toString(), { refreshToken });
+
         return {
-            token,
+            accessToken,
+            refreshToken,
             user: {
                 id: user._id,
                 username: user.username,
@@ -214,7 +222,7 @@ export class UserService {
             const name = payload.name || email.split("@")[0];
             const avatarUrl = payload.picture || "";
 
-            let user = await userRepository.findByGoogleId(googleId);
+            let user: IUser | null = await userRepository.findByGoogleId(googleId);
 
             if (!user) {
                 user = await userRepository.findByEmail(email);
@@ -224,7 +232,7 @@ export class UserService {
                         googleId,
                         avatarUrl: user.avatarUrl || avatarUrl,
                         status: "online",
-                        isVerified: true, // Google đã verify sẵn
+                        isVerified: true,
                     });
                 } else {
                     user = await userRepository.create({
@@ -234,7 +242,7 @@ export class UserService {
                         avatarUrl,
                         role: "employee",
                         status: "online",
-                        isVerified: true, // Google đã verify sẵn
+                        isVerified: true,
                     });
                 }
             } else {
@@ -245,14 +253,27 @@ export class UserService {
                 throw new AppError("Không thể khởi tạo hoặc tìm thấy tài khoản người dùng.", 500);
             }
 
-            const token = generateToken({
+            const accessToken = generateToken({
                 userId: user._id.toString(),
                 email: user.email,
                 role: user.role,
             });
 
+            //save in mongo
+            // const refreshToken = generateRefreshToken({ userId: user._id.toString() }, "7d");
+
+            //save in redis
+            const refreshToken = generateRefreshToken({ userId: user._id.toString() }, "7d");
+            // Lưu Refresh Token vào Redis (hết hạn sau 7 ngày = 604800 giây)
+            await redisClient.set(`refresh_token:${user._id.toString()}`, refreshToken, {
+                EX: 7 * 24 * 60 * 60,
+            });
+
+            await userRepository.update(user._id.toString(), { refreshToken });
+
             return {
-                token,
+                accessToken,
+                refreshToken,
                 user: {
                     id: user._id,
                     username: user.username,
@@ -265,7 +286,154 @@ export class UserService {
                 },
             };
         } catch (error: any) {
+            if (error instanceof AppError) throw error;
             throw new AppError(`Xác thực Google thất bại: ${error.message}`, 401);
+        }
+    }
+
+    /** Đăng nhập / đăng ký bằng GitHub OAuth */
+    async githubLogin(code: string) {
+        if (!code) {
+            throw new AppError("Mã GitHub authorization code không được để trống.", 400);
+        }
+
+        const clientId = process.env.GITHUB_CLIENT_ID;
+        const clientSecret = process.env.GITHUB_CLIENT_SECRET;
+        const redirectUri = process.env.GITHUB_REDIRECT_URI || "http://localhost:3000/auth/github/callback";
+
+        if (!clientId || !clientSecret) {
+            throw new AppError("Thiếu GITHUB_CLIENT_ID hoặc GITHUB_CLIENT_SECRET trên server.", 500);
+        }
+
+        try {
+            const tokenResponse = await fetch("https://github.com/login/oauth/access_token", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    Accept: "application/json",
+                },
+                body: JSON.stringify({
+                    client_id: clientId,
+                    client_secret: clientSecret,
+                    code,
+                    redirect_uri: redirectUri,
+                }),
+            });
+
+            const tokenData = await tokenResponse.json();
+            if (tokenData.error || !tokenData.access_token) {
+                throw new AppError(`Lỗi xác thực GitHub: ${tokenData.error_description || tokenData.error}`, 401);
+            }
+
+            const accessTokenGithub = tokenData.access_token as string;
+
+            const userResponse = await fetch("https://api.github.com/user", {
+                headers: {
+                    Authorization: `Bearer ${accessTokenGithub}`,
+                    Accept: "application/vnd.github+json",
+                    "User-Agent": "Claw-Office-App",
+                },
+            });
+
+            const githubUser = await userResponse.json();
+            if (!userResponse.ok || !githubUser?.id) {
+                throw new AppError("Không thể lấy thông tin tài khoản từ GitHub.", 401);
+            }
+
+            const githubId = String(githubUser.id);
+            const username = githubUser.name || githubUser.login || "GitHub User";
+            const avatarUrl = githubUser.avatar_url || "";
+
+            let email: string | null = githubUser.email || null;
+            if (!email) {
+                const emailResponse = await fetch("https://api.github.com/user/emails", {
+                    headers: {
+                        Authorization: `Bearer ${accessTokenGithub}`,
+                        Accept: "application/vnd.github+json",
+                        "User-Agent": "Claw-Office-App",
+                    },
+                });
+                const emails: any[] = await emailResponse.json();
+                if (Array.isArray(emails)) {
+                    const primary = emails.find((e) => e.primary && e.verified);
+                    email = primary?.email || emails[0]?.email || null;
+                }
+            }
+
+            if (!email) {
+                email = `${githubId}@users.noreply.github.com`;
+            }
+            email = email.toLowerCase().trim();
+
+            let user: IUser | null = await userRepository.findByGithubId(githubId);
+
+            if (!user) {
+                user = await userRepository.findByEmail(email);
+
+                if (user) {
+                    user = await userRepository.update(user._id.toString(), {
+                        githubId,
+                        avatarUrl: user.avatarUrl || avatarUrl,
+                        status: "online",
+                        isVerified: true,
+                    });
+                } else {
+                    user = await userRepository.create({
+                        username,
+                        email,
+                        githubId,
+                        avatarUrl,
+                        role: "employee",
+                        status: "online",
+                        isVerified: true,
+                    });
+                }
+            } else {
+                user = await userRepository.update(user._id.toString(), {
+                    status: "online",
+                    avatarUrl: user.avatarUrl || avatarUrl,
+                });
+            }
+
+            if (!user) {
+                throw new AppError("Không thể khởi tạo hoặc tìm thấy tài khoản người dùng.", 500);
+            }
+
+            const accessToken = generateToken({
+                userId: user._id.toString(),
+                email: user.email,
+                role: user.role,
+            });
+
+            //save in mongo
+            // const refreshToken = generateRefreshToken({ userId: user._id.toString() }, "7d");
+
+            //save in redis
+            const refreshToken = generateRefreshToken({ userId: user._id.toString() }, "7d");
+            // Lưu Refresh Token vào Redis (hết hạn sau 7 ngày = 604800 giây)
+            await redisClient.set(`refresh_token:${user._id.toString()}`, refreshToken, {
+                EX: 7 * 24 * 60 * 60,
+            });
+
+            await userRepository.update(user._id.toString(), { refreshToken });
+
+            return {
+                accessToken,
+                refreshToken,
+                user: {
+                    id: user._id,
+                    username: user.username,
+                    email: user.email,
+                    role: user.role,
+                    status: "online",
+                    avatarUrl: user.avatarUrl,
+                    bio: user.bio,
+                    ownedAgentIds: user.ownedAgentIds,
+                },
+            };
+        } catch (error: any) {
+            if (error instanceof AppError) throw error;
+            throw new AppError(`Xác thực GitHub thất bại: ${error?.message || "Unknown error"}`, 401);
         }
     }
 
@@ -309,13 +477,12 @@ export class UserService {
         return { id: userId, status };
     }
 
-    /** Yêu cầu quên mật khẩu (Gửi OTP qua email) */
+    /** Yêu cầu quên mật khẩu (Gửi OTP qua RabbitMQ) */
     async forgotPassword(email: string) {
         if (!email) throw new AppError("Vui lòng cung cấp email.", 400);
 
         const user = await userRepository.findByEmail(email.toLowerCase().trim());
         if (!user) {
-            // Bảo mật: Không nên báo lỗi rõ ràng nếu email không tồn tại, nhưng ở đồ án có thể báo 404 hoặc thông báo chung
             throw new AppError("Không tìm thấy tài khoản với email này.", 404);
         }
 
@@ -327,14 +494,14 @@ export class UserService {
             resetPasswordExpiresAt,
         });
 
-        await sendEmail(
-            user.email,
-            "Mã OTP đặt lại mật khẩu Claw Office",
-            `<h3>Xin chào ${user.username},</h3>
+        await sendToQueue({
+            email: user.email,
+            subject: "Mã OTP đặt lại mật khẩu Claw Office",
+            htmlContent: `<h3>Xin chào ${user.username},</h3>
              <p>Bạn đã yêu cầu đặt lại mật khẩu. Mã OTP của bạn là:</p>
              <h2 style="color: #2563eb; letter-spacing: 2px;">${resetPasswordOtp}</h2>
              <p>Mã này có hiệu lực trong vòng 10 phút.</p>`
-        );
+        });
 
         return { message: "Mã OTP đặt lại mật khẩu đã được gửi qua email của bạn." };
     }
@@ -399,28 +566,35 @@ export class UserService {
         return { message: "Đổi mật khẩu thành công." };
     }
 
-    /** Tạo Refresh Token khi login / google login thành công */
-    // (Bạn có thể gọi hàm này bên trong login/googleLogin để cấp thêm refresh token nếu muốn dùng cookie)
-    async generateRefreshTokenForUser(userId: string) {
-        const refreshToken = generateRefreshToken({ userId }, "7d");
-        await userRepository.update(userId, { refreshToken });
-        return refreshToken;
-    }
-
     /** Làm mới Access Token từ Refresh Token */
     async refreshTokenService(incomingToken: string) {
         if (!incomingToken) {
             throw new AppError("Không tìm thấy Refresh Token.", 401);
         }
 
-        // Verify token (hoặc dùng jwt.verify trực tiếp)
-        // Giả sử dùng hàm jwt utility hoặc jwt.verify:
-        // const decoded: any = jwt.verify(incomingToken, process.env.REFRESH_TOKEN_SECRET || process.env.JWT_SECRET!);
-
-        // Hoặc kiểm tra trong DB xem user nào đang giữ refreshToken này:
-        const user = await UserModel.findOne({ refreshToken: incomingToken });
-        if (!user) {
+        // 1. Decode Refresh Token để lấy userId (dùng jwt.verify hoặc hàm util có sẵn của bạn)
+        let userId: string;
+        try {
+            const decoded = verifyToken(incomingToken) as any; // Hoặc hàm verifyRefreshToken của bạn
+            userId = decoded.userId;
+        } catch (err) {
             throw new AppError("Refresh Token không hợp lệ hoặc đã hết hạn.", 403);
+        }
+
+        if (!userId) {
+            throw new AppError("Token không chứa thông tin người dùng.", 403);
+        }
+
+        // 2. Lấy token lưu trong Redis theo userId ra kiểm tra
+        const storedToken = await redisClient.get(`refresh_token:${userId}`);
+        if (!storedToken || storedToken !== incomingToken) {
+            throw new AppError("Refresh Token không hợp lệ hoặc đã bị thu hồi.", 403);
+        }
+
+        // 3. Tìm thông tin người dùng để cấp Access Token mới
+        const user = await userRepository.findById(userId);
+        if (!user) {
+            throw new AppError("Không tìm thấy người dùng.", 404);
         }
 
         const newAccessToken = generateToken({
@@ -433,12 +607,28 @@ export class UserService {
     }
 
     /** Đăng xuất (Thu hồi refresh token) */
-    async logoutService(userId?: string, refreshToken?: string) {
-        if (userId) {
-            await userRepository.update(userId, { refreshToken: "", status: "offline" });
-        } else if (refreshToken) {
-            await UserModel.findOneAndUpdate({ refreshToken }, { refreshToken: "", status: "offline" });
+    async logoutService(userId: string, refreshToken?: string) {
+        let targetUserId = userId;
+
+        // Nếu thiếu userId từ header nhưng có refreshToken, ta có thể decode để lấy userId xóa cho chuẩn
+        if (!targetUserId && refreshToken) {
+            try {
+                const decoded: any = verifyToken(refreshToken); // Hoặc hàm verify token của bạn
+                targetUserId = decoded?.userId;
+            } catch (err) {
+                // Token lỗi hoặc hết hạn thì bỏ qua
+            }
         }
+
+        if (targetUserId) {
+            // Xóa refresh token khỏi Redis
+            await redisClient.del(`refresh_token:${targetUserId}`);
+            await userRepository.update(targetUserId, {
+                status: "offline",
+                refreshToken: undefined
+            });
+        }
+
         return { message: "Đăng xuất thành công." };
     }
 
@@ -447,10 +637,7 @@ export class UserService {
             throw new AppError("Vui lòng tải lên một file ảnh.", 400);
         }
 
-        // 1. Upload ảnh lên Cloudinary lấy URL bảo mật
         const avatarUrl = await uploadBufferToCloudinary(fileBuffer);
-
-        // 2. Cập nhật vào MongoDB
         const updated = await userRepository.update(userId, { avatarUrl });
         if (!updated) {
             throw new AppError("Không tìm thấy người dùng để cập nhật avatar.", 404);

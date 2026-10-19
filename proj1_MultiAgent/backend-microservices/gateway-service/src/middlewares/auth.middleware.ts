@@ -8,7 +8,7 @@ export interface GatewayRequest extends Request {
 export const gatewayAuthMiddleware = (req: GatewayRequest, res: Response, next: NextFunction) => {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
-        return res.status(401).json({ success: false, message: "Unauthorized: Missing or invalid token format" });
+        return res.status(401).json({ success: false, message: "Unauthorized: Thiếu hoặc sai định dạng token" });
     }
 
     const token = authHeader.split(" ")[1];
@@ -16,12 +16,12 @@ export const gatewayAuthMiddleware = (req: GatewayRequest, res: Response, next: 
         const secret = process.env.JWT_SECRET || "fallback_secret";
         const decoded = jwt.verify(token, secret) as any;
 
-        // Đính kèm thông tin user vào headers để forward sang Microservices bên trong
+        // Đính kèm thông tin user vào headers để forward sang Microservices
         req.headers["x-user-id"] = decoded.userId;
         req.headers["x-user-role"] = decoded.role;
 
         next();
     } catch (error) {
-        return res.status(403).json({ success: false, message: "Forbidden: Token is invalid or expired" });
+        return res.status(403).json({ success: false, message: "Forbidden: Token không hợp lệ hoặc đã hết hạn" });
     }
 };

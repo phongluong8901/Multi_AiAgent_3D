@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { clearSession, getUser, isLoggedIn, User } from '@/lib/auth'
+import { notify } from '@/lib/toast'
 
 const NAV = [
     { href: '/dashboard', label: 'Dashboard' },
@@ -34,6 +35,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
     function logout() {
         clearSession()
+        notify.success('Đã đăng xuất')
         router.replace('/login')
     }
 
@@ -66,8 +68,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                                         key={item.href}
                                         href={item.href}
                                         className={`px-3 py-1.5 rounded-lg text-sm transition font-medium ${active
-                                                ? 'bg-zinc-800 text-white shadow-sm'
-                                                : 'text-zinc-400 hover:text-white hover:bg-zinc-800/60'
+                                            ? 'bg-zinc-800 text-white shadow-sm'
+                                            : 'text-zinc-400 hover:text-white hover:bg-zinc-800/60'
                                             }`}
                                     >
                                         {item.label}

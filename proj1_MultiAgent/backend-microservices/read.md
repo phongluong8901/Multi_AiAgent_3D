@@ -65,6 +65,20 @@ npm install --save-dev @types/amqplib
 npm install cloudinary multer
 npm install --save-dev @types/multer
 
+npm install cookie-parser
+npm install --save-dev @types/cookie-parser
+
+npm install swagger-ui-express swagger-jsdoc
+npm install --save-dev @types/swagger-ui-express @types/swagger-jsdoc
+
+npm install redis
+npm install --save-dev @types/redis
+
+npm install express-rate-limit rate-limit-redis
+
+npm install ioredis
+npm uninstall redis
+
 --- gateway-service
 npm install jsonwebtoken
 npm install --save-dev @types/jsonwebtoken
@@ -75,6 +89,7 @@ npm install amqplib
 --- frontend-microservices
 npm install @react-oauth/google
 npm install axios
+npm install sonner
 
 # --- run
 cd proj1_MultiAgent
@@ -120,9 +135,14 @@ docker compose down -v
 - swagger agent
 http://localhost:4000/docs
 
-- redis
+- swagger user-service
+http://localhost:5001/docs
+
+- redis commander
+http://localhost:8081
 
 - rabbitMQ
+http://localhost:15672/#/
 
 # --- link setup
 - tavily search
@@ -139,3 +159,6 @@ https://aistudio.google.com/api-keys
 https://console.cloud.google.com/apis/credentials?project=microservice-multiagent3d
 - smtp mail - passgoogle app
 https://myaccount.google.com/apppasswords
+- github oauth2.0
+https://github.com/settings/developers 
+-> oauth github

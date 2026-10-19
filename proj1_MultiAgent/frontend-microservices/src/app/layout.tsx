@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { GoogleOAuthProvider } from '@react-oauth/google';
+import { Toaster } from "sonner"
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -27,6 +28,19 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       <body className="min-h-full flex flex-col">
         <GoogleOAuthProvider clientId={process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || ""}>
           {children}
+          <Toaster
+            theme="dark"
+            position="top-right"
+            richColors
+            closeButton
+            toastOptions={{
+              classNames: {
+                toast: "bg-zinc-900 border border-zinc-700 text-white",
+                title: "text-white",
+                description: "text-zinc-400",
+              },
+            }}
+          />
         </GoogleOAuthProvider>
       </body>
     </html>

@@ -1,7 +1,11 @@
 import { Router } from "express";
 import { profileController } from "../controllers/profile.controller";
+import { generalLimiter } from "../middlewares/rateLimiter"; // Import general limiter
 
 const router = Router();
+
+// Áp dụng generalLimiter cho toàn bộ các route trong router này (hoặc chọn lọc từng route)
+router.use(generalLimiter);
 
 // Protected routes — API Gateway đã chịu trách nhiệm check token và forward thông tin user qua headers
 router.get("/me", (req, res) => profileController.getMyProfile(req, res));

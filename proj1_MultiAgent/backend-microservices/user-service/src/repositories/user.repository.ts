@@ -22,6 +22,10 @@ export class UserRepository {
         return await UserModel.findOne({ googleId });
     }
 
+    async findByGithubId(githubId: string): Promise<IUser | null> {
+        return await UserModel.findOne({ githubId });
+    }
+
     async findByVerificationToken(token: string) {
         return await UserModel.findOne({ verificationToken: token });
     }
