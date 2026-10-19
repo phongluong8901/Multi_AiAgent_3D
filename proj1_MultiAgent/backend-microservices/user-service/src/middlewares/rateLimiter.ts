@@ -19,7 +19,7 @@ redisClient.on("error", (err) => {
 // 1. Auth Rate Limiter (Dùng cho Login, Register, v.v.)
 export const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 phút
-    max: 5, // Tối đa 5 lần thử
+    max: 500, // Tối đa 5 lần thử
     standardHeaders: true,
     legacyHeaders: false,
     store: new RedisStore({
@@ -35,7 +35,7 @@ export const authLimiter = rateLimit({
 // 2. General Rate Limiter (Dùng cho các API thông thường)
 export const generalLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 phút
-    max: 100, // Tối đa 100 request
+    max: 10000, // Tối đa 100 request
     standardHeaders: true,
     legacyHeaders: false,
     store: new RedisStore({

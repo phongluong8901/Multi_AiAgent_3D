@@ -8,14 +8,13 @@ import {
     ResendOtpPayload,
     GoogleAuthPayload,
     GithubAuthPayload,
-} from '@/services/auth.api'
+} from '@/lib/api'
 import { setSession } from '@/lib/auth'
 import { notify } from '@/lib/toast'
 
 function pickTokenAndUser(data: any) {
     const payload = data?.data ?? data
-    const token =
-        payload?.accessToken || payload?.token || payload?.access_token
+    const token = payload?.accessToken || payload?.token || payload?.access_token
     const user = payload?.user
     if (!token || !user) {
         throw new Error('Response thiếu accessToken hoặc user')
@@ -26,8 +25,18 @@ function pickTokenAndUser(data: any) {
             id: String(user.id || user._id),
             name: user.username || user.name || user.email,
             email: user.email,
+            avatar: user.avatarUrl || user.avatar || '',
+            avatarUrl: user.avatarUrl || user.avatar || '',
+            status: user.status || 'online',
+            bio: user.bio || '',
+            ownedAgentIds: user.ownedAgentIds || [],
         },
     }
+}
+
+function errMsg(err: unknown, fallback: string) {
+    if (err instanceof Error && err.message) return err.message
+    return fallback
 }
 
 export function useAuth() {
@@ -50,14 +59,11 @@ export function useAuth() {
                 notify.success('Đăng ký thành công', {
                     description: 'Vui lòng kiểm tra email để lấy mã OTP',
                 })
-                router.replace(
-                    `/verify-otp?email=${encodeURIComponent(payload.email)}`
-                )
+                router.replace(`/verify-otp?email=${encodeURIComponent(payload.email)}`)
             }
             return data
-        } catch (err: any) {
-            const msg =
-                err.response?.data?.message || err.message || 'Đăng ký thất bại'
+        } catch (err) {
+            const msg = errMsg(err, 'Đăng ký thất bại')
             setError(msg)
             notify.error('Đăng ký thất bại', { description: msg })
             throw new Error(msg)
@@ -81,9 +87,8 @@ export function useAuth() {
                 setTimeout(() => router.replace('/login'), 1200)
             }
             return data
-        } catch (err: any) {
-            const msg =
-                err.response?.data?.message || err.message || 'Xác thực OTP thất bại'
+        } catch (err) {
+            const msg = errMsg(err, 'Xác thực OTP thất bại')
             setError(msg)
             notify.error('OTP không hợp lệ', { description: msg })
             throw new Error(msg)
@@ -98,18 +103,12 @@ export function useAuth() {
         try {
             const data = await authService.resendOtp(payload)
             if (data.success) {
-                const okMsg = 'Mã OTP mới đã được gửi tới email của bạn.'
-                setMessage(okMsg)
-                notify.success('Đã gửi lại OTP', {
-                    description: payload.email,
-                })
+                setMessage('Mã OTP mới đã được gửi tới email của bạn.')
+                notify.success('Đã gửi lại OTP', { description: payload.email })
             }
             return data
-        } catch (err: any) {
-            const msg =
-                err.response?.data?.message ||
-                err.message ||
-                'Không thể gửi lại mã OTP'
+        } catch (err) {
+            const msg = errMsg(err, 'Không thể gửi lại mã OTP')
             setError(msg)
             notify.error('Gửi OTP thất bại', { description: msg })
             throw new Error(msg)
@@ -132,9 +131,8 @@ export function useAuth() {
                 router.replace('/dashboard')
             }
             return data
-        } catch (err: any) {
-            const msg =
-                err.response?.data?.message || err.message || 'Đăng nhập thất bại'
+        } catch (err) {
+            const msg = errMsg(err, 'Đăng nhập thất bại')
             setError(msg)
             notify.error('Đăng nhập thất bại', { description: msg })
             throw new Error(msg)
@@ -157,11 +155,8 @@ export function useAuth() {
                 router.replace('/dashboard')
             }
             return data
-        } catch (err: any) {
-            const msg =
-                err.response?.data?.message ||
-                err.message ||
-                'Đăng nhập Google thất bại'
+        } catch (err) {
+            const msg = errMsg(err, 'Đăng nhập Google thất bại')
             setError(msg)
             notify.error('Google login thất bại', { description: msg })
             throw new Error(msg)
@@ -203,11 +198,8 @@ export function useAuth() {
                 router.replace('/dashboard')
             }
             return data
-        } catch (err: any) {
-            const msg =
-                err.response?.data?.message ||
-                err.message ||
-                'Đăng nhập GitHub thất bại'
+        } catch (err) {
+            const msg = errMsg(err, 'Đăng nhập GitHub thất bại')
             setError(msg)
             notify.error('GitHub login thất bại', { description: msg })
             throw new Error(msg)
