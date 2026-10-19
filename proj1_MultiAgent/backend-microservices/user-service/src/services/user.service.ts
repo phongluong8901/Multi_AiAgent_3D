@@ -690,6 +690,44 @@ export class UserService {
         delete userObj?.passwordHash;
         return userObj;
     }
+
+    async updateHardwareNode(userId: string, hardwareData: any) {
+        if (!userId) throw new AppError("ID người dùng không hợp lệ.", 400);
+
+        const nodeInfo = {
+            cpuCores: Number(hardwareData.cpuCores) || 0,
+            deviceMemoryGB: Number(hardwareData.deviceMemoryGB) || 0,
+            hasWebGPU: Boolean(hardwareData.hasWebGPU),
+            gpuName: hardwareData.gpuName || "",
+            recommendedModels: Array.isArray(hardwareData.recommendedModels) ? hardwareData.recommendedModels : [],
+            canRunAI: Boolean(hardwareData.canRunAI),
+            status: "IDLE" as const,
+            lastSeen: new Date(),
+            updatedAt: new Date(),
+        };
+
+        const updated = await userRepository.update(userId, { hardwareNode: nodeInfo });
+        if (!updated) throw new AppError("Không tìm thấy người dùng.", 404);
+
+        return {
+            message: "Đã cập nhật thông số nút tính toán AI thành công!",
+            hardwareNode: updated.hardwareNode,
+        };
+    }
+
+    async getHardwareNode(userId: string) {
+        if (!userId) throw new AppError("ID người dùng không hợp lệ.", 400);
+        const user = await userRepository.findById(userId);
+        if (!user) throw new AppError("Không tìm thấy người dùng.", 404);
+        return user.hardwareNode || null;
+    }
+
+    async getAllHardwareNodes() {
+        return await UserModel.find(
+            { 'hardwareNode.canRunAI': true },
+            'username email avatarUrl status hardwareNode'
+        ).lean();
+    }
 }
 
 export const userService = new UserService();

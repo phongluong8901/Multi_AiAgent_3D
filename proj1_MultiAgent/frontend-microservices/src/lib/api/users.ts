@@ -1,5 +1,6 @@
 import { request, API_BASE } from './client'
 import { getToken, getUser } from '@/lib/auth'
+import type { HardwareReport } from './hardware' // 👈 Import type từ hardware.ts
 
 export type UserProfile = {
     id: string
@@ -13,6 +14,7 @@ export type UserProfile = {
     status?: 'online' | 'offline' | 'busy'
     ownedAgentIds?: string[]
     ownedAgents?: string[]
+    hardwareNode?: HardwareReport // 👈 Dùng lại type HardwareReport
 }
 
 function normalizeProfile(d: any): UserProfile {
@@ -27,6 +29,7 @@ function normalizeProfile(d: any): UserProfile {
         color: d.color,
         status: d.status || 'offline',
         ownedAgentIds: d.ownedAgentIds || d.ownedAgents || [],
+        hardwareNode: d.hardwareNode,
     }
 }
 
@@ -63,7 +66,6 @@ export const usersApi = {
         return res.data ?? res
     },
 
-    /** multipart avatar - Đã bổ sung x-user-id và Authorization */
     updateAvatar: async (file: File): Promise<string> => {
         const token = getToken()
         const user = getUser()

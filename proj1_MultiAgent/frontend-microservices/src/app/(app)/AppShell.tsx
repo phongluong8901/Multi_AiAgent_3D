@@ -5,6 +5,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { clearSession, getUser, isLoggedIn, User } from '@/lib/auth'
 import { notify } from '@/lib/toast'
+import Sidebar from './Siderbar' // Đường dẫn trỏ tới file Sidebar vừa tạo
 
 const NAV = [
     { href: '/dashboard', label: 'Dashboard' },
@@ -48,7 +49,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     }
 
     return (
-        <div className="min-h-screen bg-zinc-950 text-white">
+        <div className="min-h-screen bg-zinc-950 text-white flex flex-col">
+            {/* Top Header Ngang Cũ */}
             <header className="h-14 border-b border-zinc-800 bg-zinc-900/80 backdrop-blur sticky top-0 z-50">
                 <div className="h-full max-w-7xl mx-auto px-4 flex items-center justify-between gap-4">
                     <div className="flex items-center gap-6">
@@ -101,9 +103,13 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 </div>
             </header>
 
-            <main className={pathname.startsWith('/office') || pathname.includes('/rooms/') ? '' : 'max-w-7xl mx-auto px-4 py-6'}>
-                {children}
-            </main>
+            {/* Layout chính kết hợp Sidebar dọc và Main Content */}
+            <div className="flex flex-1">
+                <Sidebar />
+                <main className={`flex-1 ${pathname.startsWith('/office') || pathname.includes('/rooms/') ? '' : 'max-w-7xl mx-auto px-4 py-6'}`}>
+                    {children}
+                </main>
+            </div>
         </div>
     )
 }

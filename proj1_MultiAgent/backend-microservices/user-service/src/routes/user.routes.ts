@@ -18,6 +18,7 @@ router.post("/forgot-password", authLimiter, (req, res) => userController.forgot
 router.post("/reset-password", authLimiter, (req, res) => userController.resetPassword(req, res));
 router.post("/refresh-token", (req, res) => userController.refreshToken(req, res));
 router.post("/logout", (req, res) => userController.logout(req, res));
+router.get("/hardware-nodes", (req, res) => userController.getHardwareNodes(req as any, res));
 
 // ─── Protected Routes (Đã được API Gateway chặn và kiểm tra token từ ngoài) ───
 // IMPORTANT: /me routes MUST be registered BEFORE /:id to avoid
@@ -26,6 +27,10 @@ router.get("/me", (req, res) => userController.getMe(req as any, res));
 router.put("/me", (req, res) => userController.updateMe(req as any, res));
 router.put("/me/avatar", upload.single("avatar"), (req, res) => userController.updateAvatar(req as any, res));
 router.post("/change-password", (req, res) => userController.changePassword(req as any, res));
+
+router.post("/me/hardware-node", (req, res) => userController.updateHardwareNode(req as any, res));
+router.get("/me/hardware-node", (req, res) => userController.getHardwareNode(req as any, res));
+
 
 
 // ─── Authenticated: Agent ownership ──────────────────────────

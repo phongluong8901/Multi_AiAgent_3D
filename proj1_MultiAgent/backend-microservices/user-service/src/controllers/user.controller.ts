@@ -282,6 +282,41 @@ export class UserController {
             return res.status(400).json({ success: false, message: error.message });
         }
     }
+
+    async updateHardwareNode(req: Request, res: Response) {
+        try {
+            const userId = req.headers["x-user-id"] as string;
+            const result = await userService.updateHardwareNode(userId, req.body);
+            return res.json({ success: true, ...result });
+        } catch (error: any) {
+            return res.status(error.statusCode || 500).json({
+                success: false,
+                message: error.message || "Lỗi server khi lưu cấu hình Hardware Node",
+            });
+        }
+    }
+
+    async getHardwareNode(req: Request, res: Response) {
+        try {
+            const userId = req.headers["x-user-id"] as string;
+            const hardwareNode = await userService.getHardwareNode(userId);
+            return res.json({ success: true, data: hardwareNode });
+        } catch (error: any) {
+            return res.status(error.statusCode || 500).json({
+                success: false,
+                message: error.message || "Lỗi server khi lấy cấu hình Hardware Node",
+            });
+        }
+    }
+
+    async getHardwareNodes(req: Request, res: Response) {
+        try {
+            const nodes = await userService.getAllHardwareNodes();
+            return res.json({ success: true, data: nodes });
+        } catch (error: any) {
+            return res.status(500).json({ success: false, message: error.message });
+        }
+    }
 }
 
 export const userController = new UserController();

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import { useUser } from '@/hooks/useUser'
 import { useOwnedAgents } from '@/hooks/useOwnedAgents'
 import { useAgents } from '@/hooks/useAgents'
@@ -50,6 +51,8 @@ export default function ProfilePage() {
         })
     }
 
+    const node = profile?.hardwareNode
+
     return (
         <div className="mx-auto max-w-4xl space-y-8 pb-16">
             {/* Banner */}
@@ -66,10 +69,10 @@ export default function ProfilePage() {
                         />
                         <span
                             className={`absolute -bottom-1 -right-1 h-4 w-4 rounded-full ring-4 ring-zinc-900 ${profile?.status === 'online'
-                                ? 'bg-emerald-500'
-                                : profile?.status === 'busy'
-                                    ? 'bg-amber-500'
-                                    : 'bg-zinc-500'
+                                    ? 'bg-emerald-500'
+                                    : profile?.status === 'busy'
+                                        ? 'bg-amber-500'
+                                        : 'bg-zinc-500'
                                 }`}
                         />
                     </div>
@@ -96,6 +99,79 @@ export default function ProfilePage() {
                         </select>
                     </div>
                 </div>
+            </div>
+
+            {/* Thêm phần hiển thị cấu hình AI Hardware Node */}
+            <div className="rounded-3xl border border-zinc-800 bg-zinc-900 p-6 space-y-4">
+                <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+                    <h2 className="text-sm font-bold uppercase tracking-wider text-zinc-200">
+                        Thông số AI Hardware Node
+                    </h2>
+                    <Link
+                        href="/node-checker"
+                        className="text-xs text-blue-400 hover:text-blue-300 font-medium transition"
+                    >
+                        Kiểm tra & Cập nhật &rarr;
+                    </Link>
+                </div>
+
+                {node && node.canRunAI ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+                        <div className="rounded-2xl border border-zinc-800/80 bg-zinc-950/60 p-3.5 space-y-1">
+                            <span className="text-zinc-500 block">Trạng thái Node:</span>
+                            <div className="flex items-center gap-2">
+                                <span
+                                    className={`px-2 py-0.5 text-[10px] font-bold rounded-full border ${node.status === 'BUSY'
+                                            ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                                            : node.status === 'IDLE'
+                                                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                                                : 'bg-zinc-800 text-zinc-500 border-zinc-700'
+                                        }`}
+                                >
+                                    {node.status || 'IDLE'}
+                                </span>
+                            </div>
+                        </div>
+
+                        <div className="rounded-2xl border border-zinc-800/80 bg-zinc-950/60 p-3.5 space-y-1">
+                            <span className="text-zinc-500 block">Cấu hình Phần cứng:</span>
+                            <p className="font-semibold text-zinc-200">
+                                {node.cpuCores} Cores | &ge; {node.deviceMemoryGB} GB RAM
+                            </p>
+                        </div>
+
+                        <div className="rounded-2xl border border-zinc-800/80 bg-zinc-950/60 p-3.5 space-y-1">
+                            <span className="text-zinc-500 block">Bộ tăng tốc AI:</span>
+                            <p className={`font-medium ${node.hasWebGPU ? 'text-emerald-400' : 'text-zinc-400'}`}>
+                                {node.hasWebGPU ? node.gpuName || 'WebGPU Enabled' : 'CPU Mode Only'}
+                            </p>
+                        </div>
+
+                        <div className="sm:col-span-3 pt-2 border-t border-zinc-800/60 flex items-center justify-between flex-wrap gap-2">
+                            <span className="text-zinc-400 text-[11px]">Model nhận chạy:</span>
+                            <div className="flex flex-wrap gap-1">
+                                {node.recommendedModels?.map((m: string) => (
+                                    <span
+                                        key={m}
+                                        className="text-[10px] px-2 py-0.5 rounded-md bg-blue-500/10 text-blue-300 border border-blue-500/20 font-mono"
+                                    >
+                                        {m}
+                                    </span>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                ) : (
+                    <div className="flex items-center justify-between text-xs text-zinc-400 bg-zinc-950/50 p-4 rounded-2xl border border-zinc-800">
+                        <span>Chưa đăng ký hoặc kích hoạt Node tính toán phân tán.</span>
+                        <Link
+                            href="/node-checker"
+                            className="px-3.5 py-1.5 rounded-xl bg-blue-600 text-white font-semibold text-[11px] hover:bg-blue-500 transition"
+                        >
+                            Kích hoạt Node ngay
+                        </Link>
+                    </div>
+                )}
             </div>
 
             <div className="grid gap-6 md:grid-cols-3">
@@ -137,8 +213,8 @@ export default function ProfilePage() {
                                     type="button"
                                     onClick={() => setAvatarUrl(url)}
                                     className={`h-10 w-10 shrink-0 overflow-hidden rounded-xl border ${avatarUrl === url
-                                        ? 'border-blue-500 ring-2 ring-blue-500/40'
-                                        : 'border-zinc-800'
+                                            ? 'border-blue-500 ring-2 ring-blue-500/40'
+                                            : 'border-zinc-800'
                                         }`}
                                 >
                                     <img src={url} alt="" className="h-full w-full object-cover" />
@@ -166,7 +242,7 @@ export default function ProfilePage() {
                         <button
                             type="submit"
                             disabled={saving}
-                            className="rounded-xl bg-blue-600 px-6 py-2.5 text-xs font-semibold text-white hover:bg-blue-500 disabled:opacity-50"
+                            className="rounded-xl bg-blue-600 px-6 py-2.5 text-xs font-semibold text-white hover:bg-blue-500 disabled:opacity-50 transition"
                         >
                             {saving ? 'Đang lưu...' : 'Lưu thay đổi'}
                         </button>
@@ -188,8 +264,8 @@ export default function ProfilePage() {
                                     <div
                                         key={ag.id}
                                         className={`flex items-center justify-between gap-2 rounded-2xl border p-3 ${owned
-                                            ? 'border-blue-500/40 bg-blue-950/20'
-                                            : 'border-zinc-800 bg-zinc-950'
+                                                ? 'border-blue-500/40 bg-blue-950/20'
+                                                : 'border-zinc-800 bg-zinc-950'
                                             }`}
                                     >
                                         <div className="flex min-w-0 items-center gap-2">
@@ -209,9 +285,9 @@ export default function ProfilePage() {
                                         <button
                                             type="button"
                                             onClick={() => toggleAgent(ag.id)}
-                                            className={`shrink-0 rounded-lg px-2.5 py-1 text-[11px] font-medium ${owned
-                                                ? 'bg-zinc-800 text-zinc-300 hover:text-rose-300'
-                                                : 'bg-blue-600 text-white hover:bg-blue-500'
+                                            className={`shrink-0 rounded-lg px-2.5 py-1 text-[11px] font-medium transition ${owned
+                                                    ? 'bg-zinc-800 text-zinc-300 hover:text-rose-300'
+                                                    : 'bg-blue-600 text-white hover:bg-blue-500'
                                                 }`}
                                         >
                                             {owned ? 'Bỏ' : '+ Nhận'}
