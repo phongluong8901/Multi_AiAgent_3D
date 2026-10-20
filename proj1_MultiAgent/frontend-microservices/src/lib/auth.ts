@@ -5,6 +5,9 @@ export type User = {
     id: string
     name: string
     email: string
+    role?: 'admin' | 'seller' | 'user' | 'guest' | string
+    avatar?: string
+    avatarUrl?: string
 }
 
 export function getToken(): string | null {
@@ -24,6 +27,13 @@ export function getUser(): User | null {
 }
 
 export function setSession(token: string, user: User) {
+    if (typeof window === 'undefined') return
+
+    // Xóa sạch dữ liệu cũ trước khi gán session mới tinh
+    localStorage.removeItem(TOKEN_KEY)
+    localStorage.removeItem(USER_KEY)
+
+    // Lưu thông tin mới vào localStorage
     localStorage.setItem(TOKEN_KEY, token)
     localStorage.setItem(USER_KEY, JSON.stringify(user))
 }

@@ -1,4 +1,4 @@
-export { API_BASE, request } from './client'
+export { API_BASE, request } from '../client'
 
 export type { Agent, AgentStatus, AgentCreate, AgentUpdate } from './agents'
 export { agentsApi } from './agents'

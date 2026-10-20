@@ -25,6 +25,7 @@ function pickTokenAndUser(data: any) {
             id: String(user.id || user._id),
             name: user.username || user.name || user.email,
             email: user.email,
+            role: user.role || 'user', // 👈 Bổ sung dòng này để bắt role từ lúc đăng nhập!
             avatar: user.avatarUrl || user.avatar || '',
             avatarUrl: user.avatarUrl || user.avatar || '',
             status: user.status || 'online',

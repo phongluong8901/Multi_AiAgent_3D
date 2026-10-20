@@ -1,4 +1,4 @@
-import { request, API_BASE } from './client'
+import { request, API_BASE } from '../client'
 import { getToken, getUser } from '@/lib/auth'
 import type { HardwareReport } from './hardware' // 👈 Import type từ hardware.ts
 

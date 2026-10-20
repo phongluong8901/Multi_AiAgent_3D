@@ -11,7 +11,7 @@ export default function RootPage() {
     if (isLoggedIn()) {
       router.replace('/dashboard')
     } else {
-      router.replace('/auth/login')
+      router.replace('/login')
     }
   }, [router])
 

@@ -7,6 +7,8 @@ import { useState } from 'react'
 const SIDEBAR_EXTRA_NAV = [
     { href: '/node-checker', label: 'Kiểm tra Node AI', badge: 'Hot', icon: NodeIcon },
     { href: '/user-models', label: 'Đối tác Mô hình', icon: ModelsIcon },
+    { href: '/seller', label: 'Quản lý Seller & Node', badge: 'Pro', icon: SellerIcon },
+    { href: '/admin', label: 'Quản trị Hệ thống', badge: 'Admin', icon: AdminIcon },
 ]
 
 export default function Sidebar() {
@@ -47,7 +49,10 @@ export default function Sidebar() {
                                 )}
 
                                 {expanded && item.badge && (
-                                    <span className="px-1.5 py-0.5 text-[9px] font-bold rounded-md bg-blue-500/20 text-blue-300 border border-blue-400/30">
+                                    <span className={`px-1.5 py-0.5 text-[9px] font-bold rounded-md border ${item.badge === 'Admin'
+                                            ? 'bg-red-500/20 text-red-300 border-red-400/30'
+                                            : 'bg-blue-500/20 text-blue-300 border-blue-400/30'
+                                        }`}>
                                         {item.badge}
                                     </span>
                                 )}
@@ -72,4 +77,12 @@ function NodeIcon(props: any) {
 
 function ModelsIcon(props: any) {
     return <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" /><polyline points="3.27 6.96 12 12.01 20.73 6.96" /><line x1="12" y1="22.08" x2="12" y2="12" /></svg>
+}
+
+function SellerIcon(props: any) {
+    return <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z" /><line x1="3" y1="6" x2="21" y2="6" /><path d="M16 10a4 4 0 0 1-8 0" /></svg>
+}
+
+function AdminIcon(props: any) {
+    return <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>
 }

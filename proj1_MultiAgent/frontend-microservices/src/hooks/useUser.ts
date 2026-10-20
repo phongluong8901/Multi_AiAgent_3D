@@ -24,6 +24,7 @@ export function useUser() {
                     id: prof.id,
                     name: prof.name || local.name,
                     email: prof.email || local.email,
+                    role: prof.role || local.role || 'user',
                 })
             }
         } catch (e) {
@@ -65,6 +66,7 @@ export function useUser() {
                     id: updated.id,
                     name: updated.name,
                     email: updated.email,
+                    role: updated.role || 'user',
                 })
             }
 

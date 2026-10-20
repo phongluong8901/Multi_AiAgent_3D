@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
-import { request } from '@/lib/api/client'
+import { request } from '@/lib/client'
 
 type UserNode = {
     _id: string
@@ -106,8 +106,8 @@ export default function UserModelsPage() {
                             <button
                                 onClick={() => setSelectedModelFilter(null)}
                                 className={`px-2.5 py-1 rounded-lg text-[10px] font-medium transition whitespace-nowrap ${selectedModelFilter === null
-                                        ? 'bg-blue-600 text-white'
-                                        : 'bg-zinc-800 text-zinc-400 hover:text-white'
+                                    ? 'bg-blue-600 text-white'
+                                    : 'bg-zinc-800 text-zinc-400 hover:text-white'
                                     }`}
                             >
                                 Tất cả Models
@@ -117,8 +117,8 @@ export default function UserModelsPage() {
                                     key={m}
                                     onClick={() => setSelectedModelFilter(m)}
                                     className={`px-2.5 py-1 rounded-lg text-[10px] font-medium transition whitespace-nowrap ${selectedModelFilter === m
-                                            ? 'bg-blue-600 text-white'
-                                            : 'bg-zinc-800 text-zinc-400 hover:text-white'
+                                        ? 'bg-blue-600 text-white'
+                                        : 'bg-zinc-800 text-zinc-400 hover:text-white'
                                         }`}
                                 >
                                     {m}
@@ -169,10 +169,10 @@ export default function UserModelsPage() {
 
                                         <span
                                             className={`px-2.5 py-0.5 text-[10px] font-bold rounded-full border ${node?.status === 'BUSY'
-                                                    ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
-                                                    : node?.status === 'IDLE'
-                                                        ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
-                                                        : 'bg-zinc-800 text-zinc-500 border-zinc-700'
+                                                ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                                                : node?.status === 'IDLE'
+                                                    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                                                    : 'bg-zinc-800 text-zinc-500 border-zinc-700'
                                                 }`}
                                         >
                                             ● {node?.status || 'IDLE'}
@@ -209,8 +209,8 @@ export default function UserModelsPage() {
                                                     <span
                                                         key={m}
                                                         className={`text-[9px] px-2 py-0.5 rounded-md border font-medium transition ${isHighlighted
-                                                                ? 'bg-blue-600 text-white border-blue-400'
-                                                                : 'bg-blue-500/10 text-blue-300 border-blue-500/20'
+                                                            ? 'bg-blue-600 text-white border-blue-400'
+                                                            : 'bg-blue-500/10 text-blue-300 border-blue-500/20'
                                                             }`}
                                                     >
                                                         {m}

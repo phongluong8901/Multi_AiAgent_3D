@@ -1,4 +1,4 @@
-import { request } from './client'
+import { request } from '../client'
 
 export type AgentStatus = 'idle' | 'working' | 'meeting' | 'blocked'
 

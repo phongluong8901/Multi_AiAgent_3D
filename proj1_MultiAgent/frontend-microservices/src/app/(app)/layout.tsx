@@ -1,5 +1,7 @@
+// src/app/dashboard/layout.tsx (hoặc file layout tương ứng của bạn)
 import { Suspense } from 'react'
 import AppShell from './AppShell'
+import RoleGuard from '@/middleware/RoleGuard'
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
     return (
@@ -10,7 +12,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 </div>
             }
         >
-            <AppShell>{children}</AppShell>
+            <RoleGuard
+                allowedRoles={['admin', 'seller', 'user', 'guest']}
+                readOnlyRoles={['guest']}
+                actionBehavior="disable"
+            >
+                <AppShell>{children}</AppShell>
+            </RoleGuard>
         </Suspense>
     )
 }

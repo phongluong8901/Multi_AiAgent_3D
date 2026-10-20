@@ -1,4 +1,4 @@
-import { request } from './client'
+import { request } from '../client'
 
 export const adminApi = {
     getUsers: async (params?: { page?: number; limit?: number; search?: string }) => {

@@ -1,4 +1,4 @@
-import { request, API_BASE } from './client'
+import { request, API_BASE } from '../client'
 import type { WorkflowTrace } from './types'
 
 export type ChatMessage = {
