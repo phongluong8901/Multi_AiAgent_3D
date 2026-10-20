@@ -1,5 +1,6 @@
 import nodemailer from "nodemailer";
 
+// Tạo đối tượng transporter chứa cấu hình máy chủ SMTP dùng để gửi thư điện tử
 const transporter = nodemailer.createTransport({
     host: process.env.EMAIL_HOST || "smtp.gmail.com",
     port: Number(process.env.EMAIL_PORT) || 587,
@@ -10,10 +11,11 @@ const transporter = nodemailer.createTransport({
     },
 });
 
+// Định nghĩa và export hàm bất đồng bộ sendEmail dùng để thực hiện gửi email tới người nhận
 export const sendEmail = async (to: string, subject: string, htmlContent: string) => {
     try {
         await transporter.sendMail({
-            from: process.env.EMAIL_FROM || '"Claw Office" <support@clawoffice.local>',
+            from: process.env.EMAIL_FROM || '"MultiAgent Office" <support@multiagentoffice.local>',
             to,
             subject,
             html: htmlContent,

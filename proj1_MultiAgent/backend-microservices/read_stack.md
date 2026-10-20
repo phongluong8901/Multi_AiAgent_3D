@@ -49,3 +49,11 @@ Hệ thống phân chia quyền hạn rõ ràng theo 4 cấp độ người dùn
   * Đẩy các tác vụ nặng hoặc cần độ trễ thấp (như gửi email kích hoạt tài khoản, gửi mã xác thực OTP khi quên mật khẩu) vào message queue để xử lý bất đồng bộ, tối ưu hóa thời gian phản hồi cho client.
 * **Audit Logging:**
   * Ghi nhận và lưu vết toàn bộ các hành động quan trọng hoặc thay đổi trạng thái của người dùng nhằm phục vụ cho công tác kiểm tra, giám sát bảo mật hệ thống.
+
+---
+1. Tối ưu thuật toán tìm kiếm vị trí địa lý (Geo-spatial Query)
+2. Xử lý Ping / Heartbeat bằng Redis cho Hardware Node
+3. Quản lý Phiên Đăng Nhập Đa Thiết Bị (Multi-device Refresh Token)
+4. viet them cac service cho guest, admin, seller, user nua
+5. Tích hợp Chuẩn hóa Middleware & Global Error Handler
+6. Bổ sung Audit Logging (Nhật ký thao tác hệ thống)

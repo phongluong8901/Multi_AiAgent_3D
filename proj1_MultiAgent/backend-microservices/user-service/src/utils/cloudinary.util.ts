@@ -1,7 +1,9 @@
 import cloudinary from "../config/cloudinary";
 
+// Định nghĩa và export hàm upload buffer ảnh lên Cloudinary
 export const uploadBufferToCloudinary = (fileBuffer: Buffer): Promise<string> => {
     return new Promise((resolve, reject) => {
+        // Tạo một upload stream để đẩy dữ liệu dạng buffer trực tiếp lên Cloudinary
         const stream = cloudinary.uploader.upload_stream(
             {
                 folder: "MultiAgent3dAvatar", // Đặt tên folder trên Cloudinary theo yêu cầu
@@ -12,9 +14,9 @@ export const uploadBufferToCloudinary = (fileBuffer: Buffer): Promise<string> =>
             },
             (error, result) => {
                 if (error) return reject(error);
-                resolve(result!.secure_url);
+                resolve(result!.secure_url); // Nếu thành công, trả về đường dẫn URL HTTPS bảo mật của bức ảnh
             }
         );
-        stream.end(fileBuffer);
+        stream.end(fileBuffer); // Kết thúc stream và truyền toàn bộ dữ liệu Buffer của file vào
     });
 };

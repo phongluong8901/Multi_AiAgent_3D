@@ -1,44 +1,34 @@
+// src/routes/user.routes.ts
 import { Router } from "express";
+import { generalLimiter } from "../middlewares/rateLimiter";
 import { userController } from "../controllers/user.controller";
-import { authLimiter } from "../middlewares/rateLimiter";
 import { upload } from "../middlewares/upload.middleware";
+import { asyncHandler } from "../middlewares/async.middleware"; // Import asyncHandler
 
 const router = Router();
 
-// ─── Public routes (Và các endpoint OTP có gắn Rate Limiter) ───────────────────────
-router.post("/register", authLimiter, (req, res) => userController.register(req, res));
-router.post("/login", authLimiter, (req, res) => userController.login(req, res));
-router.post("/google", authLimiter, (req, res) => userController.googleAuth(req, res));
-router.post("/github", authLimiter, (req, res) => userController.githubAuth(req, res));
-router.post("/verify-otp", authLimiter, (req, res) => userController.verifyOtp(req, res));
-router.post("/resend-otp", authLimiter, (req, res) => userController.resendOtp(req, res));
-router.get("/", (req, res) => userController.getUsers(req, res));
+// Áp dụng rate limiter chung cho tất cả các route bên dưới
+router.use(generalLimiter);
 
-router.post("/forgot-password", authLimiter, (req, res) => userController.forgotPassword(req, res));
-router.post("/reset-password", authLimiter, (req, res) => userController.resetPassword(req, res));
-router.post("/refresh-token", (req, res) => userController.refreshToken(req, res));
-router.post("/logout", (req, res) => userController.logout(req, res));
-router.get("/hardware-nodes", (req, res) => userController.getHardwareNodes(req as any, res));
+// ─── User Profile & Hardware Node Routes ─────
+router.get("/", asyncHandler(userController.getUsers));
+router.get("/hardware-nodes", asyncHandler(userController.getHardwareNodes));
 
-// ─── Protected Routes (Đã được API Gateway chặn và kiểm tra token từ ngoài) ───
-// IMPORTANT: /me routes MUST be registered BEFORE /:id to avoid
-// "me" being treated as an :id parameter
-router.get("/me", (req, res) => userController.getMe(req as any, res));
-router.put("/me", (req, res) => userController.updateMe(req as any, res));
-router.put("/me/avatar", upload.single("avatar"), (req, res) => userController.updateAvatar(req as any, res));
-router.post("/change-password", (req, res) => userController.changePassword(req as any, res));
+// IMPORTANT: Các route /me phải đặt trước /:id để tránh trùng khớp tham số
+router.get("/me", asyncHandler(userController.getMe));
+router.put("/me", asyncHandler(userController.updateMe));
+router.put("/me/status", asyncHandler(userController.updateStatus));
+router.put("/me/avatar", upload.single("avatar"), asyncHandler(userController.updateAvatar));
 
-router.post("/me/hardware-node", (req, res) => userController.updateHardwareNode(req as any, res));
-router.get("/me/hardware-node", (req, res) => userController.getHardwareNode(req as any, res));
+router.post("/me/hardware-node", asyncHandler(userController.updateHardwareNode));
+router.get("/me/hardware-node", asyncHandler(userController.getHardwareNode));
 
+// Agent ownership management
+router.get("/me/agents", asyncHandler(userController.getMyAgents));
+router.post("/me/agents/:agentId", asyncHandler(userController.addMyAgent));
+router.delete("/me/agents/:agentId", asyncHandler(userController.removeMyAgent));
 
-
-// ─── Authenticated: Agent ownership ──────────────────────────
-router.get("/me/agents", (req, res) => userController.getMyAgents(req as any, res));
-router.post("/me/agents/:agentId", (req, res) => userController.addMyAgent(req as any, res));
-router.delete("/me/agents/:agentId", (req, res) => userController.removeMyAgent(req as any, res));
-
-// ─── Public: Get any user by id ───────────────────────────────
-router.get("/:id", (req, res) => userController.getUserProfile(req, res));
+// Public: Get user profile by ID (Phải đặt ở cuối cùng)
+router.get("/:id", asyncHandler(userController.getUserProfile));
 
 export default router;
