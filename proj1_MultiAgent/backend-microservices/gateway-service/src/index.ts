@@ -2,7 +2,7 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import { globalLimiter } from "./middlewares/rateLimiter";
-import userRouter from "./routes/user.proxy";
+import userRouter from "./routes/user-service/user.proxy";
 import serviceRouter from "./routes/service.proxy";
 
 dotenv.config();

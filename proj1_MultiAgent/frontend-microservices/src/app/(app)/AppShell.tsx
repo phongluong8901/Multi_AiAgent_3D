@@ -17,6 +17,8 @@ const NAV = [
     { href: '/models', label: 'Models' },
     { href: '/chat', label: 'Chat' },
     { href: '/profile', label: 'Profile' },
+    { href: '/seller-profile', label: 'Seller-Profile' },
+    { href: '/admin-dashboard', label: 'Admin-Dashboard' },
 ]
 
 export default function AppShell({ children }: { children: React.ReactNode }) {

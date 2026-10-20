@@ -4,6 +4,8 @@ import cors from "cors";
 import cookieParser from "cookie-parser";
 import userRoutes from "./routes/user.routes";
 import authRoutes from "./routes/auth.routes";
+import sellerRoutes from "./routes/seller.routes";
+import adminRoutes from "./routes/admin.routes";
 import crypto from "crypto";
 
 import swaggerUi from "swagger-ui-express";
@@ -29,6 +31,8 @@ app.use(cookieParser()); // Middleware phân tích cú pháp cookie gửi từ c
 // --- Routes ---
 app.use("/api/v1/auth", authRoutes);
 app.use("/api/v1/users", userRoutes);
+app.use("/api/v1/seller", sellerRoutes);
+app.use("/api/v1/admin", adminRoutes);
 
 // --- Swagger UI ---
 app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpecs));

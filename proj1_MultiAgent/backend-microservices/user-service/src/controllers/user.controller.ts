@@ -110,6 +110,7 @@ export class UserController {
         const nodes = await userService.getAllHardwareNodes();
         return res.json({ success: true, data: nodes });
     }
+
 }
 
 export const userController = new UserController();

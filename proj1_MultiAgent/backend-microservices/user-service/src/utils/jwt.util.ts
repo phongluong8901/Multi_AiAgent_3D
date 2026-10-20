@@ -1,14 +1,6 @@
 import jwt from "jsonwebtoken";
+import { RefreshTokenPayload, TokenPayload } from "../types/user.types";
 
-export interface TokenPayload {
-    userId: string;
-    email: string;
-    role: string;
-}
-
-export interface RefreshTokenPayload {
-    userId: string;
-}
 
 /** Tạo Access Token (Mặc định 15 phút) */
 export const generateToken = (payload: TokenPayload, expiresIn: string | number = "15m"): string => {

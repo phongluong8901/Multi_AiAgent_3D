@@ -60,6 +60,29 @@ export class UserRepository {
         );
         return result !== null;
     }
+
+    async findByRole(role: "guest" | "user" | "admin" | "seller"): Promise<IUser[]> {
+        return await UserModel.find({ role, isDeleted: { $ne: true } }).select("-passwordHash");
+    }
+
+    // 1. Tối ưu thuật toán tìm kiếm vị trí địa lý (Geo-spatial Query)
+    async findNearbyAINodes(longitude: number, latitude: number, maxDistanceMeters: number = 50000) {
+        return await UserModel.find({
+            isDeleted: { $ne: true },
+            'hardwareNode.canRunAI': true,
+            location: {
+                $near: {
+                    $geometry: {
+                        type: "Point",
+                        coordinates: [longitude, latitude]
+                    },
+                    $maxDistance: maxDistanceMeters
+                }
+            }
+        }).select("username email avatarUrl status location hardwareNode role").lean();
+    }
+
+
 }
 
 // Khởi tạo và export đối tượng userRepository dùng chung cho toàn bộ các service trong ứng dụng

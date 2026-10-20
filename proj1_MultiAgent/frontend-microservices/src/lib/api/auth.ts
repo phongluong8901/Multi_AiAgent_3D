@@ -31,37 +31,37 @@ export type GithubAuthPayload = {
 /** Giữ tên authService để useAuth khỏi đổi nhiều */
 export const authService = {
     register: (payload: RegisterPayload) =>
-        request<any>('/users/register', {
+        request<any>('/auth/register', {
             method: 'POST',
             body: JSON.stringify(payload),
         }),
 
     login: (payload: LoginPayload) =>
-        request<any>('/users/login', {
+        request<any>('/auth/login', {
             method: 'POST',
             body: JSON.stringify(payload),
         }),
 
     verifyOtp: (payload: VerifyOtpPayload) =>
-        request<any>('/users/verify-otp', {
+        request<any>('/auth/verify-otp', {
             method: 'POST',
             body: JSON.stringify(payload),
         }),
 
     resendOtp: (payload: ResendOtpPayload) =>
-        request<any>('/users/resend-otp', {
+        request<any>('/auth/resend-otp', {
             method: 'POST',
             body: JSON.stringify(payload),
         }),
 
     googleAuth: (payload: GoogleAuthPayload) =>
-        request<any>('/users/google', {
+        request<any>('/auth/google', {
             method: 'POST',
             body: JSON.stringify(payload),
         }),
 
     githubAuth: (payload: GithubAuthPayload) =>
-        request<any>('/users/github', {
+        request<any>('/auth/github', {
             method: 'POST',
             body: JSON.stringify(payload),
         }),

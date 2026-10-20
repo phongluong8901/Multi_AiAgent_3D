@@ -36,3 +36,16 @@ export interface GithubPayloadUser {
     name: string;           // Tên hiển thị đầy đủ trên GitHub (nếu có)
     avatarUrl: string;      // Đường dẫn URL ảnh đại diện gốc lấy từ GitHub
 }
+
+// jwt token types
+export interface TokenPayload {
+    userId: string;
+    email: string;
+    role: string;
+}
+
+export interface RefreshTokenPayload {
+    userId: string;
+    deviceId?: string; // Thêm trường này để TypeScript không báo lỗi
+    [key: string]: any;
+}
