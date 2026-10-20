@@ -4,174 +4,14 @@
  * @swagger
  * tags:
  *   name: Users
- *   description: Quản lý tài khoản người dùng, xác thực OTP, OAuth và Agent ownership
- */
-
-/**
- * @swagger
- * /api/v1/users/register:
- *   post:
- *     summary: Đăng ký tài khoản mới và đẩy luồng gửi email OTP qua RabbitMQ
- *     tags: [Users]
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - username
- *               - email
- *               - password
- *             properties:
- *               username:
- *                 type: string
- *                 example: phongluong
- *               email:
- *                 type: string
- *                 example: phong@example.com
- *               password:
- *                 type: string
- *                 example: 123456
- *     responses:
- *       200:
- *         description: Đăng ký thành công, vui lòng kiểm tra email để lấy mã OTP.
- *       400:
- *         description: Email đã tồn tại hoặc dữ liệu không hợp lệ.
- */
-
-/**
- * @swagger
- * /api/v1/users/login:
- *   post:
- *     summary: Đăng nhập tài khoản truyền thống
- *     tags: [Users]
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - email
- *               - password
- *             properties:
- *               email:
- *                 type: string
- *                 example: phong@example.com
- *               password:
- *                 type: string
- *                 example: 123456
- *     responses:
- *       200:
- *         description: Đăng nhập thành công, trả về Access Token và lưu Refresh Token vào HttpOnly Cookie.
- *       401:
- *         description: Sai email hoặc mật khẩu.
- *       403:
- *         description: Tài khoản chưa xác thực OTP.
- */
-
-/**
- * @swagger
- * /api/v1/users/google:
- *   post:
- *     summary: Đăng nhập / Đăng ký bằng Google OAuth
- *     tags: [Users]
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - idToken
- *             properties:
- *               idToken:
- *                 type: string
- *                 example: eyJhbGciOiJSUzI1NiIs...
- *     responses:
- *       200:
- *         description: Xác thực Google thành công.
- */
-
-/**
- * @swagger
- * /api/v1/users/github:
- *   post:
- *     summary: Đăng nhập / Đăng ký bằng GitHub OAuth
- *     tags: [Users]
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - code
- *             properties:
- *               code:
- *                 type: string
- *                 example: 4a2b3c4d5e6f7g8h
- *     responses:
- *       200:
- *         description: Xác thực GitHub thành công.
- */
-
-/**
- * @swagger
- * /api/v1/users/verify-otp:
- *   post:
- *     summary: Xác thực tài khoản bằng mã OTP 6 số
- *     tags: [Users]
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - email
- *               - otp
- *             properties:
- *               email:
- *                 type: string
- *                 example: phong@example.com
- *               otp:
- *                 type: string
- *                 example: "123456"
- *     responses:
- *       200:
- *         description: Kích hoạt tài khoản thành công.
- */
-
-/**
- * @swagger
- * /api/v1/users/resend-otp:
- *   post:
- *     summary: Yêu cầu gửi lại mã OTP mới qua RabbitMQ
- *     tags: [Users]
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - email
- *             properties:
- *               email:
- *                 type: string
- *                 example: phong@example.com
- *     responses:
- *       200:
- *         description: Đã gửi lại mã OTP mới.
+ *   description: Quản lý hồ sơ cá nhân, trạng thái hoạt động, agent sở hữu và phần cứng Hardware Node
  */
 
 /**
  * @swagger
  * /api/v1/users:
  *   get:
- *     summary: Lấy danh sách toàn bộ người dùng
+ *     summary: Lấy danh sách toàn bộ người dùng trong hệ thống
  *     tags: [Users]
  *     responses:
  *       200:
@@ -180,93 +20,30 @@
 
 /**
  * @swagger
- * /api/v1/users/forgot-password:
- *   post:
- *     summary: Yêu cầu quên mật khẩu (gửi OTP qua RabbitMQ)
- *     tags: [Users]
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - email
- *             properties:
- *               email:
- *                 type: string
- *                 example: phong@example.com
- *     responses:
- *       200:
- *         description: Đã gửi mã OTP đặt lại mật khẩu.
- */
-
-/**
- * @swagger
- * /api/v1/users/reset-password:
- *   post:
- *     summary: Đặt lại mật khẩu mới bằng mã OTP
- *     tags: [Users]
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - email
- *               - otp
- *               - newPassword
- *             properties:
- *               email:
- *                 type: string
- *                 example: phong@example.com
- *               otp:
- *                 type: string
- *                 example: "123456"
- *               newPassword:
- *                 type: string
- *                 example: newpassword123
- *     responses:
- *       200:
- *         description: Đặt lại mật khẩu thành công.
- */
-
-/**
- * @swagger
- * /api/v1/users/refresh-token:
- *   post:
- *     summary: Làm mới Access Token từ Refresh Token (trong Cookie)
+ * /api/v1/users/hardware-nodes:
+ *   get:
+ *     summary: Lấy danh sách toàn bộ các Hardware Node có năng lực chạy AI trên hệ thống
  *     tags: [Users]
  *     responses:
  *       200:
- *         description: Cấp thành công Access Token mới.
- */
-
-/**
- * @swagger
- * /api/v1/users/logout:
- *   post:
- *     summary: Đăng xuất tài khoản, thu hồi Refresh Token và xóa Cookie
- *     tags: [Users]
- *     responses:
- *       200:
- *         description: Đăng xuất thành công.
+ *         description: Trả về danh sách các hardware node thành công.
  */
 
 /**
  * @swagger
  * /api/v1/users/me:
  *   get:
- *     summary: Lấy thông tin cá nhân của user đang đăng nhập
+ *     summary: Lấy thông tin chi tiết hồ sơ cá nhân của user đang đăng nhập
  *     tags: [Users]
  *     security:
  *       - BearerAuth: []
  *     responses:
  *       200:
- *         description: Trả về thông tin profile.
+ *         description: Trả về thông tin profile thành công.
+ *       401:
+ *         description: Chưa xác thực hoặc thiếu token.
  *   put:
- *     summary: Cập nhật thông tin cá nhân của user
+ *     summary: Cập nhật thông tin hồ sơ cá nhân của user
  *     tags: [Users]
  *     security:
  *       - BearerAuth: []
@@ -279,18 +56,23 @@
  *             properties:
  *               username:
  *                 type: string
+ *                 example: phongluong
  *               bio:
  *                 type: string
+ *                 example: Fullstack & AI Developer
+ *               avatarUrl:
+ *                 type: string
+ *                 example: https://res.cloudinary.com/...
  *     responses:
  *       200:
- *         description: Cập nhật thành công.
+ *         description: Cập nhật profile thành công.
  */
 
 /**
  * @swagger
- * /api/v1/users/change-password:
- *   post:
- *     summary: Đổi mật khẩu khi đã đăng nhập
+ * /api/v1/users/me/status:
+ *   put:
+ *     summary: Cập nhật trạng thái hoạt động trực tuyến (online, offline, busy)
  *     tags: [Users]
  *     security:
  *       - BearerAuth: []
@@ -301,36 +83,95 @@
  *           schema:
  *             type: object
  *             required:
- *               - oldPassword
- *               - newPassword
+ *               - status
  *             properties:
- *               oldPassword:
+ *               status:
  *                 type: string
- *               newPassword:
- *                 type: string
+ *                 enum: [online, offline, busy]
+ *                 example: online
  *     responses:
  *       200:
- *         description: Đổi mật khẩu thành công.
+ *         description: Cập nhật trạng thái thành công.
+ */
+
+/**
+ * @swagger
+ * /api/v1/users/me/avatar:
+ *   put:
+ *     summary: Tải lên và cập nhật ảnh đại diện (avatar) qua Cloudinary Buffer
+ *     tags: [Users]
+ *     security:
+ *       - BearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - avatar
+ *             properties:
+ *               avatar:
+ *                 type: string
+ *                 format: binary
+ *                 description: File ảnh đại diện cần tải lên
+ *     responses:
+ *       200:
+ *         description: Cập nhật avatar thành công.
+ */
+
+/**
+ * @swagger
+ * /api/v1/users/me/hardware-node:
+ *   get:
+ *     summary: Lấy cấu hình phần cứng Hardware Node của người dùng hiện tại
+ *     tags: [Users]
+ *     security:
+ *       - BearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Trả về thông tin hardware node thành công.
+ *   post:
+ *     summary: Cập nhật hoặc đăng ký thông số phần cứng nút tính toán AI (Hardware Node)
+ *     tags: [Users]
+ *     security:
+ *       - BearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               nodeName:
+ *                 type: string
+ *                 example: Edge Node 01
+ *               gpuModel:
+ *                 type: string
+ *                 example: NVIDIA RTX 4090
+ *     responses:
+ *       200:
+ *         description: Lưu cấu hình Hardware Node thành công.
  */
 
 /**
  * @swagger
  * /api/v1/users/me/agents:
  *   get:
- *     summary: Lấy danh sách các agent thuộc sở hữu của user
+ *     summary: Lấy danh sách mã định danh các Agent mà người dùng sở hữu
  *     tags: [Users]
  *     security:
  *       - BearerAuth: []
  *     responses:
  *       200:
- *         description: Trả về danh sách agent IDs.
+ *         description: Trả về danh sách agent IDs thành công.
  */
 
 /**
  * @swagger
  * /api/v1/users/me/agents/{agentId}:
  *   post:
- *     summary: Thêm một agent vào danh sách sở hữu của user
+ *     summary: Thêm (đăng ký sở hữu) một Agent mới vào hồ sơ người dùng
  *     tags: [Users]
  *     security:
  *       - BearerAuth: []
@@ -340,11 +181,12 @@
  *         required: true
  *         schema:
  *           type: string
+ *         description: ID của agent cần thêm
  *     responses:
  *       200:
  *         description: Thêm agent thành công.
  *   delete:
- *     summary: Xóa một agent khỏi danh sách sở hữu của user
+ *     summary: Xóa (hủy sở hữu) một Agent khỏi hồ sơ người dùng
  *     tags: [Users]
  *     security:
  *       - BearerAuth: []
@@ -354,6 +196,7 @@
  *         required: true
  *         schema:
  *           type: string
+ *         description: ID của agent cần xóa
  *     responses:
  *       200:
  *         description: Xóa agent thành công.
@@ -363,7 +206,7 @@
  * @swagger
  * /api/v1/users/{id}:
  *   get:
- *     summary: Lấy thông tin công khai của bất kỳ user nào theo ID
+ *     summary: Lấy thông tin chi tiết một người dùng theo ID (Public Profile)
  *     tags: [Users]
  *     parameters:
  *       - in: path
@@ -371,9 +214,10 @@
  *         required: true
  *         schema:
  *           type: string
+ *         description: ID của user cần lấy thông tin
  *     responses:
  *       200:
- *         description: Trả về thông tin user.
+ *         description: Trả về thông tin user thành công.
  *       404:
  *         description: Không tìm thấy user.
  */
