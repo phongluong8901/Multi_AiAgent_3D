@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { roomsApi, agentsApi, Room, Agent } from '@/lib/api'
+import { getUser } from '@/lib/auth'
 import { IconPlus, IconUsers, IconBot, IconX, IconArrowLeft } from '@/components/ui/icons'
 
 export default function RoomsHubPage() {
@@ -16,6 +17,8 @@ export default function RoomsHubPage() {
     const [roomName, setRoomName] = useState('')
     const [description, setDescription] = useState('')
     const [maxCapacity, setMaxCapacity] = useState(20)
+    const [tier, setTier] = useState<'standard' | 'premium' | 'enterprise'>('standard')
+    const [ownedAgentsCount, setOwnedAgentsCount] = useState(3)
     const [selectedAgents, setSelectedAgents] = useState<string[]>([
         'agent_manager',
         'agent_ml',
@@ -48,17 +51,36 @@ export default function RoomsHubPage() {
         e.preventDefault()
         if (!roomName.trim()) return
 
+        const currentUser = getUser()
+        const ownerId = currentUser?.id || 'user_guest_hq'
+        const ownerName = currentUser?.name || currentUser?.email || 'Phong Luong'
+
         try {
             setSubmitting(true)
+            // Gọi api create (đã được định nghĩa trỏ tới /rooms/user-user)
             await roomsApi.create({
                 name: roomName.trim(),
                 description: description.trim(),
+                ownerId,
                 maxCapacity,
                 activeAgents: selectedAgents,
+                policy: {
+                    tier,
+                    isPublic: true,
+                    maxActiveAgents: 10,
+                    ownedAgentsCount,
+                },
                 settings: {
                     allowCrossCommands: true,
                     autonomousHandoff: true,
                     maxAutoTurns: 3,
+                },
+                initialMember: {
+                    memberId: ownerId,
+                    memberType: 'user',
+                    role: 'owner',
+                    name: ownerName,
+                    color: '#3b82f6',
                 },
             })
             setModalOpen(false)
@@ -115,7 +137,7 @@ export default function RoomsHubPage() {
                         Phòng Làm Việc Nhóm Đa Agent
                     </h1>
                     <p className="text-sm text-zinc-400 leading-relaxed">
-                        Nhiều người dùng có thể tham gia chung một phòng, kết hợp các AI Agent thành một nhóm làm việc tự chủ, và ra lệnh chéo cho bất kỳ Agent nào trong không gian 3D.
+                        Nhiều người dùng có thể tham gia chung một phòng, kết hợp các AI Agent thành một nhóm làm việc tự chủ, hỗ trợ phân quyền chủ phòng và chia sẻ file tài liệu (.csv, .xlsx, ảnh) mượt mà.
                     </p>
                     <div className="pt-2">
                         <button
@@ -165,6 +187,8 @@ export default function RoomsHubPage() {
                             const roomId = room._id || room.id || ''
                             const agentsCount = room.activeAgents?.length || 0
                             const membersCount = room.members?.length || 0
+                            const tierBadge = room.policy?.tier || 'standard'
+                            const ownedCount = room.policy?.ownedAgentsCount ?? 3
 
                             return (
                                 <div
@@ -174,9 +198,14 @@ export default function RoomsHubPage() {
                                     <div className="space-y-4">
                                         <div className="flex items-start justify-between gap-3">
                                             <div>
-                                                <h3 className="font-semibold text-white group-hover:text-blue-400 transition text-base">
-                                                    {room.name}
-                                                </h3>
+                                                <div className="flex items-center gap-2">
+                                                    <h3 className="font-semibold text-white group-hover:text-blue-400 transition text-base">
+                                                        {room.name}
+                                                    </h3>
+                                                    <span className="text-[10px] px-2 py-0.5 rounded uppercase tracking-wider font-bold bg-purple-500/10 text-purple-400 border border-purple-500/20">
+                                                        {tierBadge}
+                                                    </span>
+                                                </div>
                                                 <p className="text-xs text-zinc-400 mt-1 line-clamp-2">
                                                     {room.description || 'Không có mô tả cho phòng này.'}
                                                 </p>
@@ -189,9 +218,10 @@ export default function RoomsHubPage() {
 
                                         {/* Team Agents in Room */}
                                         <div className="space-y-1.5">
-                                            <span className="text-[11px] uppercase tracking-wider text-zinc-500 font-semibold">
-                                                Nhóm Agent ({agentsCount})
-                                            </span>
+                                            <div className="flex items-center justify-between text-[11px] uppercase tracking-wider text-zinc-500 font-semibold">
+                                                <span>Nhóm Agent ({agentsCount})</span>
+                                                <span>Sở hữu tối đa: {ownedCount}</span>
+                                            </div>
                                             <div className="flex flex-wrap gap-1.5">
                                                 {room.activeAgents?.slice(0, 4).map((agId) => (
                                                     <span
@@ -213,7 +243,7 @@ export default function RoomsHubPage() {
                                     {/* Footer Info & Action */}
                                     <div className="pt-5 mt-4 border-t border-zinc-800/80 flex items-center justify-between">
                                         <div className="text-xs text-zinc-400">
-                                            Sức chứa: <span className="text-zinc-200 font-medium">{membersCount}/{room.maxCapacity}</span>
+                                            Thành viên: <span className="text-zinc-200 font-medium">{membersCount}/{room.maxCapacity}</span>
                                         </div>
                                         <Link
                                             href={`/rooms/${roomId}`}
@@ -237,7 +267,7 @@ export default function RoomsHubPage() {
                             <div>
                                 <h3 className="text-lg font-semibold text-white">Tạo Phòng Nhóm Mới</h3>
                                 <p className="text-xs text-zinc-400 mt-0.5">
-                                    Thiết lập không gian làm việc đa Agent và mời đồng đội
+                                    Thiết lập không gian làm việc đa Agent và phân quyền quản trị
                                 </p>
                             </div>
                             <button
@@ -255,7 +285,7 @@ export default function RoomsHubPage() {
                                     required
                                     value={roomName}
                                     onChange={(e) => setRoomName(e.target.value)}
-                                    placeholder="ví dụ: AI Research & Dev Lab"
+                                    placeholder="ví dụ: AI Research & Data Analysis Lab"
                                     className="w-full rounded-xl bg-zinc-950 border border-zinc-700/80 px-3.5 py-2.5 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500 transition"
                                 />
                             </div>
@@ -266,41 +296,66 @@ export default function RoomsHubPage() {
                                     rows={2}
                                     value={description}
                                     onChange={(e) => setDescription(e.target.value)}
-                                    placeholder="Mô tả công việc chung mà các Agent và User sẽ cùng phối hợp giải quyết..."
+                                    placeholder="Mô tả công việc chung, hỗ trợ gửi tài liệu .csv, .xlsx, ảnh..."
                                     className="w-full rounded-xl bg-zinc-950 border border-zinc-700/80 px-3.5 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500 transition resize-none"
                                 />
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-3">
+                                <div className="space-y-1.5">
+                                    <label className="text-xs font-medium text-zinc-300">Gói dịch vụ (Tier)</label>
+                                    <select
+                                        value={tier}
+                                        onChange={(e) => setTier(e.target.value as any)}
+                                        className="w-full rounded-xl bg-zinc-950 border border-zinc-700/80 px-3 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500 transition"
+                                    >
+                                        <option value="standard">Standard</option>
+                                        <option value="premium">Premium</option>
+                                        <option value="enterprise">Enterprise</option>
+                                    </select>
+                                </div>
+                                <div className="space-y-1.5">
+                                    <label className="text-xs font-medium text-zinc-300">Giới hạn Agent sở hữu</label>
+                                    <input
+                                        type="number"
+                                        min={1}
+                                        max={10}
+                                        value={ownedAgentsCount}
+                                        onChange={(e) => setOwnedAgentsCount(parseInt(e.target.value) || 3)}
+                                        className="w-full rounded-xl bg-zinc-950 border border-zinc-700/80 px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500 transition"
+                                    />
+                                </div>
                             </div>
 
                             <div className="space-y-1.5">
                                 <label className="text-xs font-medium text-zinc-300">
                                     Chọn các AI Agent làm việc trong phòng này
                                 </label>
-                                <div className="grid grid-cols-2 gap-2 pt-1 max-h-48 overflow-y-auto pr-1">
+                                <div className="grid grid-cols-2 gap-2 pt-1 max-h-40 overflow-y-auto pr-1">
                                     {(availableAgents.length > 0
                                         ? availableAgents
                                         : [
-                                              { id: 'agent_manager', name: 'Manager Agent' },
-                                              { id: 'agent_ml', name: 'ML Expert' },
-                                              { id: 'agent_analyst', name: 'Data Analyst' },
-                                              { id: 'agent_search', name: 'Search Expert' },
-                                              { id: 'agent_summarizer', name: 'Summarizer Agent' },
-                                          ]
+                                            { id: 'agent_manager', name: 'Manager Agent' },
+                                            { id: 'agent_ml', name: 'ML Expert' },
+                                            { id: 'agent_analyst', name: 'Data Analyst' },
+                                            { id: 'agent_search', name: 'Search Expert' },
+                                            { id: 'agent_summarizer', name: 'Summarizer Agent' },
+                                        ]
                                     ).map((ag) => {
                                         const checked = selectedAgents.includes(ag.id)
                                         return (
                                             <div
                                                 key={ag.id}
                                                 onClick={() => toggleAgentSelection(ag.id)}
-                                                className={`cursor-pointer flex items-center gap-2 p-2.5 rounded-xl border text-xs transition select-none ${
-                                                    checked
+                                                className={`cursor-pointer flex items-center gap-2 p-2.5 rounded-xl border text-xs transition select-none ${checked
                                                         ? 'bg-blue-600/15 border-blue-500/50 text-white font-medium'
                                                         : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:border-zinc-700'
-                                                }`}
+                                                    }`}
                                             >
                                                 <input
                                                     type="checkbox"
                                                     checked={checked}
-                                                    onChange={() => {}}
+                                                    onChange={() => { }}
                                                     className="rounded border-zinc-700 text-blue-600 pointer-events-none"
                                                 />
                                                 <span className="truncate">{ag.name}</span>

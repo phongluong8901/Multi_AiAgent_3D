@@ -121,10 +121,6 @@ services:
     container_name: rooms_service
     ports:
       - "5002:5002"
-    environment:
-      - PORT=5002
-      - MONGO_URI=mongodb://mongo:27017/rooms_db
-      - RABBITMQ_URL=amqp://admin:admin123@rabbitmq:5672
     depends_on:
       - mongo
       - rabbitmq

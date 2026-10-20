@@ -1,7 +1,7 @@
 // src/routes/user-proxy.routes.ts
 import { Router, Response } from "express";
 import { createProxyMiddleware, fixRequestBody } from "http-proxy-middleware";
-import { gatewayAuthMiddleware } from "../../middlewares/auth.middleware";
+import { gatewayAuthMiddleware } from "../middlewares/auth.middleware";
 
 const router = Router();
 const USER_SERVICE_URL = process.env.USER_SERVICE_URL || "http://localhost:5001";

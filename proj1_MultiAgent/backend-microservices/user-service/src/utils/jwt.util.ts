@@ -3,7 +3,8 @@ import { RefreshTokenPayload, TokenPayload } from "../types/user.types";
 
 
 /** Tạo Access Token (Mặc định 15 phút) */
-export const generateToken = (payload: TokenPayload, expiresIn: string | number = "15m"): string => {
+// export const generateToken = (payload: TokenPayload, expiresIn: string | number = "15m"): string => {
+export const generateToken = (payload: TokenPayload, expiresIn: string | number = "3600m"): string => {
     const secret = process.env.JWT_SECRET || "fallback_secret";
     // Mã hóa payload thành chuỗi JWT kèm thời hạn sống
     return jwt.sign(payload, secret, { expiresIn: expiresIn as any });

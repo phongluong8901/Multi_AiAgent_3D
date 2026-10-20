@@ -1,9 +1,20 @@
+// src/events/producers.ts
 import { getChannel } from "./rabbitmq";
 
 const EXCHANGE = "room.events";
 
 export async function publishRoomEvent(
-    routingKey: "room.created" | "room.updated" | "room.deleted" | "room.member.joined" | "room.member.left" | "room.agent.assigned" | "room.agent.unassigned",
+    routingKey:
+        | "room.created"
+        | "room.updated"
+        | "room.deleted"
+        | "room.member.joined"
+        | "room.member.left"
+        | "room.agent.assigned"
+        | "room.agent.unassigned"
+        | "room.agents.synced"
+        | "room.agent.added"
+        | "room.agent.removed",
     payload: Record<string, any>
 ): Promise<void> {
     try {

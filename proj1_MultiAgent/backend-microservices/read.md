@@ -93,6 +93,8 @@ npm install @react-oauth/google
 npm install axios
 npm install sonner
 
+npm install lucide-react
+
 # --- run
 cd proj1_MultiAgent
 cd backend-microservices
