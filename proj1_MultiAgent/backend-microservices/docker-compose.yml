@@ -1,0 +1,192 @@
+services:
+  # --- PostgreSQL Database (for agent-service) ---
+  db:
+    image: postgres:15-alpine
+    container_name: agents_db_postgres
+    environment:
+      POSTGRES_USER: postgres_user
+      POSTGRES_PASSWORD: postgres_password
+      POSTGRES_DB: agents_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -h 127.0.0.1 -U postgres_user -d agents_db || exit 1",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: always
+
+  # --- Shared MongoDB Database ---
+  mongo:
+    image: mongo:latest
+    container_name: shared_mongo_db
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "echo 'db.runCommand({ping: 1}).ok' | mongosh localhost:27017/test --quiet || exit 1",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: always
+
+  # --- RabbitMQ Message Broker ---
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: rabbitmq_broker
+    ports:
+      - "5672:5672" # AMQP protocol port
+      - "15672:15672" # Management UI (admin / admin)
+    environment:
+      RABBITMQ_DEFAULT_USER: admin
+      RABBITMQ_DEFAULT_PASS: admin123
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: always
+
+  # --- Redis (Short-term Memory Cache) ---
+  redis:
+    image: redis:7-alpine
+    container_name: redis_cache
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: always
+
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: redis_commander_dashboard
+    environment:
+      - REDIS_HOSTS=local:redis:6379
+    ports:
+      - "8081:8081"
+    depends_on:
+      - redis
+    restart: always
+
+  # --- Node.js TypeScript User Microservice ---
+  user-service:
+    build: ./user-service
+    container_name: users_service
+    env_file:
+      - ./user-service/.env
+    ports:
+      - "5001:5001"
+    depends_on:
+      - mongo
+    restart: always
+
+  # --- Node.js TypeScript Room Microservice ---
+  room-service:
+    build: ./room-service
+    container_name: rooms_service
+    ports:
+      - "5002:5002"
+    environment:
+      - PORT=5002
+      - MONGO_URI=mongodb://mongo:27017/rooms_db
+      - RABBITMQ_URL=amqp://admin:admin123@rabbitmq:5672
+    depends_on:
+      - mongo
+      - rabbitmq
+    restart: always
+
+  # --- Node.js TypeScript Chat & Real-time Microservice ---
+  chat-service:
+    build: ./chat-service
+    container_name: chats_service
+    ports:
+      - "5003:5003"
+    environment:
+      - PORT=5003
+      - MONGO_URI=mongodb://mongo:27017/chats_db
+      - RABBITMQ_URL=amqp://admin:admin123@rabbitmq:5672
+      - AGENT_SERVICE_URL=http://agent-service:8000
+    depends_on:
+      - mongo
+      - rabbitmq
+    restart: always
+
+  # --- FastAPI Agent Microservice ---
+  agent-service:
+    build: ./agent-service
+    container_name: agents_service
+    env_file:
+      - ./agent-service/.env
+    ports:
+      - "8000:8000"
+    environment:
+      - PROJECT_NAME=Agents Service
+      - DEBUG=True
+      - RABBITMQ_URL=amqp://admin:admin123@rabbitmq:5672
+      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=postgresql+psycopg2://postgres_user:postgres_password@db:5432/agents_db
+    depends_on:
+      - db
+      - redis
+      - rabbitmq
+    restart: always
+
+  # --- API Gateway (Cổng giao tiếp duy nhất cho Client) ---
+  api-gateway:
+    build: ./gateway-service
+    container_name: api_gateway_service
+    ports:
+      - "4000:4000"
+    environment:
+      - PORT=4000
+      - USER_SERVICE_URL=http://user-service:5001
+      - ROOM_SERVICE_URL=http://room-service:5002
+      - CHAT_SERVICE_URL=http://chat-service:5003
+      - AGENT_SERVICE_URL=http://agent-service:8000
+      - JWT_SECRET=super_secret_key_2026
+    depends_on:
+      - user-service
+      - room-service
+      - chat-service
+      - agent-service
+    restart: always
+
+  # --- Next.js Frontend ---
+  # frontend:
+  #   build: ./frontend-microservices
+  #   container_name: frontend_app
+  #   ports:
+  #     - "3000:3000"
+  #   environment:
+  #     - NEXT_PUBLIC_GATEWAY_URL=http://localhost:4000
+  #     - NEXT_PUBLIC_SOCKET_URL=http://localhost:4000
+  #   depends_on:
+  #     - api-gateway
+  #   restart: always
+
+volumes:
+  postgres_data:
+  mongo_data:
+  rabbitmq_data:
+  redis_data:
