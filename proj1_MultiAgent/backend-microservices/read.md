@@ -79,6 +79,8 @@ npm install express-rate-limit rate-limit-redis
 npm install ioredis
 npm uninstall redis
 
+npm install @opentelemetry/sdk-node @opentelemetry/auto-instrumentations-node @opentelemetry/api prom-client express-prom-bundle winston
+
 --- gateway-service
 npm install jsonwebtoken
 npm install --save-dev @types/jsonwebtoken
@@ -143,6 +145,14 @@ http://localhost:8081
 
 - rabbitMQ
 http://localhost:15672/#/
+
+# --- link tracing, monitor, mertrics
+- Dashboard (Grafana)
+http://localhost:3003
+- Metrics (Prometheus)
+http://localhost:9090
+
+
 
 # --- link setup
 - tavily search

@@ -11,6 +11,8 @@ import crypto from "crypto";
 import swaggerUi from "swagger-ui-express";
 import { swaggerSpecs } from "./config/swagger";
 
+import { metricsMiddleware } from "./middlewares/metrics.middleware";
+
 // Polyfill đối tượng crypto toàn cục (globalThis)
 if (!(globalThis as any).crypto) {
     (globalThis as any).crypto = crypto;
@@ -20,6 +22,8 @@ if (!(globalThis as any).crypto) {
 const app = express();
 
 // --- Middleware ---
+app.use(metricsMiddleware); //tracing + metrics
+
 app.use(cors({
     origin: true, // Hoặc cấu hình domain cụ thể của Gateway/Frontend
     credentials: true // Cho phép nhận cookie (refreshToken)

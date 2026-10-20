@@ -22,6 +22,8 @@ services:
       retries: 10
       start_period: 30s
     restart: always
+    networks:
+      - multi-agent-network
 
   # --- Shared MongoDB Database ---
   mongo:
@@ -42,6 +44,8 @@ services:
       retries: 10
       start_period: 30s
     restart: always
+    networks:
+      - multi-agent-network
 
   # --- RabbitMQ Message Broker ---
   rabbitmq:
@@ -62,6 +66,8 @@ services:
       retries: 10
       start_period: 30s
     restart: always
+    networks:
+      - multi-agent-network
 
   # --- Redis (Short-term Memory Cache) ---
   redis:
@@ -77,6 +83,8 @@ services:
       timeout: 5s
       retries: 10
     restart: always
+    networks:
+      - multi-agent-network
 
   redis-commander:
     image: rediscommander/redis-commander:latest
@@ -88,6 +96,8 @@ services:
     depends_on:
       - redis
     restart: always
+    networks:
+      - multi-agent-network
 
   # --- Node.js TypeScript User Microservice ---
   user-service:
@@ -99,7 +109,11 @@ services:
       - "5001:5001"
     depends_on:
       - mongo
+      - redis
+      - rabbitmq
     restart: always
+    networks:
+      - multi-agent-network
 
   # --- Node.js TypeScript Room Microservice ---
   room-service:
@@ -115,6 +129,8 @@ services:
       - mongo
       - rabbitmq
     restart: always
+    networks:
+      - multi-agent-network
 
   # --- Node.js TypeScript Chat & Real-time Microservice ---
   chat-service:
@@ -131,6 +147,8 @@ services:
       - mongo
       - rabbitmq
     restart: always
+    networks:
+      - multi-agent-network
 
   # --- FastAPI Agent Microservice ---
   agent-service:
@@ -151,6 +169,8 @@ services:
       - redis
       - rabbitmq
     restart: always
+    networks:
+      - multi-agent-network
 
   # --- API Gateway (Cổng giao tiếp duy nhất cho Client) ---
   api-gateway:
@@ -171,6 +191,8 @@ services:
       - chat-service
       - agent-service
     restart: always
+    networks:
+      - multi-agent-network
 
   # --- Next.js Frontend ---
   # frontend:
@@ -185,8 +207,65 @@ services:
   #     - api-gateway
   #   restart: always
 
+  # --- 1. Prometheus (Thu thập Metrics) ---
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: monitoring_prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+    restart: always
+    networks:
+      - multi-agent-network
+
+  # --- 2. Loki (Thu thập và lưu trữ Logs) ---
+  loki:
+    image: grafana/loki:latest
+    container_name: monitoring_loki
+    ports:
+      - "3100:3100"
+    restart: always
+    networks:
+      - multi-agent-network
+
+  # --- 3. Tempo (Thu thập Traces từ OpenTelemetry) ---
+  tempo:
+    image: grafana/tempo:latest
+    container_name: monitoring_tempo
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./monitoring/tempo.yaml:/etc/tempo.yaml
+    ports:
+      - "4317:4317" # OTLP gRPC receiver
+      - "4318:4318" # OTLP HTTP receiver (Dùng cho user-service đẩy trace lên)
+    restart: always
+    networks:
+      - multi-agent-network
+
+  # --- 4. Grafana (Giao diện Dashboard tổng hợp Metrics, Logs, Traces) ---
+  grafana:
+    image: grafana/grafana:latest
+    container_name: monitoring_grafana
+    ports:
+      - "3003:3000" # Truy cập giao diện tại http://localhost:3000 (admin / admin)
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
+    restart: always
+    networks:
+      - multi-agent-network
+
 volumes:
   postgres_data:
   mongo_data:
   rabbitmq_data:
   redis_data:
+
+networks:
+  multi-agent-network:
+    driver: bridge
