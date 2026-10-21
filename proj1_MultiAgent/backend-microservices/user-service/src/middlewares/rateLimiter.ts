@@ -2,8 +2,18 @@ import { Redis } from "ioredis";
 import { RedisStore } from "rate-limit-redis";
 import rateLimit from "express-rate-limit";
 import dotenv from "dotenv";
+import fs from "fs";
+import path from "path";
 
-dotenv.config();
+// Kiểm tra xem có file .env thật không (dùng khi chạy local)
+const envPath = path.resolve(process.cwd(), ".env");
+if (fs.existsSync(envPath)) {
+    dotenv.config({ path: envPath });
+    console.log("◇ Loaded env from local .env file");
+} else {
+    // Nếu ở trên Docker (không có file .env), giữ nguyên biến do Docker Compose cung cấp
+    dotenv.config();
+}
 
 // Khởi tạo ioredis client (tự động queue lệnh, khắc phục hoàn toàn ClientClosedError)
 const redisClient = new Redis(process.env.REDIS_URL || "redis://redis:6379");

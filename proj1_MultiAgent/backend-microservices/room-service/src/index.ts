@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
+import http from "http";
 import { connectDB } from "./config/db";
 import { connectRabbitMQ } from "./events/rabbitmq";
 import { startRoomConsumers } from "./events/consumers";
@@ -8,33 +9,32 @@ import userUserRoomRoutes from "./routes/user-user.room.routes";
 import agentAgentRoomRoutes from "./routes/agent-agent.room.routes";
 import userAgentRoomRoutes from "./routes/user-agent.room.routes";
 import { errorHandler } from "./middlewares/error.middleware";
-import { Server } from "socket.io";
-import http from "http";
+import { initSocket } from "./config/socket";
+import fs from "fs";
+import path from "path";
 
 import crypto from "crypto";
 if (!(globalThis as any).crypto) {
     (globalThis as any).crypto = crypto;
 }
 
-dotenv.config();
+// Kiểm tra xem có file .env thật không (dùng khi chạy local)
+const envPath = path.resolve(process.cwd(), ".env");
+if (fs.existsSync(envPath)) {
+    dotenv.config({ path: envPath });
+    console.log("◇ Loaded env from local .env file");
+} else {
+    // Nếu ở trên Docker (không có file .env), giữ nguyên biến do Docker Compose cung cấp
+    dotenv.config();
+}
 
 const app = express();
 const server = http.createServer(app);
 
 const PORT = process.env.PORT || 5002;
 
-// Khởi tạo Socket.IO Server
-export const io = new Server(server, {
-    cors: { origin: "*" }
-});
-
-io.on("connection", (socket) => {
-    // Khi client gửi event 'identity' kèm theo userId của họ
-    socket.on("identity", (userId: string) => {
-        socket.join(userId); // Cho client gia nhập vào một room riêng mang tên chính userId đó
-        console.log(`[Socket.IO] User ${userId} connected & joined personal room`);
-    });
-});
+// Khởi tạo Socket.IO Server thông qua file config riêng
+initSocket(server);
 
 // Middleware
 app.use(cors());
@@ -64,7 +64,8 @@ connectDB().then(async () => {
         console.warn("[room-service] RabbitMQ not available, continuing without it:", err.message);
     }
 
-    app.listen(PORT, () => {
+    // Dùng server.listen thay vì app.listen để Socket.io hoạt động chính xác trên cổng 5002
+    server.listen(PORT, () => {
         console.log(`[room-service] Server is running on http://localhost:${PORT}`);
     });
 });

@@ -9,12 +9,23 @@ import { configureSocketChat } from "./sockets/chat.gateway";
 import { connectRabbitMQ } from "./events/rabbitmq";
 import { startChatConsumers } from "./events/consumers";
 
+import fs from "fs";
+import path from "path";
+
 import crypto from "crypto";
 if (!(globalThis as any).crypto) {
     (globalThis as any).crypto = crypto;
 }
 
-dotenv.config();
+// Kiểm tra xem có file .env thật không (dùng khi chạy local)
+const envPath = path.resolve(process.cwd(), ".env");
+if (fs.existsSync(envPath)) {
+    dotenv.config({ path: envPath });
+    console.log("◇ Loaded env from local .env file");
+} else {
+    // Nếu ở trên Docker (không có file .env), giữ nguyên biến do Docker Compose cung cấp
+    dotenv.config();
+}
 
 const app = express();
 const server = http.createServer(app);
@@ -35,7 +46,7 @@ app.use(express.json());
 app.use("/api/v1/chats", chatRoutes);
 
 app.get("/", (req, res) => {
-    res.status(200).json({ 
+    res.status(200).json({
         message: "Chat Service & Socket.IO Gateway is running smoothly!",
         rabbitmq: "enabled",
         shortMemory: "enabled",

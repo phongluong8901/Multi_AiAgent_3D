@@ -24,6 +24,11 @@ export default function RoomsHubPage() {
     const [maxCapacity] = useState(20)
     const [tier, setTier] = useState<'standard' | 'premium' | 'enterprise'>('standard')
     const [ownedAgentsCount, setOwnedAgentsCount] = useState(3)
+
+    // --- BỔ SUNG 2 STATE QUẢN LÝ TRẠNG THÁI RIÊNG TƯ / MẬT KHẨU ---
+    const [isPublic, setIsPublic] = useState(true)
+    const [password, setPassword] = useState('')
+
     const [selectedAgents, setSelectedAgents] = useState<string[]>([
         'agent_manager',
         'agent_ml',
@@ -58,40 +63,48 @@ export default function RoomsHubPage() {
         }
     }
 
-    // --- KẾT NỐI SOCKET.IO VÀ POLLING NGẦM CHO HUB ---
+    // --- KẾT NỐI SOCKET.IO REALTIME (Đã thêm extraHeaders để qua cổng 4000) ---
     useEffect(() => {
         loadData()
         loadInvites()
 
-        // Thiết lập Polling ngầm mỗi 5 giây để đề phòng mất gói tin Socket/RabbitMQ
-        const pollingInterval = setInterval(() => {
-            loadData()
-            loadInvites()
-        }, 5000)
+        if (!me?.id) return
 
-        if (!me?.id) return () => clearInterval(pollingInterval)
+        const socketUrl = process.env.NEXT_PUBLIC_SOCKET_ROOM_URL || 'http://localhost:4000'
+        const token = localStorage.getItem('token') || ''
 
-        const socketUrl = process.env.NEXT_PUBLIC_SOCKET_ROOM_URL || 'http://localhost:5002'
-        const socket = io(socketUrl)
+        const socket = io(socketUrl, {
+            path: '/api/v1/rooms/socket.io',
+            transports: ['polling', 'websocket'],
+            auth: {
+                token: token, // Dành cho room-service xác thực bên trong
+            },
+            extraHeaders: token ? {
+                Authorization: `Bearer ${token}`, // Hỗ trợ qua API Gateway
+            } : {},
+        })
 
         socket.on('connect', () => {
-            // Đăng ký định danh room/user cá nhân để nhận event room_invited từ server
+            console.log('✅ Socket connected ID:', socket.id)
             socket.emit('identity', me.id)
-            socket.emit('join', me.id) // Hỗ trợ cả cú pháp join room cá nhân
+            socket.emit('join', me.id)
         })
 
-        // Lắng nghe sự kiện có lời mời mới được tạo từ server đẩy về
-        socket.on('room_invited', () => {
+        socket.on('connect_error', (err) => {
+            console.error('❌ Socket connection error:', err.message)
+        })
+
+        socket.on('room_invited', (data) => {
+            console.log('🔔 Nhận được event room_invited:', data)
             loadInvites()
         })
 
-        // Lắng nghe sự kiện cập nhật phòng chung
-        socket.on('room-updated', () => {
+        socket.on('room-updated', (data) => {
+            console.log('🔄 Nhận được event room-updated:', data)
             loadData()
         })
 
         return () => {
-            clearInterval(pollingInterval)
             socket.disconnect()
         }
     }, [me?.id])
@@ -117,7 +130,8 @@ export default function RoomsHubPage() {
                 ownerId: currentUser.id,
                 policy: {
                     tier,
-                    isPublic: true,
+                    isPublic,
+                    password: isPublic ? undefined : password,
                     maxActiveAgents: 10,
                     ownedAgentsCount,
                 },
@@ -146,6 +160,8 @@ export default function RoomsHubPage() {
             setModalOpen(false)
             setRoomName('')
             setDescription('')
+            setIsPublic(true)
+            setPassword('')
             await loadData()
         } catch (err: any) {
             alert(`Lỗi khi tạo phòng: ${err.message}`)
@@ -252,6 +268,10 @@ export default function RoomsHubPage() {
                 selectedAgents={selectedAgents}
                 toggleAgentSelection={toggleAgentSelection}
                 submitting={submitting}
+                isPublic={isPublic}
+                setIsPublic={setIsPublic}
+                password={password}
+                setPassword={setPassword}
             />
         </div>
     )

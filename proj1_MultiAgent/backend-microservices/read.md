@@ -89,6 +89,9 @@ npm install --save-dev @types/jsonwebtoken
 npm install amqplib
 npm install socket.io
 
+npm install bcrypt
+npm install --save-dev @types/bcrypt
+
 --- frontend-microservices
 npm install @react-oauth/google
 npm install axios

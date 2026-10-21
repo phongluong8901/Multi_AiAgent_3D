@@ -119,8 +119,12 @@ services:
   room-service:
     build: ./room-service
     container_name: rooms_service
+    env_file:
+      - ./room-service/.env
     ports:
       - "5002:5002"
+    environment:
+      - RABBITMQ_URL=amqp://admin:admin123@rabbitmq:5672
     depends_on:
       - mongo
       - rabbitmq
@@ -132,6 +136,8 @@ services:
   chat-service:
     build: ./chat-service
     container_name: chats_service
+    env_file:
+      - ./chat-service/.env
     ports:
       - "5003:5003"
     environment:

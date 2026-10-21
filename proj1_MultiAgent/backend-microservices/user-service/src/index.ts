@@ -8,8 +8,18 @@ import { connectRabbitMQ } from "./config/rabbitmq"; // Import hàm kết nối 
 import { startEmailWorker } from "./workers/email.worker"; // Import worker gửi email ngầm (nếu có)
 import { connectRedis } from "./config/redis";
 import { logger } from "./config/logger";
+import fs from "fs";
+import path from "path";
 
-dotenv.config();
+// Kiểm tra xem có file .env thật không (dùng khi chạy local)
+const envPath = path.resolve(process.cwd(), ".env");
+if (fs.existsSync(envPath)) {
+    dotenv.config({ path: envPath });
+    console.log("◇ Loaded env from local .env file");
+} else {
+    // Nếu ở trên Docker (không có file .env), giữ nguyên biến do Docker Compose cung cấp
+    dotenv.config();
+}
 
 const PORT = process.env.PORT || 5001;
 

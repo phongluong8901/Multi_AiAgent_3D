@@ -21,6 +21,7 @@ export type RoomSettings = {
 export type RoomPolicy = {
     tier?: 'standard' | 'premium' | 'enterprise'
     isPublic?: boolean
+    password?: string
     maxActiveAgents?: number
     ownedAgentsCount?: number
 }
@@ -86,7 +87,7 @@ export const roomsApi = {
 
     join: async (
         roomId: string,
-        data?: { name?: string; avatar?: string; color?: string }
+        data?: { name?: string; avatar?: string; color?: string; password?: string }
     ): Promise<Room> => {
         const res = await request<{ success: boolean; data: Room }>(
             `${UU}/${roomId}/join`,

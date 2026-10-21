@@ -8,10 +8,23 @@ import userRouter from "./routes/user-proxy.routes";
 import roomRouter from "./routes/room-proxy.routes";
 import chatRouter from "./routes/chat-proxy.routes";
 import agentRouter from "./routes/agent-proxy.routes";
+import fs from "fs";
+import path from "path";
 
-dotenv.config();
+// Kiểm tra xem có file .env thật không (dùng khi chạy local)
+const envPath = path.resolve(process.cwd(), ".env");
+if (fs.existsSync(envPath)) {
+    dotenv.config({ path: envPath });
+    console.log("◇ Loaded env from local .env file");
+} else {
+    // Nếu ở trên Docker (không có file .env), giữ nguyên biến do Docker Compose cung cấp
+    dotenv.config();
+}
+
+import http from "http";
 
 const app = express();
+const server = http.createServer(app);
 const PORT = process.env.PORT || 4000;
 
 // Middleware chung
@@ -41,7 +54,7 @@ app.use(roomRouter);
 app.use(chatRouter);
 app.use(agentRouter);
 
-// Khởi chạy Gateway Server
-app.listen(PORT, () => {
+// Khởi chạy Gateway Server bằng http.Server để hỗ trợ trơn tru WebSocket & HTTP
+server.listen(PORT, () => {
     console.log(`[api-gateway] Gateway is running on http://localhost:${PORT}`);
 });

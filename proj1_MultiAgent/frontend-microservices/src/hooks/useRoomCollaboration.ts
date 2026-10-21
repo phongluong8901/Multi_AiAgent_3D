@@ -32,9 +32,40 @@ export function useRoomCollaboration(roomId: string) {
             if (isFirstLoadRef.current) {
                 setLoading(true)
             }
-            const [roomData, history, presence] = await Promise.all([
-                roomsApi.get(roomId).catch(() => null), // <--- Lấy thông tin phòng từ Room Service
-                chatsApi.getHistory(roomId, 60),
+
+            // Thêm kiểm tra phòng và bắt lỗi nếu chưa có quyền (đặc biệt với phòng Private)
+            let roomData = null
+            try {
+                roomData = await roomsApi.get(roomId)
+            } catch (err: any) {
+                // Nếu là phòng private mà chưa join, api get room có thể báo lỗi
+                console.warn('[useRoomCollaboration] Không thể tải thông tin phòng (có thể do chưa join phòng private):', err.message)
+
+                // Kiểm tra xem user hiện tại có phải chủ phòng hoặc đã ở trong danh sách chưa
+                // Nếu chưa, có thể yêu cầu nhập password ngay tại đây hoặc đẩy về Hub
+                const currentUser = getUser()
+                const isOwnerOrMember = err.response?.data?.data?.members?.some((m: any) => m.memberId === currentUser?.id)
+
+                if (err.response?.status === 403 || err.status === 403) {
+                    const pwd = prompt('🔒 Phòng này là riêng tư. Vui lòng nhập mật khẩu để truy cập:')
+                    if (pwd) {
+                        try {
+                            await roomsApi.join(roomId, { password: pwd })
+                            roomData = await roomsApi.get(roomId) // Thử tải lại sau khi join thành công
+                        } catch (joinErr: any) {
+                            alert(joinErr.message || 'Mật khẩu không chính xác!')
+                            window.location.href = '/rooms'
+                            return
+                        }
+                    } else {
+                        window.location.href = '/rooms'
+                        return
+                    }
+                }
+            }
+
+            const [history, presence] = await Promise.all([
+                chatsApi.getHistory(roomId, 60).catch(() => []),
                 chatsApi.getPresence(roomId).catch(() => ({ roomId, onlineUsers: [] })),
             ])
 
@@ -51,6 +82,7 @@ export function useRoomCollaboration(roomId: string) {
             setLoading(false)
         }
     }, [roomId])
+
 
     // 2. Thiết lập kết nối Real-Time Server-Sent Events (SSE)
     useEffect(() => {

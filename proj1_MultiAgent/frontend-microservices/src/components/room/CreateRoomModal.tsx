@@ -1,7 +1,7 @@
 'use client'
 
 import { Agent } from '@/lib/api'
-import { IconX } from '@/components/ui/icons'
+import { IconX, IconGlobe, IconLock } from '@/components/ui/icons'
 
 interface CreateRoomModalProps {
     isOpen: boolean
@@ -19,6 +19,12 @@ interface CreateRoomModalProps {
     selectedAgents: string[]
     toggleAgentSelection: (id: string) => void
     submitting: boolean
+
+    // Nhận state từ trang cha (RoomsHubPage)
+    isPublic: boolean
+    setIsPublic: (val: boolean) => void
+    password: string
+    setPassword: (val: string) => void
 }
 
 export function CreateRoomModal({
@@ -37,6 +43,10 @@ export function CreateRoomModal({
     selectedAgents,
     toggleAgentSelection,
     submitting,
+    isPublic,
+    setIsPublic,
+    password,
+    setPassword,
 }: CreateRoomModalProps) {
     if (!isOpen) return null
 
@@ -82,7 +92,29 @@ export function CreateRoomModal({
                         />
                     </div>
 
+                    {/* Lựa chọn Chế độ phòng: Public / Private */}
                     <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1.5">
+                            <label className="text-xs font-medium text-zinc-300">Chế độ phòng</label>
+                            <div className="relative">
+                                <select
+                                    value={isPublic ? 'public' : 'private'}
+                                    onChange={(e) => setIsPublic(e.target.value === 'public')}
+                                    className="w-full appearance-none rounded-xl border border-zinc-700/80 bg-zinc-950 px-3.5 py-2.5 text-sm text-white outline-none focus:border-blue-500 pr-8"
+                                >
+                                    <option value="public">Công khai (Public)</option>
+                                    <option value="private">Riêng tư (Private)</option>
+                                </select>
+                                <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-zinc-400">
+                                    {isPublic ? (
+                                        <IconGlobe className="h-4 w-4 text-blue-400" />
+                                    ) : (
+                                        <IconLock className="h-4 w-4 text-amber-400" />
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+
                         <div className="space-y-1.5">
                             <label className="text-xs font-medium text-zinc-300">Tier</label>
                             <select
@@ -95,6 +127,27 @@ export function CreateRoomModal({
                                 <option value="enterprise">Enterprise</option>
                             </select>
                         </div>
+                    </div>
+
+                    {/* Hiển thị ô nhập mật khẩu nếu chọn chế độ Private */}
+                    {!isPublic && (
+                        <div className="space-y-1.5 animate-in fade-in duration-200">
+                            <label className="text-xs font-medium text-amber-300 flex items-center gap-1.5">
+                                <IconLock className="h-3.5 w-3.5" />
+                                <span>Mật khẩu bảo vệ phòng *</span>
+                            </label>
+                            <input
+                                type="password"
+                                required={!isPublic}
+                                value={password}
+                                onChange={(e) => setPassword(e.target.value)}
+                                placeholder="Nhập mật khẩu khóa phòng..."
+                                className="w-full rounded-xl border border-amber-500/40 bg-zinc-950 px-3.5 py-2.5 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-amber-500"
+                            />
+                        </div>
+                    )}
+
+                    <div className="grid grid-cols-2 gap-3">
                         <div className="space-y-1.5">
                             <label className="text-xs font-medium text-zinc-300">
                                 Giới hạn Agent sở hữu

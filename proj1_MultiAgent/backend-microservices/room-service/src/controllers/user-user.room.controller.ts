@@ -60,19 +60,23 @@ export class UserUserRoomController {
         return res.status(200).json({ success: true, data: room });
     });
 
-    /** User vào phòng → ghi members (idempotent trong service) */
+    /** User vào phòng → ghi members (có kiểm tra mật khẩu đã hash nếu phòng private) */
     joinRoom = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
         const userId = req.user!.userId;
-        const { name, avatar, color } = req.body;
+        const { name, avatar, color, password } = req.body; // Lấy thêm password từ request body
 
-        const room = await userUserRoomService.addMemberToRoom(req.params.id as string, {
-            memberId: userId,
-            memberType: "user",
-            role: "participant",
-            name: name || "User",
-            avatar: avatar || "",
-            color: color || "#3b82f6",
-        });
+        const room = await userUserRoomService.joinRoom(
+            req.params.id as string,
+            {
+                memberId: userId,
+                memberType: "user",
+                role: "participant",
+                name: name || "User",
+                avatar: avatar || "",
+                color: color || "#3b82f6",
+            },
+            password // Truyền password xuống service để so sánh bcrypt
+        );
 
         return res.status(200).json({ success: true, data: room });
     });
@@ -119,13 +123,11 @@ export class UserUserRoomController {
 
     // ─── INVITES ───────────────────────────────────────────
 
-    /** GET /invites/me */
     myInvites = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
         const rooms = await userUserRoomService.listMyInvites(req.user!.userId);
         return res.status(200).json({ success: true, data: rooms });
     });
 
-    /** POST /:id/invites  body: { userId, userName } */
     invite = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
         const { userId, userName } = req.body;
         if (!userId) {
@@ -139,7 +141,6 @@ export class UserUserRoomController {
         return res.status(200).json({ success: true, data: room });
     });
 
-    /** POST /:id/invites/accept */
     acceptInvite = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
         const userId = req.user!.userId;
         const name = req.body?.name || req.body?.userName;
@@ -151,7 +152,6 @@ export class UserUserRoomController {
         return res.status(200).json({ success: true, data: room });
     });
 
-    /** POST /:id/invites/decline */
     declineInvite = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
         const room = await userUserRoomService.declineInvite(
             req.params.id as string,

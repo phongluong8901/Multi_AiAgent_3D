@@ -1,6 +1,6 @@
 import { getChannel } from "./rabbitmq";
 import { RoomModel } from "../models/room.model"; // <--- Import model để update db
-import { io } from "../index";
+import { getIO } from "../config/socket";
 
 export async function startRoomConsumers(): Promise<void> {
     const channel = getChannel();
@@ -43,10 +43,8 @@ export async function startRoomConsumers(): Promise<void> {
     await channel.assertExchange(ROOM_EXCHANGE, "topic", { durable: true });
     await channel.assertQueue(ROOM_QUEUE, { durable: true });
 
-    // Bind lắng nghe toàn bộ các sự kiện bắt đầu bằng "room.invite."
-    await channel.bindQueue(ROOM_QUEUE, ROOM_EXCHANGE, "room.invite.#");
-    // Bind lắng nghe cả sự kiện thay đổi phòng chung nếu cần
-    await channel.bindQueue(ROOM_QUEUE, ROOM_EXCHANGE, "room.updated");
+    // Bind lắng nghe toàn bộ các sự kiện bắt đầu bằng "room."
+    await channel.bindQueue(ROOM_QUEUE, ROOM_EXCHANGE, "room.#");
 
     channel.consume(ROOM_QUEUE, async (msg) => {
         if (!msg) return;
@@ -61,15 +59,20 @@ export async function startRoomConsumers(): Promise<void> {
                 const { userId, roomId } = payload;
                 if (userId) {
                     console.log(`[Socket.IO] Pushing room_invited event to user: ${userId}`);
-                    io.to(userId).emit("room_invited", { roomId });
+                    getIO().to(userId).emit("room_invited", { roomId });
                 }
             }
 
-            // Xử lý khi phòng cập nhật chung
-            if (routingKey === "room.updated") {
+            // Xử lý khi phòng cập nhật chung (thành viên vào/ra, gán/hủy agent, thông tin phòng thay đổi)
+            if (
+                routingKey === "room.updated" ||
+                routingKey.startsWith("room.member.") ||
+                routingKey.startsWith("room.agent.")
+            ) {
                 const { roomId } = payload;
                 if (roomId) {
-                    io.to(roomId).emit("room-updated", { roomId });
+                    console.log(`[Socket.IO] Pushing room-updated event [${routingKey}] to room: ${roomId}`);
+                    getIO().to(roomId).emit("room-updated", { roomId, routingKey });
                 }
             }
 

@@ -1,18 +1,18 @@
 import { roomRepository } from "../repositories/room.repository";
 import { IRoomMember, IRoomSettings, IRoomPolicy } from "../models/room.model";
 import { publishRoomEvent } from "../events/producers";
+import bcrypt from "bcrypt";
 
 export class UserUserRoomService {
     async createRoom(data: {
         name: string;
         description?: string;
-        ownerId: string; // <--- Cần thiết lập ownerId
+        ownerId: string;
         maxCapacity?: number;
-        policy?: Partial<IRoomPolicy>; // <--- Chính sách phòng (tier, ownedAgentsCount, ...)
+        policy?: Partial<IRoomPolicy>;
         initialMember?: IRoomMember;
         settings?: Partial<IRoomSettings>;
     }) {
-        // Đảm bảo chủ phòng luôn nằm trong danh sách members với role là "owner"
         const ownerMember: IRoomMember = data.initialMember || {
             memberId: data.ownerId,
             memberType: "user",
@@ -21,16 +21,25 @@ export class UserUserRoomService {
             joinedAt: new Date()
         };
 
+        const isPublic = data.policy?.isPublic ?? true;
+        let hashedPassword = "";
+
+        // Nếu là phòng Private và có nhập mật khẩu -> Thực hiện băm (hash) mật khẩu
+        if (!isPublic && data.policy?.password) {
+            hashedPassword = await bcrypt.hash(data.policy.password, 10);
+        }
+
         const room = await roomRepository.create({
             name: data.name,
             description: data.description || "",
-            ownerId: data.ownerId, // <--- Lưu ownerId ở cấp độ root
+            ownerId: data.ownerId,
             maxCapacity: data.maxCapacity || 20,
             policy: {
                 tier: data.policy?.tier || "standard",
-                isPublic: data.policy?.isPublic ?? true,
+                isPublic: isPublic,
+                password: hashedPassword, // Lưu mật khẩu đã mã hóa an toàn
                 maxActiveAgents: data.policy?.maxActiveAgents || 10,
-                ownedAgentsCount: data.policy?.ownedAgentsCount || 3, // <--- Giới hạn số lượng agent sở hữu
+                ownedAgentsCount: data.policy?.ownedAgentsCount || 3,
             },
             activeAgents: ["agent_manager", "agent_ml", "agent_analyst", "agent_search", "agent_summarizer"],
             settings: {
@@ -68,7 +77,7 @@ export class UserUserRoomService {
 
         const updated = await roomRepository.addMember(roomId, {
             ...member,
-            role: member.role || "participant", // Mặc định là participant hoặc admin
+            role: member.role || "participant",
             joinedAt: new Date(),
         });
         await publishRoomEvent("room.member.joined", { roomId, member });
@@ -103,22 +112,41 @@ export class UserUserRoomService {
         return true;
     }
 
-    /** Join: chỉ owner hoặc đã là member (sau accept invite) */
+    /** Join: kiểm tra tính công khai/riêng tư và xác thực mật khẩu qua bcrypt */
     async joinRoom(
         roomId: string,
-        userId: string,
-        meta?: { name?: string; avatar?: string; color?: string }
+        memberData: IRoomMember,
+        passwordInput?: string
     ) {
         const room = await roomRepository.findById(roomId);
         if (!room) throw new Error("Room not found");
 
+        const userId = memberData.memberId;
         const isOwner = room.ownerId === userId;
         const isMember = room.members?.some((m) => m.memberId === userId);
 
+        // Nếu không phải chủ phòng và chưa là thành viên -> Kiểm tra bảo mật / mật khẩu
         if (!isOwner && !isMember) {
-            throw new Error("Bạn chưa được mời hoặc chưa chấp nhận lời mời");
+            const isPublic = room.policy?.isPublic ?? true;
+
+            if (!isPublic) {
+                if (!room.policy?.password) {
+                    throw new Error("Phòng này là riêng tư nhưng chưa được thiết lập mật khẩu hợp lệ.");
+                }
+                if (!passwordInput) {
+                    throw new Error("Phòng này được bảo vệ bằng mật khẩu. Vui lòng nhập mật khẩu!");
+                }
+
+                // So sánh mật khẩu người dùng nhập với chuỗi đã hash trong database
+                const isMatch = await bcrypt.compare(passwordInput, room.policy.password);
+                if (!isMatch) {
+                    throw new Error("Mật khẩu phòng không chính xác!");
+                }
+            }
         }
-        return room;
+
+        // GỌI HÀM addMemberToRoom ĐỂ XỬ LÝ CHỐNG TRÙNG VÀ KIỂM TRA SỨC CHỨA (maxCapacity)
+        return await this.addMemberToRoom(roomId, memberData);
     }
 
     // ─── INVITES ───────────────────────────────────────────
@@ -209,16 +237,13 @@ export class UserUserRoomService {
         const room = await roomRepository.findById(roomId);
         if (!room) throw new Error("Room not found");
 
-        // Chủ phòng không được phép rời phòng theo cách này (phải xóa phòng hoặc chuyển quyền)
         if (room.ownerId === userId) {
             throw new Error("Chủ phòng không thể tự rời phòng. Vui lòng chuyển quyền hoặc xóa phòng.");
         }
 
-        // Thực hiện gỡ user ra khỏi mảng members
         const updated = await roomRepository.removeMember(roomId, userId);
         if (!updated) throw new Error("Không thể rời khỏi phòng");
 
-        // Phát sự kiện realtime qua RabbitMQ/WebSocket
         await publishRoomEvent("room.member.left", { roomId, memberId: userId });
         return updated;
     }

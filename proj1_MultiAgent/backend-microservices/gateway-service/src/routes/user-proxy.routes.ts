@@ -19,9 +19,22 @@ const PUBLIC_PATHS = [
     "/api/v1/auth/refresh-token",
 ];
 
+const USER_BASE_PATHS = [
+    "/api/v1/auth",
+    "/api/v1/users",
+    "/api/v1/seller",
+    "/api/v1/admin",
+];
+
 // Middleware kiểm tra xem request có phải là public path hay không
 const checkAuthIfNeeded = (req: any, res: any, next: any) => {
     const fullPath = req.url.split("?")[0];
+
+    // Nếu request không thuộc các route của User Service, bỏ qua để các route sau xử lý
+    if (!USER_BASE_PATHS.some((p) => fullPath.startsWith(p))) {
+        return next();
+    }
+
     const isPublic = PUBLIC_PATHS.includes(fullPath);
 
     if (isPublic) {

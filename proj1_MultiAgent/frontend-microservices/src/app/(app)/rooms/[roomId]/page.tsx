@@ -8,6 +8,7 @@ import { OUTDOOR_ACTION_SPOTS } from '@/components/outdoor/OutdoorPark'
 import { useRoomCollaboration } from '@/hooks/useRoomCollaboration'
 import { roomsApi, agentsApi, Room, Agent } from '@/lib/api'
 import { getUser } from '@/lib/auth'
+import { io } from 'socket.io-client'
 import { RoomTopNav } from '@/components/room-detail/RoomTopNav'
 import { AgentTeamStrip } from '@/components/room-detail/AgentTeamStrip'
 import { RoomActionBar } from '@/components/room-detail/header/RoomActionBar'
@@ -130,19 +131,47 @@ export default function CollaborativeRoomPage() {
         }
     }, [room, currentUserId, router])
 
-    // Cơ chế Polling (5 giây/lần) để đồng bộ dữ liệu phòng ngầm
+    // Đồng bộ dữ liệu phòng Real-Time qua Socket.IO (loại bỏ hoàn toàn polling 5s)
     useEffect(() => {
-        if (!roomId) return
-        const t = setInterval(async () => {
+        if (!roomId || !currentUserId) return
+
+        const socketUrl = process.env.NEXT_PUBLIC_SOCKET_ROOM_URL || 'http://localhost:4000'
+        const token = localStorage.getItem('token') || ''
+
+        const socket = io(socketUrl, {
+            path: '/api/v1/rooms/socket.io',
+            transports: ['polling', 'websocket'],
+            auth: { token },
+            extraHeaders: token ? { Authorization: `Bearer ${token}` } : {},
+        })
+
+        socket.on('connect', () => {
+            console.log(`[Room Socket] Connected to room ${roomId}, socket id: ${socket.id}`)
+            // Định danh cá nhân và tham gia kênh phòng
+            socket.emit('identity', currentUserId)
+            socket.emit('join', roomId)
+        })
+
+        // Lắng nghe sự kiện phòng được cập nhật (thành viên thay đổi, gán agent, v.v.)
+        socket.on('room-updated', async (data) => {
+            console.log('🔄 [Room Socket] Received room-updated event:', data)
             try {
                 const r = await roomsApi.get(roomId)
                 if (r) setRoom(r)
-            } catch {
-                /* Bỏ qua lỗi ngầm */
+            } catch (err) {
+                console.error('[Room Socket] Error fetching updated room:', err)
             }
-        }, 5000)
-        return () => clearInterval(t)
-    }, [roomId])
+        })
+
+        socket.on('connect_error', (err) => {
+            console.warn('[Room Socket] Connection warning:', err.message)
+        })
+
+        return () => {
+            socket.emit('leave', roomId)
+            socket.disconnect()
+        }
+    }, [roomId, currentUserId])
 
     // Đồng bộ trạng thái và vị trí của các Agent đang hoạt động trong phòng
     useEffect(() => {

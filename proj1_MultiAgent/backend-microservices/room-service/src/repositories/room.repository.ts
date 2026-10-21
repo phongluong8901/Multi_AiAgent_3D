@@ -33,9 +33,35 @@ export class RoomRepository {
     // --- 2. QUẢN LÝ THÀNH VIÊN (USER-USER TRACK) ---
 
     async addMember(roomId: string, member: IRoomMember): Promise<IRoom | null> {
+        // Bước 1: Thử cập nhật nếu thành viên đã tồn tại trong mảng members (dùng toán tử positional $)
+        const updatedExisting = await RoomModel.findOneAndUpdate(
+            { _id: roomId, "members.memberId": member.memberId },
+            {
+                $set: {
+                    "members.$": {
+                        ...member,
+                        joinedAt: member.joinedAt || new Date()
+                    }
+                }
+            },
+            { new: true }
+        );
+
+        if (updatedExisting) {
+            return updatedExisting;
+        }
+
+        // Bước 2: Nếu chưa tồn tại, thực hiện push thành viên mới vào mảng
         return await RoomModel.findByIdAndUpdate(
             roomId,
-            { $push: { members: member } },
+            {
+                $push: {
+                    members: {
+                        ...member,
+                        joinedAt: member.joinedAt || new Date()
+                    }
+                }
+            },
             { new: true }
         );
     }

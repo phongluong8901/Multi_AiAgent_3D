@@ -50,6 +50,7 @@ export interface IUserAgentBinding {
 export interface IRoomPolicy {
     tier?: "standard" | "premium" | "enterprise";
     isPublic?: boolean; // Phòng công khai (ai cũng tìm thấy) hay riêng tư
+    password?: string;
     maxActiveAgents?: number; // Số lượng Agent hệ thống tối đa hoạt động cùng lúc
     ownedAgentsCount?: number; // Số lượng Agent cá nhân tối đa mà người dùng được gán/sở hữu trong phòng
 }
@@ -89,6 +90,7 @@ const RoomSchema = new Schema<IRoom>(
         policy: {
             tier: { type: String, enum: ["standard", "premium", "enterprise"], default: "standard" }, // Gói dịch vụ
             isPublic: { type: Boolean, default: true },      // Mặc định phòng công khai
+            password: { type: String, default: "" },      // Mật khẩu phòng (nếu là private)
             maxActiveAgents: { type: Number, default: 10 },   // Tối đa 10 Agent hệ thống
             ownedAgentsCount: { type: Number, default: 3 },  // Tối đa 3 Agent cá nhân gán cho User
         },
