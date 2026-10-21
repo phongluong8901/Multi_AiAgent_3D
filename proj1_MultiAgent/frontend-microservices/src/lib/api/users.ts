@@ -17,6 +17,14 @@ export type UserProfile = {
     hardwareNode?: HardwareReport // 👈 Dùng lại type HardwareReport
 }
 
+export type InviteUser = {
+    id: string
+    username: string
+    email: string
+    avatarUrl?: string
+    status?: string
+}
+
 function normalizeProfile(d: any): UserProfile {
     return {
         id: String(d.id || d._id),
@@ -110,5 +118,13 @@ export const usersApi = {
             { method: 'DELETE' }
         )
         return res.data
+    },
+
+    listOnline: async (q?: string): Promise<InviteUser[]> => {
+        const qs = q ? `?q=${encodeURIComponent(q)}` : ''
+        const res = await request<{ success: boolean; data: InviteUser[] }>(
+            `/users/online${qs}`
+        )
+        return res?.data ?? []
     },
 }

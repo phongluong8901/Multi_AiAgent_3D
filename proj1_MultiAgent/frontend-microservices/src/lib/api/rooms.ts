@@ -12,10 +12,17 @@ export type RoomMember = {
 }
 
 export type RoomSettings = {
-    allowCrossCommands: boolean
-    autonomousHandoff: boolean
-    maxAutoTurns: number
+    allowCrossCommands?: boolean
+    autonomousHandoff?: boolean
+    maxAutoTurns?: number
     allowGuestJoin?: boolean
+}
+
+export type RoomPolicy = {
+    tier?: 'standard' | 'premium' | 'enterprise'
+    isPublic?: boolean
+    maxActiveAgents?: number
+    ownedAgentsCount?: number
 }
 
 export type UserAgentBinding = {
@@ -27,69 +34,81 @@ export type UserAgentBinding = {
     assignedAt?: string
 }
 
-export type RoomPolicy = {
-    tier?: 'standard' | 'premium' | 'enterprise'
-    isPublic?: boolean
-    maxActiveAgents?: number
-    ownedAgentsCount?: number
-}
-
 export type Room = {
     _id?: string
     id?: string
     name: string
     description?: string
-    ownerId: string
+    ownerId?: string
     maxCapacity: number
-    policy?: RoomPolicy
     activeAgents: string[]
     userAgents?: UserAgentBinding[]
+    policy?: RoomPolicy
     settings: RoomSettings
     members: RoomMember[]
     createdAt?: string
     updatedAt?: string
 }
 
+export type RoomCreate = {
+    name: string
+    description?: string
+    maxCapacity?: number
+    ownerName?: string
+    ownerId?: string
+    policy?: RoomPolicy
+    settings?: Partial<RoomSettings>
+}
+
+// Prefix khớp room-service
+const UU = '/rooms/user-user'
+const AA = '/rooms/agent-agent'
+const UA = '/rooms/user-agent'
+
 export const roomsApi = {
-    // 1. User-User Track Routes (Tạo, Lấy danh sách, Cập nhật phòng & Quản lý thành viên)
     list: async (): Promise<Room[]> => {
-        const res = await request<{ success: boolean; data: Room[] }>('/rooms/user-user')
+        const res = await request<{ success: boolean; data: Room[] }>(UU)
         return res?.data ?? []
     },
 
     get: async (id: string): Promise<Room> => {
-        const res = await request<{ success: boolean; data: Room }>(`/rooms/user-user/${id}`)
+        const res = await request<{ success: boolean; data: Room }>(`${UU}/${id}`)
         return res.data
     },
 
-    create: async (data: {
-        name: string
-        description?: string
-        ownerId: string
-        maxCapacity?: number
-        policy?: Partial<RoomPolicy>
-        activeAgents?: string[]
-        settings?: Partial<RoomSettings>
-        initialMember?: RoomMember
-    }): Promise<Room> => {
-        const res = await request<{ success: boolean; data: Room }>('/rooms/user-user', {
+    create: async (data: RoomCreate): Promise<Room> => {
+        const res = await request<{ success: boolean; data: Room }>(UU, {
             method: 'POST',
             body: JSON.stringify(data),
         })
         return res.data
     },
 
+    join: async (
+        roomId: string,
+        data?: { name?: string; avatar?: string; color?: string }
+    ): Promise<Room> => {
+        const res = await request<{ success: boolean; data: Room }>(
+            `${UU}/${roomId}/join`,
+            { method: 'POST', body: JSON.stringify(data || {}) }
+        )
+        return res.data
+    },
+
     update: async (id: string, data: Partial<Room>): Promise<Room> => {
-        const res = await request<{ success: boolean; data: Room }>(`/rooms/user-user/${id}`, {
+        const res = await request<{ success: boolean; data: Room }>(`${UU}/${id}`, {
             method: 'PUT',
             body: JSON.stringify(data),
         })
         return res.data
     },
 
-    addMember: async (roomId: string, member: Partial<RoomMember>): Promise<Room> => {
+    addMember: async (
+        roomId: string,
+        member: Partial<RoomMember>
+    ): Promise<Room> => {
         const res = await request<{ success: boolean; data: Room }>(
-            `/rooms/user-user/${roomId}/members`,
+            `${UU}/${roomId}/members`,
             { method: 'POST', body: JSON.stringify(member) }
         )
         return res.data
@@ -97,16 +116,15 @@ export const roomsApi = {
 
     removeMember: async (roomId: string, memberId: string): Promise<Room> => {
         const res = await request<{ success: boolean; data: Room }>(
-            `/rooms/user-user/${roomId}/members/${memberId}`,
+            `${UU}/${roomId}/members/${memberId}`,
             { method: 'DELETE' }
         )
         return res.data
     },
 
-    // 2. Agent-Agent Track Routes (Đồng bộ, Thêm/Xóa Agent làm việc trong phòng)
     syncAgents: async (roomId: string, activeAgents: string[]): Promise<Room> => {
         const res = await request<{ success: boolean; data: Room }>(
-            `/rooms/agent-agent/${roomId}/agents`,
+            `${AA}/${roomId}/agents`,
             { method: 'POST', body: JSON.stringify({ activeAgents }) }
         )
         return res.data
@@ -114,7 +132,7 @@ export const roomsApi = {
 
     addAgent: async (roomId: string, agentId: string): Promise<Room> => {
         const res = await request<{ success: boolean; data: Room }>(
-            `/rooms/agent-agent/${roomId}/agents/${agentId}`,
+            `${AA}/${roomId}/agents/${agentId}`,
             { method: 'POST' }
         )
         return res.data
@@ -122,13 +140,12 @@ export const roomsApi = {
 
     removeAgent: async (roomId: string, agentId: string): Promise<Room> => {
         const res = await request<{ success: boolean; data: Room }>(
-            `/rooms/agent-agent/${roomId}/agents/${agentId}`,
+            `${AA}/${roomId}/agents/${agentId}`,
             { method: 'DELETE' }
         )
         return res.data
     },
 
-    // 3. User-Agent Track Routes (Phân bổ & Gán Agent cá nhân cho từng User)
     assignUserAgent: async (
         roomId: string,
         data: {
@@ -140,7 +157,7 @@ export const roomsApi = {
         }
     ): Promise<Room> => {
         const res = await request<{ success: boolean; data: Room }>(
-            `/rooms/user-agent/${roomId}/user-agents`,
+            `${UA}/${roomId}/user-agents`,
             { method: 'POST', body: JSON.stringify(data) }
         )
         return res.data
@@ -148,9 +165,56 @@ export const roomsApi = {
 
     removeUserAgent: async (roomId: string, agentId: string): Promise<Room> => {
         const res = await request<{ success: boolean; data: Room }>(
-            `/rooms/user-agent/${roomId}/user-agents/${agentId}`,
+            `${UA}/${roomId}/user-agents/${agentId}`,
             { method: 'DELETE' }
         )
         return res.data
     },
+
+    remove: async (id: string): Promise<void> => {
+        await request(`${UU}/${id}`, { method: 'DELETE' })
+    },
+
+    invite: async (
+        roomId: string,
+        data: { userId: string; userName?: string }
+    ): Promise<Room> => {
+        const res = await request<{ success: boolean; data: Room }>(
+            `${UU}/${roomId}/invites`,
+            { method: 'POST', body: JSON.stringify(data) }
+        )
+        return res.data
+    },
+
+    acceptInvite: async (roomId: string, name?: string): Promise<Room> => {
+        const res = await request<{ success: boolean; data: Room }>(
+            `${UU}/${roomId}/invites/accept`,
+            { method: 'POST', body: JSON.stringify({ name }) }
+        )
+        return res.data
+    },
+
+    declineInvite: async (roomId: string): Promise<Room> => {
+        const res = await request<{ success: boolean; data: Room }>(
+            `${UU}/${roomId}/invites/decline`,
+            { method: 'POST' }
+        )
+        return res.data
+    },
+
+    myInvites: async (): Promise<Room[]> => {
+        const res = await request<{ success: boolean; data: Room[] }>(
+            `${UU}/invites/me`
+        )
+        return res?.data ?? []
+    },
+
+    leave: async (roomId: string): Promise<Room> => {
+        const res = await request<{ success: boolean; data: Room }>(
+            `${UU}/${roomId}/leave`,
+            { method: 'POST' }
+        )
+        return res.data
+    },
+
 }

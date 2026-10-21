@@ -87,6 +87,7 @@ npm install --save-dev @types/jsonwebtoken
 
 --- room-service
 npm install amqplib
+npm install socket.io
 
 --- frontend-microservices
 npm install @react-oauth/google
@@ -94,6 +95,8 @@ npm install axios
 npm install sonner
 
 npm install lucide-react
+
+npm install socket.io-client
 
 # --- run
 cd proj1_MultiAgent

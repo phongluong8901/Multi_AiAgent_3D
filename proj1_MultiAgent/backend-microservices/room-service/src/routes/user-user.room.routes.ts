@@ -1,21 +1,36 @@
 import { Router } from "express";
 import { userUserRoomController } from "../controllers/user-user.room.controller";
 import { requireAuth } from "../middlewares/auth.middleware";
+import { requireRoomAdminOrOwner } from "../middlewares/room-auth.middleware";
 
 const router = Router();
 
-// --- Public Routes (hoặc dùng chung) ---
+// Public — static paths MUST come before dynamic /:id to avoid capture
 router.get("/", userUserRoomController.getRooms);
-router.get("/:id", userUserRoomController.getRoomById);
 
-// --- Protected Routes (Yêu cầu đăng nhập / Token) ---
+// Auth
 router.use(requireAuth);
 
-router.post("/", userUserRoomController.createRoom);
-router.put("/:id", userUserRoomController.updateRoom);
+// Invites — GET /invites/me trước /:id để tránh Express 5 bắt "invites" là :id
+router.get("/invites/me", userUserRoomController.myInvites);
 
-// Quản lý thành viên trong phòng
+router.post("/", userUserRoomController.createRoom);
+router.post("/:id/join", userUserRoomController.joinRoom);
+router.post("/:id/invites", userUserRoomController.invite);
+router.post("/:id/invites/accept", userUserRoomController.acceptInvite);
+router.post("/:id/invites/decline", userUserRoomController.declineInvite);
+router.post("/:id/leave", requireAuth, userUserRoomController.leaveRoom);
+
 router.post("/:id/members", userUserRoomController.addMember);
-router.delete("/:id/members/:memberId", userUserRoomController.removeMember);
+router.put("/:id", requireRoomAdminOrOwner, userUserRoomController.updateRoom);
+router.delete("/:id", userUserRoomController.deleteRoom);
+router.delete(
+    "/:id/members/:memberId",
+    requireRoomAdminOrOwner,
+    userUserRoomController.removeMember
+);
+
+// Public GET by ID — sau cùng để không nuốt static paths phía trên
+router.get("/:id", userUserRoomController.getRoomById);
 
 export default router;

@@ -14,7 +14,10 @@ export async function publishRoomEvent(
         | "room.agent.unassigned"
         | "room.agents.synced"
         | "room.agent.added"
-        | "room.agent.removed",
+        | "room.agent.removed"
+        | "room.invite.created"
+        | "room.invite.accepted"
+        | "room.invite.declined",
     payload: Record<string, any>
 ): Promise<void> {
     try {

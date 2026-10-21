@@ -113,6 +113,43 @@ export class RoomRepository {
             { new: true }
         );
     }
+
+    async addInvite(roomId: string, invite: {
+        userId: string; userName?: string; invitedBy: string
+    }) {
+        // bỏ invite cũ cùng userId rồi push
+        await RoomModel.findByIdAndUpdate(roomId, {
+            $pull: { pendingInvites: { userId: invite.userId } },
+        });
+        return RoomModel.findByIdAndUpdate(
+            roomId,
+            {
+                $push: {
+                    pendingInvites: {
+                        userId: invite.userId,
+                        userName: invite.userName || "",
+                        invitedBy: invite.invitedBy,
+                        invitedAt: new Date(),
+                    },
+                },
+            },
+            { new: true }
+        );
+    }
+
+    async removeInvite(roomId: string, userId: string) {
+        return RoomModel.findByIdAndUpdate(
+            roomId,
+            { $pull: { pendingInvites: { userId } } },
+            { new: true }
+        );
+    }
+
+    async findInvitesForUser(userId: string) {
+        return RoomModel.find({ "pendingInvites.userId": userId })
+            .select("name description ownerId pendingInvites maxCapacity members")
+            .lean();
+    }
 }
 
 export const roomRepository = new RoomRepository();

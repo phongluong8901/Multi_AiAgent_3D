@@ -79,13 +79,147 @@ export class UserUserRoomService {
         const room = await roomRepository.findById(roomId);
         if (!room) throw new Error("Room not found");
 
-        // Không cho phép xóa chủ phòng (owner)
         if (room.ownerId === memberId) {
             throw new Error("Cannot remove the room owner");
         }
 
         const updated = await roomRepository.removeMember(roomId, memberId);
+        if (!updated) throw new Error("Failed to remove member");
+
         await publishRoomEvent("room.member.left", { roomId, memberId });
+        return updated;
+    }
+
+    async deleteRoom(roomId: string, requesterId: string) {
+        const room = await roomRepository.findById(roomId);
+        if (!room) throw new Error("Room not found");
+
+        if (room.ownerId !== requesterId) {
+            throw new Error("Chỉ chủ phòng mới được xóa phòng này");
+        }
+
+        await roomRepository.delete(roomId);
+        await publishRoomEvent("room.deleted", { roomId, ownerId: requesterId });
+        return true;
+    }
+
+    /** Join: chỉ owner hoặc đã là member (sau accept invite) */
+    async joinRoom(
+        roomId: string,
+        userId: string,
+        meta?: { name?: string; avatar?: string; color?: string }
+    ) {
+        const room = await roomRepository.findById(roomId);
+        if (!room) throw new Error("Room not found");
+
+        const isOwner = room.ownerId === userId;
+        const isMember = room.members?.some((m) => m.memberId === userId);
+
+        if (!isOwner && !isMember) {
+            throw new Error("Bạn chưa được mời hoặc chưa chấp nhận lời mời");
+        }
+        return room;
+    }
+
+    // ─── INVITES ───────────────────────────────────────────
+
+    async inviteUser(
+        roomId: string,
+        inviterId: string,
+        payload: { userId: string; userName?: string }
+    ) {
+        const room = await roomRepository.findById(roomId);
+        if (!room) throw new Error("Room not found");
+
+        const isOwner = room.ownerId === inviterId;
+        const isAdmin = room.members?.some(
+            (m) => m.memberId === inviterId && m.role === "admin"
+        );
+        if (!isOwner && !isAdmin) {
+            throw new Error("Chỉ chủ phòng hoặc admin được mời thành viên");
+        }
+
+        if (payload.userId === inviterId) {
+            throw new Error("Không thể mời chính mình");
+        }
+        if (room.ownerId === payload.userId) {
+            throw new Error("User đã là chủ phòng");
+        }
+        if (room.members?.some((m) => m.memberId === payload.userId)) {
+            throw new Error("User đã là thành viên phòng");
+        }
+
+        const updated = await roomRepository.addInvite(roomId, {
+            userId: payload.userId,
+            userName: payload.userName,
+            invitedBy: inviterId,
+        });
+        if (!updated) throw new Error("Invite failed");
+
+        await publishRoomEvent("room.invite.created", {
+            roomId,
+            userId: payload.userId,
+            inviterId,
+        });
+        return updated;
+    }
+
+    async acceptInvite(roomId: string, userId: string, userName?: string) {
+        const room = await roomRepository.findById(roomId);
+        if (!room) throw new Error("Room not found");
+
+        const invite = (room as any).pendingInvites?.find(
+            (i: any) => i.userId === userId
+        );
+        if (!invite) throw new Error("Không có lời mời cho bạn");
+
+        await roomRepository.removeInvite(roomId, userId);
+
+        const updated = await this.addMemberToRoom(roomId, {
+            memberId: userId,
+            memberType: "user",
+            role: "participant",
+            name: userName || invite.userName || "User",
+            joinedAt: new Date(),
+        });
+
+        await publishRoomEvent("room.invite.accepted", { roomId, userId });
+        return updated;
+    }
+
+    async declineInvite(roomId: string, userId: string) {
+        const room = await roomRepository.findById(roomId);
+        if (!room) throw new Error("Room not found");
+
+        const invite = (room as any).pendingInvites?.find(
+            (i: any) => i.userId === userId
+        );
+        if (!invite) throw new Error("Không có lời mời cho bạn");
+
+        const updated = await roomRepository.removeInvite(roomId, userId);
+        await publishRoomEvent("room.invite.declined", { roomId, userId });
+        return updated;
+    }
+
+    async listMyInvites(userId: string) {
+        return roomRepository.findInvitesForUser(userId);
+    }
+
+    async leaveRoom(roomId: string, userId: string) {
+        const room = await roomRepository.findById(roomId);
+        if (!room) throw new Error("Room not found");
+
+        // Chủ phòng không được phép rời phòng theo cách này (phải xóa phòng hoặc chuyển quyền)
+        if (room.ownerId === userId) {
+            throw new Error("Chủ phòng không thể tự rời phòng. Vui lòng chuyển quyền hoặc xóa phòng.");
+        }
+
+        // Thực hiện gỡ user ra khỏi mảng members
+        const updated = await roomRepository.removeMember(roomId, userId);
+        if (!updated) throw new Error("Không thể rời khỏi phòng");
+
+        // Phát sự kiện realtime qua RabbitMQ/WebSocket
+        await publishRoomEvent("room.member.left", { roomId, memberId: userId });
         return updated;
     }
 }

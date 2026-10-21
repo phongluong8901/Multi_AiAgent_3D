@@ -140,6 +140,13 @@ export class UserController {
         return res.json({ success: true, data: nodes });
     });
 
+    /** GET /api/v1/users/online — user đã login, lọc online/busy */
+    listOnlineUsers = asyncHandler(async (req: Request, res: Response) => {
+        const q = String(req.query.q || "").trim().toLowerCase();
+        const users = await userService.listUsersForInvite(q);
+        return res.status(200).json({ success: true, data: users });
+    });
+
 }
 
 // Khởi tạo và xuất ra một instance duy nhất (Singleton pattern) của UserController

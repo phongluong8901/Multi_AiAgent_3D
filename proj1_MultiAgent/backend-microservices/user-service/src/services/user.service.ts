@@ -191,6 +191,37 @@ export class UserService {
             'username email avatarUrl status hardwareNode'
         ).lean();
     }
+
+    async listUsersForInvite(q?: string) {
+        const filter: any = {
+            isDeleted: { $ne: true },
+            isVerified: true,
+            status: { $in: ["online", "busy"] },
+        };
+
+        const users = await UserModel.find(filter)
+            .select("_id username email avatarUrl status role")
+            .limit(50)
+            .lean();
+
+        let list = users.map((u: any) => ({
+            id: String(u._id),
+            username: u.username,
+            email: u.email,
+            avatarUrl: u.avatarUrl || "",
+            status: u.status,
+            role: u.role,
+        }));
+
+        if (q) {
+            list = list.filter(
+                (u) =>
+                    u.username?.toLowerCase().includes(q) ||
+                    u.email?.toLowerCase().includes(q)
+            );
+        }
+        return list;
+    }
 }
 
 // Khởi tạo và export ra một instance duy nhất (Singleton) của UserService

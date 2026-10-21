@@ -7,6 +7,9 @@ import { startRoomConsumers } from "./events/consumers";
 import userUserRoomRoutes from "./routes/user-user.room.routes";
 import agentAgentRoomRoutes from "./routes/agent-agent.room.routes";
 import userAgentRoomRoutes from "./routes/user-agent.room.routes";
+import { errorHandler } from "./middlewares/error.middleware";
+import { Server } from "socket.io";
+import http from "http";
 
 import crypto from "crypto";
 if (!(globalThis as any).crypto) {
@@ -16,7 +19,22 @@ if (!(globalThis as any).crypto) {
 dotenv.config();
 
 const app = express();
+const server = http.createServer(app);
+
 const PORT = process.env.PORT || 5002;
+
+// Khởi tạo Socket.IO Server
+export const io = new Server(server, {
+    cors: { origin: "*" }
+});
+
+io.on("connection", (socket) => {
+    // Khi client gửi event 'identity' kèm theo userId của họ
+    socket.on("identity", (userId: string) => {
+        socket.join(userId); // Cho client gia nhập vào một room riêng mang tên chính userId đó
+        console.log(`[Socket.IO] User ${userId} connected & joined personal room`);
+    });
+});
 
 // Middleware
 app.use(cors());
@@ -34,6 +52,8 @@ app.get("/", (req, res) => {
 app.get("/health", (req, res) => {
     res.status(200).json({ status: "ok", service: "room-service" });
 });
+
+app.use(errorHandler);
 
 // Start Server, Connect DB, Connect RabbitMQ
 connectDB().then(async () => {

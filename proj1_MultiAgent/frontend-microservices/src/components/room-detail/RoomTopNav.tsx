@@ -69,8 +69,8 @@ export function RoomTopNav({
                         </h1>
                         <span
                             className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border ${connected
-                                    ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
-                                    : 'bg-amber-500/15 text-amber-400 border-amber-500/30'
+                                ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                                : 'bg-amber-500/15 text-amber-400 border-amber-500/30'
                                 }`}
                         >
                             <span
@@ -90,15 +90,18 @@ export function RoomTopNav({
                     <IconUsers className="w-3.5 h-3.5 text-zinc-400" />
                     <span className="text-zinc-500 font-medium">Online ({onlineUsers.length}):</span>
                     <div className="flex items-center -space-x-1.5">
-                        {onlineUsers.slice(0, 4).map((u, i) => (
-                            <div
-                                key={i}
-                                title={u.userName}
-                                className="w-5 h-5 rounded-full bg-blue-600 border border-zinc-900 text-[10px] flex items-center justify-center font-bold text-white shadow"
-                            >
-                                {u.userName.charAt(0).toUpperCase()}
-                            </div>
-                        ))}
+                        {onlineUsers.slice(0, 4).map((u: any, i) => {
+                            const displayName = u.userName || u.name || 'User'
+                            return (
+                                <div
+                                    key={i}
+                                    title={displayName}
+                                    className="w-5 h-5 rounded-full bg-blue-600 border border-zinc-900 text-[10px] flex items-center justify-center font-bold text-white shadow"
+                                >
+                                    {displayName.charAt(0).toUpperCase()}
+                                </div>
+                            )
+                        })}
                     </div>
                 </div>
 
@@ -112,8 +115,8 @@ export function RoomTopNav({
                         setTraceModalOpen(true)
                     }}
                     className={`text-xs px-2.5 py-1.5 rounded-xl border transition font-medium flex items-center gap-1.5 shadow-sm ${hasErrorTrace
-                            ? 'bg-rose-950/40 border-rose-500/50 text-rose-300 hover:bg-rose-900/50 animate-pulse'
-                            : 'bg-indigo-950/40 border-indigo-500/40 text-indigo-300 hover:bg-indigo-900/50'
+                        ? 'bg-rose-950/40 border-rose-500/50 text-rose-300 hover:bg-rose-900/50 animate-pulse'
+                        : 'bg-indigo-950/40 border-indigo-500/40 text-indigo-300 hover:bg-indigo-900/50'
                         }`}
                     title="Kiểm tra luồng thực thi Workflow (LangSmith Inspector)"
                 >

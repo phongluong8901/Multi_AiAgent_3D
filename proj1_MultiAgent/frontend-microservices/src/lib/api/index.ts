@@ -3,7 +3,8 @@ export { API_BASE, request } from '../client'
 export type { Agent, AgentStatus, AgentCreate, AgentUpdate } from './agents'
 export { agentsApi } from './agents'
 
-export type { UserProfile } from './users'
+export type { UserProfile, InviteUser } from './users'
+
 export { usersApi } from './users'
 
 export type {
@@ -37,3 +38,4 @@ export {
     type GoogleAuthPayload,
     type GithubAuthPayload,
 } from './auth'
+

@@ -20,6 +20,14 @@ export interface IRoomMember {
     joinedAt?: Date; // Thời điểm thành viên bắt đầu tham gia phòng
 }
 
+/** Lời mời đang chờ Accept */
+export interface IPendingInvite {
+    userId: string;
+    userName?: string;
+    invitedBy: string;
+    invitedAt?: Date;
+}
+
 /** Cấu hình vận hành phòng làm việc & điều phối Agent */
 export interface IRoomSettings {
     allowCrossCommands?: boolean; // Cho phép các Agent gọi chéo lệnh của nhau hay không
@@ -54,6 +62,7 @@ export interface IRoom extends Document {
     maxCapacity: number; // Sức chứa thành viên tối đa trong phòng
     policy: IRoomPolicy;
     members: IRoomMember[]; // Danh sách tất cả thành viên trong phòng
+    pendingInvites: IPendingInvite[];
     activeAgents: string[]; // Danh sách các Agent hệ thống đang bật hoạt động trong phòng
     userAgents: IUserAgentBinding[]; // Danh sách các Agent cá nhân được gán cho từng User cụ thể trong phòng
     settings: IRoomSettings;
@@ -125,6 +134,15 @@ const RoomSchema = new Schema<IRoom>(
                 avatar: { type: String, default: "" },
                 status: { type: String, default: "idle" },
                 joinedAt: { type: Date, default: Date.now }, // Thời điểm gia nhập
+            },
+        ],
+        // Lời mời chờ Accept
+        pendingInvites: [
+            {
+                userId: { type: String, required: true },
+                userName: { type: String, default: "" },
+                invitedBy: { type: String, required: true },
+                invitedAt: { type: Date, default: Date.now },
             },
         ],
 

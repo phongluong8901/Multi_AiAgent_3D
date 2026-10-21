@@ -28,7 +28,10 @@ router.delete("/me/agents/:agentId", userController.removeMyAgent);
 router.get("/", requireAuth, requireRoles(["ADMIN"]), userController.getUsers);
 router.get("/hardware-nodes", requireAuth, userController.getHardwareNodes);
 
+
+
 // 3. Dynamic route
+router.get("/online", requireAuth, userController.listOnlineUsers); //room service request
 router.get("/:id", userController.getUserProfile);
 
 export default router;
