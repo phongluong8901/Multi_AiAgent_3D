@@ -1,16 +1,22 @@
 'use client'
 
+import { useState } from 'react'
 import Link from 'next/link'
 import { Room, UserPresence } from '@/lib/api'
 import {
     IconArrowLeft,
     IconUsers,
     IconTrace,
-    IconPlus,
     IconBuilding,
     IconTrees,
     IconLayers,
     IconMessageSquare,
+    IconShare2,
+    IconCheck,
+    IconSettings,
+    IconLogOut,
+    IconLock,
+    IconGlobe,
 } from '@/components/ui/icons'
 
 type ViewMode = 'split' | '3d' | 'chat'
@@ -25,8 +31,8 @@ interface RoomTopNavProps {
     activeTrace: any
     setActiveTrace: (trace: any) => void
     setTraceModalOpen: (open: boolean) => void
-    setAssignmentModalOpen: (open: boolean) => void
-    setAddAgentModalOpen: (open: boolean) => void
+    onOpenManagement: () => void
+    onLeaveRoom: () => void
     mapType: MapType
     setMapType: (map: MapType) => void
     viewMode: ViewMode
@@ -41,56 +47,160 @@ export function RoomTopNav({
     latestTraces,
     setActiveTrace,
     setTraceModalOpen,
-    setAssignmentModalOpen,
-    setAddAgentModalOpen,
+    onOpenManagement,
+    onLeaveRoom,
     mapType,
     setMapType,
     viewMode,
     setViewMode,
 }: RoomTopNavProps) {
+    const [copied, setCopied] = useState(false)
     const hasErrorTrace = Object.values(latestTraces).some((t: any) => t.status === 'error')
 
+    const handleCopyShareLink = async () => {
+        try {
+            await navigator.clipboard.writeText(window.location.href)
+            setCopied(true)
+            setTimeout(() => setCopied(false), 2000)
+        } catch {
+            alert('Không thể sao chép liên kết.')
+        }
+    }
+
+    const isPublic = room?.policy?.isPublic ?? true
+
     return (
-        <div className="h-14 border-b border-zinc-800 bg-zinc-900/90 backdrop-blur px-4 flex items-center justify-between gap-4 shrink-0 z-20">
-            <div className="flex items-center gap-3">
+        <header className="h-14 border-b border-zinc-800 bg-zinc-900/95 backdrop-blur px-3 sm:px-4 flex items-center justify-between gap-2 sm:gap-4 shrink-0 z-20">
+            {/* --- KHU VỰC BÊN TRÁI: ĐIỀU HƯỚNG & THÔNG TIN PHÒNG --- */}
+            <div className="flex items-center gap-2.5 min-w-0">
                 <Link
                     href="/rooms"
-                    className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition text-sm flex items-center gap-1.5"
+                    className="p-1.5 rounded-xl text-zinc-400 hover:text-white hover:bg-zinc-800 transition text-xs font-medium flex items-center gap-1 shrink-0"
                     title="Về danh sách phòng"
                 >
                     <IconArrowLeft className="w-4 h-4" />
-                    <span className="hidden sm:inline font-medium">Rooms</span>
+                    <span className="hidden sm:inline">Rooms</span>
                 </Link>
-                <div className="h-5 w-px bg-zinc-800" />
-                <div>
-                    <div className="flex items-center gap-2">
-                        <h1 className="font-bold text-white text-sm sm:text-base tracking-tight truncate max-w-xs sm:max-w-md">
-                            {room?.name || `Phòng #${roomId}`}
-                        </h1>
-                        <span
-                            className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border ${connected
+
+                <div className="h-4 w-px bg-zinc-800 shrink-0" />
+
+                <div className="flex items-center gap-2 min-w-0">
+                    <h1 className="font-bold text-white text-xs sm:text-sm tracking-tight truncate max-w-[130px] sm:max-w-xs md:max-w-sm">
+                        {room?.name || `Phòng #${roomId}`}
+                    </h1>
+
+                    {/* Badge công khai / riêng tư */}
+                    <span
+                        className={`hidden md:flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-medium border shrink-0 ${
+                            isPublic
+                                ? 'bg-zinc-800 text-zinc-300 border-zinc-700'
+                                : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                        }`}
+                        title={isPublic ? 'Phòng công khai' : 'Phòng riêng tư (có mật khẩu)'}
+                    >
+                        {isPublic ? <IconGlobe className="w-3 h-3" /> : <IconLock className="w-3 h-3" />}
+                        <span>{isPublic ? 'Public' : 'Private'}</span>
+                    </span>
+
+                    {/* Trạng thái Live Sync Socket */}
+                    <span
+                        className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border shrink-0 ${
+                            connected
                                 ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
                                 : 'bg-amber-500/15 text-amber-400 border-amber-500/30'
-                                }`}
-                        >
-                            <span
-                                className={`w-1.5 h-1.5 rounded-full ${connected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'
-                                    }`}
-                            />
-                            {connected ? 'Live Sync' : 'Connecting...'}
-                        </span>
-                    </div>
+                        }`}
+                    >
+                        <span
+                            className={`w-1.5 h-1.5 rounded-full ${
+                                connected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'
+                            }`}
+                        />
+                        <span className="hidden sm:inline">{connected ? 'Live' : 'Connecting'}</span>
+                    </span>
+
+                    {/* Nút chia sẻ link nhanh */}
+                    <button
+                        onClick={handleCopyShareLink}
+                        className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition shrink-0"
+                        title="Sao chép link phòng"
+                    >
+                        {copied ? (
+                            <IconCheck className="w-3.5 h-3.5 text-emerald-400" />
+                        ) : (
+                            <IconShare2 className="w-3.5 h-3.5" />
+                        )}
+                    </button>
                 </div>
             </div>
 
-            {/* Right controls */}
-            <div className="flex items-center gap-2 sm:gap-2.5">
+            {/* --- KHU VỰC Ở GIỮA: CHUYỂN BẢN ĐỒ & CHẾ ĐỘ HIỂN THỊ --- */}
+            <div className="hidden xl:flex items-center gap-2">
+                {/* Map Switcher */}
+                <div className="flex items-center p-0.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs">
+                    <button
+                        onClick={() => setMapType('office')}
+                        className={`px-2.5 py-1 rounded-lg transition font-medium flex items-center gap-1.5 ${
+                            mapType === 'office'
+                                ? 'bg-blue-600 text-white shadow'
+                                : 'text-zinc-400 hover:text-white'
+                        }`}
+                    >
+                        <IconBuilding className="w-3.5 h-3.5" />
+                        <span>Office</span>
+                    </button>
+                    <button
+                        onClick={() => setMapType('outdoor')}
+                        className={`px-2.5 py-1 rounded-lg transition font-medium flex items-center gap-1.5 ${
+                            mapType === 'outdoor'
+                                ? 'bg-emerald-600 text-white shadow'
+                                : 'text-zinc-400 hover:text-white'
+                        }`}
+                    >
+                        <IconTrees className="w-3.5 h-3.5" />
+                        <span>Outdoor</span>
+                    </button>
+                </div>
+
+                {/* View Mode Switcher */}
+                <div className="flex items-center p-0.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs">
+                    <button
+                        onClick={() => setViewMode('split')}
+                        className={`px-2.5 py-1 rounded-lg transition font-medium flex items-center gap-1 ${
+                            viewMode === 'split' ? 'bg-zinc-800 text-white shadow' : 'text-zinc-400 hover:text-white'
+                        }`}
+                    >
+                        <IconLayers className="w-3.5 h-3.5" />
+                        <span>Split</span>
+                    </button>
+                    <button
+                        onClick={() => setViewMode('3d')}
+                        className={`px-2.5 py-1 rounded-lg transition font-medium flex items-center gap-1 ${
+                            viewMode === '3d' ? 'bg-zinc-800 text-white shadow' : 'text-zinc-400 hover:text-white'
+                        }`}
+                    >
+                        <IconBuilding className="w-3.5 h-3.5" />
+                        <span>3D</span>
+                    </button>
+                    <button
+                        onClick={() => setViewMode('chat')}
+                        className={`px-2.5 py-1 rounded-lg transition font-medium flex items-center gap-1 ${
+                            viewMode === 'chat' ? 'bg-zinc-800 text-white shadow' : 'text-zinc-400 hover:text-white'
+                        }`}
+                    >
+                        <IconMessageSquare className="w-3.5 h-3.5" />
+                        <span>Chat</span>
+                    </button>
+                </div>
+            </div>
+
+            {/* --- KHU VỰC BÊN PHẢI: ONLINE USERS, QUẢN LÝ, TRACES, RỜI PHÒNG --- */}
+            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
                 {/* Online Users Pill */}
                 <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-zinc-300">
                     <IconUsers className="w-3.5 h-3.5 text-zinc-400" />
                     <span className="text-zinc-500 font-medium">Online ({onlineUsers.length}):</span>
                     <div className="flex items-center -space-x-1.5">
-                        {onlineUsers.slice(0, 4).map((u: any, i) => {
+                        {onlineUsers.slice(0, 3).map((u: any, i) => {
                             const displayName = u.userName || u.name || 'User'
                             return (
                                 <div
@@ -105,7 +215,7 @@ export function RoomTopNav({
                     </div>
                 </div>
 
-                {/* LangSmith Traces */}
+                {/* Nút kiểm tra luồng Workflow Traces */}
                 <button
                     onClick={() => {
                         const tracesArr = Object.values(latestTraces)
@@ -114,84 +224,40 @@ export function RoomTopNav({
                         }
                         setTraceModalOpen(true)
                     }}
-                    className={`text-xs px-2.5 py-1.5 rounded-xl border transition font-medium flex items-center gap-1.5 shadow-sm ${hasErrorTrace
-                        ? 'bg-rose-950/40 border-rose-500/50 text-rose-300 hover:bg-rose-900/50 animate-pulse'
-                        : 'bg-indigo-950/40 border-indigo-500/40 text-indigo-300 hover:bg-indigo-900/50'
-                        }`}
+                    className={`text-xs px-2.5 py-1.5 rounded-xl border transition font-medium flex items-center gap-1.5 shadow-sm ${
+                        hasErrorTrace
+                            ? 'bg-rose-950/40 border-rose-500/50 text-rose-300 hover:bg-rose-900/50 animate-pulse'
+                            : 'bg-indigo-950/30 border-indigo-500/30 text-indigo-300 hover:bg-indigo-900/40'
+                    }`}
                     title="Kiểm tra luồng thực thi Workflow (LangSmith Inspector)"
                 >
-                    <IconTrace className="w-3.5 h-3.5" />
+                    <IconTrace className="w-3.5 h-3.5 text-indigo-400" />
                     <span className="hidden sm:inline">Traces</span>
-                    {hasErrorTrace && <span className="w-2 h-2 rounded-full bg-rose-500" />}
                 </button>
 
-                {/* Phân bổ Agent */}
+                {/* NÚT DUY NHẤT: Quản lý phòng (Thành viên, Phân bổ Agent, Mời) */}
                 <button
-                    onClick={() => setAssignmentModalOpen(true)}
-                    className="text-xs px-2.5 py-1.5 rounded-xl border border-zinc-700 bg-zinc-800/80 hover:bg-zinc-700 text-zinc-200 transition font-medium flex items-center gap-1.5"
-                    title="Phân bổ Agent cho từng thành viên trong phòng"
+                    onClick={onOpenManagement}
+                    className="text-xs px-3 py-1.5 rounded-xl border border-blue-500/30 bg-blue-600/10 hover:bg-blue-600/20 text-blue-300 transition font-medium flex items-center gap-1.5 shadow-sm active:scale-95"
+                    title="Mở bảng điều khiển quản lý phòng"
                 >
-                    <IconUsers className="w-3.5 h-3.5 text-blue-400" />
-                    <span className="hidden sm:inline">Phân Bổ Agent</span>
+                    <IconSettings className="w-3.5 h-3.5 text-blue-400" />
+                    <span className="font-semibold">Quản lý</span>
+                    <span className="text-[10px] bg-blue-600/30 text-blue-200 px-1.5 py-0.2 rounded-full font-mono">
+                        {room?.members?.length || 1}
+                    </span>
                 </button>
 
-                {/* Thêm Agent */}
+                {/* Nút thoát phòng */}
                 <button
-                    onClick={() => setAddAgentModalOpen(true)}
-                    className="text-xs px-2.5 py-1.5 rounded-xl border border-zinc-700 bg-zinc-800/80 hover:bg-zinc-700 text-zinc-200 transition font-medium flex items-center gap-1"
+                    onClick={onLeaveRoom}
+                    className="p-1.5 sm:px-2.5 sm:py-1.5 rounded-xl border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 text-xs font-medium transition flex items-center gap-1 active:scale-95"
+                    title="Rời khỏi phòng làm việc này"
                 >
-                    <IconPlus className="w-3.5 h-3.5" />
-                    <span className="hidden sm:inline">Agent</span>
+                    <IconLogOut className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Thoát</span>
                 </button>
-
-                {/* Map Switcher */}
-                <div className="flex items-center p-0.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs">
-                    <button
-                        onClick={() => setMapType('office')}
-                        className={`px-2.5 py-1 rounded-lg transition font-medium flex items-center gap-1.5 ${mapType === 'office' ? 'bg-blue-600 text-white shadow' : 'text-zinc-400 hover:text-white'
-                            }`}
-                    >
-                        <IconBuilding className="w-3.5 h-3.5" />
-                        <span className="hidden sm:inline">Office</span>
-                    </button>
-                    <button
-                        onClick={() => setMapType('outdoor')}
-                        className={`px-2.5 py-1 rounded-lg transition font-medium flex items-center gap-1.5 ${mapType === 'outdoor' ? 'bg-emerald-600 text-white shadow' : 'text-zinc-400 hover:text-white'
-                            }`}
-                    >
-                        <IconTrees className="w-3.5 h-3.5" />
-                        <span className="hidden sm:inline">Outdoor</span>
-                    </button>
-                </div>
-
-                {/* View Mode Switcher */}
-                <div className="flex items-center p-0.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs">
-                    <button
-                        onClick={() => setViewMode('split')}
-                        className={`px-2.5 py-1 rounded-lg transition font-medium flex items-center gap-1 ${viewMode === 'split' ? 'bg-zinc-800 text-white shadow' : 'text-zinc-400 hover:text-white'
-                            }`}
-                    >
-                        <IconLayers className="w-3.5 h-3.5" />
-                        <span className="hidden md:inline">Split</span>
-                    </button>
-                    <button
-                        onClick={() => setViewMode('3d')}
-                        className={`px-2.5 py-1 rounded-lg transition font-medium flex items-center gap-1 ${viewMode === '3d' ? 'bg-zinc-800 text-white shadow' : 'text-zinc-400 hover:text-white'
-                            }`}
-                    >
-                        <IconBuilding className="w-3.5 h-3.5" />
-                        <span className="hidden md:inline">3D</span>
-                    </button>
-                    <button
-                        onClick={() => setViewMode('chat')}
-                        className={`px-2.5 py-1 rounded-lg transition font-medium flex items-center gap-1 ${viewMode === 'chat' ? 'bg-zinc-800 text-white shadow' : 'text-zinc-400 hover:text-white'
-                            }`}
-                    >
-                        <IconMessageSquare className="w-3.5 h-3.5" />
-                        <span className="hidden md:inline">Chat</span>
-                    </button>
-                </div>
             </div>
-        </div>
+        </header>
     )
 }

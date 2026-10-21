@@ -4,7 +4,7 @@ export interface IconProps extends React.SVGProps<SVGSVGElement> {
     className?: string
     size?: number
 }
-import { Paperclip, LogOut, Globe, Lock, Share, Check } from 'lucide-react'
+import { Paperclip, LogOut, Globe, Lock, Share, Check, Settings, ChevronDown, ChevronUp, Lightbulb, UserPlus } from 'lucide-react'
 
 export const IconPaperclip = Paperclip
 export const IconLogOut = LogOut
@@ -12,6 +12,11 @@ export const IconGlobe = Globe
 export const IconLock = Lock
 export const IconShare2 = Share
 export const IconCheck = Check
+export const IconSettings = Settings
+export const IconChevronDown = ChevronDown
+export const IconChevronUp = ChevronUp
+export const IconLightbulb = Lightbulb
+export const IconUserPlus = UserPlus
 
 export function IconTrace({ className = 'w-4 h-4', size = 16, ...props }: IconProps) {
     return (

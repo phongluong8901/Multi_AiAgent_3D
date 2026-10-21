@@ -1,6 +1,11 @@
 export { API_BASE, request } from '../client'
 
-export type { Agent, AgentStatus, AgentCreate, AgentUpdate } from './agents'
+import type { Agent as BaseAgent } from './agents'
+export type Agent = BaseAgent & {
+    description?: string
+}
+
+export type { AgentStatus, AgentCreate, AgentUpdate } from './agents'
 export { agentsApi } from './agents'
 
 export type { UserProfile, InviteUser } from './users'
@@ -14,6 +19,19 @@ export type {
     UserAgentBinding,
 } from './rooms'
 export { roomsApi } from './rooms'
+
+export interface UserSearchItem {
+    id: string
+    username: string
+    email: string
+    avatarUrl?: string
+}
+
+export interface InvitePayload {
+    inviteeUserId: string
+    inviteeEmail?: string
+    inviteeName?: string
+}
 
 export type { ChatMessage, UserPresence } from './chats'
 export { chatsApi } from './chats'

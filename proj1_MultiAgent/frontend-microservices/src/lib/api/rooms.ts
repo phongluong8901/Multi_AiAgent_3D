@@ -61,6 +61,20 @@ export type RoomCreate = {
     settings?: Partial<RoomSettings>
 }
 
+// Bổ sung kiểu dữ liệu cho UserSearchItem và InvitePayload
+export type UserSearchItem = {
+    id: string
+    username: string
+    email: string
+    avatarUrl?: string
+}
+
+export type InvitePayload = {
+    inviteeUserId: string
+    inviteeEmail?: string
+    inviteeName?: string
+}
+
 // Prefix khớp room-service
 const UU = '/rooms/user-user'
 const AA = '/rooms/agent-agent'
@@ -176,15 +190,24 @@ export const roomsApi = {
         await request(`${UU}/${id}`, { method: 'DELETE' })
     },
 
+    // Cập nhật hàm invite nhận `InvitePayload`
     invite: async (
         roomId: string,
-        data: { userId: string; userName?: string }
+        data: InvitePayload
     ): Promise<Room> => {
         const res = await request<{ success: boolean; data: Room }>(
             `${UU}/${roomId}/invites`,
             { method: 'POST', body: JSON.stringify(data) }
         )
         return res.data
+    },
+
+    // Bổ sung hàm searchUsers để phục vụ tính năng tìm kiếm thành viên
+    searchUsers: async (query: string): Promise<{ users: UserSearchItem[] }> => {
+        const res = await request<{ success: boolean; users: UserSearchItem[] }>(
+            `/users/search?q=${encodeURIComponent(query)}`
+        )
+        return { users: res?.users || [] }
     },
 
     acceptInvite: async (roomId: string, name?: string): Promise<Room> => {
@@ -217,5 +240,4 @@ export const roomsApi = {
         )
         return res.data
     },
-
 }

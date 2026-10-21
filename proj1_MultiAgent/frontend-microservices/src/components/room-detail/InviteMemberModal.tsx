@@ -69,8 +69,9 @@ export function InviteMemberModal({
         try {
             setInviting(uid)
             const updated = await roomsApi.invite(roomId, {
-                userId: uid,
-                userName: u.username,
+                inviteeUserId: uid,
+                inviteeName: u.username,
+                inviteeEmail: u.email,
             })
             onInvited(updated)
             alert(`Đã gửi lời mời tới ${u.username}. Họ cần Accept trên trang Phòng.`)

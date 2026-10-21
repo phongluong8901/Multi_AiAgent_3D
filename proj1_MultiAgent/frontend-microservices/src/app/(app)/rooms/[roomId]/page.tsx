@@ -11,10 +11,8 @@ import { getUser } from '@/lib/auth'
 import { io } from 'socket.io-client'
 import { RoomTopNav } from '@/components/room-detail/RoomTopNav'
 import { AgentTeamStrip } from '@/components/room-detail/AgentTeamStrip'
-import { RoomActionBar } from '@/components/room-detail/header/RoomActionBar'
 import { RoomWorkspaceLayout } from '@/components/room-detail/screen-split/RoomWorkspaceLayout'
 import { ModalsContainer } from '@/components/room-detail/modals/ModalsContainer'
-import { InviteMemberModal } from '@/components/room-detail/InviteMemberModal'
 import { MapType } from '@/components/Scene'
 
 // Định nghĩa chế độ hiển thị màn hình làm việc: Chia đôi, Chỉ 3D, hoặc Chỉ Khung Chat
@@ -57,7 +55,8 @@ export default function CollaborativeRoomPage() {
     const [pipelineRunning, setPipelineRunning] = useState(false)
     const [traceModalOpen, setTraceModalOpen] = useState(false)
     const [assignmentModalOpen, setAssignmentModalOpen] = useState(false)
-    const [inviteOpen, setInviteOpen] = useState(false)
+    const [managementTab, setManagementTab] = useState<'members' | 'agents' | 'invite'>('members')
+    const [socketOnlineUsers, setSocketOnlineUsers] = useState<any[]>([])
 
     // Cờ đánh dấu khi người dùng chủ động rời phòng
     const isLeavingRef = useRef(false)
@@ -147,9 +146,27 @@ export default function CollaborativeRoomPage() {
 
         socket.on('connect', () => {
             console.log(`[Room Socket] Connected to room ${roomId}, socket id: ${socket.id}`)
-            // Định danh cá nhân và tham gia kênh phòng
+            // Định danh cá nhân và tham gia kênh phòng kèm thông tin hiển thị
             socket.emit('identity', currentUserId)
-            socket.emit('join', roomId)
+            socket.emit('join', {
+                roomId,
+                user: {
+                    id: currentUserId,
+                    name: currentUserName,
+                    avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${currentUserName || currentUserId}`,
+                    color: '#3b82f6',
+                },
+            })
+            // Yêu cầu lấy presence ngay khi vừa kết nối
+            socket.emit('get_presence', roomId)
+        })
+
+        // Lắng nghe sự kiện danh sách Online thay đổi thời gian thực qua Socket.IO
+        socket.on('room_presence', (data: { roomId: string; onlineUsers: any[] }) => {
+            console.log('👥 [Room Socket] Realtime online presence updated:', data?.onlineUsers)
+            if (data?.onlineUsers) {
+                setSocketOnlineUsers(data.onlineUsers)
+            }
         })
 
         // Lắng nghe sự kiện phòng được cập nhật (thành viên thay đổi, gán agent, v.v.)
@@ -171,7 +188,7 @@ export default function CollaborativeRoomPage() {
             socket.emit('leave', roomId)
             socket.disconnect()
         }
-    }, [roomId, currentUserId])
+    }, [roomId, currentUserId, currentUserName])
 
     // Đồng bộ trạng thái và vị trí của các Agent đang hoạt động trong phòng
     useEffect(() => {
@@ -221,18 +238,30 @@ export default function CollaborativeRoomPage() {
         prevMsgCountRef.current = messages.length
     }, [messages.length])
 
-    // Lọc danh sách người dùng đang online thuộc đúng thành viên của phòng
+    // Lọc danh sách người dùng đang online thuộc đúng thành viên của phòng (ưu tiên realtime Socket.IO)
     const visibleOnlineUsers = useMemo(() => {
-        const list = onlineUsers ?? []
-        if (!room) return list
+        const sourceList = socketOnlineUsers.length > 0 ? socketOnlineUsers : (onlineUsers ?? [])
+        if (!room) return sourceList
         const memberIds = new Set((room.members ?? []).map((m) => m.memberId))
-        return list.filter((u) => {
+        const filtered = sourceList.filter((u) => {
             const uid = (u as any).userId || (u as any).id
             if (!uid) return false
             if (room.ownerId === uid) return true
             return memberIds.has(uid)
         })
-    }, [onlineUsers, room])
+
+        // Đảm bảo user hiện tại luôn hiển thị Online nếu đang ở trong phòng
+        if (currentUserId && !filtered.some((u: any) => ((u as any).userId || (u as any).id) === currentUserId)) {
+            filtered.unshift({
+                userId: currentUserId,
+                userName: currentUserName,
+                avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${currentUserName || currentUserId}`,
+                color: '#3b82f6',
+            } as any)
+        }
+
+        return filtered
+    }, [socketOnlineUsers, onlineUsers, room, currentUserId, currentUserName])
 
     // --- CÁC HÀM XỬ LÝ SỰ KIỆN (HANDLERS) ---
 
@@ -336,7 +365,7 @@ export default function CollaborativeRoomPage() {
 
     return (
         <div className="flex h-[calc(100vh-3.5rem)] flex-col overflow-hidden bg-zinc-950">
-            {/* 1. Thanh định hướng phía trên cùng (Top Navigation) */}
+            {/* 1. Thanh điều hướng & tác vụ phòng hợp nhất (Top Navigation) */}
             <RoomTopNav
                 roomId={roomId}
                 room={room}
@@ -346,8 +375,11 @@ export default function CollaborativeRoomPage() {
                 activeTrace={activeTrace}
                 setActiveTrace={setActiveTrace}
                 setTraceModalOpen={setTraceModalOpen}
-                setAssignmentModalOpen={setAssignmentModalOpen}
-                setAddAgentModalOpen={setAddAgentModalOpen}
+                onOpenManagement={() => {
+                    setManagementTab('members')
+                    setAssignmentModalOpen(true)
+                }}
+                onLeaveRoom={handleLeaveRoom}
                 mapType={mapType}
                 setMapType={setMapType}
                 viewMode={viewMode}
@@ -360,15 +392,6 @@ export default function CollaborativeRoomPage() {
                 selected3dAgentId={selected3dAgentId}
                 handleSelectAgent={handleSelectAgent}
                 setInput={setInput}
-            />
-
-            {/* 3. Thanh tác vụ nhanh (Tên phòng, Chủ phòng, Số thành viên, Nút Mời và Quản lý) */}
-            <RoomActionBar
-                room={room}
-                roomId={roomId}
-                onOpenInvite={() => setInviteOpen(true)}
-                onOpenManagement={() => setAssignmentModalOpen(true)}
-                onLeaveRoom={handleLeaveRoom}
             />
 
             {/* 4. Khung giao diện chính chia đôi màn hình (Workspace 3D & Team Chat Panel) */}
@@ -402,14 +425,21 @@ export default function CollaborativeRoomPage() {
                 currentUserName={currentUserName}
             />
 
-            {/* 5. Container chứa toàn bộ các Modal phụ trợ (Thêm Agent, Traces, Phân quyền,...) */}
+            {/* 5. Container Modal Hợp nhất (Thành viên, Phân bổ Agent, Mời thành viên, Workflow Trace) */}
             <ModalsContainer
                 roomId={roomId}
                 room={room}
                 allAgents={allAgents}
                 onlineUsers={visibleOnlineUsers}
-                addAgentModalOpen={addAgentModalOpen}
-                setAddAgentModalOpen={setAddAgentModalOpen}
+                addAgentModalOpen={false}
+                setAddAgentModalOpen={(open) => {
+                    if (open) {
+                        setManagementTab('agents')
+                        setAssignmentModalOpen(true)
+                    } else {
+                        setAssignmentModalOpen(false)
+                    }
+                }}
                 handleAddAgentToRoom={handleAddAgentToRoom}
                 traceModalOpen={traceModalOpen}
                 setTraceModalOpen={setTraceModalOpen}
@@ -419,15 +449,8 @@ export default function CollaborativeRoomPage() {
                 assignmentModalOpen={assignmentModalOpen}
                 setAssignmentModalOpen={setAssignmentModalOpen}
                 setRoom={setRoom}
-            />
-
-            {/* 6. Modal chuyên biệt dùng để mời thành viên mới vào phòng */}
-            <InviteMemberModal
-                roomId={roomId}
-                room={room}
-                open={inviteOpen}
-                onClose={() => setInviteOpen(false)}
-                onInvited={(updated) => setRoom(updated)}
+                currentTab={managementTab}
+                setCurrentTab={setManagementTab}
             />
         </div>
     )
