@@ -1,3 +1,4 @@
+// src/routes/chat-proxy.routes.ts
 import { Router, Response } from "express";
 import { createProxyMiddleware, fixRequestBody } from "http-proxy-middleware";
 import { gatewayAuthMiddleware } from "../middlewares/auth.middleware";
@@ -5,13 +6,47 @@ import { gatewayAuthMiddleware } from "../middlewares/auth.middleware";
 const router = Router();
 const CHAT_SERVICE_URL = process.env.CHAT_SERVICE_URL || "http://localhost:5003";
 
-// Chat REST API (Yêu cầu xác thực)
+// 1. ROUTE SOCKET.IO: Xử lý chuẩn cả HTTP Handshake và WebSocket Upgrade cho Socket.IO
+// Đặt lên đầu và KHÔNG dùng chung auth middleware kiểm tra header REST API thông thường ở đây
 router.use(
-    gatewayAuthMiddleware,
     createProxyMiddleware({
         target: CHAT_SERVICE_URL,
         changeOrigin: true,
-        pathFilter: (pathname) => pathname.startsWith("/api/v1/chats"),
+        ws: true, // Bật WebSocket proxy
+        pathFilter: (pathname) => pathname.startsWith("/socket.io"),
+        on: {
+            error: (err, req, res) => {
+                console.error(`[Gateway WS Proxy] ❌ Lỗi WebSocket/Socket.IO Chat Service:`, err);
+                if (res && 'writeHead' in res && !res.headersSent) {
+                    (res as Response).status(502).json({
+                        success: false,
+                        message: "Bad Gateway: Chat Service Socket không phản hồi"
+                    });
+                }
+            }
+        }
+    })
+);
+
+// Middleware kiểm tra auth cho các REST API thông thường của Chat Service (bỏ qua /socket.io)
+const checkChatAuth = (req: any, res: any, next: any) => {
+    const fullPath = req.url.split("?")[0];
+    if (fullPath.startsWith("/socket.io")) {
+        return next();
+    }
+    if (fullPath.startsWith("/api/v1/chats")) {
+        return gatewayAuthMiddleware(req, res, next);
+    }
+    next();
+};
+
+// 2. ROUTE REST API THÔNG THƯỜNG: VẪN GIỮ AUTH MIDDLEWARE
+router.use(
+    checkChatAuth,
+    createProxyMiddleware({
+        target: CHAT_SERVICE_URL,
+        changeOrigin: true,
+        pathFilter: (pathname) => pathname.startsWith("/api/v1/chats") && !pathname.startsWith("/socket.io"),
         on: {
             proxyReq: (proxyReq, req: any) => {
                 const fullPath = req.url || "";
@@ -26,21 +61,6 @@ router.use(
                 }
             }
         },
-    })
-);
-
-// Chat Real-time WebSocket Proxy (/socket.io)
-router.use(
-    createProxyMiddleware({
-        target: CHAT_SERVICE_URL,
-        changeOrigin: true,
-        ws: true,
-        pathFilter: (pathname) => pathname.startsWith("/socket.io"),
-        on: {
-            error: (err, req, res) => {
-                console.error(`[Gateway Proxy] ❌ Lỗi kết nối WebSocket Chat Service:`, err);
-            }
-        }
     })
 );
 
