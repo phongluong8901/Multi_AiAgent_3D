@@ -108,6 +108,8 @@ npm install lucide-react
 
 npm install socket.io-client
 
+npm install three @react-three/fiber @react-three/drei @dnd-kit/core @dnd-kit/utilities
+
 # --- run
 cd proj1_MultiAgent
 cd backend-microservices
