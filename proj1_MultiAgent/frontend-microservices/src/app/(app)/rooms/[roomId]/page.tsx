@@ -12,7 +12,7 @@ import { RoomTopNav } from '@/components/room-detail/RoomTopNav'
 import { AgentTeamStrip } from '@/components/room-detail/AgentTeamStrip'
 import { RoomWorkspaceLayout } from '@/components/room-detail/screen-split/RoomWorkspaceLayout'
 import { ModalsContainer } from '@/components/room-detail/modals/ModalsContainer'
-import { MapType } from '@/components/Scene'
+import { MapType, resolveTargetPositionForAction } from '@/lib/maps/mapRegistry'
 import { useRoom } from '@/hooks/useRoom'
 import { useChat } from '@/hooks/useChat'
 
@@ -215,24 +215,8 @@ export default function CollaborativeRoomPage() {
     }
 
     const handleTriggerAction = (agentId: string, action: AgentAction) => {
-        let targetPos: [number, number, number] = [0, 0, 0]
-        if (mapType === 'office') {
-            if (action === 'sofa') targetPos = OFFICE_ACTION_SPOTS.sofa
-            else if (action === 'roundtable') targetPos = OFFICE_ACTION_SPOTS.roundtable
-            else if (action === 'pingpong') targetPos = OFFICE_ACTION_SPOTS.pingpong
-            else if (action === 'coffee') targetPos = OFFICE_ACTION_SPOTS.coffee
-            else if (action === 'desk') {
-                const idx = roomAgents.findIndex((a) => a.id === agentId)
-                targetPos =
-                    OFFICE_DESK_SLOTS[idx !== -1 ? idx % OFFICE_DESK_SLOTS.length : 0]
-            }
-        } else {
-            if (action === 'bench') targetPos = OUTDOOR_ACTION_SPOTS.bench1
-            else if (action === 'picnic') targetPos = OUTDOOR_ACTION_SPOTS.picnic1
-            else if (action === 'gazebo') targetPos = OUTDOOR_ACTION_SPOTS.gazebo
-            else if (action === 'fountain') targetPos = OUTDOOR_ACTION_SPOTS.fountain
-            else if (action === 'coffee') targetPos = OUTDOOR_ACTION_SPOTS.coffee
-        }
+        const idx = roomAgents.findIndex((a) => a.id === agentId)
+        const targetPos = resolveTargetPositionForAction(mapType, action, idx !== -1 ? idx : 0)
         setAgentTargetActions((prev) => ({
             ...prev,
             [agentId]: { action, targetPos },

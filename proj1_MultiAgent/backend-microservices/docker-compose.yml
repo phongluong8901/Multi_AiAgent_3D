@@ -1,51 +1,51 @@
 services:
   # --- PostgreSQL Database (for agent-service) ---
-  db:
-    image: postgres:15-alpine
-    container_name: agents_db_postgres
-    environment:
-      POSTGRES_USER: postgres_user
-      POSTGRES_PASSWORD: postgres_password
-      POSTGRES_DB: agents_db
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "pg_isready -h 127.0.0.1 -U postgres_user -d agents_db || exit 1",
-        ]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
-    restart: always
-    networks:
-      - multi-agent-network
+  # db:
+  #   image: postgres:15-alpine
+  #   container_name: agents_db_postgres
+  #   environment:
+  #     POSTGRES_USER: postgres_user
+  #     POSTGRES_PASSWORD: postgres_password
+  #     POSTGRES_DB: agents_db
+  #   ports:
+  #     - "5432:5432"
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+  #   healthcheck:
+  #     test:
+  #       [
+  #         "CMD-SHELL",
+  #         "pg_isready -h 127.0.0.1 -U postgres_user -d agents_db || exit 1",
+  #       ]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 10
+  #     start_period: 30s
+  #   restart: always
+  #   networks:
+  #     - multi-agent-network
 
   # --- Shared MongoDB Database ---
-  mongo:
-    image: mongo:latest
-    container_name: shared_mongo_db
-    ports:
-      - "27017:27017"
-    volumes:
-      - mongo_data:/data/db
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "echo 'db.runCommand({ping: 1}).ok' | mongosh localhost:27017/test --quiet || exit 1",
-        ]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
-    restart: always
-    networks:
-      - multi-agent-network
+  # mongo:
+  #   image: mongo:latest
+  #   container_name: shared_mongo_db
+  #   ports:
+  #     - "27017:27017"
+  #   volumes:
+  #     - mongo_data:/data/db
+  #   healthcheck:
+  #     test:
+  #       [
+  #         "CMD-SHELL",
+  #         "echo 'db.runCommand({ping: 1}).ok' | mongosh localhost:27017/test --quiet || exit 1",
+  #       ]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 10
+  #     start_period: 30s
+  #   restart: always
+  #   networks:
+  #     - multi-agent-network
 
   # --- RabbitMQ Message Broker ---
   rabbitmq:
@@ -108,7 +108,7 @@ services:
     ports:
       - "5001:5001"
     depends_on:
-      - mongo
+      # - mongo
       - redis
       - rabbitmq
     restart: always
@@ -124,7 +124,7 @@ services:
     ports:
       - "5002:5002"
     depends_on:
-      - mongo
+      # - mongo
       - rabbitmq
     restart: always
     networks:
@@ -139,7 +139,7 @@ services:
     ports:
       - "5003:5003"
     depends_on:
-      - mongo
+      # - mongo
       - rabbitmq
     restart: always
     networks:
@@ -153,14 +153,8 @@ services:
       - ./agent-service/.env
     ports:
       - "8000:8000"
-    environment:
-      - PROJECT_NAME=Agents Service
-      - DEBUG=True
-      - RABBITMQ_URL=amqp://admin:admin123@rabbitmq:5672
-      - REDIS_URL=redis://redis:6379/0
-      - DATABASE_URL=postgresql+psycopg2://postgres_user:postgres_password@db:5432/agents_db
     depends_on:
-      - db
+      # - db
       - redis
       - rabbitmq
     restart: always

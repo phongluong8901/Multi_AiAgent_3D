@@ -58,18 +58,28 @@ export function Workspace3DPanel({
             <div className="pointer-events-none absolute left-3 top-3 z-10">
                 <div className="flex items-center gap-2 rounded-xl border border-zinc-800 bg-black/85 px-3 py-1.5 text-[11px] text-zinc-300 shadow-xl backdrop-blur">
                     <span
-                        className={`h-2 w-2 rounded-full ${mapType === 'outdoor' ? 'bg-emerald-400' : 'bg-blue-400'
-                            } animate-pulse`}
+                        className={`h-2 w-2 rounded-full ${
+                            mapType === 'iot'
+                                ? 'bg-cyan-400'
+                                : mapType === 'outdoor'
+                                ? 'bg-emerald-400'
+                                : 'bg-blue-400'
+                        } animate-pulse`}
                     />
                     {mapType === 'office' ? (
                         <span className="flex items-center gap-1">
                             <IconBuilding className="h-3.5 w-3.5 text-blue-400" />
                             Văn phòng ảo
                         </span>
-                    ) : (
+                    ) : mapType === 'outdoor' ? (
                         <span className="flex items-center gap-1">
                             <IconTrees className="h-3.5 w-3.5 text-emerald-400" />
                             Ngoài trời
+                        </span>
+                    ) : (
+                        <span className="flex items-center gap-1">
+                            <IconBuilding className="h-3.5 w-3.5 text-cyan-400" />
+                            Đô thị thông minh (IoT)
                         </span>
                     )}
                     <span className="text-zinc-500">·</span>
@@ -155,7 +165,7 @@ export function Workspace3DPanel({
                                     label="Đi dạo"
                                 />
                             </>
-                        ) : (
+                        ) : mapType === 'outdoor' ? (
                             <>
                                 <ActionBtn
                                     onClick={() => handleTriggerAction(selected3dAgentId, 'picnic')}
@@ -194,6 +204,45 @@ export function Workspace3DPanel({
                                     className="border-zinc-700 bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
                                     icon={<IconCompass className="h-3.5 w-3.5" />}
                                     label="Dạo vườn"
+                                />
+                            </>
+                        ) : (
+                            <>
+                                <ActionBtn
+                                    onClick={() => handleTriggerAction(selected3dAgentId, 'building')}
+                                    className="border-cyan-500/40 bg-cyan-600/25 text-cyan-200 hover:bg-cyan-600/35"
+                                    icon={<IconBuilding className="h-3.5 w-3.5" />}
+                                    label="Trụ sở"
+                                />
+                                <ActionBtn
+                                    onClick={() => handleTriggerAction(selected3dAgentId, 'house')}
+                                    className="border-sky-500/40 bg-sky-600/25 text-sky-200 hover:bg-sky-600/35"
+                                    icon={<IconArmchair className="h-3.5 w-3.5" />}
+                                    label="Khu dân cư"
+                                />
+                                <ActionBtn
+                                    onClick={() => handleTriggerAction(selected3dAgentId, 'industry')}
+                                    className="border-amber-500/40 bg-amber-600/25 text-amber-200 hover:bg-amber-600/35"
+                                    icon={<IconActivity className="h-3.5 w-3.5" />}
+                                    label="Nhà máy"
+                                />
+                                <ActionBtn
+                                    onClick={() => handleTriggerAction(selected3dAgentId, 'crossroad')}
+                                    className="border-purple-500/40 bg-purple-600/25 text-purple-200 hover:bg-purple-600/35"
+                                    icon={<IconCompass className="h-3.5 w-3.5" />}
+                                    label="Giao lộ"
+                                />
+                                <ActionBtn
+                                    onClick={() => handleTriggerAction(selected3dAgentId, 'streetlight')}
+                                    className="border-yellow-500/40 bg-yellow-600/25 text-yellow-200 hover:bg-yellow-600/35"
+                                    icon={<IconDroplets className="h-3.5 w-3.5" />}
+                                    label="Trạm đèn"
+                                />
+                                <ActionBtn
+                                    onClick={() => handleTriggerAction(selected3dAgentId, 'patrol')}
+                                    className="border-emerald-500/40 bg-emerald-600/25 text-emerald-200 hover:bg-emerald-600/35"
+                                    icon={<IconCompass className="h-3.5 w-3.5" />}
+                                    label="Tuần tra"
                                 />
                             </>
                         )}

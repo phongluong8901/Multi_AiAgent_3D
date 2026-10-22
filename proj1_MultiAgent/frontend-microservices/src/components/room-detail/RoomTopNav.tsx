@@ -19,8 +19,9 @@ import {
     IconGlobe,
 } from '@/components/ui/icons'
 
+import { MapType } from '@/lib/maps/mapRegistry'
+
 type ViewMode = 'split' | '3d' | 'chat'
-type MapType = 'office' | 'outdoor'
 
 interface RoomTopNavProps {
     roomId: string
@@ -159,7 +160,27 @@ export function RoomTopNav({
                         <IconTrees className="w-3.5 h-3.5" />
                         <span>Outdoor</span>
                     </button>
+                    <button
+                        onClick={() => setMapType('iot')}
+                        className={`px-2.5 py-1 rounded-lg transition font-medium flex items-center gap-1.5 ${
+                            mapType === 'iot'
+                                ? 'bg-cyan-600 text-white shadow'
+                                : 'text-zinc-400 hover:text-white'
+                        }`}
+                    >
+                        <IconGlobe className="w-3.5 h-3.5" />
+                        <span>Smart City</span>
+                    </button>
                 </div>
+
+                <Link
+                    href="/maps/setup"
+                    target="_blank"
+                    className="p-1.5 rounded-xl text-zinc-400 hover:text-cyan-400 hover:bg-zinc-800 transition text-xs font-medium flex items-center gap-1 shrink-0 border border-transparent hover:border-cyan-500/30"
+                    title="Vào Map Studio để vẽ & tùy chỉnh bản đồ 3D"
+                >
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-950/80 text-cyan-300 font-mono border border-cyan-500/40">Studio 3D</span>
+                </Link>
 
                 {/* View Mode Switcher */}
                 <div className="flex items-center p-0.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs">

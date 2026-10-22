@@ -5,10 +5,11 @@ import { OrbitControls, Sky } from '@react-three/drei'
 import { Physics } from '@react-three/rapier'
 import Room from './office/Room'
 import OutdoorPark from './outdoor/OutdoorPark'
+import SmartCity from './iot/SmartCity'          // ← thêm dòng này
 import { Agent as AgentType } from '@/lib/api'
 import { AgentAction } from './agents/Agent'
 
-export type MapType = 'office' | 'outdoor'
+export type MapType = 'office' | 'outdoor' | 'iot'   // ← thêm 'iot'
 
 type Props = {
     agents: AgentType[]
@@ -28,18 +29,19 @@ export default function Scene({
     agentTargetActions = {},
 }: Props) {
     const isOutdoor = mapType === 'outdoor'
+    const isIot = mapType === 'iot'
 
     return (
         <div className="w-full h-full min-h-[calc(100vh-3.5rem)] relative select-none">
             <Canvas
                 shadows
                 camera={{
-                    position: isOutdoor ? [18, 18, 18] : [16, 16, 16],
-                    fov: isOutdoor ? 45 : 40,
+                    position: isIot ? [28, 22, 28] : isOutdoor ? [18, 18, 18] : [16, 16, 16],
+                    fov: isIot ? 42 : isOutdoor ? 45 : 40,
                 }}
             >
                 {/* Ánh sáng & Bầu trời theo từng map */}
-                {isOutdoor ? (
+                {isOutdoor || isIot ? (
                     <>
                         <Sky
                             distance={450000}
@@ -47,13 +49,16 @@ export default function Scene({
                             inclination={0.6}
                             azimuth={0.25}
                         />
-                        <ambientLight intensity={0.75} />
+                        <ambientLight intensity={isIot ? 0.55 : 0.75} />
                         <directionalLight
                             position={[15, 28, 18]}
-                            intensity={1.6}
+                            intensity={isIot ? 1.4 : 1.6}
                             castShadow
                             shadow-mapSize={[2048, 2048]}
                         />
+                        {isIot && (
+                            <pointLight position={[0, 12, 0]} intensity={0.4} color="#38bdf8" />
+                        )}
                     </>
                 ) : (
                     <>
@@ -68,8 +73,16 @@ export default function Scene({
                 )}
 
                 <Physics gravity={[0, -9.81, 0]}>
-                    {isOutdoor ? (
+                    {mapType === 'outdoor' ? (
                         <OutdoorPark
+                            agents={agents}
+                            selectedAgentId={selectedAgentId}
+                            onSelectAgent={onSelectAgent}
+                            onFloorClick={onFloorClick}
+                            agentTargetActions={agentTargetActions}
+                        />
+                    ) : mapType === 'iot' ? (
+                        <SmartCity
                             agents={agents}
                             selectedAgentId={selectedAgentId}
                             onSelectAgent={onSelectAgent}
@@ -89,8 +102,8 @@ export default function Scene({
 
                 <OrbitControls
                     maxPolarAngle={Math.PI / 2.15}
-                    minDistance={8}
-                    maxDistance={40}
+                    minDistance={isIot ? 12 : 8}
+                    maxDistance={isIot ? 55 : 40}
                     target={[0, 0, 0]}
                 />
             </Canvas>
