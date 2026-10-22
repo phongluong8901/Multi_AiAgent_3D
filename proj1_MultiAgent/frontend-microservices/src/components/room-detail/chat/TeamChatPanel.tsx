@@ -41,9 +41,12 @@ interface TeamChatPanelProps {
     currentUserName?: string
 }
 
+type ChatTab = 'user-user' | 'user-agent' | 'agent-agent'
+
 export function TeamChatPanel({
     messages,
     chatLoading,
+    onlineUsers,
     roomAgents,
     room,
     input,
@@ -63,6 +66,7 @@ export function TeamChatPanel({
     currentUserName = '',
 }: TeamChatPanelProps) {
     const [selectedFile, setSelectedFile] = useState<File | null>(null)
+    const [activeTab, setActiveTab] = useState<ChatTab>('user-user')
     const fileInputRef = useRef<HTMLInputElement | null>(null)
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -110,56 +114,123 @@ export function TeamChatPanel({
         setMentionPopupOpen(false)
     }
 
+    // Lọc tin nhắn dựa theo 3 vùng (Tab)
+    const filteredMessages = messages.filter((m: any) => {
+        const senderType = m.senderType // 'user' | 'agent' | 'system'
+        const isAgent = senderType === 'agent'
+        const isSystem = senderType === 'system'
+        const isUser = !isAgent && !isSystem
+
+        // 1. Vùng User-User: Chỉ tin nhắn giữa các người dùng với nhau hoặc tin hệ thống
+        if (activeTab === 'user-user') {
+            return isUser || isSystem
+        }
+
+        // 2. Vùng User-Agent: Tin nhắn tương tác trực tiếp giữa người dùng và Agent
+        if (activeTab === 'user-agent') {
+            const target = m.targetAgentId || m.metadata?.targetAgentId
+            return (isUser && (target || m.message.includes('@'))) || (isAgent && !m.metadata?.isAgentToAgent)
+        }
+
+        // 3. Vùng Agent-Agent: Các luồng hội thoại phối hợp tự động giữa các agent với nhau
+        if (activeTab === 'agent-agent') {
+            return isAgent && (m.metadata?.isAgentToAgent || m.metadata?.workflowTrace || m.senderId?.startsWith('agent_'))
+        }
+
+        return true
+    })
+
     return (
         <div className="flex h-full min-h-0 w-full flex-col bg-zinc-950">
-            {/* Quick actions */}
-            <div className="flex shrink-0 items-center gap-2 overflow-x-auto border-b border-zinc-800/80 bg-zinc-900/40 p-3 scrollbar-none">
-                <span className="flex shrink-0 items-center gap-1 text-[11px] font-medium text-zinc-500">
-                    <IconZap className="h-3.5 w-3.5 text-amber-400" />
-                    Giao việc:
-                </span>
-                <button
-                    type="button"
-                    onClick={runTeamPipeline}
-                    disabled={pipelineRunning}
-                    className="flex shrink-0 items-center gap-1.5 rounded-lg border border-indigo-500/30 bg-indigo-600/20 px-2.5 py-1 text-xs font-medium text-indigo-300 transition hover:bg-indigo-600/30 disabled:opacity-50"
-                >
-                    <IconSparkles className="h-3.5 w-3.5" />
-                    Team Pipeline
-                </button>
-                <button
-                    type="button"
-                    onClick={() =>
-                        setInput('@agent_search Hãy tra cứu xu hướng AI Agents mới nhất năm 2026')
-                    }
-                    className="flex shrink-0 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900 px-2.5 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
-                >
-                    <IconSearch className="h-3.5 w-3.5 text-zinc-400" />
-                    Tra cứu
-                </button>
-                <button
-                    type="button"
-                    onClick={() =>
-                        setInput('@agent_analyst Hãy phân tích file dữ liệu CSV/Excel mới tải lên')
-                    }
-                    className="flex shrink-0 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900 px-2.5 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
-                >
-                    <IconBarChart className="h-3.5 w-3.5 text-zinc-400" />
-                    Phân tích
-                </button>
-                <button
-                    type="button"
-                    onClick={() =>
-                        setInput('@agent_summarizer Hãy tóm tắt lại toàn bộ thảo luận của phòng')
-                    }
-                    className="flex shrink-0 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900 px-2.5 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
-                >
-                    <IconFileText className="h-3.5 w-3.5 text-zinc-400" />
-                    Tóm tắt
-                </button>
+            {/* Thanh chuyển đổi giữa 3 vùng chat */}
+            <div className="flex shrink-0 items-center justify-between border-b border-zinc-800 bg-zinc-900/60 px-3 py-2">
+                <div className="flex items-center gap-1.5">
+                    <button
+                        type="button"
+                        onClick={() => setActiveTab('user-user')}
+                        className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition ${activeTab === 'user-user'
+                            ? 'bg-blue-600 text-white shadow'
+                            : 'text-zinc-400 hover:bg-zinc-800 hover:text-white'
+                            }`}
+                    >
+                        <IconUsers className="h-3.5 w-3.5" />
+                        Thành viên ({onlineUsers.length})
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setActiveTab('user-agent')}
+                        className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition ${activeTab === 'user-agent'
+                            ? 'bg-amber-600 text-white shadow'
+                            : 'text-zinc-400 hover:bg-zinc-800 hover:text-white'
+                            }`}
+                    >
+                        <IconBot className="h-3.5 w-3.5" />
+                        Hỏi đáp Agent
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setActiveTab('agent-agent')}
+                        className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition ${activeTab === 'agent-agent'
+                            ? 'bg-indigo-600 text-white shadow'
+                            : 'text-zinc-400 hover:bg-zinc-800 hover:text-white'
+                            }`}
+                    >
+                        <IconSparkles className="h-3.5 w-3.5" />
+                        Agent Team Pipeline
+                    </button>
+                </div>
             </div>
 
-            {/* Messages */}
+            {/* Quick actions (Chỉ hiển thị khi ở tab User-Agent hoặc Agent-Agent) */}
+            {activeTab !== 'user-user' && (
+                <div className="flex shrink-0 items-center gap-2 overflow-x-auto border-b border-zinc-800/80 bg-zinc-900/40 p-3 scrollbar-none">
+                    <span className="flex shrink-0 items-center gap-1 text-[11px] font-medium text-zinc-500">
+                        <IconZap className="h-3.5 w-3.5 text-amber-400" />
+                        Giao việc:
+                    </span>
+                    <button
+                        type="button"
+                        onClick={runTeamPipeline}
+                        disabled={pipelineRunning}
+                        className="flex shrink-0 items-center gap-1.5 rounded-lg border border-indigo-500/30 bg-indigo-600/20 px-2.5 py-1 text-xs font-medium text-indigo-300 transition hover:bg-indigo-600/30 disabled:opacity-50"
+                    >
+                        <IconSparkles className="h-3.5 w-3.5" />
+                        Team Pipeline
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() =>
+                            setInput('@agent_search Hãy tra cứu xu hướng AI Agents mới nhất năm 2026')
+                        }
+                        className="flex shrink-0 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900 px-2.5 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
+                    >
+                        <IconSearch className="h-3.5 w-3.5 text-zinc-400" />
+                        Tra cứu
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() =>
+                            setInput('@agent_analyst Hãy phân tích file dữ liệu CSV/Excel mới tải lên')
+                        }
+                        className="flex shrink-0 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900 px-2.5 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
+                    >
+                        <IconBarChart className="h-3.5 w-3.5 text-zinc-400" />
+                        Phân tích
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() =>
+                            setInput('@agent_summarizer Hãy tóm tắt lại toàn bộ thảo luận của phòng')
+                        }
+                        className="flex shrink-0 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900 px-2.5 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
+                    >
+                        <IconFileText className="h-3.5 w-3.5 text-zinc-400" />
+                        Tóm tắt
+                    </button>
+                </div>
+            )}
+
+            {/* Messages List */}
             <div
                 ref={chatScrollRef}
                 className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4"
@@ -168,18 +239,20 @@ export function TeamChatPanel({
                     <p className="py-12 text-center text-xs text-zinc-500">
                         Đang đồng bộ tin nhắn...
                     </p>
-                ) : messages.length === 0 ? (
+                ) : filteredMessages.length === 0 ? (
                     <div className="space-y-2 py-12 text-center">
                         <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl border border-zinc-800 bg-zinc-900 text-zinc-400">
                             <IconMessageSquare className="h-6 w-6" />
                         </div>
-                        <p className="text-xs font-medium text-zinc-400">Chưa có tin nhắn</p>
+                        <p className="text-xs font-medium text-zinc-400">Chưa có tin nhắn trong kênh này</p>
                         <p className="mx-auto max-w-sm text-[11px] text-zinc-500">
-                            Gõ <span className="text-blue-400">@agent_id</span> để ra lệnh agent
+                            {activeTab === 'user-user' && 'Gửi tin nhắn trao đổi cùng các thành viên trong phòng.'}
+                            {activeTab === 'user-agent' && 'Gõ @agent_id để ra lệnh trực tiếp cho trợ lý.'}
+                            {activeTab === 'agent-agent' && 'Chạy Team Pipeline để xem các agent tự động phối hợp.'}
                         </p>
                     </div>
                 ) : (
-                    messages.map((m: any, idx: number) => {
+                    filteredMessages.map((m: any, idx: number) => {
                         const isAgent = m.senderType === 'agent'
                         const isSystem = m.senderType === 'system'
                         const isMe =
@@ -398,7 +471,11 @@ export function TeamChatPanel({
                     <input
                         value={input}
                         onChange={handleInputChange}
-                        placeholder="Nhập tin nhắn hoặc @agent..."
+                        placeholder={
+                            activeTab === 'user-user'
+                                ? 'Nhập tin nhắn trao đổi với thành viên...'
+                                : 'Nhập tin nhắn hoặc @agent...'
+                        }
                         className="flex-1 rounded-xl border border-zinc-700/80 bg-zinc-950 px-3.5 py-2.5 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-blue-500"
                     />
                     <button

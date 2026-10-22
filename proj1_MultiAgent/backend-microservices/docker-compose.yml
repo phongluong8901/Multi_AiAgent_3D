@@ -123,8 +123,6 @@ services:
       - ./room-service/.env
     ports:
       - "5002:5002"
-    environment:
-      - RABBITMQ_URL=amqp://admin:admin123@rabbitmq:5672
     depends_on:
       - mongo
       - rabbitmq
@@ -140,11 +138,6 @@ services:
       - ./chat-service/.env
     ports:
       - "5003:5003"
-    environment:
-      - PORT=5003
-      - MONGO_URI=mongodb://mongo:27017/chats_db
-      - RABBITMQ_URL=amqp://admin:admin123@rabbitmq:5672
-      - AGENT_SERVICE_URL=http://agent-service:8000
     depends_on:
       - mongo
       - rabbitmq

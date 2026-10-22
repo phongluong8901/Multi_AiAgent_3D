@@ -5,29 +5,17 @@ import { publishAgentPrompt } from "../events/producers";
 
 const AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || "http://localhost:8000";
 
-// Map lưu trữ kết nối SSE clients theo roomId: roomId -> Set<Response>
-export const sseClients = new Map<string, Set<any>>();
-
 // Map lưu trữ presence user theo roomId: roomId -> Map<userId, { userId, userName, avatar, lastSeen }>
 export const roomPresence = new Map<string, Map<string, any>>();
 
+/**
+ * Hàm phát tán dữ liệu realtime chuẩn hóa DUY NHẤT qua Socket.IO
+ */
 export function broadcastToRoom(io: SocketIOServer | null, roomId: string, event: string, data: any) {
-    // 1. Broadcast qua Socket.IO nếu có
     if (io) {
         io.to(roomId).emit(event, data);
-    }
-
-    // 2. Broadcast qua Server-Sent Events (SSE) cho client web native
-    const clients = sseClients.get(roomId);
-    if (clients && clients.size > 0) {
-        const payload = JSON.stringify({ event, data, timestamp: new Date().toISOString() });
-        clients.forEach((res) => {
-            try {
-                res.write(`event: ${event}\ndata: ${payload}\n\n`);
-            } catch (err) {
-                clients.delete(res);
-            }
-        });
+    } else {
+        console.warn(`[AgentDispatcher] Socket.IO instance not provided for event ${event} in room ${roomId}`);
     }
 }
 
@@ -52,13 +40,11 @@ export class AgentDispatcher {
         if (!text) return [];
         const lower = text.toLowerCase();
 
-        const candidateAgents = activeRoomAgents && activeRoomAgents.length > 0 
-            ? activeRoomAgents 
+        const candidateAgents = activeRoomAgents && activeRoomAgents.length > 0
+            ? activeRoomAgents
             : this.knownAgentIds;
 
-        // Nếu người dùng tag @all hoặc @team
         if (lower.includes("@all") || lower.includes("@team") || lower.includes("@nhom")) {
-            // Mặc định gọi Manager Agent để làm nhạc trưởng điều phối team
             return ["agent_manager"];
         }
 
@@ -89,7 +75,6 @@ export class AgentDispatcher {
     }) {
         const { agentId, roomId, prompt, senderName, senderId, depth = 0 } = params;
 
-        // Ngăn chặn vòng lặp vô tận giữa các agent nói chuyện với nhau
         if (depth > 3) {
             console.log(`[AgentDispatcher] Handoff depth limit reached (${depth}) for room ${roomId}`);
             return;
@@ -97,7 +82,6 @@ export class AgentDispatcher {
 
         console.log(`[AgentDispatcher] Dispatching to agent '${agentId}' in room '${roomId}' (depth ${depth})`);
 
-        // Phát tín hiệu agent đang suy nghĩ tới toàn bộ người dùng trong phòng
         broadcastToRoom(this.io, roomId, "agent_status", {
             roomId,
             agentId,
@@ -105,7 +89,6 @@ export class AgentDispatcher {
             speech: `Đang tiếp nhận yêu cầu từ ${senderName}...`,
         });
 
-        // 1. Thử gửi qua RabbitMQ trước
         let sentViaMQ = false;
         try {
             await publishAgentPrompt({
@@ -120,7 +103,6 @@ export class AgentDispatcher {
             console.warn(`[AgentDispatcher] RabbitMQ dispatch failed: ${e.message}. Falling back to direct HTTP.`);
         }
 
-        // 2. Nếu RabbitMQ không sẵn sàng hoặc chạy direct, gọi thẳng FastAPI agent-service
         if (!sentViaMQ) {
             this.executeDirectAgentCall({
                 agentId,
@@ -141,9 +123,6 @@ export class AgentDispatcher {
         }
     }
 
-    /**
-     * Thực thi trực tiếp qua HTTP REST tới agent-service
-     */
     private async executeDirectAgentCall(params: {
         agentId: string;
         roomId: string;
@@ -171,7 +150,6 @@ export class AgentDispatcher {
             const answer = data.answer || data.reply || data.content || "Tôi đã nhận được thông tin.";
             const usedTools = data.used_tools || data.toolsUsed || [];
 
-            // Lưu tin nhắn phản hồi của Agent vào Database
             const savedMessage = await chatService.saveMessage({
                 roomId,
                 senderId: agentId,
@@ -185,10 +163,8 @@ export class AgentDispatcher {
                 },
             });
 
-            // Phát tán tin nhắn tới toàn bộ người dùng trong phòng
             broadcastToRoom(this.io, roomId, "receive_message", savedMessage);
 
-            // Cập nhật trạng thái agent đang phát biểu rồi trở về idle
             broadcastToRoom(this.io, roomId, "agent_status", {
                 roomId,
                 agentId,
@@ -205,7 +181,6 @@ export class AgentDispatcher {
                 });
             }, 4000);
 
-            // Kiểm tra xem phản hồi của Agent có nhắc tới Agent khác để tiếp tục luồng làm việc nhóm không
             const nextAgents = this.extractMentionedAgents(answer);
             for (const nextAgent of nextAgents) {
                 if (nextAgent !== agentId) {

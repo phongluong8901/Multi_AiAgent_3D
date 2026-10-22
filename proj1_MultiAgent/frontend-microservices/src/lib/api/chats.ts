@@ -72,7 +72,4 @@ export const chatsApi = {
             body: JSON.stringify({ user }),
         })
     },
-
-    getEventStreamUrl: (roomId: string): string =>
-        `${API_BASE}/chats/stream/${roomId}`,
 }

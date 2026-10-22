@@ -3,16 +3,19 @@ import { chatService } from "../services/chat.service";
 import { publishChatMessage } from "../events/producers";
 import { agentDispatcher, broadcastToRoom, roomPresence } from "../services/agent.dispatcher";
 
-// Track socket ID -> { roomId, userId, userName }
+// Theo dõi bản đồ ánh xạ từ socket ID -> thông tin phòng và người dùng ({ roomId, userId, userName, avatar })
 const socketUserMap = new Map<string, { roomId: string; userId: string; userName: string; avatar?: string }>();
 
+// Hàm cấu hình và khởi tạo toàn bộ các sự kiện Socket.IO cho chat-service
 export const configureSocketChat = (io: SocketIOServer) => {
-    agentDispatcher.setIO(io);
+    agentDispatcher.setIO(io); // Gắn instance của Socket.IO vào AgentDispatcher để phục vụ việc broadcast
 
+    // Lắng nghe sự kiện khi có một client thiết lập kết nối thành công qua Socket.IO
     io.on("connection", (socket: Socket) => {
         console.log(`[chat-service] Client connected: ${socket.id}`);
 
-        // Client/User join vào một phòng cụ thể cùng danh tính user
+        // --- 1. SỰ KIỆN: JOIN ROOM ---
+        // Client/User gửi yêu cầu tham gia vào một phòng cụ thể kèm theo thông tin danh tính
         socket.on("join_room", (payload: string | { roomId: string; user?: { id: string; name: string; avatar?: string; color?: string } }) => {
             const roomId = typeof payload === "string" ? payload : payload.roomId;
             const user = typeof payload === "object" && payload.user ? payload.user : {
@@ -20,9 +23,9 @@ export const configureSocketChat = (io: SocketIOServer) => {
                 name: `User ${socket.id.slice(0, 4)}`,
             };
 
-            socket.join(roomId);
+            socket.join(roomId); // Đưa socket tham gia vào room của Socket.IO
 
-            // Lưu mapping socket -> user
+            // Lưu lại thông tin ánh xạ socket.id với user vào bộ nhớ đệm
             socketUserMap.set(socket.id, {
                 roomId,
                 userId: user.id,
@@ -30,7 +33,7 @@ export const configureSocketChat = (io: SocketIOServer) => {
                 avatar: user.avatar,
             });
 
-            // Cập nhật roomPresence
+            // Cập nhật trạng thái sự hiện diện (roomPresence) trong phòng
             if (!roomPresence.has(roomId)) {
                 roomPresence.set(roomId, new Map());
             }
@@ -47,13 +50,13 @@ export const configureSocketChat = (io: SocketIOServer) => {
             const currentUsers = Array.from(roomMap.values());
             console.log(`Socket ${socket.id} (${user.name}) joined room: ${roomId}. Total in room: ${currentUsers.length}`);
 
-            // Phát tán presence tới cả phòng
+            // Phát tán danh sách online users mới nhất tới toàn bộ phòng
             broadcastToRoom(io, roomId, "room_presence", {
                 roomId,
                 onlineUsers: currentUsers,
             });
 
-            // Phát tán thông báo người dùng mới tham gia
+            // Phát tán thông báo chào mừng có người dùng mới tham gia
             broadcastToRoom(io, roomId, "user_joined", {
                 roomId,
                 user,
@@ -61,13 +64,14 @@ export const configureSocketChat = (io: SocketIOServer) => {
             });
         });
 
-        // Client leave phòng
+        // --- 2. SỰ KIỆN: LEAVE ROOM ---
         socket.on("leave_room", (roomId: string) => {
             socket.leave(roomId);
             const userMeta = socketUserMap.get(socket.id);
             if (userMeta && roomPresence.has(roomId)) {
                 const roomMap = roomPresence.get(roomId)!;
                 roomMap.delete(userMeta.userId);
+
                 broadcastToRoom(io, roomId, "room_presence", {
                     roomId,
                     onlineUsers: Array.from(roomMap.values()),
@@ -81,7 +85,7 @@ export const configureSocketChat = (io: SocketIOServer) => {
             console.log(`Socket ${socket.id} left room: ${roomId}`);
         });
 
-        // Lắng nghe sự kiện gửi tin nhắn real-time
+        // --- 3. SỰ KIỆN: SEND MESSAGE ---
         socket.on("send_message", async (data: {
             roomId: string;
             senderId: string;
@@ -92,13 +96,13 @@ export const configureSocketChat = (io: SocketIOServer) => {
             metadata?: any;
         }) => {
             try {
-                // 1. Lưu tin nhắn vào MongoDB
+                // Bước 1: Lưu trữ tin nhắn vào MongoDB
                 const savedMessage = await chatService.saveMessage(data);
 
-                // 2. Phát tán tin nhắn tới toàn bộ client đang trong phòng đó
+                // Bước 2: Phát tán tin nhắn tới toàn bộ client trong phòng
                 broadcastToRoom(io, data.roomId, "receive_message", savedMessage);
 
-                // 3. Publish event lên RabbitMQ (chat.events)
+                // Bước 3: Đẩy event lên RabbitMQ (chat.events)
                 await publishChatMessage({
                     messageId: (savedMessage as any)._id?.toString() || "",
                     roomId: data.roomId,
@@ -110,7 +114,7 @@ export const configureSocketChat = (io: SocketIOServer) => {
                     createdAt: (savedMessage as any).createdAt,
                 });
 
-                // 4. Phân tích đối tượng nhận tin (cụ thể qua targetAgentId hoặc @mentions trong text)
+                // Bước 4: Phân tích đối tượng nhận tin (targetAgentId hoặc @mentions)
                 const targetAgents: string[] = [];
                 if (data.targetAgentId) {
                     targetAgents.push(data.targetAgentId);
@@ -123,7 +127,7 @@ export const configureSocketChat = (io: SocketIOServer) => {
                     }
                 }
 
-                // 5. Nếu có Agent được nhắm tới và người gửi là user (hoặc ra lệnh chéo), dispatch
+                // Bước 5: Nếu có Agent được nhắc tới -> Gọi AgentDispatcher
                 if (targetAgents.length > 0) {
                     for (const agentId of targetAgents) {
                         agentDispatcher.dispatchToAgent({
@@ -144,7 +148,7 @@ export const configureSocketChat = (io: SocketIOServer) => {
             }
         });
 
-        // Hỗ trợ ra lệnh hành động 3D cho Agent trực tiếp từ bất kỳ user nào trong phòng
+        // --- 4. SỰ KIỆN: AGENT ACTION (3D SPACE SYNC) ---
         socket.on("agent_action", (data: {
             roomId: string;
             agentId: string;
@@ -152,15 +156,16 @@ export const configureSocketChat = (io: SocketIOServer) => {
             position?: [number, number, number];
             speech?: string;
         }) => {
-            // Phát tán hành động 3D cho toàn bộ client trong phòng để đồng bộ không gian ảo
             broadcastToRoom(io, data.roomId, "agent_3d_state", data);
         });
 
+        // --- 5. SỰ KIỆN: DISCONNECT ---
         socket.on("disconnect", () => {
             const userMeta = socketUserMap.get(socket.id);
             if (userMeta && roomPresence.has(userMeta.roomId)) {
                 const roomMap = roomPresence.get(userMeta.roomId)!;
                 roomMap.delete(userMeta.userId);
+
                 broadcastToRoom(io, userMeta.roomId, "room_presence", {
                     roomId: userMeta.roomId,
                     onlineUsers: Array.from(roomMap.values()),

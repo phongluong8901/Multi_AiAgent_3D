@@ -5,20 +5,19 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import { AgentAction } from '@/components/agents/Agent'
 import { OFFICE_ACTION_SPOTS, OFFICE_DESK_SLOTS } from '@/components/office/Room'
 import { OUTDOOR_ACTION_SPOTS } from '@/components/outdoor/OutdoorPark'
-import { useRoomCollaboration } from '@/hooks/useRoomCollaboration'
-import { roomsApi, agentsApi, Room, Agent } from '@/lib/api'
+import { agentsApi, Agent } from '@/lib/api'
+import { roomsApi } from '@/lib/api/rooms'
 import { getUser } from '@/lib/auth'
-import { io } from 'socket.io-client'
 import { RoomTopNav } from '@/components/room-detail/RoomTopNav'
 import { AgentTeamStrip } from '@/components/room-detail/AgentTeamStrip'
 import { RoomWorkspaceLayout } from '@/components/room-detail/screen-split/RoomWorkspaceLayout'
 import { ModalsContainer } from '@/components/room-detail/modals/ModalsContainer'
 import { MapType } from '@/components/Scene'
+import { useRoom } from '@/hooks/useRoom'
+import { useChat } from '@/hooks/useChat'
 
-// Định nghĩa chế độ hiển thị màn hình làm việc: Chia đôi, Chỉ 3D, hoặc Chỉ Khung Chat
 type ViewMode = 'split' | '3d' | 'chat'
 
-// Danh sách AI Agent mặc định khi phòng chưa cấu hình
 const DEFAULT_AGENTS = [
     'agent_manager',
     'agent_ml',
@@ -28,18 +27,14 @@ const DEFAULT_AGENTS = [
 ]
 
 export default function CollaborativeRoomPage() {
-    // 1. Lấy thông tin định danh phòng từ URL params và Router
     const params = useParams()
     const router = useRouter()
     const roomId = String(params.roomId || '')
 
-    // Lấy thông tin user hiện tại đang đăng nhập
     const me = getUser()
     const currentUserId = me?.id || ''
     const currentUserName = me?.name || me?.email || 'User'
 
-    // 2. Định nghĩa các State quản lý dữ liệu và trạng thái giao diện của phòng
-    const [room, setRoom] = useState<Room | null>(null)
     const [allAgents, setAllAgents] = useState<Agent[]>([])
     const [roomAgents, setRoomAgents] = useState<Agent[]>([])
     const [viewMode, setViewMode] = useState<ViewMode>('split')
@@ -56,55 +51,57 @@ export default function CollaborativeRoomPage() {
     const [traceModalOpen, setTraceModalOpen] = useState(false)
     const [assignmentModalOpen, setAssignmentModalOpen] = useState(false)
     const [managementTab, setManagementTab] = useState<'members' | 'agents' | 'invite'>('members')
-    const [socketOnlineUsers, setSocketOnlineUsers] = useState<any[]>([])
 
-    // Cờ đánh dấu khi người dùng chủ động rời phòng
     const isLeavingRef = useRef(false)
-
-    // Các tham chiếu (Ref) hỗ trợ cuộn khung chat tự động
     const chatEndRef = useRef<HTMLDivElement | null>(null)
     const chatScrollRef = useRef<HTMLDivElement | null>(null)
     const prevMsgCountRef = useRef(0)
     const isFirstScrollRef = useRef(true)
 
-    // 3. Gọi Custom Hook xử lý WebSockets, tin nhắn realtime và trạng thái của các Agent trong phòng
+    // 1. Sử dụng useRoom (quản lý thông tin phòng, password phòng private & socket room)
+    const {
+        room,
+        setRoom,
+        loading: roomLoading,
+        socketOnlineUsers,
+        loadRoomData,
+    } = useRoom(roomId, currentUserId, currentUserName)
+
+    // 2. Sử dụng useChat (quản lý tin nhắn, socket chat, agent status & workflow traces)
     const {
         messages,
         onlineUsers,
         agentStatuses,
-        latestTraces,
+        latestTraces, // <--- Đã lấy thêm biến này từ useChat socket realtime
         activeTrace,
         setActiveTrace,
         connected,
-        loading: chatLoading,
+        chatLoading,
         sendMessage,
-    } = useRoomCollaboration(roomId)
+    } = useChat({
+        roomId,
+        onRoomUpdated: loadRoomData,
+    })
 
-    // --- CÁC HOOKS XỬ LÝ SIDE EFFECT (API CALLS & POLLING) ---
-
-    // Load thông tin chi tiết phòng và danh sách toàn bộ hệ thống Agent khi vào trang
+    // Load danh sách agents hệ thống và tự động join phòng
     useEffect(() => {
         if (!roomId) return
         let cancelled = false
 
             ; (async () => {
                 try {
-                    const [r, agentsList] = await Promise.all([
-                        roomsApi.get(roomId).catch(() => null),
-                        agentsApi.list().catch(() => []),
-                    ])
+                    const agentsList = await agentsApi.list().catch(() => [])
                     if (cancelled) return
 
-                    let roomData = r
-                    if (roomData && currentUserId) {
+                    await loadRoomData()
+                    if (currentUserId) {
                         try {
-                            // Tự động tham gia phòng nếu user hợp lệ nhưng chưa gọi lệnh join
-                            roomData = await roomsApi.join(roomId, { name: currentUserName })
+                            const roomData = await roomsApi.join(roomId, { name: currentUserName })
+                            if (roomData) setRoom(roomData)
                         } catch {
-                            /* Đã là thành viên thì bỏ qua lỗi */
+                            /* Đã là thành viên thì bỏ qua */
                         }
                     }
-                    if (roomData) setRoom(roomData)
                     setAllAgents(agentsList ?? [])
                 } catch (err) {
                     console.error(err)
@@ -114,12 +111,12 @@ export default function CollaborativeRoomPage() {
         return () => {
             cancelled = true
         }
-    }, [roomId, currentUserId, currentUserName])
+    }, [roomId, currentUserId, currentUserName, loadRoomData, setRoom])
 
-    // Kiểm tra quyền: Nếu user bị xóa khỏi phòng (không còn trong danh sách members), đá về trang Hub (`/rooms`)
+    // Kiểm tra quyền: Bị đá ra khỏi phòng
     useEffect(() => {
         if (!room || !currentUserId) return
-        if (isLeavingRef.current) return // Bỏ qua nếu là do chủ động bấm rời phòng
+        if (isLeavingRef.current) return
 
         const isOwner = room.ownerId === currentUserId
         const members = room.members ?? []
@@ -130,67 +127,7 @@ export default function CollaborativeRoomPage() {
         }
     }, [room, currentUserId, router])
 
-    // Đồng bộ dữ liệu phòng Real-Time qua Socket.IO (loại bỏ hoàn toàn polling 5s)
-    useEffect(() => {
-        if (!roomId || !currentUserId) return
-
-        const socketUrl = process.env.NEXT_PUBLIC_SOCKET_ROOM_URL || 'http://localhost:4000'
-        const token = localStorage.getItem('token') || ''
-
-        const socket = io(socketUrl, {
-            path: '/api/v1/rooms/socket.io',
-            transports: ['polling', 'websocket'],
-            auth: { token },
-            extraHeaders: token ? { Authorization: `Bearer ${token}` } : {},
-        })
-
-        socket.on('connect', () => {
-            console.log(`[Room Socket] Connected to room ${roomId}, socket id: ${socket.id}`)
-            // Định danh cá nhân và tham gia kênh phòng kèm thông tin hiển thị
-            socket.emit('identity', currentUserId)
-            socket.emit('join', {
-                roomId,
-                user: {
-                    id: currentUserId,
-                    name: currentUserName,
-                    avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${currentUserName || currentUserId}`,
-                    color: '#3b82f6',
-                },
-            })
-            // Yêu cầu lấy presence ngay khi vừa kết nối
-            socket.emit('get_presence', roomId)
-        })
-
-        // Lắng nghe sự kiện danh sách Online thay đổi thời gian thực qua Socket.IO
-        socket.on('room_presence', (data: { roomId: string; onlineUsers: any[] }) => {
-            console.log('👥 [Room Socket] Realtime online presence updated:', data?.onlineUsers)
-            if (data?.onlineUsers) {
-                setSocketOnlineUsers(data.onlineUsers)
-            }
-        })
-
-        // Lắng nghe sự kiện phòng được cập nhật (thành viên thay đổi, gán agent, v.v.)
-        socket.on('room-updated', async (data) => {
-            console.log('🔄 [Room Socket] Received room-updated event:', data)
-            try {
-                const r = await roomsApi.get(roomId)
-                if (r) setRoom(r)
-            } catch (err) {
-                console.error('[Room Socket] Error fetching updated room:', err)
-            }
-        })
-
-        socket.on('connect_error', (err) => {
-            console.warn('[Room Socket] Connection warning:', err.message)
-        })
-
-        return () => {
-            socket.emit('leave', roomId)
-            socket.disconnect()
-        }
-    }, [roomId, currentUserId, currentUserName])
-
-    // Đồng bộ trạng thái và vị trí của các Agent đang hoạt động trong phòng
+    // Đồng bộ trạng thái Agent
     useEffect(() => {
         if (!room) return
         const activeIds = room.activeAgents?.length ? room.activeAgents : DEFAULT_AGENTS
@@ -220,7 +157,7 @@ export default function CollaborativeRoomPage() {
         )
     }, [room, allAgents, agentStatuses])
 
-    // Tự động cuộn xuống tin nhắn mới nhất khi có tin nhắn chat đến
+    // Tự động cuộn chat
     useEffect(() => {
         if (messages.length <= prevMsgCountRef.current) {
             prevMsgCountRef.current = messages.length
@@ -238,7 +175,7 @@ export default function CollaborativeRoomPage() {
         prevMsgCountRef.current = messages.length
     }, [messages.length])
 
-    // Lọc danh sách người dùng đang online thuộc đúng thành viên của phòng (ưu tiên realtime Socket.IO)
+    // Lọc danh sách online users
     const visibleOnlineUsers = useMemo(() => {
         const sourceList = socketOnlineUsers.length > 0 ? socketOnlineUsers : (onlineUsers ?? [])
         if (!room) return sourceList
@@ -250,7 +187,6 @@ export default function CollaborativeRoomPage() {
             return memberIds.has(uid)
         })
 
-        // Đảm bảo user hiện tại luôn hiển thị Online nếu đang ở trong phòng
         if (currentUserId && !filtered.some((u: any) => ((u as any).userId || (u as any).id) === currentUserId)) {
             filtered.unshift({
                 userId: currentUserId,
@@ -263,15 +199,11 @@ export default function CollaborativeRoomPage() {
         return filtered
     }, [socketOnlineUsers, onlineUsers, room, currentUserId, currentUserName])
 
-    // --- CÁC HÀM XỬ LÝ SỰ KIỆN (HANDLERS) ---
-
-    // Chọn Agent trên không gian 3D workspace
     const handleSelectAgent = (agentId: string) => {
         setSelected3dAgentId(agentId)
         setTargetAgentId(agentId)
     }
 
-    // Xử lý sự kiện click trên sàn 3D để di chuyển Agent đến điểm chỉ định
     const handleFloorClick = (point: [number, number, number]) => {
         if (!selected3dAgentId) return
         setAgentTargetActions((prev) => ({
@@ -280,7 +212,6 @@ export default function CollaborativeRoomPage() {
         }))
     }
 
-    // Xử lý điều hướng hành động tương tác của Agent (ngồi ghế sofa, bàn tròn, khu pha cà phê,...)
     const handleTriggerAction = (agentId: string, action: AgentAction) => {
         let targetPos: [number, number, number] = [0, 0, 0]
         if (mapType === 'office') {
@@ -306,7 +237,6 @@ export default function CollaborativeRoomPage() {
         }))
     }
 
-    // Gửi tin nhắn chat vào phòng
     const handleSend = async (e: React.FormEvent) => {
         e.preventDefault()
         if (!input.trim()) return
@@ -316,7 +246,6 @@ export default function CollaborativeRoomPage() {
         await sendMessage(text, targetAgentId || undefined)
     }
 
-    // Kịch bản chạy tự động quy trình workflow của nhóm Agent
     const runTeamPipeline = async () => {
         if (pipelineRunning) return
         setPipelineRunning(true)
@@ -327,7 +256,6 @@ export default function CollaborativeRoomPage() {
         setTimeout(() => setPipelineRunning(false), 3000)
     }
 
-    // Thêm AI Agent vào phòng làm việc
     const handleAddAgentToRoom = async (agentId: string) => {
         if (!room) return
         try {
@@ -348,24 +276,22 @@ export default function CollaborativeRoomPage() {
         }
     }
 
-    // Viết hàm xử lý rời khỏi phòng
     const handleLeaveRoom = async () => {
         if (!confirm('Bạn có chắc chắn muốn rời khỏi phòng này không?')) return
 
         try {
-            isLeavingRef.current = true // Đánh dấu đang tự rời phòng
+            isLeavingRef.current = true
             await roomsApi.leave(roomId)
             alert('Đã rời khỏi phòng thành công.')
             router.replace('/rooms')
         } catch (err: any) {
-            isLeavingRef.current = false // Reset lại nếu lỗi
+            isLeavingRef.current = false
             alert(err.message || 'Không thể rời khỏi phòng')
         }
     }
 
     return (
         <div className="flex h-[calc(100vh-3.5rem)] flex-col overflow-hidden bg-zinc-950">
-            {/* 1. Thanh điều hướng & tác vụ phòng hợp nhất (Top Navigation) */}
             <RoomTopNav
                 roomId={roomId}
                 room={room}
@@ -386,7 +312,6 @@ export default function CollaborativeRoomPage() {
                 setViewMode={setViewMode}
             />
 
-            {/* 2. Thanh hiển thị danh sách các Agent đang hoạt động trong phòng */}
             <AgentTeamStrip
                 roomAgents={roomAgents}
                 selected3dAgentId={selected3dAgentId}
@@ -394,7 +319,6 @@ export default function CollaborativeRoomPage() {
                 setInput={setInput}
             />
 
-            {/* 4. Khung giao diện chính chia đôi màn hình (Workspace 3D & Team Chat Panel) */}
             <RoomWorkspaceLayout
                 viewMode={viewMode}
                 mapType={mapType}
@@ -425,7 +349,6 @@ export default function CollaborativeRoomPage() {
                 currentUserName={currentUserName}
             />
 
-            {/* 5. Container Modal Hợp nhất (Thành viên, Phân bổ Agent, Mời thành viên, Workflow Trace) */}
             <ModalsContainer
                 roomId={roomId}
                 room={room}
@@ -456,9 +379,6 @@ export default function CollaborativeRoomPage() {
     )
 }
 
-// --- CÁC HÀM TIỆN ÍCH (HELPERS) ---
-
-// Chuyển đổi ID kỹ thuật của Agent thành tên hiển thị thân thiện
 function formatAgentName(id: string) {
     const map: Record<string, string> = {
         agent_manager: 'Manager Agent',
@@ -470,7 +390,6 @@ function formatAgentName(id: string) {
     return map[id] || id
 }
 
-// Gán màu mặc định cho từng loại Agent khi render huy hiệu hoặc giao diện
 function getAgentDefaultColor(id: string) {
     const map: Record<string, string> = {
         agent_manager: '#3182ce',

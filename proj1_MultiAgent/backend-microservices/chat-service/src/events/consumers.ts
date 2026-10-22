@@ -5,7 +5,7 @@ import { broadcastToRoom, agentDispatcher } from "../services/agent.dispatcher";
 
 /**
  * Lắng nghe agent.events từ RabbitMQ:
- * Khi agent phản hồi -> Lưu tin nhắn vào MongoDB và broadcast Socket.IO + SSE
+ * Khi agent phản hồi -> Lưu tin nhắn vào MongoDB và broadcast qua Socket.IO
  */
 export async function startChatConsumers(io: SocketIOServer) {
     const channel = getChannel();
@@ -58,7 +58,7 @@ export async function startChatConsumers(io: SocketIOServer) {
                 },
             });
 
-            // Phát tán tin nhắn tới client trong phòng (Socket.IO + SSE)
+            // Phát tán tin nhắn tới client trong phòng qua Socket.IO
             broadcastToRoom(io, roomId, "receive_message", saved);
 
             // Phát tán workflow trace để Frontend hiển thị sơ đồ luồng LangSmith
