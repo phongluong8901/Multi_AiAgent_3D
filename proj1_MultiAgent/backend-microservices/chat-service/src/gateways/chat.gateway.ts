@@ -87,11 +87,13 @@ export const configureSocketChat = (io: SocketIOServer) => {
         // --- 3. SỰ KIỆN: SEND MESSAGE ---
         socket.on("send_message", async (data: {
             roomId: string;
-            typeChat?: "team" | "direct" | "system" | "workflow";
+            typeChat?: "team" | "direct" | "agent" | "system" | "workflow";
             senderId: string;
             senderType: "user" | "agent" | "system";
             senderName: string;
             message: string;
+            targetUserId?: string;
+            targetAgentId?: string;
             attachments?: Array<{
                 fileUrl: string;
                 fileName: string;
@@ -99,11 +101,20 @@ export const configureSocketChat = (io: SocketIOServer) => {
                 category: "image" | "document";
                 extension: string;
             }>;
-            targetAgentId?: string;
             metadata?: any;
         }) => {
             try {
-                const chatType = data.typeChat || "team";
+                // Tự động nhận diện typeChat nếu client chưa set
+                let chatType = data.typeChat;
+                if (!chatType) {
+                    if (data.targetUserId) {
+                        chatType = "direct";
+                    } else if (data.targetAgentId || data.message.includes("@agent_")) {
+                        chatType = "agent";
+                    } else {
+                        chatType = "team";
+                    }
+                }
 
                 // 1. Lưu trữ tin nhắn vào MongoDB
                 const savedMessage = await chatService.saveMessage({
@@ -112,7 +123,7 @@ export const configureSocketChat = (io: SocketIOServer) => {
                     attachments: data.attachments || [],
                 });
 
-                // 2. Broadcast qua Socket.IO
+                // 2. Broadcast qua Socket.IO tới toàn bộ thành viên trong phòng
                 broadcastToRoom(io, data.roomId, "receive_message", savedMessage);
 
                 // 3. Đẩy lên RabbitMQ
@@ -129,7 +140,7 @@ export const configureSocketChat = (io: SocketIOServer) => {
                     createdAt: (savedMessage as any).createdAt,
                 });
 
-                // 4. Dispatch tới Agent nếu có mention
+                // 4. Dispatch tới Agent nếu là type "agent" hoặc có mention agent
                 const targetAgents: string[] = [];
                 if (data.targetAgentId) targetAgents.push(data.targetAgentId);
 
@@ -147,6 +158,7 @@ export const configureSocketChat = (io: SocketIOServer) => {
                             senderName: data.senderName,
                             senderId: data.senderId,
                             depth: 0,
+                            originalTypeChat: chatType,
                         }).catch((err) => {
                             console.error(`[chat-service] Error dispatching to ${agentId}:`, err);
                         });

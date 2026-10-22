@@ -1,8 +1,8 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { chatsApi, ChatMessage, UserPresence, WorkflowTrace, ChatAttachment } from '@/lib/api'
-import { getUser } from '@/lib/auth'
+import { chatsApi, ChatMessage, UserPresence, WorkflowTrace, ChatAttachment, ChatType } from '@/lib/api'
+import { getUser, getToken } from '@/lib/auth'
 import { io, Socket } from 'socket.io-client'
 
 export type AgentStatusMeta = {
@@ -13,7 +13,7 @@ export type AgentStatusMeta = {
 
 interface UseChatProps {
     roomId: string
-    typeChat?: 'team' | 'direct' | 'system' | 'workflow'
+    typeChat?: ChatType
     onRoomUpdated?: () => void
 }
 
@@ -57,7 +57,7 @@ export function useChat({ roomId, typeChat = 'team', onRoomUpdated }: UseChatPro
 
         const user = getUser()
         const socketUrl = process.env.NEXT_PUBLIC_SOCKET_CHAT_URL || process.env.NEXT_PUBLIC_SOCKET_ROOM_URL || 'http://localhost:4000'
-        const token = typeof window !== 'undefined' ? localStorage.getItem('token') || '' : ''
+        const token = getToken() || ''
 
         const socket = io(socketUrl, {
             path: '/api/v1/chats/socket.io',
@@ -188,51 +188,71 @@ export function useChat({ roomId, typeChat = 'team', onRoomUpdated }: UseChatPro
         }
     }, [roomId, loadChatHistory, onRoomUpdated])
 
-    // 3. Hàm gửi tin nhắn (Hỗ trợ đính kèm attachments và typeChat)
-    const sendMessage = async (text: string, attachments?: ChatAttachment[], targetAgentId?: string) => {
+    // 3. Hàm gửi tin nhắn (Hỗ trợ đính kèm attachments và phân loại typeChat: team, direct, agent, workflow)
+    const sendMessage = async (
+        text: string,
+        attachments?: ChatAttachment[],
+        targetAgentId?: string,
+        targetUserId?: string,
+        specificTypeChat?: ChatType
+    ) => {
         if ((!text.trim() && (!attachments || attachments.length === 0)) || !roomId) return
 
         const currentUser = getUser()
         const senderId = currentUser?.id || 'guest_user'
         const senderName = currentUser?.name || currentUser?.email || 'Anonymous'
 
+        // Xác định typeChat tự động dựa theo người nhận
+        let resolvedTypeChat: ChatType = specificTypeChat || typeChat || 'team'
+        if (!specificTypeChat) {
+            if (targetUserId) {
+                resolvedTypeChat = 'direct'
+            } else if (targetAgentId || text.includes('@agent_')) {
+                resolvedTypeChat = 'agent'
+            }
+        }
+
         const optimisticMsg: ChatMessage = {
             id: `temp_${Date.now()}`,
             roomId,
-            typeChat,
+            typeChat: resolvedTypeChat,
             senderId,
             senderName,
             senderType: 'user',
             message: text.trim() || '[Đã gửi file đính kèm]',
+            targetUserId,
+            targetAgentId,
             attachments: attachments || [],
             createdAt: new Date().toISOString(),
         }
 
         setMessages((prev) => [...prev, optimisticMsg])
 
-        // Nếu socket đang kết nối, có thể emit trực tiếp qua socket hoặc qua REST API `chatsApi.send`
+        // Nếu socket đang kết nối, emit trực tiếp qua socket; nếu không thì dùng REST API fallback
         if (socketRef.current && socketRef.current.connected) {
             socketRef.current.emit('send_message', {
                 roomId,
-                typeChat,
+                typeChat: resolvedTypeChat,
                 senderId,
                 senderName,
                 senderType: 'user',
                 message: text.trim() || '[Đã gửi file đính kèm]',
-                attachments: attachments || [],
+                targetUserId,
                 targetAgentId,
+                attachments: attachments || [],
             })
         } else {
             try {
                 await chatsApi.send({
                     roomId,
-                    typeChat,
+                    typeChat: resolvedTypeChat,
                     senderId,
                     senderName,
                     senderType: 'user',
                     message: text.trim() || '[Đã gửi file đính kèm]',
-                    attachments: attachments || [],
+                    targetUserId,
                     targetAgentId,
+                    attachments: attachments || [],
                 })
             } catch (err: any) {
                 console.error('[useChat] Send message failed:', err)

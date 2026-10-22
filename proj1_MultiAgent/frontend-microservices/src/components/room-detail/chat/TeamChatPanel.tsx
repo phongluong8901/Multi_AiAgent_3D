@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useRef, useState } from 'react'
-import { ChatMessage, UserPresence, WorkflowTrace, ChatAttachment } from '@/lib/api'
+import { ChatMessage, UserPresence, WorkflowTrace, ChatAttachment, ChatType } from '@/lib/api'
 import {
     IconZap,
     IconUsers,
@@ -32,7 +32,11 @@ interface TeamChatPanelProps {
     setMentionPopupOpen: (open: boolean) => void
     pipelineRunning: boolean
     runTeamPipeline: () => void
-    handleSend: (e: React.FormEvent, attachment?: ChatAttachment) => void
+    handleSend: (
+        e: React.FormEvent,
+        attachment?: ChatAttachment,
+        options?: { typeChat?: ChatType; targetAgentId?: string; targetUserId?: string }
+    ) => void
     uploadAndAttachFile?: (file: File) => Promise<ChatAttachment | null>
     setActiveTrace: (trace: WorkflowTrace) => void
     setTraceModalOpen: (open: boolean) => void
@@ -42,7 +46,7 @@ interface TeamChatPanelProps {
     currentUserName?: string
 }
 
-type ChatTab = 'user-user' | 'user-agent' | 'agent-agent'
+export type ChatTab = 'team' | 'direct' | 'agent' | 'workflow'
 
 export function TeamChatPanel({
     messages,
@@ -69,16 +73,19 @@ export function TeamChatPanel({
 }: TeamChatPanelProps) {
     const [selectedFile, setSelectedFile] = useState<File | null>(null)
     const [uploading, setUploading] = useState(false)
-    const [activeTab, setActiveTab] = useState<ChatTab>('user-user')
+    const [activeTab, setActiveTab] = useState<ChatTab>('team')
+    const [selectedDirectUserId, setSelectedDirectUserId] = useState<string>('')
     const fileInputRef = useRef<HTMLInputElement | null>(null)
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files?.[0]) setSelectedFile(e.target.files[0])
     }
 
+    // Lọc danh sách các user khác đang online để chat 1-1
+    const otherUsers = onlineUsers.filter((u) => u.userId !== currentUserId)
+
     const onSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
-        console.log("1. Đã bấm gửi, input:", input, "selectedFile:", selectedFile)
 
         if (!input.trim() && !selectedFile) return
 
@@ -87,33 +94,45 @@ export function TeamChatPanel({
         if (selectedFile) {
             try {
                 setUploading(true)
-                console.log("2. Đang tiến hành gọi uploadAndAttachFile...")
-
                 if (uploadAndAttachFile) {
                     const result = await uploadAndAttachFile(selectedFile)
-                    console.log("3. Kết quả trả về từ uploadAndAttachFile:", result)
-
                     if (result) {
                         uploadedAttachment = result
-                    } else {
-                        console.warn("⚠️ Upload trả về null/undefined, kiểm tra lại API upload trên server.")
                     }
-                } else {
-                    console.error("❌ Hàm uploadAndAttachFile chưa được truyền vào props của TeamChatPanel!")
                 }
             } catch (err: any) {
-                // IN CHI TIẾT LỖI RA CONSOLE ĐỂ BIẾT NGUYÊN NHÂN (CORS, 401, 500,...)
-                console.error('❌ Lỗi chi tiết khi upload file lên Cloudinary:', err)
+                console.error('❌ Lỗi upload file:', err)
                 alert(`Không thể tải file lên: ${err.message || 'Lỗi không xác định'}`)
                 setUploading(false)
-                return // Dừng lại không gửi tin nhắn rác nếu upload thất bại
+                return
             } finally {
                 setUploading(false)
             }
         }
 
-        console.log("4. Gọi handleSend với attachment:", uploadedAttachment)
-        handleSend(e, uploadedAttachment)
+        // Định tuyến typeChat và target tương ứng với từng tab
+        let typeChatToSend: ChatType = 'team'
+        let targetUserIdToSend: string | undefined = undefined
+        let targetAgentIdToSend: string | undefined = undefined
+
+        if (activeTab === 'direct') {
+            typeChatToSend = 'direct'
+            targetUserIdToSend = selectedDirectUserId || undefined
+        } else if (activeTab === 'agent') {
+            typeChatToSend = 'agent'
+            targetAgentIdToSend = targetAgentId || undefined
+        } else if (activeTab === 'workflow') {
+            typeChatToSend = 'workflow'
+        } else {
+            typeChatToSend = 'team'
+        }
+
+        handleSend(e, uploadedAttachment, {
+            typeChat: typeChatToSend,
+            targetUserId: targetUserIdToSend,
+            targetAgentId: targetAgentIdToSend,
+        })
+
         setSelectedFile(null)
         if (fileInputRef.current) fileInputRef.current.value = ''
     }
@@ -133,45 +152,85 @@ export function TeamChatPanel({
         setMentionPopupOpen(false)
     }
 
+    // Bộ lọc tin nhắn chính xác cho từng tab
     const filteredMessages = messages.filter((m: any) => {
         const senderType = m.senderType
         const isAgent = senderType === 'agent'
         const isSystem = senderType === 'system'
-        const isUser = !isAgent && !isSystem
+        const msgType = m.typeChat
 
-        if (activeTab === 'user-user') {
-            return isUser || isSystem
+        if (isSystem) return true
+
+        // 1. Tab Phòng nhóm (team)
+        if (activeTab === 'team') {
+            if (msgType === 'team') return true
+            if (!msgType && !isAgent && !m.targetUserId && !m.targetAgentId) return true
+            return false
         }
-        if (activeTab === 'user-agent') {
-            const target = m.targetAgentId || m.metadata?.targetAgentId
-            return (isUser && (target || m.message.includes('@'))) || (isAgent && !m.metadata?.isAgentToAgent)
+
+        // 2. Tab Chat 1-1 giữa người với người (direct)
+        if (activeTab === 'direct') {
+            const isDirect = msgType === 'direct' || !!m.targetUserId
+            if (!isDirect) return false
+
+            if (selectedDirectUserId) {
+                const isSentByMeToTarget = m.senderId === currentUserId && m.targetUserId === selectedDirectUserId
+                const isSentByTargetToMe = m.senderId === selectedDirectUserId && (m.targetUserId === currentUserId || !m.targetUserId)
+                return isSentByMeToTarget || isSentByTargetToMe
+            }
+            // Nếu chưa chọn user cụ thể, hiện toàn bộ tin direct liên quan đến user hiện tại
+            return m.senderId === currentUserId || m.targetUserId === currentUserId
         }
-        if (activeTab === 'agent-agent') {
-            return isAgent && (m.metadata?.isAgentToAgent || m.metadata?.workflowTrace || m.senderId?.startsWith('agent_'))
+
+        // 3. Tab Hỏi đáp Agent (agent)
+        if (activeTab === 'agent') {
+            if (msgType === 'agent') return true
+            if (isAgent && !m.metadata?.isAgentToAgent && !m.metadata?.workflowTrace) return true
+            if (!isAgent && (m.targetAgentId || m.message.includes('@agent_'))) return true
+            return false
         }
+
+        // 4. Tab Agent Pipeline (workflow)
+        if (activeTab === 'workflow') {
+            if (msgType === 'workflow') return true
+            if (isAgent && (m.metadata?.isAgentToAgent || m.metadata?.workflowTrace || m.metadata?.depth > 0)) return true
+            return false
+        }
+
         return true
     })
 
     return (
         <div className="flex h-full min-h-0 w-full flex-col bg-zinc-950">
-            {/* Tabs chuyển đổi vùng chat */}
+            {/* Tabs chuyển đổi 4 vùng chat: Nhóm | 1-1 Direct | Hỏi đáp Agent | Agent Pipeline */}
             <div className="flex shrink-0 items-center justify-between border-b border-zinc-800 bg-zinc-900/60 px-3 py-2">
-                <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none">
                     <button
                         type="button"
-                        onClick={() => setActiveTab('user-user')}
-                        className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition ${activeTab === 'user-user'
+                        onClick={() => setActiveTab('team')}
+                        className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition ${activeTab === 'team'
                             ? 'bg-blue-600 text-white shadow'
                             : 'text-zinc-400 hover:bg-zinc-800 hover:text-white'
                             }`}
                     >
                         <IconUsers className="h-3.5 w-3.5" />
-                        Thành viên ({onlineUsers.length})
+                        Toàn phòng
                     </button>
                     <button
                         type="button"
-                        onClick={() => setActiveTab('user-agent')}
-                        className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition ${activeTab === 'user-agent'
+                        onClick={() => setActiveTab('direct')}
+                        className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition ${activeTab === 'direct'
+                            ? 'bg-emerald-600 text-white shadow'
+                            : 'text-zinc-400 hover:bg-zinc-800 hover:text-white'
+                            }`}
+                    >
+                        <IconUser className="h-3.5 w-3.5" />
+                        Chat 1-1 ({otherUsers.length})
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setActiveTab('agent')}
+                        className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition ${activeTab === 'agent'
                             ? 'bg-amber-600 text-white shadow'
                             : 'text-zinc-400 hover:bg-zinc-800 hover:text-white'
                             }`}
@@ -181,8 +240,8 @@ export function TeamChatPanel({
                     </button>
                     <button
                         type="button"
-                        onClick={() => setActiveTab('agent-agent')}
-                        className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition ${activeTab === 'agent-agent'
+                        onClick={() => setActiveTab('workflow')}
+                        className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition ${activeTab === 'workflow'
                             ? 'bg-indigo-600 text-white shadow'
                             : 'text-zinc-400 hover:bg-zinc-800 hover:text-white'
                             }`}
@@ -193,8 +252,42 @@ export function TeamChatPanel({
                 </div>
             </div>
 
-            {/* Quick Actions */}
-            {activeTab !== 'user-user' && (
+            {/* Thanh phụ trợ cho từng Tab */}
+            {activeTab === 'direct' && (
+                <div className="flex shrink-0 items-center gap-2 overflow-x-auto border-b border-zinc-800/80 bg-zinc-900/40 p-2 text-xs scrollbar-none">
+                    <span className="shrink-0 text-[11px] text-zinc-500 font-medium">Chat riêng với:</span>
+                    <button
+                        type="button"
+                        onClick={() => setSelectedDirectUserId('')}
+                        className={`shrink-0 rounded-lg border px-2 py-0.5 text-xs font-medium transition ${!selectedDirectUserId
+                            ? 'border-emerald-500 bg-emerald-600 text-white'
+                            : 'border-zinc-800 bg-zinc-950 text-zinc-400 hover:text-white'
+                            }`}
+                    >
+                        Tất cả tin 1-1
+                    </button>
+                    {otherUsers.map((u) => (
+                        <button
+                            key={u.userId}
+                            type="button"
+                            onClick={() => setSelectedDirectUserId(u.userId)}
+                            className={`flex shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-0.5 text-xs font-medium transition ${selectedDirectUserId === u.userId
+                                ? 'border-emerald-500 bg-emerald-600/30 text-emerald-300'
+                                : 'border-zinc-800 bg-zinc-950 text-zinc-400 hover:text-emerald-300'
+                                }`}
+                        >
+                            <span className="h-2 w-2 rounded-full bg-emerald-400 inline-block" />
+                            {u.userName}
+                        </button>
+                    ))}
+                    {otherUsers.length === 0 && (
+                        <span className="text-[11px] text-zinc-500 italic">Chưa có thành viên nào khác online</span>
+                    )}
+                </div>
+            )}
+
+            {/* Quick Actions cho Agent Workflow */}
+            {activeTab === 'workflow' && (
                 <div className="flex shrink-0 items-center gap-2 overflow-x-auto border-b border-zinc-800/80 bg-zinc-900/40 p-3 scrollbar-none">
                     <span className="flex shrink-0 items-center gap-1 text-[11px] font-medium text-zinc-500">
                         <IconZap className="h-3.5 w-3.5 text-amber-400" />
@@ -207,28 +300,44 @@ export function TeamChatPanel({
                         className="flex shrink-0 items-center gap-1.5 rounded-lg border border-indigo-500/30 bg-indigo-600/20 px-2.5 py-1 text-xs font-medium text-indigo-300 transition hover:bg-indigo-600/30 disabled:opacity-50"
                     >
                         <IconSparkles className="h-3.5 w-3.5" />
-                        Team Pipeline
+                        Kích hoạt Team Pipeline
                     </button>
+                </div>
+            )}
+
+            {/* Quick Action cho Hỏi đáp Agent */}
+            {activeTab === 'agent' && (
+                <div className="flex shrink-0 items-center gap-2 overflow-x-auto border-b border-zinc-800/80 bg-zinc-900/40 p-2.5 scrollbar-none">
+                    <span className="shrink-0 text-[11px] font-medium text-zinc-500">Hỏi nhanh:</span>
                     <button
                         type="button"
-                        onClick={() => setInput('@agent_search Hãy tra cứu xu hướng AI Agents mới nhất năm 2026')}
-                        className="flex shrink-0 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900 px-2.5 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
+                        onClick={() => {
+                            setTargetAgentId('agent_search')
+                            setInput('@agent_search Hãy tra cứu xu hướng AI Agents mới nhất năm 2026')
+                        }}
+                        className="flex shrink-0 items-center gap-1 rounded-lg border border-zinc-800 bg-zinc-900 px-2 py-0.5 text-xs text-zinc-300 hover:bg-zinc-800"
                     >
                         <IconSearch className="h-3.5 w-3.5 text-zinc-400" />
                         Tra cứu
                     </button>
                     <button
                         type="button"
-                        onClick={() => setInput('@agent_analyst Hãy phân tích file dataset CSV/Excel mới tải lên')}
-                        className="flex shrink-0 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900 px-2.5 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
+                        onClick={() => {
+                            setTargetAgentId('agent_analyst')
+                            setInput('@agent_analyst Hãy phân tích file dataset CSV/Excel mới tải lên')
+                        }}
+                        className="flex shrink-0 items-center gap-1 rounded-lg border border-zinc-800 bg-zinc-900 px-2 py-0.5 text-xs text-zinc-300 hover:bg-zinc-800"
                     >
                         <IconBarChart className="h-3.5 w-3.5 text-zinc-400" />
-                        Phân tích
+                        Phân tích Data
                     </button>
                     <button
                         type="button"
-                        onClick={() => setInput('@agent_summarizer Hãy tóm tắt lại toàn bộ thảo luận của phòng')}
-                        className="flex shrink-0 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900 px-2.5 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
+                        onClick={() => {
+                            setTargetAgentId('agent_summarizer')
+                            setInput('@agent_summarizer Hãy tóm tắt lại toàn bộ thảo luận của phòng')
+                        }}
+                        className="flex shrink-0 items-center gap-1 rounded-lg border border-zinc-800 bg-zinc-900 px-2 py-0.5 text-xs text-zinc-300 hover:bg-zinc-800"
                     >
                         <IconFileText className="h-3.5 w-3.5 text-zinc-400" />
                         Tóm tắt
@@ -366,37 +475,39 @@ export function TeamChatPanel({
 
             {/* Composer / Input Bar */}
             <div className="relative shrink-0 space-y-2 border-t border-zinc-800 bg-zinc-900/90 p-3 backdrop-blur">
-                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs scrollbar-none">
-                    <span className="shrink-0 text-[11px] text-zinc-500">Gửi tới:</span>
-                    <button
-                        type="button"
-                        onClick={() => {
-                            setTargetAgentId('')
-                            setInput((p) => p.replace(/^@[a-zA-Z0-9_-]+\s*/, ''))
-                        }}
-                        className={`flex shrink-0 items-center gap-1 rounded-lg border px-2 py-0.5 font-medium transition ${!targetAgentId ? 'border-blue-500 bg-blue-600 text-white' : 'border-zinc-800 bg-zinc-950 text-zinc-400 hover:text-white'}`}
-                    >
-                        <IconUsers className="h-3 w-3" />
-                        Toàn phòng
-                    </button>
-                    {roomAgents.map((ag: any) => (
-                        <button
-                            key={ag.id}
-                            type="button"
-                            onClick={() => {
-                                setTargetAgentId(ag.id)
-                                setInput((p) => {
-                                    const clean = p.replace(/^@[a-zA-Z0-9_-]+\s*/, '')
-                                    return `@${ag.id} ${clean}`
-                                })
-                            }}
-                            className={`flex shrink-0 items-center gap-1 rounded-lg border px-2 py-0.5 font-medium transition ${targetAgentId === ag.id ? 'border-amber-500 bg-amber-600/30 text-amber-300' : 'border-zinc-800 bg-zinc-950 text-zinc-400 hover:text-amber-300'}`}
-                        >
-                            <IconBot className="h-3 w-3 text-amber-400" />
-                            @{ag.id.replace('agent_', '')}
-                        </button>
-                    ))}
-                </div>
+                {/* Selector đối tượng nhận tương ứng theo Tab */}
+                {activeTab === 'agent' && (
+                    <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs scrollbar-none">
+                        <span className="shrink-0 text-[11px] text-zinc-500 font-medium">Hỏi Agent:</span>
+                        {roomAgents.map((ag: any) => (
+                            <button
+                                key={ag.id}
+                                type="button"
+                                onClick={() => {
+                                    setTargetAgentId(ag.id)
+                                    setInput((p) => {
+                                        const clean = p.replace(/^@[a-zA-Z0-9_-]+\s*/, '')
+                                        return `@${ag.id} ${clean}`
+                                    })
+                                }}
+                                className={`flex shrink-0 items-center gap-1 rounded-lg border px-2.5 py-0.5 font-medium transition ${targetAgentId === ag.id ? 'border-amber-500 bg-amber-600/30 text-amber-300' : 'border-zinc-800 bg-zinc-950 text-zinc-400 hover:text-amber-300'}`}
+                            >
+                                <IconBot className="h-3 w-3 text-amber-400" />
+                                @{ag.id.replace('agent_', '')}
+                            </button>
+                        ))}
+                    </div>
+                )}
+
+                {activeTab === 'team' && (
+                    <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs scrollbar-none">
+                        <span className="shrink-0 text-[11px] text-zinc-500">Phạm vi:</span>
+                        <span className="flex items-center gap-1 rounded-lg border border-blue-500/40 bg-blue-950/40 px-2 py-0.5 text-xs text-blue-300">
+                            <IconUsers className="h-3 w-3 text-blue-400" />
+                            Toàn bộ thành viên phòng
+                        </span>
+                    </div>
+                )}
 
                 {mentionPopupOpen && (
                     <div className="absolute bottom-full left-3 z-30 mb-2 w-64 rounded-xl border border-zinc-700 bg-zinc-900 p-1 shadow-2xl">
@@ -447,13 +558,30 @@ export function TeamChatPanel({
                     <input
                         value={input}
                         onChange={handleInputChange}
-                        placeholder={activeTab === 'user-user' ? 'Nhập tin nhắn trao đổi với thành viên...' : 'Nhập tin nhắn hoặc @agent...'}
+                        placeholder={
+                            activeTab === 'team'
+                                ? 'Nhắn tin tới toàn bộ phòng...'
+                                : activeTab === 'direct'
+                                    ? selectedDirectUserId
+                                        ? `Nhắn tin riêng 1-1 với ${otherUsers.find((u) => u.userId === selectedDirectUserId)?.userName || 'thành viên'}...`
+                                        : 'Chọn thành viên ở danh sách trên để chat 1-1...'
+                                    : activeTab === 'agent'
+                                        ? 'Hỏi đáp với AI Agent (gõ @agent hoặc nhập câu hỏi)...'
+                                        : 'Nhập câu hỏi hoặc chỉ đạo cho Agent Pipeline...'
+                        }
                         className="flex-1 rounded-xl border border-zinc-700/80 bg-zinc-950 px-3.5 py-2.5 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-blue-500"
                     />
                     <button
                         type="submit"
                         disabled={(!input.trim() && !selectedFile) || uploading}
-                        className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow transition hover:from-blue-500 hover:to-indigo-500 disabled:opacity-40"
+                        className={`flex items-center gap-1.5 rounded-xl px-5 py-2.5 text-sm font-semibold text-white shadow transition disabled:opacity-40 ${activeTab === 'direct'
+                            ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500'
+                            : activeTab === 'agent'
+                                ? 'bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500'
+                                : activeTab === 'workflow'
+                                    ? 'bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500'
+                                    : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500'
+                            }`}
                     >
                         <IconSend className="h-4 w-4" />
                         {uploading ? 'Đang tải...' : 'Gửi'}

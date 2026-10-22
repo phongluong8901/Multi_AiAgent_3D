@@ -9,13 +9,17 @@ export interface IChatAttachment {
     extension: string;                                  // Phần mở rộng định dạng (vd: "png", "jpg", "csv", "xlsx")
 }
 
+export type ChatType = "team" | "direct" | "agent" | "system" | "workflow";
+
 export interface IChat extends Document {
     roomId: string;                                     // ID phòng lấy từ room-service
-    typeChat: "team" | "direct" | "system" | "workflow"; // Phân loại luồng chat (nhóm, 1-1, hệ thống, tự động hóa)
+    typeChat: ChatType;                                 // Phân loại luồng chat: team, direct (1-1), agent (user-agent), workflow (agent-agent), system
     senderId: string;                                   // userId hoặc agentId
     senderType: "user" | "agent" | "system";
     senderName: string;
     message: string;
+    targetUserId?: string;                              // Dành cho chat direct (1 người với 1 người)
+    targetAgentId?: string;                             // Dành cho chat với agent cụ thể (user-agent)
     attachments?: IChatAttachment[];                    // Danh sách file/ảnh đính kèm
     metadata?: Record<string, any>;                     // Lưu thông tin phụ trợ (tool calls, state 3D, workflowTrace,...)
     createdAt: Date;
@@ -35,15 +39,17 @@ const ChatSchema = new Schema<IChat>(
         roomId: { type: String, required: true, index: true },
         typeChat: {
             type: String,
-            enum: ["team", "direct", "system", "workflow"],
+            enum: ["team", "direct", "agent", "system", "workflow"],
             default: "team",
             required: true,
             index: true
         },
-        senderId: { type: String, required: true },
+        senderId: { type: String, required: true, index: true },
         senderType: { type: String, enum: ["user", "agent", "system"], required: true },
         senderName: { type: String, required: true },
         message: { type: String, required: true },
+        targetUserId: { type: String, index: true },
+        targetAgentId: { type: String, index: true },
         attachments: { type: [ChatAttachmentSchema], default: [] }, // Thêm trường lưu ảnh và file đính kèm
         metadata: { type: Schema.Types.Mixed, default: {} },
     },

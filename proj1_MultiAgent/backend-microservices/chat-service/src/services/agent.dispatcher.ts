@@ -72,15 +72,16 @@ export class AgentDispatcher {
         senderName: string;
         senderId: string;
         depth?: number;
+        originalTypeChat?: "team" | "direct" | "agent" | "workflow" | "system";
     }) {
-        const { agentId, roomId, prompt, senderName, senderId, depth = 0 } = params;
+        const { agentId, roomId, prompt, senderName, senderId, depth = 0, originalTypeChat = "agent" } = params;
 
         if (depth > 3) {
             console.log(`[AgentDispatcher] Handoff depth limit reached (${depth}) for room ${roomId}`);
             return;
         }
 
-        console.log(`[AgentDispatcher] Dispatching to agent '${agentId}' in room '${roomId}' (depth ${depth})`);
+        console.log(`[AgentDispatcher] Dispatching to agent '${agentId}' in room '${roomId}' (depth ${depth}, type ${originalTypeChat})`);
 
         broadcastToRoom(this.io, roomId, "agent_status", {
             roomId,
@@ -111,6 +112,7 @@ export class AgentDispatcher {
                 senderName,
                 senderId,
                 depth,
+                originalTypeChat,
             }).catch((err) => {
                 console.error(`[AgentDispatcher] Direct execution error:`, err);
                 broadcastToRoom(this.io, roomId, "agent_status", {
@@ -130,8 +132,9 @@ export class AgentDispatcher {
         senderName: string;
         senderId: string;
         depth: number;
+        originalTypeChat?: "team" | "direct" | "agent" | "workflow" | "system";
     }) {
-        const { agentId, roomId, prompt, senderName, senderId, depth } = params;
+        const { agentId, roomId, prompt, senderName, senderId, depth, originalTypeChat } = params;
 
         try {
             broadcastToRoom(this.io, roomId, "agent_status", {
@@ -151,8 +154,9 @@ export class AgentDispatcher {
             const usedTools = data.used_tools || data.toolsUsed || [];
             const trace = data.workflow_trace || data.trace || data.workflowTrace;
 
-            // Nếu depth > 0 thì đây là luồng tự động bàn giao (workflow), ngược lại là team chat thông thường
-            const chatType = depth > 0 ? "workflow" : "team";
+            // Nếu depth > 0 thì đây là agent-to-agent (workflow).
+            // Nếu depth === 0, tôn trọng originalTypeChat (mặc định là "agent" cho hỏi đáp với agent)
+            const chatType = depth > 0 ? "workflow" : (originalTypeChat || "agent");
 
             // Lưu tin nhắn phản hồi của Agent với typeChat phù hợp
             const savedMessage = await chatService.saveMessage({
@@ -162,6 +166,8 @@ export class AgentDispatcher {
                 senderType: "agent",
                 senderName: this.getAgentDisplayName(agentId),
                 message: answer,
+                targetUserId: senderId,
+                targetAgentId: agentId,
                 metadata: {
                     usedTools,
                     depth,

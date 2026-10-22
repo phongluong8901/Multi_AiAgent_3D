@@ -28,7 +28,7 @@ export interface UserSearchItem {
 }
 
 
-export type { ChatMessage, UserPresence, ChatAttachment } from './chats'
+export type { ChatMessage, UserPresence, ChatAttachment, ChatType } from './chats'
 export { chatsApi } from './chats'
 
 export type { Prompt } from './prompts'

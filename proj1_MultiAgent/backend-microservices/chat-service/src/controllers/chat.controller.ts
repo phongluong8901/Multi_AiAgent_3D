@@ -15,30 +15,47 @@ export class ChatController {
     getHistory = asyncHandler(async (req: Request, res: Response) => {
         const roomId = req.params.roomId as string;
         const typeChat = req.query.typeChat as string | undefined; // Lấy thêm tham số lọc typeChat nếu có
-        const limit = req.query.limit ? parseInt(req.query.limit as string) : 50;
+        const targetUserId = req.query.targetUserId as string | undefined;
+        const targetAgentId = req.query.targetAgentId as string | undefined;
+        const userId = (req.headers["x-user-id"] as string) || (req.query.userId as string);
+        const limit = req.query.limit ? parseInt(req.query.limit as string) : 60;
 
-        // Gọi service lấy lịch sử với tham số typeChat truyền vào
-        const history = await chatService.getRoomHistory(roomId, typeChat, limit);
+        // Gọi service lấy lịch sử với tham số typeChat và filter truyền vào
+        const history = await chatService.getRoomHistory(roomId, typeChat, limit, {
+            userId,
+            targetUserId,
+            targetAgentId,
+        });
         return res.status(200).json({ success: true, data: history });
     });
 
     /**
-     * Gửi tin nhắn qua REST API (Dự phòng cho HTTP client - Hỗ trợ cả attachments & typeChat)
+     * Gửi tin nhắn qua REST API (Dự phòng cho HTTP client - Hỗ trợ cả attachments & typeChat: team, direct, agent, workflow)
      */
     sendMessage = asyncHandler(async (req: Request, res: Response) => {
-        const { roomId, typeChat, senderId, senderType, senderName, message, attachments, targetAgentId, metadata } = req.body;
+        const { roomId, typeChat, senderId, senderType, senderName, message, targetUserId, targetAgentId, attachments, metadata } = req.body;
         if (!roomId || !senderId || !message) {
             throw new AppError("Missing required fields", 400);
         }
 
-        // 1. Lưu tin nhắn vào MongoDB (bao gồm cả mảng attachments nếu có)
+        // Tự động nhận diện typeChat
+        let resolvedTypeChat = typeChat;
+        if (!resolvedTypeChat) {
+            if (targetUserId) resolvedTypeChat = "direct";
+            else if (targetAgentId || message.includes("@agent_")) resolvedTypeChat = "agent";
+            else resolvedTypeChat = "team";
+        }
+
+        // 1. Lưu tin nhắn vào MongoDB
         const saved = await chatService.saveMessage({
             roomId,
-            typeChat: typeChat || "team",
+            typeChat: resolvedTypeChat,
             senderId,
             senderType: senderType || "user",
             senderName: senderName || "Anonymous",
             message,
+            targetUserId,
+            targetAgentId,
             attachments: attachments || [],
             metadata,
         });
@@ -47,11 +64,11 @@ export class ChatController {
         const { broadcastToRoom, agentDispatcher } = await import("../services/agent.dispatcher");
         broadcastToRoom(getIO(), roomId, "receive_message", saved);
 
-        // 3. Publish event lên RabbitMQ (bao gồm cả attachments để agent ML/Analyst đọc)
+        // 3. Publish event lên RabbitMQ
         await publishChatMessage({
             messageId: (saved as any)._id?.toString() || "",
             roomId,
-            typeChat: typeChat || "team",
+            typeChat: resolvedTypeChat,
             senderId,
             senderName: senderName || "Anonymous",
             senderType: senderType || "user",
@@ -61,7 +78,7 @@ export class ChatController {
             createdAt: (saved as any).createdAt,
         });
 
-        // 4. Phân tích đối tượng nhận tin và Dispatch tới Agent
+        // 4. Phân tích đối tượng nhận tin và Dispatch tới Agent nếu có mention hoặc là chat agent
         const targetAgents: string[] = [];
         if (targetAgentId) targetAgents.push(targetAgentId);
 
@@ -79,6 +96,7 @@ export class ChatController {
                     senderName: senderName || "User",
                     senderId,
                     depth: 0,
+                    originalTypeChat: resolvedTypeChat,
                 }).catch((err) => {
                     console.error(`[ChatController] Error dispatching to ${agentId}:`, err);
                 });

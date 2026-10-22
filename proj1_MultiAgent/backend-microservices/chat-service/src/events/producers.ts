@@ -16,7 +16,7 @@ export interface ChatAttachmentPayload {
 export async function publishChatMessage(payload: {
     messageId: string;
     roomId: string;
-    typeChat?: "team" | "direct" | "system" | "workflow";
+    typeChat?: "team" | "direct" | "agent" | "system" | "workflow";
     senderId: string;
     senderName: string;
     senderType: "user" | "agent" | "system";

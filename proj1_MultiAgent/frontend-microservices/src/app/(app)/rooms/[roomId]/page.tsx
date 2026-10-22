@@ -5,7 +5,7 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import { AgentAction } from '@/components/agents/Agent'
 import { OFFICE_ACTION_SPOTS, OFFICE_DESK_SLOTS } from '@/components/office/Room'
 import { OUTDOOR_ACTION_SPOTS } from '@/components/outdoor/OutdoorPark'
-import { agentsApi, Agent, ChatAttachment } from '@/lib/api'
+import { agentsApi, Agent, ChatAttachment, ChatType } from '@/lib/api'
 import { roomsApi } from '@/lib/api/rooms'
 import { getUser } from '@/lib/auth'
 import { RoomTopNav } from '@/components/room-detail/RoomTopNav'
@@ -239,17 +239,27 @@ export default function CollaborativeRoomPage() {
         }))
     }
 
-    // Cập nhật hàm handleSend nhận thêm file đính kèm từ TeamChatPanel
-    const handleSend = async (e: React.FormEvent, attachment?: ChatAttachment) => {
+    // Cập nhật hàm handleSend nhận thêm file đính kèm và options typeChat/targetUserId/targetAgentId
+    const handleSend = async (
+        e: React.FormEvent,
+        attachment?: ChatAttachment,
+        options?: { typeChat?: ChatType; targetAgentId?: string; targetUserId?: string }
+    ) => {
         e.preventDefault()
         if (!input.trim() && !attachment) return
         const text = input.trim()
         setInput('')
         setMentionPopupOpen(false)
 
-        // Gọi hàm sendMessage từ useChat, truyền kèm mảng attachments nếu có
+        // Gọi hàm sendMessage từ useChat với đầy đủ typeChat và targets
         const attachmentsList = attachment ? [attachment] : undefined
-        await sendMessage(text, attachmentsList, targetAgentId || undefined)
+        await sendMessage(
+            text,
+            attachmentsList,
+            options?.targetAgentId || targetAgentId || undefined,
+            options?.targetUserId || undefined,
+            options?.typeChat || undefined
+        )
     }
 
     const runTeamPipeline = async () => {
@@ -258,7 +268,9 @@ export default function CollaborativeRoomPage() {
         await sendMessage(
             '@agent_manager Hãy kích hoạt workflow phân tích dữ liệu và tóm tắt báo cáo nhóm.',
             undefined,
-            'agent_manager'
+            'agent_manager',
+            undefined,
+            'workflow'
         )
         setTimeout(() => setPipelineRunning(false), 3000)
     }

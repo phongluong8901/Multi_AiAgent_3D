@@ -11,15 +11,19 @@ export type ChatAttachment = {
     extension: string
 }
 
+export type ChatType = 'team' | 'direct' | 'agent' | 'system' | 'workflow'
+
 export type ChatMessage = {
     _id?: string
     id?: string
     roomId: string
-    typeChat?: 'team' | 'direct' | 'system' | 'workflow' // Phân loại luồng chat
+    typeChat?: ChatType // Phân loại luồng chat: team, direct (1-1 user), agent (user-agent), workflow, system
     senderId: string
     senderType: 'user' | 'agent' | 'system'
     senderName: string
     message: string
+    targetUserId?: string // Dành cho chat direct 1-1 người dùng
+    targetAgentId?: string // Dành cho chat hỏi đáp với agent
     attachments?: ChatAttachment[] // Danh sách file đính kèm
     metadata?: {
         usedTools?: string[]
@@ -42,9 +46,16 @@ export type UserPresence = {
 }
 
 export const chatsApi = {
-    getHistory: async (roomId: string, typeChat?: string, limit = 50): Promise<ChatMessage[]> => {
+    getHistory: async (
+        roomId: string,
+        typeChat?: string,
+        limit = 60,
+        options?: { targetUserId?: string; targetAgentId?: string }
+    ): Promise<ChatMessage[]> => {
         const query = new URLSearchParams()
         if (typeChat) query.append('typeChat', typeChat)
+        if (options?.targetUserId) query.append('targetUserId', options.targetUserId)
+        if (options?.targetAgentId) query.append('targetAgentId', options.targetAgentId)
         query.append('limit', limit.toString())
 
         const res = await request<{ success: boolean; data: ChatMessage[] }>(
@@ -55,13 +66,14 @@ export const chatsApi = {
 
     send: async (data: {
         roomId: string
-        typeChat?: 'team' | 'direct' | 'system' | 'workflow'
+        typeChat?: ChatType
         senderId: string
         senderName: string
         senderType?: 'user' | 'agent' | 'system'
         message: string
-        attachments?: ChatAttachment[]
+        targetUserId?: string
         targetAgentId?: string
+        attachments?: ChatAttachment[]
         metadata?: any
     }): Promise<ChatMessage> => {
         const res = await request<{ success: boolean; data: ChatMessage }>('/chats/send', {
