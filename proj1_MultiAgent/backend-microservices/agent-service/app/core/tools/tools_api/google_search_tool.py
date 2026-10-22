@@ -12,8 +12,20 @@ class GoogleSearchTool(BaseTool):
         self.cse_id = os.getenv("GOOGLE_CSE_ID", "")
 
     def execute(self, arguments: Dict[str, Any]) -> str:
-        query = arguments.get("query", "")
-        if not query or not query.strip():
+        if isinstance(arguments, str):
+            query = arguments
+        elif isinstance(arguments, dict):
+            query = (
+                arguments.get("query")
+                or arguments.get("input")
+                or arguments.get("q")
+                or arguments.get("keyword")
+                or ""
+            )
+        else:
+            query = str(arguments) if arguments else ""
+
+        if not query or not str(query).strip():
             return json.dumps({"success": False, "error": "Từ khóa tìm kiếm không được để trống."})
 
         if not self.api_key or not self.cse_id:

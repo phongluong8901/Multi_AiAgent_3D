@@ -84,7 +84,13 @@ class WebCrawlerTool(BaseTool):
             return {"error": str(e)}
 
     def execute(self, arguments: Dict[str, Any]) -> str:
-        url = arguments.get("url", "")
+        if isinstance(arguments, str):
+            url = arguments
+        elif isinstance(arguments, dict):
+            url = arguments.get("url") or arguments.get("input") or arguments.get("link") or ""
+        else:
+            url = str(arguments) if arguments else ""
+
         if not url:
             return json.dumps({"success": False, "error": "Missing 'url' parameter for crawler."})
         

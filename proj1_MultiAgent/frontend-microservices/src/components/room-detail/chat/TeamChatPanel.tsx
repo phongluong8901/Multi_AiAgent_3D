@@ -439,6 +439,19 @@ export function TeamChatPanel({
                                         </div>
                                     )}
 
+                                    {/* Badge nhận diện chu trình chuyển giao / cộng tác đa agent */}
+                                    {(m.typeChat === 'workflow' || m.message?.startsWith('[Bàn giao nhiệm vụ') || m.metadata?.depth > 0) && (
+                                        <div className="mb-2 flex items-center gap-1.5 rounded-lg border border-purple-500/30 bg-purple-950/50 px-2.5 py-1 text-[11px] font-medium text-purple-300 shadow-sm">
+                                            <IconSparkles className="h-3.5 w-3.5 text-purple-400 animate-pulse shrink-0" />
+                                            <span>Chu trình Phối hợp Đa Agent (Multi-Agent Handoff)</span>
+                                            {m.metadata?.depth > 0 && (
+                                                <span className="rounded bg-purple-900/60 px-1.5 py-0.2 text-[10px] text-purple-200">
+                                                    Bước #{m.metadata.depth}
+                                                </span>
+                                            )}
+                                        </div>
+                                    )}
+
                                     <div className="whitespace-pre-wrap">{m.message}</div>
 
                                     {usedTools.length > 0 && (
@@ -501,11 +514,31 @@ export function TeamChatPanel({
 
                 {activeTab === 'team' && (
                     <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs scrollbar-none">
-                        <span className="shrink-0 text-[11px] text-zinc-500">Phạm vi:</span>
-                        <span className="flex items-center gap-1 rounded-lg border border-blue-500/40 bg-blue-950/40 px-2 py-0.5 text-xs text-blue-300">
-                            <IconUsers className="h-3 w-3 text-blue-400" />
-                            Toàn bộ thành viên phòng
-                        </span>
+                        <span className="shrink-0 text-[11px] text-zinc-500 font-medium">Lệnh nhóm nhanh:</span>
+                        <button
+                            type="button"
+                            onClick={() => setInput('@all Hãy phối hợp tra cứu thời tiết Hà Nội và tổng hợp báo cáo chi tiết')}
+                            className="flex shrink-0 items-center gap-1 rounded-lg border border-indigo-500/30 bg-indigo-950/40 px-2 py-0.5 text-xs text-indigo-300 hover:bg-indigo-900/50"
+                        >
+                            <IconSparkles className="h-3 w-3 text-indigo-400" />
+                            Thời tiết & Tổng hợp
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setInput('@agent_manager Hãy phân chia công việc cho @agent_search tra cứu thông tin AI Agent và @agent_summarizer đúc kết kết quả')}
+                            className="flex shrink-0 items-center gap-1 rounded-lg border border-purple-500/30 bg-purple-950/40 px-2 py-0.5 text-xs text-purple-300 hover:bg-purple-900/50"
+                        >
+                            <IconBot className="h-3 w-3 text-purple-400" />
+                            Phối hợp Team Lead
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setInput('@agent_manager Nhờ @agent_ml tính biểu thức 125 * 8 + 450 và nhờ @agent_analyst phân tích số liệu')}
+                            className="flex shrink-0 items-center gap-1 rounded-lg border border-emerald-500/30 bg-emerald-950/40 px-2 py-0.5 text-xs text-emerald-300 hover:bg-emerald-900/50"
+                        >
+                            <IconBarChart className="h-3 w-3 text-emerald-400" />
+                            Tính toán & Phân tích
+                        </button>
                     </div>
                 )}
 

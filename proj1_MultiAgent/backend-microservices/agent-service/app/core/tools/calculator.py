@@ -8,7 +8,18 @@ class CalculatorTool(BaseTool):
 
     def execute(self, arguments: Dict[str, Any]) -> str:
         try:
-            expression = arguments.get("expression", "0")
+            if isinstance(arguments, str):
+                expression = arguments
+            elif isinstance(arguments, dict):
+                expression = (
+                    arguments.get("expression")
+                    or arguments.get("input")
+                    or arguments.get("calc")
+                    or "0"
+                )
+            else:
+                expression = str(arguments) if arguments else "0"
+
             # Thực thi tính toán an toàn
             result = eval(expression, {"__builtins__": {}}, {})
             return json.dumps({"success": True, "result": result})

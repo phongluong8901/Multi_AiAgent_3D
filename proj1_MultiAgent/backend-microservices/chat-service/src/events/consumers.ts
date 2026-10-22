@@ -43,9 +43,12 @@ export async function startChatConsumers(io: SocketIOServer) {
 
             const trace = data.workflow_trace || data.trace || data.workflowTrace; // Lấy sơ đồ luồng suy nghĩ LangGraph (nếu có)
 
+            const chatType = depth > 0 ? "workflow" : "agent";
+
             // 1. Lưu câu trả lời của agent vào cơ sở dữ liệu MongoDB
             const saved = await chatService.saveMessage({
                 roomId,
+                typeChat: chatType,
                 senderId: agentId,
                 senderType: "agent",
                 senderName: agentName,
@@ -67,20 +70,37 @@ export async function startChatConsumers(io: SocketIOServer) {
                 broadcastToRoom(io, roomId, "workflow_trace", trace);
             }
 
-            // 4. Gửi sự kiện cập nhật trạng thái của Agent trở về 'idle' (rảnh rỗi) trên giao diện 3D
+            // 4. Phát tán trạng thái nói và sau đó rảnh rỗi cho Agent
             broadcastToRoom(io, roomId, "agent_status", {
                 roomId,
                 agentId,
-                status: "idle",
-                speech: null,
+                status: "speaking",
+                speech: answer.slice(0, 100),
             });
+
+            setTimeout(() => {
+                broadcastToRoom(io, roomId, "agent_status", {
+                    roomId,
+                    agentId,
+                    status: "idle",
+                    speech: null,
+                });
+            }, 4000);
 
             // 5. Tính năng tự động phối hợp nhóm (Autonomous Team Delegation): 
             // Kiểm tra xem câu trả lời của agent có nhắc đến (@mention) agent khác không
             const nextAgents = agentDispatcher.extractMentionedAgents(answer);
             for (const nextAgent of nextAgents) {
                 if (nextAgent !== agentId) { // Tránh việc agent tự gọi lại chính nó
-                    console.log(`[chat-service MQ] Autonomous delegation: ${agentId} -> ${nextAgent}`);
+                    console.log(`[chat-service MQ] Autonomous delegation: ${agentId} -> ${nextAgent} (depth ${depth + 1})`);
+                    
+                    broadcastToRoom(io, roomId, "agent_status", {
+                        roomId,
+                        agentId: nextAgent,
+                        status: "thinking",
+                        speech: `Đang tiếp nhận bàn giao từ ${agentName}...`,
+                    });
+
                     // Tự động điều phối công việc sang agent tiếp theo kèm theo tăng độ sâu (depth + 1)
                     await agentDispatcher.dispatchToAgent({
                         agentId: nextAgent,
@@ -89,6 +109,7 @@ export async function startChatConsumers(io: SocketIOServer) {
                         senderName: agentName,
                         senderId: agentId,
                         depth: depth + 1,
+                        originalTypeChat: "workflow",
                     });
                 }
             }

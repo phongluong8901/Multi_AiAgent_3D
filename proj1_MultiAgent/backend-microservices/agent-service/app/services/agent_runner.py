@@ -42,20 +42,21 @@ class AgentRunner:
             if prompt:
                 base_role_prompt = prompt.content
 
-        # Ngữ cảnh làm việc nhóm đa agent (Multi-Agent Team Collaboration)
+        # Ngữ cảnh làm việc nhóm đa agent (Autonomous Multi-Agent Team Collaboration)
         team_collaboration_guide = (
-            "\n\n[HỆ THỐNG LÀM VIỆC NHÓM ĐA AGENT]\n"
-            "Bạn đang làm việc trong một nhóm AI Agent tại không gian văn phòng ảo 3D. Các đồng nghiệp gồm:\n"
-            "- agent_manager (Manager Agent): Quản lý luồng, phân rã mục tiêu và điều phối công việc.\n"
-            "- agent_ml (ML Expert): Xử lý mô hình học máy, phân tích thuật toán, tính toán.\n"
-            "- agent_analyst (Data Analyst): Chuyên gia phân tích dữ liệu, cấu trúc hệ thống, thống kê.\n"
-            "- agent_search (Search Expert): Tra cứu web, tài liệu và dữ liệu trực tuyến.\n"
-            "- agent_summarizer (Summarizer Agent): Tóm tắt nội dung, tổng hợp báo cáo và cô đọng ngữ cảnh.\n\n"
-            "NGUYÊN TẮC PHỐI HỢP NHÓM:\n"
-            "1. Nhiều người dùng trong phòng có thể cùng giao việc hoặc ra lệnh chéo cho bạn và các Agent khác.\n"
-            "2. Khi hoàn thành phần việc của mình hoặc cần sự hỗ trợ chuyên môn, bạn có thể chuyển giao công việc "
-            "bằng cách gắn tag @agent_id của đồng nghiệp (ví dụ: '@agent_analyst hãy phân tích số liệu này', '@agent_search hãy tra cứu thêm...').\n"
-            "3. Trả lời súc tích, hợp tác chặt chẽ và chuyên nghiệp."
+            f"\n\n[HỆ THỐNG LÀM VIỆC NHÓM ĐA AGENT TRONG VĂN PHÒNG 3D]\n"
+            f"Bạn có định danh là: '{agent_id}' ({agent_data.get('name', agent_id)}).\n"
+            "Danh sách đồng nghiệp trong nhóm văn phòng 3D:\n"
+            "- agent_manager (Manager Agent): Trưởng nhóm điều phối, lập kế hoạch và phân chia nhiệm vụ.\n"
+            "- agent_search (Search Expert): Chuyên gia tra cứu dữ liệu web, tin tức, thời tiết, tri thức mới nhất từ internet bằng công cụ tìm kiếm.\n"
+            "- agent_ml (ML Expert): Chuyên gia tính toán biểu thức, thuật toán học máy, mô hình hóa số liệu bằng công cụ tính toán.\n"
+            "- agent_analyst (Data Analyst): Chuyên gia phân tích, so sánh cấu trúc dữ liệu, đánh giá giải pháp kỹ thuật.\n"
+            "- agent_summarizer (Summarizer Agent): Chuyên gia cô đọng, tổng hợp toàn bộ kết quả từ các agent thành báo cáo mạch lạc, hoàn hảo cho người dùng.\n\n"
+            "QUY TẮC CỘNG TÁC TỰ ĐỘNG (AUTONOMOUS HANDOFF):\n"
+            "1. Nếu bạn là 'agent_manager': Hãy tiếp nhận yêu cầu của người dùng, phân tích ngắn gọn kế hoạch thực hiện và BẮT BUỘC gắn tag @agent_id của đồng nghiệp phù hợp (ví dụ: '@agent_search hãy tra cứu dữ liệu về...', '@agent_ml hãy tính toán...').\n"
+            "2. Nếu bạn là 'agent_search' hoặc 'agent_ml': Sau khi dùng công cụ giải quyết xong phần việc của mình, hãy trình bày ngắn gọn dữ liệu và BÀN GIAO cho đồng nghiệp tiếp theo (ví dụ: 'Dữ liệu đã thu thập xong. Nhờ @agent_summarizer tổng hợp lại thành báo cáo hoàn chỉnh cho người dùng.').\n"
+            "3. Nếu bạn là 'agent_summarizer': Bạn là mắt xích cuối cùng trong chuỗi. Hãy tiếp nhận toàn bộ dữ liệu bàn giao từ các đồng nghiệp, đúc kết thành câu trả lời chi tiết, chuyên nghiệp, đẹp mắt cho người dùng. TUYỆT ĐỐI KHÔNG gắn tag thêm agent nào nữa để kết thúc chu trình cộng tác.\n"
+            "4. Nếu tin nhắn có tiền tố '[Bàn giao nhiệm vụ từ...]': Bạn hãy nhận thức đây là việc đồng nghiệp chuyển tiếp, hãy thực hiện đúng chuyên môn của mình dựa trên các dữ liệu được gửi kèm."
         )
 
         agent_system_prompt = f"{base_role_prompt}{team_collaboration_guide}"
@@ -76,6 +77,33 @@ class AgentRunner:
             tool_id = tool.id if hasattr(tool, "id") else tool.get("id", "")
             tool_name_val = tool.name if hasattr(tool, "name") else tool.get("name", "")
             tool_desc = tool.description if hasattr(tool, "description") else tool.get("description", "")
+            
+            # Cung cấp properties schema chính xác theo loại tool
+            tool_id_lower = str(tool_id).lower()
+            if "search" in tool_id_lower:
+                properties = {
+                    "query": {"type": "string", "description": "Từ khóa tìm kiếm thông tin trên internet (ví dụ: 'thời tiết Hà Nội hôm nay')"},
+                    "input": {"type": "string", "description": "Từ khóa tìm kiếm dự phòng"}
+                }
+                required = ["query"]
+            elif "calc" in tool_id_lower:
+                properties = {
+                    "expression": {"type": "string", "description": "Biểu thức toán học cần tính toán (ví dụ: '125 * 8 + 50')"},
+                    "input": {"type": "string", "description": "Biểu thức toán học dự phòng"}
+                }
+                required = ["expression"]
+            elif "crawl" in tool_id_lower:
+                properties = {
+                    "url": {"type": "string", "description": "Đường dẫn URL bài viết/website cần thu thập nội dung"},
+                    "input": {"type": "string", "description": "Đường dẫn URL dự phòng"}
+                }
+                required = ["url"]
+            else:
+                properties = {
+                    "input": {"type": "string", "description": "Nội dung đầu vào thực thi công cụ"}
+                }
+                required = ["input"]
+
             tool_definitions.append({
                 "type": "function",
                 "function": {
@@ -83,10 +111,8 @@ class AgentRunner:
                     "description": tool_desc or f"Execute {tool_name_val}",
                     "parameters": {
                         "type": "object",
-                        "properties": {
-                            "input": {"type": "string", "description": "Input cho tool"}
-                        },
-                        "required": ["input"],
+                        "properties": properties,
+                        "required": required,
                     },
                 },
             })
@@ -186,9 +212,15 @@ class AgentRunner:
                 for msg in final_messages:
                     if hasattr(msg, "tool_calls") and msg.tool_calls:
                         for tc in msg.tool_calls:
+                            if isinstance(tc, dict):
+                                tc_name = tc.get("name", "tool")
+                                tc_args = tc.get("args", {})
+                            else:
+                                tc_name = getattr(tc, "name", None) or (tc.function.name if hasattr(tc, "function") else "tool")
+                                tc_args = getattr(tc, "args", None) or (tc.function.arguments if hasattr(tc, "function") else {})
                             tool_calls_info.append({
-                                "name": tc.function.name if hasattr(tc, "function") else getattr(tc, "name", "tool"),
-                                "args": tc.function.arguments if hasattr(tc, "function") else {},
+                                "name": tc_name,
+                                "args": tc_args,
                                 "status": "completed",
                             })
 
@@ -198,7 +230,7 @@ class AgentRunner:
                     "type": "tool",
                     "status": "completed",
                     "inputs": {"tools": tools_used},
-                    "outputs": {"executed": tool_calls_info or tools_used},
+                    "outputs": {"executed": tool_calls_info if tool_calls_info else tools_used},
                     "latencyMs": 150,
                 })
 

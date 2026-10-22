@@ -76,7 +76,7 @@ export class AgentDispatcher {
     }) {
         const { agentId, roomId, prompt, senderName, senderId, depth = 0, originalTypeChat = "agent" } = params;
 
-        if (depth > 3) {
+        if (depth > 4) {
             console.log(`[AgentDispatcher] Handoff depth limit reached (${depth}) for room ${roomId}`);
             return;
         }
@@ -203,7 +203,24 @@ export class AgentDispatcher {
             const nextAgents = this.extractMentionedAgents(answer);
             for (const nextAgent of nextAgents) {
                 if (nextAgent !== agentId) {
-                    console.log(`[AgentDispatcher] Autonomous team handoff: ${agentId} -> ${nextAgent}`);
+                    console.log(`[AgentDispatcher] Autonomous team handoff: ${agentId} -> ${nextAgent} (depth ${depth + 1})`);
+                    
+                    // Phát tán trạng thái nói của Agent bàn giao trong không gian 3D
+                    broadcastToRoom(this.io, roomId, "agent_status", {
+                        roomId,
+                        agentId,
+                        status: "speaking",
+                        speech: `Đã bàn giao tiếp cho ${this.getAgentDisplayName(nextAgent)}...`,
+                    });
+
+                    // Phát tán trạng thái làm việc của Agent tiếp nhận
+                    broadcastToRoom(this.io, roomId, "agent_status", {
+                        roomId,
+                        agentId: nextAgent,
+                        status: "thinking",
+                        speech: `Đang tiếp nhận bàn giao từ ${this.getAgentDisplayName(agentId)}...`,
+                    });
+
                     await this.dispatchToAgent({
                         agentId: nextAgent,
                         roomId,
@@ -211,6 +228,7 @@ export class AgentDispatcher {
                         senderName: this.getAgentDisplayName(agentId),
                         senderId: agentId,
                         depth: depth + 1,
+                        originalTypeChat: "workflow",
                     });
                 }
             }

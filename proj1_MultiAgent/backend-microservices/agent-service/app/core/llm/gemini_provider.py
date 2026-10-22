@@ -34,44 +34,90 @@ class ToolFunctionMock:
 
 class GeminiProvider(BaseLLMProvider):
     def __init__(self):
-        # Đọc trực tiếp biến GOOGLE_API_KEY_MODEL của ông
+        # Đọc trực tiếp biến GOOGLE_API_KEY_MODEL
         self.api_key = os.getenv("GOOGLE_API_KEY_MODEL", "")
-        if self.api_key:
-            os.environ["GEMINI_API_KEY"] = self.api_key
-
-        # Khởi tạo client chính thức
-        self.client = genai.Client()
         
-        self.default_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+        # Pass api_key trực tiếp vào Client để tránh SDK dùng nhầm GOOGLE_API_KEY env var
+        if self.api_key:
+            self.client = genai.Client(api_key=self.api_key)
+        else:
+            self.client = genai.Client()
+            logger.warning("[GeminiProvider] GOOGLE_API_KEY_MODEL không được set!")
+        
+        self.default_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
         logger.info(f"[GeminiProvider] Khởi tạo thành công. Model: {self.default_model}")
 
     def chat_completion(self, messages, tools=None):
         try:
+            from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage
+
             system_instruction = None
             contents = []
             
             # Chuyển đổi định dạng messages sang cấu trúc Google GenAI
+            has_tool_result = False
             for msg in messages:
-                # Xử lý nếu message là object hoặc dict
-                role = msg.get("role") if isinstance(msg, dict) else getattr(msg, "type", "user")
-                content = msg.get("content", "") if isinstance(msg, dict) else getattr(msg, "content", "")
-                
+                # --- Xác định role và content theo từng loại message ---
+                if isinstance(msg, dict):
+                    role = msg.get("role", "user")
+                    content = msg.get("content", "")
+                elif isinstance(msg, SystemMessage):
+                    role = "system"
+                    content = msg.content
+                elif isinstance(msg, HumanMessage):
+                    role = "user"
+                    content = msg.content
+                elif isinstance(msg, AIMessage):
+                    role = "assistant"
+                    content = msg.content or ""
+                    # Nếu AIMessage yêu cầu tool calls
+                    if hasattr(msg, "tool_calls") and msg.tool_calls:
+                        tc_descs = []
+                        for tc in msg.tool_calls:
+                            tc_name = tc.get("name") if isinstance(tc, dict) else getattr(tc, "name", "tool")
+                            tc_args = tc.get("args") if isinstance(tc, dict) else getattr(tc, "args", {})
+                            tc_descs.append(f"{tc_name}({json.dumps(tc_args, ensure_ascii=False)})")
+                        content = f"[Đã gọi công cụ: {', '.join(tc_descs)}]"
+                elif isinstance(msg, ToolMessage):
+                    role = "tool"
+                    content = msg.content
+                    has_tool_result = True
+                else:
+                    class_name = type(msg).__name__.lower()
+                    if "system" in class_name:
+                        role = "system"
+                    elif "tool" in class_name:
+                        role = "tool"
+                        has_tool_result = True
+                    elif "ai" in class_name or "assistant" in class_name:
+                        role = "assistant"
+                    else:
+                        role = "user"
+                    content = getattr(msg, "content", "") or ""
+
                 if role == "system":
                     system_instruction = content
                 elif role in ["user", "human"]:
-                    contents.append(content)
+                    if content:
+                        contents.append(content)
                 elif role in ["assistant", "ai"]:
-                    contents.append(content)
+                    if content:
+                        contents.append(f"Assistant: {content}")
                 elif role == "tool":
-                    contents.append(f"Tool Result: {content}")
+                    if content:
+                        contents.append(
+                            f"[Kết quả từ công cụ đã thực thi]: {content}\n"
+                            "Yêu cầu: Hãy phân tích kỹ các thông tin/dữ liệu trên để trả lời đầy đủ, chi tiết, thân thiện và chính xác cho người dùng bằng tiếng Việt."
+                        )
 
             # Cấu hình config (System Instruction và Tools nếu có)
             config_kwargs = {}
             if system_instruction:
                 config_kwargs["system_instruction"] = system_instruction
 
-            # Chuyển đổi định dạng Tools sang Google GenAI Declarations nếu được truyền vào
-            if tools:
+            # Nếu đã có kết quả tool trong lượt này, ta không cần ép khai báo tools nữa
+            # để model tập trung tổng hợp câu trả lời cuối cùng (synthesis)
+            if tools and not has_tool_result:
                 function_declarations = []
                 for tool in tools:
                     func_data = tool.get("function", {})

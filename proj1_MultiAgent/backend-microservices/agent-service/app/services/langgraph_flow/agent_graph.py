@@ -31,23 +31,52 @@ class AgentWorkflow:
         )
         
         response_message = response.choices[0].message
-        return {"messages": [response_message]}
+        text_content = response_message.content or ""
+        tool_calls_raw = response_message.tool_calls or []
+
+        # Chuyển đổi sang LangChain AIMessage với tool_calls đúng format
+        # để agent_runner.py có thể dùng isinstance(msg, AIMessage)
+        lc_tool_calls = []
+        for tc in tool_calls_raw:
+            args = tc.function.arguments
+            if isinstance(args, str):
+                try:
+                    args = json.loads(args)
+                except Exception:
+                    args = {"input": args}
+            lc_tool_calls.append({
+                "id": tc.id,
+                "name": tc.function.name,
+                "args": args,
+                "type": "tool_call",
+            })
+
+        ai_message = AIMessage(content=text_content, tool_calls=lc_tool_calls)
+        return {"messages": [ai_message]}
 
     def execute_tools(self, state: AgentState) -> Dict[str, Any]:
         """Node 2: Thực thi các Tool mà LLM yêu cầu gọi"""
         messages = state["messages"]
         last_message = messages[-1]
-        tool_calls = last_message.tool_calls
+        tool_calls = last_message.tool_calls  # LangChain AIMessage tool_calls: list of dicts
         
         new_messages = []
         tools_used = list(state["tools_used"])
 
         for tool_call in tool_calls:
-            tool_name = tool_call.function.name
-            try:
-                tool_args = json.loads(tool_call.function.arguments) if tool_call.function.arguments else {}
-            except Exception:
-                tool_args = {}
+            # LangChain format: dict {"id": ..., "name": ..., "args": {...}}
+            if isinstance(tool_call, dict):
+                tool_name = tool_call.get("name", "")
+                tool_args = tool_call.get("args", {})
+                tool_call_id = tool_call.get("id", "")
+            else:
+                # Fallback cho mock format cũ
+                tool_name = tool_call.function.name
+                try:
+                    tool_args = json.loads(tool_call.function.arguments) if tool_call.function.arguments else {}
+                except Exception:
+                    tool_args = {}
+                tool_call_id = tool_call.id
 
             print(f"🤖 [LangGraph] Calling tool: {tool_name} | args: {tool_args}")
             tools_used.append(tool_name)
@@ -62,7 +91,7 @@ class AgentWorkflow:
             new_messages.append(
                 ToolMessage(
                     content=str(tool_result_str),
-                    tool_call_id=tool_call.id,
+                    tool_call_id=tool_call_id,
                 )
             )
 
