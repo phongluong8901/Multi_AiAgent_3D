@@ -69,8 +69,8 @@ export function InviteMemberModal({
         try {
             setInviting(uid)
             const updated = await roomsApi.invite(roomId, {
-                inviteeUserId: uid,
-                inviteeName: u.username,
+                userId: uid,
+                userName: u.username,
                 inviteeEmail: u.email,
             })
             onInvited(updated)

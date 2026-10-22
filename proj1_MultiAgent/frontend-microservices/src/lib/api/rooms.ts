@@ -70,9 +70,9 @@ export type UserSearchItem = {
 }
 
 export type InvitePayload = {
-    inviteeUserId: string
+    userId: string
+    userName?: string
     inviteeEmail?: string
-    inviteeName?: string
 }
 
 // Prefix khớp room-service

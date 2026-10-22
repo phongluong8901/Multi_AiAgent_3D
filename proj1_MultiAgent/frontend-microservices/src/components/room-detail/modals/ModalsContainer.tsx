@@ -92,9 +92,9 @@ export function ModalsContainer({
         setInvitingId(uid)
         try {
             const updated = await roomsApi.invite(roomId, {
-                inviteeUserId: uid,
+                userId: uid,
                 inviteeEmail: u.email,
-                inviteeName: u.username,
+                userName: u.username,
             })
             setRoom(updated)
             alert(`✅ Đã gửi lời mời tới ${u.username}. Khi họ đồng ý sẽ tự động vào phòng.`)
@@ -168,8 +168,8 @@ export function ModalsContainer({
                             <button
                                 onClick={() => handleSwitchTab('members')}
                                 className={`flex-1 py-1.5 px-3 rounded-lg transition text-center whitespace-nowrap ${activeTab === 'members'
-                                        ? 'bg-blue-600 text-white shadow'
-                                        : 'text-zinc-400 hover:text-white'
+                                    ? 'bg-blue-600 text-white shadow'
+                                    : 'text-zinc-400 hover:text-white'
                                     }`}
                             >
                                 Thành viên ({room?.members?.length || 1})
@@ -177,8 +177,8 @@ export function ModalsContainer({
                             <button
                                 onClick={() => handleSwitchTab('agents')}
                                 className={`flex-1 py-1.5 px-3 rounded-lg transition text-center whitespace-nowrap ${activeTab === 'agents'
-                                        ? 'bg-blue-600 text-white shadow'
-                                        : 'text-zinc-400 hover:text-white'
+                                    ? 'bg-blue-600 text-white shadow'
+                                    : 'text-zinc-400 hover:text-white'
                                     }`}
                             >
                                 Phân bổ Agent ({room?.activeAgents?.length || 0})
@@ -186,8 +186,8 @@ export function ModalsContainer({
                             <button
                                 onClick={() => handleSwitchTab('invite')}
                                 className={`flex-1 py-1.5 px-3 rounded-lg transition text-center whitespace-nowrap ${activeTab === 'invite'
-                                        ? 'bg-blue-600 text-white shadow'
-                                        : 'text-zinc-400 hover:text-white'
+                                    ? 'bg-blue-600 text-white shadow'
+                                    : 'text-zinc-400 hover:text-white'
                                     }`}
                             >
                                 + Mời thành viên
@@ -288,8 +288,8 @@ export function ModalsContainer({
 
                                                     <div className="flex items-center gap-2">
                                                         <span className={`text-xs font-semibold px-2.5 py-1 rounded-xl border ${memberAgents.length > 0
-                                                                ? 'bg-blue-500/10 text-blue-400 border-blue-500/20'
-                                                                : 'bg-zinc-800 text-zinc-400 border-zinc-700'
+                                                            ? 'bg-blue-500/10 text-blue-400 border-blue-500/20'
+                                                            : 'bg-zinc-800 text-zinc-400 border-zinc-700'
                                                             }`}>
                                                             {memberAgents.length} Agent
                                                         </span>

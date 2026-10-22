@@ -27,11 +27,6 @@ export interface UserSearchItem {
     avatarUrl?: string
 }
 
-export interface InvitePayload {
-    inviteeUserId: string
-    inviteeEmail?: string
-    inviteeName?: string
-}
 
 export type { ChatMessage, UserPresence } from './chats'
 export { chatsApi } from './chats'
