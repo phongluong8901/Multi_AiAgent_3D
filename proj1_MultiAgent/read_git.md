@@ -33,3 +33,9 @@ git checkout -b p6_update_room-service
 git add .
 git commit -m "change: first"
 git push origin p6_update_room-service
+
+--- 
+git checkout -b p7_update_chat-service
+git add .
+git commit -m "change: first"
+git push origin p7_update_chat-service
