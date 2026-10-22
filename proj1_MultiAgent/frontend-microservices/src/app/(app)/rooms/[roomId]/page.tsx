@@ -5,7 +5,7 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import { AgentAction } from '@/components/agents/Agent'
 import { OFFICE_ACTION_SPOTS, OFFICE_DESK_SLOTS } from '@/components/office/Room'
 import { OUTDOOR_ACTION_SPOTS } from '@/components/outdoor/OutdoorPark'
-import { agentsApi, Agent } from '@/lib/api'
+import { agentsApi, Agent, ChatAttachment } from '@/lib/api'
 import { roomsApi } from '@/lib/api/rooms'
 import { getUser } from '@/lib/auth'
 import { RoomTopNav } from '@/components/room-detail/RoomTopNav'
@@ -67,19 +67,21 @@ export default function CollaborativeRoomPage() {
         loadRoomData,
     } = useRoom(roomId, currentUserId, currentUserName)
 
-    // 2. Sử dụng useChat (quản lý tin nhắn, socket chat, agent status & workflow traces)
+    // 2. Sử dụng useChat (quản lý tin nhắn, socket chat, upload file, agent status & workflow traces)
     const {
         messages,
         onlineUsers,
         agentStatuses,
-        latestTraces, // <--- Đã lấy thêm biến này từ useChat socket realtime
+        latestTraces,
         activeTrace,
         setActiveTrace,
         connected,
         chatLoading,
         sendMessage,
+        uploadAndAttachFile, // <--- Đã lấy thêm hàm upload từ hook useChat
     } = useChat({
         roomId,
+        typeChat: 'team', // Mặc định luồng chat là team
         onRoomUpdated: loadRoomData,
     })
 
@@ -237,13 +239,17 @@ export default function CollaborativeRoomPage() {
         }))
     }
 
-    const handleSend = async (e: React.FormEvent) => {
+    // Cập nhật hàm handleSend nhận thêm file đính kèm từ TeamChatPanel
+    const handleSend = async (e: React.FormEvent, attachment?: ChatAttachment) => {
         e.preventDefault()
-        if (!input.trim()) return
+        if (!input.trim() && !attachment) return
         const text = input.trim()
         setInput('')
         setMentionPopupOpen(false)
-        await sendMessage(text, targetAgentId || undefined)
+
+        // Gọi hàm sendMessage từ useChat, truyền kèm mảng attachments nếu có
+        const attachmentsList = attachment ? [attachment] : undefined
+        await sendMessage(text, attachmentsList, targetAgentId || undefined)
     }
 
     const runTeamPipeline = async () => {
@@ -251,6 +257,7 @@ export default function CollaborativeRoomPage() {
         setPipelineRunning(true)
         await sendMessage(
             '@agent_manager Hãy kích hoạt workflow phân tích dữ liệu và tóm tắt báo cáo nhóm.',
+            undefined,
             'agent_manager'
         )
         setTimeout(() => setPipelineRunning(false), 3000)
@@ -341,6 +348,7 @@ export default function CollaborativeRoomPage() {
                 pipelineRunning={pipelineRunning}
                 runTeamPipeline={runTeamPipeline}
                 handleSend={handleSend}
+                uploadAndAttachFile={uploadAndAttachFile} // <-- TRUYỀN HÀM UPLOAD VÀO ĐÂY
                 setActiveTrace={setActiveTrace}
                 setTraceModalOpen={setTraceModalOpen}
                 chatEndRef={chatEndRef}

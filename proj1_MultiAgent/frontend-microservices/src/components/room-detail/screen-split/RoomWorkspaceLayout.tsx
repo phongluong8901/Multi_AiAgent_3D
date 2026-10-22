@@ -1,6 +1,6 @@
 'use client'
 
-import { Agent, Room, WorkflowTrace } from '@/lib/api'
+import { Agent, Room, WorkflowTrace, ChatAttachment } from '@/lib/api'
 import { AgentAction } from '@/components/agents/Agent'
 import { Workspace3DPanel } from '@/components/room-detail/Workspace3DPanel'
 import { TeamChatPanel } from '@/components/room-detail/chat/TeamChatPanel'
@@ -27,7 +27,8 @@ interface RoomWorkspaceLayoutProps {
     setMentionPopupOpen: (val: boolean) => void
     pipelineRunning: boolean
     runTeamPipeline: () => void
-    handleSend: (e: React.FormEvent) => void
+    handleSend: (e: React.FormEvent, attachment?: ChatAttachment) => void
+    uploadAndAttachFile?: (file: File) => Promise<ChatAttachment | null> // <-- Bổ sung prop này
     setActiveTrace: (trace: WorkflowTrace) => void
     setTraceModalOpen: (open: boolean) => void
     chatEndRef: React.RefObject<HTMLDivElement | null>
@@ -58,6 +59,7 @@ export function RoomWorkspaceLayout({
     pipelineRunning,
     runTeamPipeline,
     handleSend,
+    uploadAndAttachFile, // <-- Nhận prop này
     setActiveTrace,
     setTraceModalOpen,
     chatEndRef,
@@ -110,6 +112,7 @@ export function RoomWorkspaceLayout({
                         pipelineRunning={pipelineRunning}
                         runTeamPipeline={runTeamPipeline}
                         handleSend={handleSend}
+                        uploadAndAttachFile={uploadAndAttachFile} // <-- Truyền tiếp xuống TeamChatPanel
                         setActiveTrace={setActiveTrace}
                         setTraceModalOpen={setTraceModalOpen}
                         chatEndRef={chatEndRef}

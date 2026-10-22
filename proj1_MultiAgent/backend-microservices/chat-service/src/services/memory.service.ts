@@ -7,14 +7,18 @@ export class MemoryService {
     /**
      * Tách và lấy Short-term Memory (Sliding Window):
      * Lấy N tin nhắn gần nhất từ Chat Database để làm context hội thoại cho Agent.
+     * Có thể lọc theo typeChat (ví dụ: chỉ lấy luồng team hoặc direct).
      */
-    async getShortTermMemory(roomId: string, turns: number = 10) {
-        const messages = await chatRepository.findByRoomId(roomId, turns * 2);
+    async getShortTermMemory(roomId: string, turns: number = 10, typeChat?: string) {
+        // Gọi repository lấy tin nhắn theo phòng, có hỗ trợ lọc typeChat và giới hạn số lượng
+        const messages = await chatRepository.findByRoomId(roomId, typeChat, turns * 2);
+
         // Format theo chuẩn LLM chat completion
         return messages.map((m: any) => ({
             role: m.senderType === "agent" ? "assistant" : m.senderType === "system" ? "system" : "user",
             name: m.senderName,
             content: m.message,
+            typeChat: m.typeChat,
             timestamp: m.createdAt,
         }));
     }
@@ -75,15 +79,16 @@ export class MemoryService {
     /**
      * Tổng hợp Memory Context hoàn chỉnh (gồm cả Short + Long memory) để nạp cho Agent Prompt
      */
-    async buildAgentContext(agentId: string, roomId: string) {
+    async buildAgentContext(agentId: string, roomId: string, typeChat?: string) {
         const [shortMem, longMem] = await Promise.all([
-            this.getShortTermMemory(roomId, 10),
+            this.getShortTermMemory(roomId, 10, typeChat),
             this.getLongTermMemories(agentId, roomId),
         ]);
 
         return {
             agentId,
             roomId,
+            typeChat: typeChat || "team",
             shortMemory: shortMem,
             longMemory: longMem,
         };

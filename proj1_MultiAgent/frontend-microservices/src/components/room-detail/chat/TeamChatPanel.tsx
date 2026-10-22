@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useRef, useState } from 'react'
-import { ChatMessage, UserPresence, WorkflowTrace } from '@/lib/api'
+import { ChatMessage, UserPresence, WorkflowTrace, ChatAttachment } from '@/lib/api'
 import {
     IconZap,
     IconUsers,
@@ -32,7 +32,8 @@ interface TeamChatPanelProps {
     setMentionPopupOpen: (open: boolean) => void
     pipelineRunning: boolean
     runTeamPipeline: () => void
-    handleSend: (e: React.FormEvent, attachment?: any) => void
+    handleSend: (e: React.FormEvent, attachment?: ChatAttachment) => void
+    uploadAndAttachFile?: (file: File) => Promise<ChatAttachment | null>
     setActiveTrace: (trace: WorkflowTrace) => void
     setTraceModalOpen: (open: boolean) => void
     chatEndRef: React.RefObject<HTMLDivElement | null>
@@ -58,6 +59,7 @@ export function TeamChatPanel({
     pipelineRunning,
     runTeamPipeline,
     handleSend,
+    uploadAndAttachFile,
     setActiveTrace,
     setTraceModalOpen,
     chatEndRef,
@@ -66,6 +68,7 @@ export function TeamChatPanel({
     currentUserName = '',
 }: TeamChatPanelProps) {
     const [selectedFile, setSelectedFile] = useState<File | null>(null)
+    const [uploading, setUploading] = useState(false)
     const [activeTab, setActiveTab] = useState<ChatTab>('user-user')
     const fileInputRef = useRef<HTMLInputElement | null>(null)
 
@@ -73,28 +76,44 @@ export function TeamChatPanel({
         if (e.target.files?.[0]) setSelectedFile(e.target.files[0])
     }
 
-    const onSubmit = (e: React.FormEvent) => {
+    const onSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
+        console.log("1. Đã bấm gửi, input:", input, "selectedFile:", selectedFile)
+
         if (!input.trim() && !selectedFile) return
 
-        let attachmentPayload: any
-        if (selectedFile) {
-            const ext = selectedFile.name.split('.').pop()?.toLowerCase()
-            let fileType: 'image' | 'csv' | 'xlsx' | 'pdf' | 'other' = 'other'
-            if (['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(ext || '')) fileType = 'image'
-            else if (ext === 'csv') fileType = 'csv'
-            else if (['xlsx', 'xls'].includes(ext || '')) fileType = 'xlsx'
-            else if (ext === 'pdf') fileType = 'pdf'
+        let uploadedAttachment: ChatAttachment | undefined = undefined
 
-            attachmentPayload = {
-                fileName: selectedFile.name,
-                fileUrl: URL.createObjectURL(selectedFile),
-                fileType,
-                fileSize: selectedFile.size,
+        if (selectedFile) {
+            try {
+                setUploading(true)
+                console.log("2. Đang tiến hành gọi uploadAndAttachFile...")
+
+                if (uploadAndAttachFile) {
+                    const result = await uploadAndAttachFile(selectedFile)
+                    console.log("3. Kết quả trả về từ uploadAndAttachFile:", result)
+
+                    if (result) {
+                        uploadedAttachment = result
+                    } else {
+                        console.warn("⚠️ Upload trả về null/undefined, kiểm tra lại API upload trên server.")
+                    }
+                } else {
+                    console.error("❌ Hàm uploadAndAttachFile chưa được truyền vào props của TeamChatPanel!")
+                }
+            } catch (err: any) {
+                // IN CHI TIẾT LỖI RA CONSOLE ĐỂ BIẾT NGUYÊN NHÂN (CORS, 401, 500,...)
+                console.error('❌ Lỗi chi tiết khi upload file lên Cloudinary:', err)
+                alert(`Không thể tải file lên: ${err.message || 'Lỗi không xác định'}`)
+                setUploading(false)
+                return // Dừng lại không gửi tin nhắn rác nếu upload thất bại
+            } finally {
+                setUploading(false)
             }
         }
 
-        handleSend(e, attachmentPayload)
+        console.log("4. Gọi handleSend với attachment:", uploadedAttachment)
+        handleSend(e, uploadedAttachment)
         setSelectedFile(null)
         if (fileInputRef.current) fileInputRef.current.value = ''
     }
@@ -114,35 +133,28 @@ export function TeamChatPanel({
         setMentionPopupOpen(false)
     }
 
-    // Lọc tin nhắn dựa theo 3 vùng (Tab)
     const filteredMessages = messages.filter((m: any) => {
-        const senderType = m.senderType // 'user' | 'agent' | 'system'
+        const senderType = m.senderType
         const isAgent = senderType === 'agent'
         const isSystem = senderType === 'system'
         const isUser = !isAgent && !isSystem
 
-        // 1. Vùng User-User: Chỉ tin nhắn giữa các người dùng với nhau hoặc tin hệ thống
         if (activeTab === 'user-user') {
             return isUser || isSystem
         }
-
-        // 2. Vùng User-Agent: Tin nhắn tương tác trực tiếp giữa người dùng và Agent
         if (activeTab === 'user-agent') {
             const target = m.targetAgentId || m.metadata?.targetAgentId
             return (isUser && (target || m.message.includes('@'))) || (isAgent && !m.metadata?.isAgentToAgent)
         }
-
-        // 3. Vùng Agent-Agent: Các luồng hội thoại phối hợp tự động giữa các agent với nhau
         if (activeTab === 'agent-agent') {
             return isAgent && (m.metadata?.isAgentToAgent || m.metadata?.workflowTrace || m.senderId?.startsWith('agent_'))
         }
-
         return true
     })
 
     return (
         <div className="flex h-full min-h-0 w-full flex-col bg-zinc-950">
-            {/* Thanh chuyển đổi giữa 3 vùng chat */}
+            {/* Tabs chuyển đổi vùng chat */}
             <div className="flex shrink-0 items-center justify-between border-b border-zinc-800 bg-zinc-900/60 px-3 py-2">
                 <div className="flex items-center gap-1.5">
                     <button
@@ -181,7 +193,7 @@ export function TeamChatPanel({
                 </div>
             </div>
 
-            {/* Quick actions (Chỉ hiển thị khi ở tab User-Agent hoặc Agent-Agent) */}
+            {/* Quick Actions */}
             {activeTab !== 'user-user' && (
                 <div className="flex shrink-0 items-center gap-2 overflow-x-auto border-b border-zinc-800/80 bg-zinc-900/40 p-3 scrollbar-none">
                     <span className="flex shrink-0 items-center gap-1 text-[11px] font-medium text-zinc-500">
@@ -199,9 +211,7 @@ export function TeamChatPanel({
                     </button>
                     <button
                         type="button"
-                        onClick={() =>
-                            setInput('@agent_search Hãy tra cứu xu hướng AI Agents mới nhất năm 2026')
-                        }
+                        onClick={() => setInput('@agent_search Hãy tra cứu xu hướng AI Agents mới nhất năm 2026')}
                         className="flex shrink-0 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900 px-2.5 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
                     >
                         <IconSearch className="h-3.5 w-3.5 text-zinc-400" />
@@ -209,9 +219,7 @@ export function TeamChatPanel({
                     </button>
                     <button
                         type="button"
-                        onClick={() =>
-                            setInput('@agent_analyst Hãy phân tích file dữ liệu CSV/Excel mới tải lên')
-                        }
+                        onClick={() => setInput('@agent_analyst Hãy phân tích file dataset CSV/Excel mới tải lên')}
                         className="flex shrink-0 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900 px-2.5 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
                     >
                         <IconBarChart className="h-3.5 w-3.5 text-zinc-400" />
@@ -219,9 +227,7 @@ export function TeamChatPanel({
                     </button>
                     <button
                         type="button"
-                        onClick={() =>
-                            setInput('@agent_summarizer Hãy tóm tắt lại toàn bộ thảo luận của phòng')
-                        }
+                        onClick={() => setInput('@agent_summarizer Hãy tóm tắt lại toàn bộ thảo luận của phòng')}
                         className="flex shrink-0 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900 px-2.5 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
                     >
                         <IconFileText className="h-3.5 w-3.5 text-zinc-400" />
@@ -230,26 +236,16 @@ export function TeamChatPanel({
                 </div>
             )}
 
-            {/* Messages List */}
-            <div
-                ref={chatScrollRef}
-                className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4"
-            >
+            {/* Danh sách tin nhắn */}
+            <div ref={chatScrollRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
                 {chatLoading ? (
-                    <p className="py-12 text-center text-xs text-zinc-500">
-                        Đang đồng bộ tin nhắn...
-                    </p>
+                    <p className="py-12 text-center text-xs text-zinc-500">Đang đồng bộ tin nhắn...</p>
                 ) : filteredMessages.length === 0 ? (
                     <div className="space-y-2 py-12 text-center">
                         <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl border border-zinc-800 bg-zinc-900 text-zinc-400">
                             <IconMessageSquare className="h-6 w-6" />
                         </div>
                         <p className="text-xs font-medium text-zinc-400">Chưa có tin nhắn trong kênh này</p>
-                        <p className="mx-auto max-w-sm text-[11px] text-zinc-500">
-                            {activeTab === 'user-user' && 'Gửi tin nhắn trao đổi cùng các thành viên trong phòng.'}
-                            {activeTab === 'user-agent' && 'Gõ @agent_id để ra lệnh trực tiếp cho trợ lý.'}
-                            {activeTab === 'agent-agent' && 'Chạy Team Pipeline để xem các agent tự động phối hợp.'}
-                        </p>
                     </div>
                 ) : (
                     filteredMessages.map((m: any, idx: number) => {
@@ -259,12 +255,11 @@ export function TeamChatPanel({
                             !isAgent &&
                             !isSystem &&
                             ((!!currentUserId && m.senderId === currentUserId) ||
-                                (!!currentUserName &&
-                                    m.senderName?.toLowerCase() === currentUserName.toLowerCase()))
+                                (!!currentUserName && m.senderName?.toLowerCase() === currentUserName.toLowerCase()))
 
                         const usedTools = m.metadata?.usedTools || []
                         const hasTrace = !!m.metadata?.workflowTrace
-                        const attachment = m.attachment || m.metadata?.attachment
+                        const attachments: ChatAttachment[] = m.attachments || (m.attachment ? [m.attachment] : [])
                         const agentOwner = isAgent
                             ? room?.userAgents?.find((b: any) => b.agentId === m.senderId)
                             : null
@@ -280,24 +275,10 @@ export function TeamChatPanel({
                         }
 
                         return (
-                            <div
-                                key={m._id || m.id || idx}
-                                className={`flex flex-col space-y-1.5 ${isMe ? 'items-end' : 'items-start'}`}
-                            >
+                            <div key={m._id || m.id || idx} className={`flex flex-col space-y-1.5 ${isMe ? 'items-end' : 'items-start'}`}>
                                 <div className="flex items-center gap-2 text-xs text-zinc-400">
-                                    <span
-                                        className={`flex items-center gap-1 font-semibold ${isAgent
-                                            ? 'text-blue-400'
-                                            : isMe
-                                                ? 'text-emerald-400'
-                                                : 'text-amber-400'
-                                            }`}
-                                    >
-                                        {isAgent ? (
-                                            <IconBot className="h-3.5 w-3.5" />
-                                        ) : (
-                                            <IconUser className="h-3.5 w-3.5" />
-                                        )}
+                                    <span className={`flex items-center gap-1 font-semibold ${isAgent ? 'text-blue-400' : isMe ? 'text-emerald-400' : 'text-amber-400'}`}>
+                                        {isAgent ? <IconBot className="h-3.5 w-3.5" /> : <IconUser className="h-3.5 w-3.5" />}
                                         {isMe ? 'Bạn' : m.senderName}
                                     </span>
                                     {agentOwner && (
@@ -306,30 +287,46 @@ export function TeamChatPanel({
                                         </span>
                                     )}
                                     <span className="text-[10px] text-zinc-500">
-                                        {m.createdAt
-                                            ? new Date(m.createdAt).toLocaleTimeString([], {
-                                                hour: '2-digit',
-                                                minute: '2-digit',
-                                            })
-                                            : ''}
+                                        {m.createdAt ? new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
                                     </span>
                                 </div>
 
-                                <div
-                                    className={`max-w-[88%] rounded-2xl border p-3.5 text-sm leading-relaxed shadow-md ${isAgent
-                                        ? 'border-zinc-800 bg-zinc-900/90 text-zinc-200'
-                                        : isMe
-                                            ? 'border-blue-500 bg-blue-600 text-white'
-                                            : 'border-zinc-700 bg-zinc-800 text-zinc-100'
-                                        }`}
-                                >
-                                    {attachment && (
-                                        <div className="mb-2.5 flex items-center gap-2 rounded-xl border border-white/10 bg-black/40 p-2 text-xs">
-                                            <IconPaperclip className="h-4 w-4 shrink-0 text-emerald-400" />
-                                            <span className="truncate font-medium">{attachment.fileName}</span>
-                                            <span className="text-[10px] uppercase text-zinc-400">
-                                                ({attachment.fileType})
-                                            </span>
+                                <div className={`max-w-[88%] rounded-2xl border p-3.5 text-sm leading-relaxed shadow-md ${isAgent ? 'border-zinc-800 bg-zinc-900/90 text-zinc-200' : isMe ? 'border-blue-500 bg-blue-600 text-white' : 'border-zinc-700 bg-zinc-800 text-zinc-100'}`}>
+                                    {/* Render danh sách attachments (Ảnh & Document/CSV/Excel) */}
+                                    {attachments && attachments.length > 0 && (
+                                        <div className="mb-2.5 flex flex-col gap-2">
+                                            {attachments.map((att, attIdx) => {
+                                                const isImg = att.category === 'image' || ['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(att.extension?.toLowerCase() || '')
+                                                if (isImg) {
+                                                    return (
+                                                        <div key={attIdx} className="overflow-hidden rounded-xl border border-white/10 bg-black/40 p-1">
+                                                            <a href={att.fileUrl} target="_blank" rel="noreferrer" title="Click để xem kích thước đầy đủ">
+                                                                <img
+                                                                    src={att.fileUrl}
+                                                                    alt={att.fileName}
+                                                                    className="max-h-60 w-auto rounded-lg object-contain transition hover:opacity-90"
+                                                                    loading="lazy"
+                                                                />
+                                                            </a>
+                                                            <div className="flex items-center justify-between px-1.5 pt-1 text-[11px] text-zinc-300">
+                                                                <span className="truncate max-w-[180px] font-medium">{att.fileName}</span>
+                                                                <span className="text-[10px] uppercase text-zinc-400 font-mono">{att.extension}</span>
+                                                            </div>
+                                                        </div>
+                                                    )
+                                                }
+                                                return (
+                                                    <div key={attIdx} className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/40 p-2 text-xs">
+                                                        <IconPaperclip className="h-4 w-4 shrink-0 text-emerald-400" />
+                                                        <a href={att.fileUrl} target="_blank" rel="noreferrer" className="truncate font-medium underline hover:text-blue-300">
+                                                            {att.fileName}
+                                                        </a>
+                                                        <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] uppercase text-zinc-300">
+                                                            {att.category} ({att.extension})
+                                                        </span>
+                                                    </div>
+                                                )
+                                            })}
                                         </div>
                                     )}
 
@@ -337,14 +334,9 @@ export function TeamChatPanel({
 
                                     {usedTools.length > 0 && (
                                         <div className="mt-2.5 flex flex-wrap gap-1.5 border-t border-zinc-800/80 pt-2">
-                                            <span className="text-[10px] font-bold uppercase text-zinc-400">
-                                                Tool:
-                                            </span>
+                                            <span className="text-[10px] font-bold uppercase text-zinc-400">Tool:</span>
                                             {usedTools.map((t: string, i: number) => (
-                                                <span
-                                                    key={i}
-                                                    className="rounded-md border border-zinc-700/80 bg-zinc-950 px-2 py-0.5 font-mono text-[10px] text-amber-300"
-                                                >
+                                                <span key={i} className="rounded-md border border-zinc-700/80 bg-zinc-950 px-2 py-0.5 font-mono text-[10px] text-amber-300">
                                                     {t}
                                                 </span>
                                             ))}
@@ -372,7 +364,7 @@ export function TeamChatPanel({
                 <div ref={chatEndRef} />
             </div>
 
-            {/* Composer */}
+            {/* Composer / Input Bar */}
             <div className="relative shrink-0 space-y-2 border-t border-zinc-800 bg-zinc-900/90 p-3 backdrop-blur">
                 <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs scrollbar-none">
                     <span className="shrink-0 text-[11px] text-zinc-500">Gửi tới:</span>
@@ -382,10 +374,7 @@ export function TeamChatPanel({
                             setTargetAgentId('')
                             setInput((p) => p.replace(/^@[a-zA-Z0-9_-]+\s*/, ''))
                         }}
-                        className={`flex shrink-0 items-center gap-1 rounded-lg border px-2 py-0.5 font-medium transition ${!targetAgentId
-                            ? 'border-blue-500 bg-blue-600 text-white'
-                            : 'border-zinc-800 bg-zinc-950 text-zinc-400 hover:text-white'
-                            }`}
+                        className={`flex shrink-0 items-center gap-1 rounded-lg border px-2 py-0.5 font-medium transition ${!targetAgentId ? 'border-blue-500 bg-blue-600 text-white' : 'border-zinc-800 bg-zinc-950 text-zinc-400 hover:text-white'}`}
                     >
                         <IconUsers className="h-3 w-3" />
                         Toàn phòng
@@ -401,10 +390,7 @@ export function TeamChatPanel({
                                     return `@${ag.id} ${clean}`
                                 })
                             }}
-                            className={`flex shrink-0 items-center gap-1 rounded-lg border px-2 py-0.5 font-medium transition ${targetAgentId === ag.id
-                                ? 'border-amber-500 bg-amber-600/30 text-amber-300'
-                                : 'border-zinc-800 bg-zinc-950 text-zinc-400 hover:text-amber-300'
-                                }`}
+                            className={`flex shrink-0 items-center gap-1 rounded-lg border px-2 py-0.5 font-medium transition ${targetAgentId === ag.id ? 'border-amber-500 bg-amber-600/30 text-amber-300' : 'border-zinc-800 bg-zinc-950 text-zinc-400 hover:text-amber-300'}`}
                         >
                             <IconBot className="h-3 w-3 text-amber-400" />
                             @{ag.id.replace('agent_', '')}
@@ -414,9 +400,7 @@ export function TeamChatPanel({
 
                 {mentionPopupOpen && (
                     <div className="absolute bottom-full left-3 z-30 mb-2 w-64 rounded-xl border border-zinc-700 bg-zinc-900 p-1 shadow-2xl">
-                        <div className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-zinc-500">
-                            Chọn agent
-                        </div>
+                        <div className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-zinc-500">Chọn agent</div>
                         {roomAgents.map((ag: any) => (
                             <button
                                 key={ag.id}
@@ -435,18 +419,10 @@ export function TeamChatPanel({
                     <div className="flex items-center justify-between rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-1.5 text-xs">
                         <span className="flex items-center gap-2 truncate">
                             <IconPaperclip className="h-3.5 w-3.5 text-emerald-400" />
-                            <span className="truncate font-medium text-zinc-200">
-                                {selectedFile.name}
-                            </span>
-                            <span className="text-[10px] text-zinc-500">
-                                ({(selectedFile.size / 1024).toFixed(1)} KB)
-                            </span>
+                            <span className="truncate font-medium text-zinc-200">{selectedFile.name}</span>
+                            <span className="text-[10px] text-zinc-500">({(selectedFile.size / 1024).toFixed(1)} KB)</span>
                         </span>
-                        <button
-                            type="button"
-                            onClick={() => setSelectedFile(null)}
-                            className="text-zinc-400 hover:text-white"
-                        >
+                        <button type="button" onClick={() => setSelectedFile(null)} className="text-zinc-400 hover:text-white">
                             <IconX className="h-3.5 w-3.5" />
                         </button>
                     </div>
@@ -464,27 +440,23 @@ export function TeamChatPanel({
                         type="button"
                         onClick={() => fileInputRef.current?.click()}
                         className="rounded-xl border border-zinc-800 bg-zinc-950 p-2.5 text-zinc-400 transition hover:border-zinc-700 hover:text-white"
-                        title="Đính kèm file"
+                        title="Đính kèm file hoặc ảnh"
                     >
                         <IconPaperclip className="h-4 w-4" />
                     </button>
                     <input
                         value={input}
                         onChange={handleInputChange}
-                        placeholder={
-                            activeTab === 'user-user'
-                                ? 'Nhập tin nhắn trao đổi với thành viên...'
-                                : 'Nhập tin nhắn hoặc @agent...'
-                        }
+                        placeholder={activeTab === 'user-user' ? 'Nhập tin nhắn trao đổi với thành viên...' : 'Nhập tin nhắn hoặc @agent...'}
                         className="flex-1 rounded-xl border border-zinc-700/80 bg-zinc-950 px-3.5 py-2.5 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-blue-500"
                     />
                     <button
                         type="submit"
-                        disabled={!input.trim() && !selectedFile}
+                        disabled={(!input.trim() && !selectedFile) || uploading}
                         className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow transition hover:from-blue-500 hover:to-indigo-500 disabled:opacity-40"
                     >
                         <IconSend className="h-4 w-4" />
-                        Gửi
+                        {uploading ? 'Đang tải...' : 'Gửi'}
                     </button>
                 </form>
             </div>

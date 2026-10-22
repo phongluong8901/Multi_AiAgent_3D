@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { chatsApi, ChatMessage, UserPresence, WorkflowTrace } from '@/lib/api'
+import { chatsApi, ChatMessage, UserPresence, WorkflowTrace, ChatAttachment } from '@/lib/api'
 import { getUser } from '@/lib/auth'
 import { io, Socket } from 'socket.io-client'
 
@@ -13,10 +13,11 @@ export type AgentStatusMeta = {
 
 interface UseChatProps {
     roomId: string
-    onRoomUpdated?: () => void // Callback để hook cha hoặc useRoom biết khi nào cần reload lại phòng
+    typeChat?: 'team' | 'direct' | 'system' | 'workflow'
+    onRoomUpdated?: () => void
 }
 
-export function useChat({ roomId, onRoomUpdated }: UseChatProps) {
+export function useChat({ roomId, typeChat = 'team', onRoomUpdated }: UseChatProps) {
     const [messages, setMessages] = useState<ChatMessage[]>([])
     const [onlineUsers, setOnlineUsers] = useState<UserPresence[]>([])
     const [agentStatuses, setAgentStatuses] = useState<Record<string, AgentStatusMeta>>({})
@@ -33,7 +34,7 @@ export function useChat({ roomId, onRoomUpdated }: UseChatProps) {
         try {
             setChatLoading(true)
             const [history, presence] = await Promise.all([
-                chatsApi.getHistory(roomId, 60).catch(() => []),
+                chatsApi.getHistory(roomId, typeChat, 60).catch(() => []),
                 chatsApi.getPresence(roomId).catch(() => ({ roomId, onlineUsers: [] })),
             ])
 
@@ -46,7 +47,7 @@ export function useChat({ roomId, onRoomUpdated }: UseChatProps) {
         } finally {
             setChatLoading(false)
         }
-    }, [roomId])
+    }, [roomId, typeChat])
 
     // 2. Thiết lập kết nối Real-time Socket.IO
     useEffect(() => {
@@ -74,7 +75,6 @@ export function useChat({ roomId, onRoomUpdated }: UseChatProps) {
             // Tham gia room socket chat
             socket.emit('join_room', { roomId, userId: user?.id })
 
-            // Cập nhật hiện diện người dùng
             if (user) {
                 chatsApi.updatePresence(roomId, {
                     id: user.id,
@@ -121,7 +121,6 @@ export function useChat({ roomId, onRoomUpdated }: UseChatProps) {
             }
         })
 
-        // Lắng nghe cập nhật trạng thái Agent
         socket.on('agent_status', (data: any) => {
             try {
                 const statusMeta: AgentStatusMeta = data.data || data
@@ -140,7 +139,6 @@ export function useChat({ roomId, onRoomUpdated }: UseChatProps) {
             }
         })
 
-        // Lắng nghe Workflow Trace từ LangSmith / Agent Dispatcher
         socket.on('workflow_trace', (data: any) => {
             try {
                 const trace: WorkflowTrace = data.data || data
@@ -155,7 +153,6 @@ export function useChat({ roomId, onRoomUpdated }: UseChatProps) {
             }
         })
 
-        // Lắng nghe sự kiện cập nhật hiện diện người dùng online
         socket.on('room_presence', (data: any) => {
             try {
                 const presenceData = data.data || data
@@ -167,14 +164,12 @@ export function useChat({ roomId, onRoomUpdated }: UseChatProps) {
             }
         })
 
-        // Lắng nghe sự kiện phòng bị thay đổi
         socket.on('room_updated', () => {
             if (onRoomUpdated) {
                 onRoomUpdated()
             }
         })
 
-        // Heartbeat duy trì trạng thái hiện diện online mỗi 30 giây
         const heartbeat = setInterval(() => {
             const u = getUser()
             if (u) {
@@ -193,9 +188,9 @@ export function useChat({ roomId, onRoomUpdated }: UseChatProps) {
         }
     }, [roomId, loadChatHistory, onRoomUpdated])
 
-    // 3. Hàm gửi tin nhắn
-    const sendMessage = async (text: string, targetAgentId?: string) => {
-        if (!text.trim() || !roomId) return
+    // 3. Hàm gửi tin nhắn (Hỗ trợ đính kèm attachments và typeChat)
+    const sendMessage = async (text: string, attachments?: ChatAttachment[], targetAgentId?: string) => {
+        if ((!text.trim() && (!attachments || attachments.length === 0)) || !roomId) return
 
         const currentUser = getUser()
         const senderId = currentUser?.id || 'guest_user'
@@ -204,26 +199,55 @@ export function useChat({ roomId, onRoomUpdated }: UseChatProps) {
         const optimisticMsg: ChatMessage = {
             id: `temp_${Date.now()}`,
             roomId,
+            typeChat,
             senderId,
             senderName,
             senderType: 'user',
-            message: text.trim(),
+            message: text.trim() || '[Đã gửi file đính kèm]',
+            attachments: attachments || [],
             createdAt: new Date().toISOString(),
         }
 
         setMessages((prev) => [...prev, optimisticMsg])
 
-        try {
-            await chatsApi.send({
+        // Nếu socket đang kết nối, có thể emit trực tiếp qua socket hoặc qua REST API `chatsApi.send`
+        if (socketRef.current && socketRef.current.connected) {
+            socketRef.current.emit('send_message', {
                 roomId,
+                typeChat,
                 senderId,
                 senderName,
                 senderType: 'user',
-                message: text.trim(),
+                message: text.trim() || '[Đã gửi file đính kèm]',
+                attachments: attachments || [],
                 targetAgentId,
             })
-        } catch (err: any) {
-            console.error('[useChat] Send message failed:', err)
+        } else {
+            try {
+                await chatsApi.send({
+                    roomId,
+                    typeChat,
+                    senderId,
+                    senderName,
+                    senderType: 'user',
+                    message: text.trim() || '[Đã gửi file đính kèm]',
+                    attachments: attachments || [],
+                    targetAgentId,
+                })
+            } catch (err: any) {
+                console.error('[useChat] Send message failed:', err)
+            }
+        }
+    }
+
+    // 4. Hàm upload file (Ảnh hoặc CSV/Excel) trước khi gửi
+    const uploadAndAttachFile = async (file: File): Promise<ChatAttachment | null> => {
+        try {
+            const attachment = await chatsApi.uploadFile(file)
+            return attachment
+        } catch (err) {
+            console.error('[useChat] Upload file error:', err)
+            throw err
         }
     }
 
@@ -237,6 +261,7 @@ export function useChat({ roomId, onRoomUpdated }: UseChatProps) {
         connected,
         chatLoading,
         sendMessage,
+        uploadAndAttachFile,
         refreshChat: loadChatHistory,
     }
 }

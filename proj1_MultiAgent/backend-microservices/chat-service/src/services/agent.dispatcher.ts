@@ -149,9 +149,15 @@ export class AgentDispatcher {
             const data = res.data;
             const answer = data.answer || data.reply || data.content || "Tôi đã nhận được thông tin.";
             const usedTools = data.used_tools || data.toolsUsed || [];
+            const trace = data.workflow_trace || data.trace || data.workflowTrace;
 
+            // Nếu depth > 0 thì đây là luồng tự động bàn giao (workflow), ngược lại là team chat thông thường
+            const chatType = depth > 0 ? "workflow" : "team";
+
+            // Lưu tin nhắn phản hồi của Agent với typeChat phù hợp
             const savedMessage = await chatService.saveMessage({
                 roomId,
+                typeChat: chatType,
                 senderId: agentId,
                 senderType: "agent",
                 senderName: this.getAgentDisplayName(agentId),
@@ -160,10 +166,16 @@ export class AgentDispatcher {
                     usedTools,
                     depth,
                     targetUserId: senderId,
+                    workflowTrace: trace,
                 },
             });
 
             broadcastToRoom(this.io, roomId, "receive_message", savedMessage);
+
+            // Nếu có workflow trace thì bắn riêng để client vẽ biểu đồ LangGraph
+            if (trace) {
+                broadcastToRoom(this.io, roomId, "workflow_trace", trace);
+            }
 
             broadcastToRoom(this.io, roomId, "agent_status", {
                 roomId,
@@ -181,6 +193,7 @@ export class AgentDispatcher {
                 });
             }, 4000);
 
+            // Kiểm tra xem agent có mention (gọi tên) agent khác để bàn giao tiếp không
             const nextAgents = this.extractMentionedAgents(answer);
             for (const nextAgent of nextAgents) {
                 if (nextAgent !== agentId) {
@@ -200,6 +213,7 @@ export class AgentDispatcher {
             console.error(`[AgentDispatcher] Failed direct call to ${agentId}:`, error.message);
             const errorMessage = await chatService.saveMessage({
                 roomId,
+                typeChat: "system", // Lưu dạng thông báo lỗi hệ thống
                 senderId: agentId,
                 senderType: "agent",
                 senderName: this.getAgentDisplayName(agentId),

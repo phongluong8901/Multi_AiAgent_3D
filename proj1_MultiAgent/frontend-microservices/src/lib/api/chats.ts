@@ -1,14 +1,26 @@
 import { request, API_BASE } from '../client'
+import { getToken } from '../auth'
 import type { WorkflowTrace } from './types'
+
+// Kiểu dữ liệu file đính kèm (Ảnh và Tài liệu/CSV/Excel)
+export type ChatAttachment = {
+    fileUrl: string
+    fileName: string
+    fileSize?: number
+    category: 'image' | 'document'
+    extension: string
+}
 
 export type ChatMessage = {
     _id?: string
     id?: string
     roomId: string
+    typeChat?: 'team' | 'direct' | 'system' | 'workflow' // Phân loại luồng chat
     senderId: string
     senderType: 'user' | 'agent' | 'system'
     senderName: string
     message: string
+    attachments?: ChatAttachment[] // Danh sách file đính kèm
     metadata?: {
         usedTools?: string[]
         depth?: number
@@ -30,19 +42,25 @@ export type UserPresence = {
 }
 
 export const chatsApi = {
-    getHistory: async (roomId: string, limit = 50): Promise<ChatMessage[]> => {
+    getHistory: async (roomId: string, typeChat?: string, limit = 50): Promise<ChatMessage[]> => {
+        const query = new URLSearchParams()
+        if (typeChat) query.append('typeChat', typeChat)
+        query.append('limit', limit.toString())
+
         const res = await request<{ success: boolean; data: ChatMessage[] }>(
-            `/chats/history/${roomId}?limit=${limit}`
+            `/chats/history/${roomId}?${query.toString()}`
         )
         return res?.data ?? []
     },
 
     send: async (data: {
         roomId: string
+        typeChat?: 'team' | 'direct' | 'system' | 'workflow'
         senderId: string
         senderName: string
         senderType?: 'user' | 'agent' | 'system'
         message: string
+        attachments?: ChatAttachment[]
         targetAgentId?: string
         metadata?: any
     }): Promise<ChatMessage> => {
@@ -51,6 +69,31 @@ export const chatsApi = {
             body: JSON.stringify(data),
         })
         return res.data
+    },
+
+    // API upload file lên Cloudinary thông qua chat-service
+    uploadFile: async (file: File): Promise<ChatAttachment> => {
+        const formData = new FormData()
+        formData.append('file', file)
+
+        const token = getToken()
+        const response = await fetch(`${API_BASE}/chats/upload`, {
+            method: 'POST',
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+            body: formData,
+        })
+
+        let result: any
+        try {
+            result = await response.json()
+        } catch {
+            throw new Error(`Upload thất bại với mã HTTP ${response.status}`)
+        }
+
+        if (!response.ok || !result.success) {
+            throw new Error(result?.message || `Upload file thất bại (HTTP ${response.status})`)
+        }
+        return result.data
     },
 
     getPresence: async (

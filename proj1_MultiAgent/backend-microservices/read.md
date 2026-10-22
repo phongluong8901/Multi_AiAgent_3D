@@ -95,6 +95,10 @@ npm install --save-dev @types/bcrypt
 npm install swagger-ui-express swagger-jsdoc
 npm install --save-dev @types/swagger-ui-express @types/swagger-jsdoc
 
+--- chat-service
+npm install cloudinary multer
+npm install --save-dev @types/multer
+
 --- frontend-microservices
 npm install @react-oauth/google
 npm install axios

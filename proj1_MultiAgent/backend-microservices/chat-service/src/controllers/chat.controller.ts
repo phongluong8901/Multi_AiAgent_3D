@@ -5,53 +5,63 @@ import { publishChatMessage } from "../events/producers";
 import { asyncHandler } from "../middlewares/async.middleware";
 import { AppError } from "../utils/exceptions";
 import { getIO } from "../config/socket"; // Lấy Socket.IO instance để broadcast realtime
+import { uploadFileToCloudinary } from "../utils/cloudinary.util"; // Import hàm upload Cloudinary đã tách 2 thư mục
 
 export class ChatController {
     /**
-     * Lấy lịch sử chat của phòng
+     * Lấy lịch sử chat của phòng (Có hỗ trợ lọc theo typeChat tùy chọn qua query params)
+     * Ví dụ: GET /api/v1/chats/history/:roomId?typeChat=team&limit=50
      */
     getHistory = asyncHandler(async (req: Request, res: Response) => {
         const roomId = req.params.roomId as string;
+        const typeChat = req.query.typeChat as string | undefined; // Lấy thêm tham số lọc typeChat nếu có
         const limit = req.query.limit ? parseInt(req.query.limit as string) : 50;
-        const history = await chatService.getRoomHistory(roomId, limit);
+
+        // Gọi service lấy lịch sử với tham số typeChat truyền vào
+        const history = await chatService.getRoomHistory(roomId, typeChat, limit);
         return res.status(200).json({ success: true, data: history });
     });
 
     /**
-     * Gửi tin nhắn qua REST API (Dự phòng cho HTTP client)
+     * Gửi tin nhắn qua REST API (Dự phòng cho HTTP client - Hỗ trợ cả attachments & typeChat)
      */
     sendMessage = asyncHandler(async (req: Request, res: Response) => {
-        const { roomId, senderId, senderType, senderName, message, targetAgentId, metadata } = req.body;
+        const { roomId, typeChat, senderId, senderType, senderName, message, attachments, targetAgentId, metadata } = req.body;
         if (!roomId || !senderId || !message) {
             throw new AppError("Missing required fields", 400);
         }
 
+        // 1. Lưu tin nhắn vào MongoDB (bao gồm cả mảng attachments nếu có)
         const saved = await chatService.saveMessage({
             roomId,
+            typeChat: typeChat || "team",
             senderId,
             senderType: senderType || "user",
             senderName: senderName || "Anonymous",
             message,
+            attachments: attachments || [],
             metadata,
         });
 
-        // 1. Broadcast tin nhắn tới client trong phòng qua Socket.IO
+        // 2. Broadcast tin nhắn tới client trong phòng qua Socket.IO
         const { broadcastToRoom, agentDispatcher } = await import("../services/agent.dispatcher");
         broadcastToRoom(getIO(), roomId, "receive_message", saved);
 
-        // 2. Publish event lên RabbitMQ
+        // 3. Publish event lên RabbitMQ (bao gồm cả attachments để agent ML/Analyst đọc)
         await publishChatMessage({
             messageId: (saved as any)._id?.toString() || "",
             roomId,
+            typeChat: typeChat || "team",
             senderId,
             senderName: senderName || "Anonymous",
             senderType: senderType || "user",
             message,
+            attachments: attachments || [],
             targetAgentId,
             createdAt: (saved as any).createdAt,
         });
 
-        // 3. Phân tích đối tượng nhận tin
+        // 4. Phân tích đối tượng nhận tin và Dispatch tới Agent
         const targetAgents: string[] = [];
         if (targetAgentId) targetAgents.push(targetAgentId);
 
@@ -60,7 +70,6 @@ export class ChatController {
             if (!targetAgents.includes(ag)) targetAgents.push(ag);
         }
 
-        // 4. Dispatch tới Agent
         if (targetAgents.length > 0) {
             for (const agentId of targetAgents) {
                 agentDispatcher.dispatchToAgent({
@@ -77,6 +86,25 @@ export class ChatController {
         }
 
         return res.status(201).json({ success: true, data: saved });
+    });
+
+    /**
+     * API upload file đính kèm (Ảnh, CSV, Excel, PDF) lên Cloudinary
+     * Endpoint: POST /api/v1/chats/upload
+     */
+    uploadAttachment = asyncHandler(async (req: Request, res: Response) => {
+        const file = req.file;
+        if (!file) {
+            throw new AppError("Không tìm thấy file tải lên", 400);
+        }
+
+        // Gọi utility đẩy buffer lên Cloudinary (tự phân loại vào MultiAgent3dChatImg hoặc MultiAgent3dChatDoc)
+        const uploadResult = await uploadFileToCloudinary(file);
+
+        return res.status(200).json({
+            success: true,
+            data: uploadResult, // Trả về { fileUrl, fileName, fileSize, category, extension }
+        });
     });
 
     /**

@@ -10,7 +10,9 @@
     "skipLibCheck": true,
     /* THÊM DÒNG NÀY VÀO ĐÂY */
     "types": [
-      "node"
+      "node",
+      "express",
+      "multer"
     ]
   }
 }

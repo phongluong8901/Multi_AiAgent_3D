@@ -15,7 +15,6 @@ export const configureSocketChat = (io: SocketIOServer) => {
         console.log(`[chat-service] Client connected: ${socket.id}`);
 
         // --- 1. SỰ KIỆN: JOIN ROOM ---
-        // Client/User gửi yêu cầu tham gia vào một phòng cụ thể kèm theo thông tin danh tính
         socket.on("join_room", (payload: string | { roomId: string; user?: { id: string; name: string; avatar?: string; color?: string } }) => {
             const roomId = typeof payload === "string" ? payload : payload.roomId;
             const user = typeof payload === "object" && payload.user ? payload.user : {
@@ -88,46 +87,57 @@ export const configureSocketChat = (io: SocketIOServer) => {
         // --- 3. SỰ KIỆN: SEND MESSAGE ---
         socket.on("send_message", async (data: {
             roomId: string;
+            typeChat?: "team" | "direct" | "system" | "workflow";
             senderId: string;
             senderType: "user" | "agent" | "system";
             senderName: string;
             message: string;
+            attachments?: Array<{
+                fileUrl: string;
+                fileName: string;
+                fileSize?: number;
+                category: "image" | "document";
+                extension: string;
+            }>;
             targetAgentId?: string;
             metadata?: any;
         }) => {
             try {
-                // Bước 1: Lưu trữ tin nhắn vào MongoDB
-                const savedMessage = await chatService.saveMessage(data);
+                const chatType = data.typeChat || "team";
 
-                // Bước 2: Phát tán tin nhắn tới toàn bộ client trong phòng
+                // 1. Lưu trữ tin nhắn vào MongoDB
+                const savedMessage = await chatService.saveMessage({
+                    ...data,
+                    typeChat: chatType,
+                    attachments: data.attachments || [],
+                });
+
+                // 2. Broadcast qua Socket.IO
                 broadcastToRoom(io, data.roomId, "receive_message", savedMessage);
 
-                // Bước 3: Đẩy event lên RabbitMQ (chat.events)
+                // 3. Đẩy lên RabbitMQ
                 await publishChatMessage({
                     messageId: (savedMessage as any)._id?.toString() || "",
                     roomId: data.roomId,
+                    typeChat: chatType,
                     senderId: data.senderId,
                     senderName: data.senderName,
                     senderType: data.senderType,
                     message: data.message,
+                    attachments: data.attachments || [],
                     targetAgentId: data.targetAgentId,
                     createdAt: (savedMessage as any).createdAt,
                 });
 
-                // Bước 4: Phân tích đối tượng nhận tin (targetAgentId hoặc @mentions)
+                // 4. Dispatch tới Agent nếu có mention
                 const targetAgents: string[] = [];
-                if (data.targetAgentId) {
-                    targetAgents.push(data.targetAgentId);
-                }
+                if (data.targetAgentId) targetAgents.push(data.targetAgentId);
 
                 const mentioned = agentDispatcher.extractMentionedAgents(data.message);
                 for (const ag of mentioned) {
-                    if (!targetAgents.includes(ag)) {
-                        targetAgents.push(ag);
-                    }
+                    if (!targetAgents.includes(ag)) targetAgents.push(ag);
                 }
 
-                // Bước 5: Nếu có Agent được nhắc tới -> Gọi AgentDispatcher
                 if (targetAgents.length > 0) {
                     for (const agentId of targetAgents) {
                         agentDispatcher.dispatchToAgent({

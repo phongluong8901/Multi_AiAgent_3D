@@ -1,11 +1,15 @@
 import { Router } from "express";
 import { chatController } from "../controllers/chat.controller";
+import { upload } from "../middlewares/upload.middleware"; // Import multer middleware
 
 const router = Router();
 
 // Chat History & REST Send (Dự phòng qua HTTP)
 router.get("/history/:roomId", chatController.getHistory);
 router.post("/send", chatController.sendMessage);
+
+// --- ROUTE MỚI: Upload file đính kèm (Ảnh, CSV, Excel, PDF) lên Cloudinary ---
+router.post("/upload", upload.single("file"), chatController.uploadAttachment);
 
 // Room Presence (Quản lý trạng thái online qua REST API fallback)
 router.get("/presence/:roomId", chatController.getPresence);
