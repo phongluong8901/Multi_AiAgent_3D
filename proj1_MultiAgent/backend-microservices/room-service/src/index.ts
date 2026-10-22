@@ -12,6 +12,8 @@ import { errorHandler } from "./middlewares/error.middleware";
 import { initSocket } from "./config/socket";
 import fs from "fs";
 import path from "path";
+import { swaggerSpecs } from "./config/swagger";
+import swaggerUi from "swagger-ui-express";
 
 import crypto from "crypto";
 if (!(globalThis as any).crypto) {
@@ -52,6 +54,9 @@ app.get("/", (req, res) => {
 app.get("/health", (req, res) => {
     res.status(200).json({ status: "ok", service: "room-service" });
 });
+
+// Đăng ký route hiển thị giao diện Swagger UI tại đường dẫn /docs
+app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpecs));
 
 app.use(errorHandler);
 

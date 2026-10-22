@@ -92,6 +92,9 @@ npm install socket.io
 npm install bcrypt
 npm install --save-dev @types/bcrypt
 
+npm install swagger-ui-express swagger-jsdoc
+npm install --save-dev @types/swagger-ui-express @types/swagger-jsdoc
+
 --- frontend-microservices
 npm install @react-oauth/google
 npm install axios
@@ -147,6 +150,9 @@ http://localhost:4000/docs
 
 - swagger user-service
 http://localhost:5001/docs
+
+- swagger room-service
+http://localhost:5002/docs
 
 - redis commander
 http://localhost:8081
