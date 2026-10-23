@@ -3,7 +3,7 @@ from .base_tool import BaseTool
 from .calculator import CalculatorTool
 from .web_crawler import WebCrawlerTool
 # from .sentiment_tool import SentimentTool
-# from .text_summarizer import TextSummarizerTool
+from .text_summarizer import TextSummarizerTool
 from .tools_api.web_search_tool import WebSearchTool
 from .tools_api.google_search_tool import GoogleSearchTool
 
@@ -14,7 +14,9 @@ class ToolRegistry:
         self.register(CalculatorTool())
         self.register(WebCrawlerTool())
         # self.register(SentimentTool())
-        # self.register(TextSummarizerTool())
+        summarizer = TextSummarizerTool()
+        self.register(summarizer)
+        self._tools["summarizer_tool"] = summarizer
 
         #api tool
         self.register(WebSearchTool())

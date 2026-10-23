@@ -20,9 +20,13 @@ def init_db(max_retries: int = 10, delay: int = 2):
             with engine.connect() as conn:
                 try:
                     conn.execute(text("ALTER TABLE agents ADD COLUMN IF NOT EXISTS model VARCHAR DEFAULT 'gemini-2.5-flash-lite'"))
+                    conn.execute(text("ALTER TABLE tools ADD COLUMN IF NOT EXISTS code TEXT"))
+                    conn.execute(text("ALTER TABLE tools ADD COLUMN IF NOT EXISTS parameters TEXT"))
+                    conn.execute(text("ALTER TABLE tools ADD COLUMN IF NOT EXISTS category VARCHAR DEFAULT 'custom'"))
+                    conn.execute(text("ALTER TABLE tools ADD COLUMN IF NOT EXISTS env_vars TEXT"))
                     conn.commit()
                 except Exception as ex_col:
-                    print(f"[agent-service] Note: model column check: {ex_col}")
+                    print(f"[agent-service] Note: table columns check: {ex_col}")
 
             # --- Chạy toàn bộ seeders (Prompts, Tools, Agents) ---
             db = SessionLocal()

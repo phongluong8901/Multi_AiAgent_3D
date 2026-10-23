@@ -10,7 +10,8 @@ import {
     Layers, Boxes, Terminal, Tent, Droplets, Gamepad2,
     Copy, Zap, Users, User, Palette, Map, Cloud, Rocket,
     Link, Target, Play, Circle, ExternalLink, HelpCircle,
-    ArrowRight, ArrowDown, GitBranch, Workflow, ListOrdered, Sliders
+    ArrowRight, ArrowDown, GitBranch, Workflow, ListOrdered, Sliders,
+    Download, Server, Key, Eye, EyeOff, RefreshCw, HardDrive, Gauge, Shield, Code
 } from 'lucide-react'
 
 export interface IconProps extends React.SVGProps<SVGSVGElement> {
@@ -84,6 +85,16 @@ export const IconGitBranch = GitBranch
 export const IconWorkflow = Workflow
 export const IconListOrdered = ListOrdered
 export const IconSliders = Sliders
+export const IconDownload = Download
+export const IconServer = Server
+export const IconKey = Key
+export const IconEye = Eye
+export const IconEyeOff = EyeOff
+export const IconRefreshCw = RefreshCw
+export const IconHardDrive = HardDrive
+export const IconGauge = Gauge
+export const IconShield = Shield
+export const IconCode = Code
 
 // Custom Trace icon
 export function IconTrace({ className = 'w-4 h-4', size = 16, ...props }: IconProps) {

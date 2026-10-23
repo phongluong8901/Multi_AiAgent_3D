@@ -5,10 +5,18 @@ class ToolCreate(BaseModel):
     id: str
     name: str
     description: Optional[str] = None
+    code: Optional[str] = None
+    parameters: Optional[str] = None
+    category: Optional[str] = "custom"
+    env_vars: Optional[str] = None
 
 class ToolUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
+    code: Optional[str] = None
+    parameters: Optional[str] = None
+    category: Optional[str] = None
+    env_vars: Optional[str] = None
 
 class ToolResponse(ToolCreate):
     model_config = {"from_attributes": True}

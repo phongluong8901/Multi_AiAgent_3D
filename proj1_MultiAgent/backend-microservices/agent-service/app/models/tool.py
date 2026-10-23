@@ -8,5 +8,9 @@ class ToolModel(Base):
     id = Column(String, primary_key=True, index=True)
     name = Column(String, nullable=False)
     description = Column(Text, nullable=True)
+    code = Column(Text, nullable=True)
+    parameters = Column(Text, nullable=True)
+    category = Column(String, default="custom", nullable=True)
+    env_vars = Column(Text, nullable=True)
 
     agents = relationship("AgentModel", secondary=agent_tools, back_populates="tools")
