@@ -2,6 +2,7 @@
 
 import { useDroppable } from '@dnd-kit/core'
 import type { Prompt, Tool, AIModel } from '@/lib/api'
+import { IconX } from '@/components/ui/icons'
 
 type Props = {
     prompt: Prompt | null
@@ -102,10 +103,10 @@ export default function AttachedSlots({
                         <button
                             type="button"
                             onClick={onRemovePrompt}
-                            className="shrink-0 text-zinc-500 hover:text-red-400 transition text-sm leading-none"
+                            className="shrink-0 text-zinc-500 hover:text-red-400 transition p-1 rounded-md hover:bg-zinc-800"
                             title="Gỡ prompt"
                         >
-                            ✕
+                            <IconX className="w-3.5 h-3.5" />
                         </button>
                     </div>
                 )}
@@ -123,7 +124,7 @@ export default function AttachedSlots({
                         {tools.map((t) => (
                             <span
                                 key={t.id}
-                                className="inline-flex items-center gap-1 rounded-lg bg-pink-500/15 text-pink-300 text-xs px-2 py-1 border border-pink-500/20"
+                                className="inline-flex items-center gap-1.5 rounded-lg bg-pink-500/15 text-pink-300 text-xs px-2 py-1 border border-pink-500/20"
                             >
                                 <span className="truncate max-w-[90px]">{t.name}</span>
                                 <button
@@ -132,7 +133,7 @@ export default function AttachedSlots({
                                     className="hover:text-red-400 transition"
                                     title="Gỡ tool"
                                 >
-                                    ✕
+                                    <IconX className="w-3 h-3" />
                                 </button>
                             </span>
                         ))}
@@ -160,10 +161,10 @@ export default function AttachedSlots({
                         <button
                             type="button"
                             onClick={onRemoveModel}
-                            className="shrink-0 text-zinc-500 hover:text-red-400 transition text-sm leading-none"
+                            className="shrink-0 text-zinc-500 hover:text-red-400 transition p-1 rounded-md hover:bg-zinc-800"
                             title="Gỡ model"
                         >
-                            ✕
+                            <IconX className="w-3.5 h-3.5" />
                         </button>
                     </div>
                 )}

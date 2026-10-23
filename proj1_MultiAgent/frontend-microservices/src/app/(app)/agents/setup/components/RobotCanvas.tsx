@@ -8,15 +8,17 @@ type Props = {
     promptId: string | null
     toolCount: number
     modelId: string | null
+    customColor?: string
+    label?: string
 }
 
-function Robot({ promptId, toolCount, modelId }: Props) {
+function Robot({ promptId, toolCount, modelId, customColor, label }: Props) {
     const hasPrompt = Boolean(promptId)
     const hasTools = toolCount > 0
     const hasModel = Boolean(modelId)
 
     const headColor = hasPrompt ? '#60a5fa' : '#3f3f46'
-    const bodyColor = hasModel ? '#34d399' : '#3f3f46'
+    const bodyColor = customColor || (hasModel ? '#34d399' : '#3f3f46')
     const armColor = hasTools ? '#f472b6' : '#3f3f46'
 
     return (
@@ -132,18 +134,18 @@ function Robot({ promptId, toolCount, modelId }: Props) {
                 <Text
                     position={[0, 2.55, 0]}
                     fontSize={0.2}
-                    color="#a1a1aa"
+                    color="#e4e4e7"
                     anchorX="center"
                     anchorY="middle"
                 >
-                    AGENT CORE
+                    {label || 'AGENT CORE'}
                 </Text>
             </group>
         </Float>
     )
 }
 
-export default function RobotCanvas({ promptId, toolCount, modelId }: Props) {
+export default function RobotCanvas({ promptId, toolCount, modelId, customColor, label }: Props) {
     return (
         <div className="relative h-[400px] w-full rounded-2xl overflow-hidden border border-zinc-800 bg-gradient-to-b from-zinc-900 via-zinc-950 to-black">
             {/* Status badges */}
@@ -172,7 +174,13 @@ export default function RobotCanvas({ promptId, toolCount, modelId }: Props) {
                 <pointLight position={[-5, 4, 3]} intensity={0.5} color="#60a5fa" />
                 <pointLight position={[4, 2, -2]} intensity={0.3} color="#34d399" />
 
-                <Robot promptId={promptId} toolCount={toolCount} modelId={modelId} />
+                <Robot
+                    promptId={promptId}
+                    toolCount={toolCount}
+                    modelId={modelId}
+                    customColor={customColor}
+                    label={label}
+                />
 
                 <OrbitControls
                     enablePan={false}

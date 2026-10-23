@@ -17,12 +17,55 @@ class AgentRunner:
         # Khởi tạo và biên dịch sẵn LangGraph Workflow
         self.workflow = AgentWorkflow(self.llm_client, tool_executor).compile()
 
+    @staticmethod
+    def _publish_reply(
+        agent_id: str,
+        agent_name: str,
+        room_id: Optional[str],
+        answer: str,
+        tools_used: list,
+        workflow_trace: Optional[dict],
+        source: str,
+        context: Optional[dict],
+    ) -> None:
+        """
+        Publish phản hồi của agent lên RabbitMQ.
+        - source: "mq" (được gọi qua hàng đợi) hoặc "http" (gọi trực tiếp qua REST).
+          chat-service chỉ lưu/broadcast các reply có source = "mq" để tránh trùng lặp tin nhắn.
+        - context: dữ liệu ngữ cảnh do chat-service gửi kèm (depth, typeChat, senderId...) được trả lại nguyên vẹn.
+        """
+        ctx = context or {}
+        publish_event(
+            exchange="agent.events",
+            routing_key="agent.reply",
+            payload={
+                "agent_id": agent_id,
+                "agentId": agent_id,
+                "agent_name": agent_name,
+                "agentName": agent_name,
+                "room_id": room_id,
+                "roomId": room_id,
+                "answer": answer,
+                "reply": answer,
+                "content": answer,
+                "used_tools": tools_used,
+                "toolsUsed": tools_used,
+                "workflow_trace": workflow_trace,
+                "trace": workflow_trace,
+                "source": source,
+                "depth": ctx.get("depth", 0),
+                "context": ctx,
+            },
+        )
+
     def run_agent(
         self,
         db: Session,
         agent_id: str,
         user_message: str,
         room_id: Optional[str] = None,
+        source: str = "mq",
+        context: Optional[dict] = None,
     ) -> dict:
         """
         Chạy agent thông qua LangGraph workflow với đầy đủ context: 
@@ -32,7 +75,19 @@ class AgentRunner:
         try:
             agent_data = agent_service.get_agent_by_id(db, agent_id)
         except Exception:
-            return {"success": False, "error": f"Agent '{agent_id}' not found"}
+            error_msg = f"Agent '{agent_id}' not found"
+            # Vẫn phản hồi để người dùng không phải chờ vô hạn trong chat
+            self._publish_reply(
+                agent_id=agent_id,
+                agent_name=agent_id,
+                room_id=room_id,
+                answer=f"⚠️ Không tìm thấy agent '{agent_id}' trong hệ thống agent-service.",
+                tools_used=[],
+                workflow_trace=None,
+                source=source,
+                context=context,
+            )
+            return {"success": False, "error": error_msg}
 
         # 2. Lấy system prompt từ Agent kết hợp ngữ cảnh làm việc nhóm
         base_role_prompt = "Bạn là một trợ lý ảo thông minh trong văn phòng 3D ảo."
@@ -42,22 +97,119 @@ class AgentRunner:
             if prompt:
                 base_role_prompt = prompt.content
 
-        # Ngữ cảnh làm việc nhóm đa agent (Autonomous Multi-Agent Team Collaboration)
-        team_collaboration_guide = (
-            f"\n\n[HỆ THỐNG LÀM VIỆC NHÓM ĐA AGENT TRONG VĂN PHÒNG 3D]\n"
-            f"Bạn có định danh là: '{agent_id}' ({agent_data.get('name', agent_id)}).\n"
-            "Danh sách đồng nghiệp trong nhóm văn phòng 3D:\n"
-            "- agent_manager (Manager Agent): Trưởng nhóm điều phối, lập kế hoạch và phân chia nhiệm vụ.\n"
-            "- agent_search (Search Expert): Chuyên gia tra cứu dữ liệu web, tin tức, thời tiết, tri thức mới nhất từ internet bằng công cụ tìm kiếm.\n"
-            "- agent_ml (ML Expert): Chuyên gia tính toán biểu thức, thuật toán học máy, mô hình hóa số liệu bằng công cụ tính toán.\n"
-            "- agent_analyst (Data Analyst): Chuyên gia phân tích, so sánh cấu trúc dữ liệu, đánh giá giải pháp kỹ thuật.\n"
-            "- agent_summarizer (Summarizer Agent): Chuyên gia cô đọng, tổng hợp toàn bộ kết quả từ các agent thành báo cáo mạch lạc, hoàn hảo cho người dùng.\n\n"
-            "QUY TẮC CỘNG TÁC TỰ ĐỘNG (AUTONOMOUS HANDOFF):\n"
-            "1. Nếu bạn là 'agent_manager': Hãy tiếp nhận yêu cầu của người dùng, phân tích ngắn gọn kế hoạch thực hiện và BẮT BUỘC gắn tag @agent_id của đồng nghiệp phù hợp (ví dụ: '@agent_search hãy tra cứu dữ liệu về...', '@agent_ml hãy tính toán...').\n"
-            "2. Nếu bạn là 'agent_search' hoặc 'agent_ml': Sau khi dùng công cụ giải quyết xong phần việc của mình, hãy trình bày ngắn gọn dữ liệu và BÀN GIAO cho đồng nghiệp tiếp theo (ví dụ: 'Dữ liệu đã thu thập xong. Nhờ @agent_summarizer tổng hợp lại thành báo cáo hoàn chỉnh cho người dùng.').\n"
-            "3. Nếu bạn là 'agent_summarizer': Bạn là mắt xích cuối cùng trong chuỗi. Hãy tiếp nhận toàn bộ dữ liệu bàn giao từ các đồng nghiệp, đúc kết thành câu trả lời chi tiết, chuyên nghiệp, đẹp mắt cho người dùng. TUYỆT ĐỐI KHÔNG gắn tag thêm agent nào nữa để kết thúc chu trình cộng tác.\n"
-            "4. Nếu tin nhắn có tiền tố '[Bàn giao nhiệm vụ từ...]': Bạn hãy nhận thức đây là việc đồng nghiệp chuyển tiếp, hãy thực hiện đúng chuyên môn của mình dựa trên các dữ liệu được gửi kèm."
-        )
+        # Xác định danh sách các Agent thực tế đang có mặt trong phòng hiện tại
+        active_room_agent_ids = []
+        if context and isinstance(context, dict):
+            ctx_agents = context.get("activeAgents") or context.get("room_agents") or context.get("roomAgents")
+            if isinstance(ctx_agents, list):
+                active_room_agent_ids = [str(a) for a in ctx_agents if a]
+
+        if not active_room_agent_ids and room_id:
+            try:
+                import urllib.request
+                import json
+                import os
+                room_svc_url = os.getenv("ROOM_SERVICE_URL", "http://room-service:5002")
+                req = urllib.request.Request(f"{room_svc_url}/api/v1/rooms/user-user/{room_id}", headers={"User-Agent": "AgentService"})
+                with urllib.request.urlopen(req, timeout=1.5) as resp:
+                    r_json = json.loads(resp.read().decode())
+                    active_room_agent_ids = r_json.get("data", {}).get("activeAgents", [])
+            except Exception:
+                pass
+
+        # Lấy thông tin chi tiết của các đồng nghiệp trong phòng để xây dựng bảng năng lực
+        colleagues_info = []
+        if active_room_agent_ids:
+            for member_agent_id in active_room_agent_ids:
+                if member_agent_id == agent_id:
+                    continue
+                try:
+                    colleague = agent_service.get_agent_by_id(db, member_agent_id)
+                    colleague_name = colleague.get("name", member_agent_id)
+                    colleague_tools = [t.name if hasattr(t, "name") else t.get("name", "") for t in colleague.get("tools", [])]
+                    
+                    role_desc = "Trợ lý hỗ trợ đa nhiệm"
+                    if colleague.get("prompt_id"):
+                        from app.services.prompt_service import prompt_service
+                        c_prompt = prompt_service.get_prompt(db, colleague["prompt_id"])
+                        if c_prompt and c_prompt.content:
+                            role_desc = c_prompt.content.split("\n")[0][:100]
+
+                    tools_str = f" [Công cụ: {', '.join(colleague_tools)}]" if colleague_tools else " [Không dùng công cụ ngoài]"
+                    colleagues_info.append(f"- @{member_agent_id} ({colleague_name}): {role_desc}{tools_str}")
+                except Exception:
+                    colleagues_info.append(f"- @{member_agent_id}: Thành viên trong phòng")
+
+        # Ngữ cảnh làm việc nhóm đa agent linh hoạt theo từng phòng (Autonomous Multi-Agent Room Collaboration)
+        my_agent_name = agent_data.get('name', agent_id)
+        if colleagues_info:
+            colleagues_list_str = "\n".join(colleagues_info)
+            team_collaboration_guide = (
+                f"\n\n[HỆ THỐNG LÀM VIỆC NHÓM ĐA AGENT TRONG PHÒNG HIỆN TẠI]\n"
+                f"Bạn có định danh là: '{agent_id}' ({my_agent_name}).\n"
+                f"Danh sách các đồng nghiệp ĐANG CÓ MẶT TRONG PHÒNG NÀY:\n"
+                f"{colleagues_list_str}\n\n"
+                f"QUY TẮC CỘNG TÁC TỰ ĐỘNG (AUTONOMOUS HANDOFF):\n"
+                f"1. Bạn CHỈ được phép bàn giao công việc cho các đồng nghiệp CÓ TÊN TRONG DANH SÁCH TRÊN bằng cú pháp @agent_id (ví dụ: '@{colleagues_info[0].split(' ')[1][1:]} hãy...'). TUYỆT ĐỐI KHÔNG gắn tag bất kỳ agent nào không có mặt trong danh sách phòng này.\n"
+                f"2. Nếu bạn sở hữu công cụ phù hợp với yêu cầu của người dùng, hãy chủ động dùng công cụ để xử lý phần việc của mình trước.\n"
+                f"3. Sau khi giải quyết xong phần việc của mình, nếu cần sự hỗ trợ của một đồng nghiệp trong phòng để hoàn thành mục tiêu, hãy tóm tắt kết quả của bạn và BẮT BUỘC gắn thẻ @agent_id của đồng nghiệp đó kèm yêu cầu cụ thể.\n"
+                f"4. Nếu nhiệm vụ đã được xử lý xong trọn vẹn hoặc bạn là người đúc kết cuối cùng, hãy đưa ra câu trả lời chi tiết, thẩm mỹ cho người dùng và TUYỆT ĐỐI KHÔNG gắn thêm thẻ @agent nào nữa để kết thúc chu trình.\n"
+                f"5. Nếu tin nhắn có tiền tố '[Bàn giao nhiệm vụ từ...]': Bạn hãy tiếp nhận dữ liệu được gửi kèm và giải quyết theo đúng chuyên môn của bạn."
+            )
+        else:
+            team_collaboration_guide = (
+                f"\n\n[NGỮ CẢNH HOẠT ĐỘNG TRONG PHÒNG]\n"
+                f"Bạn có định danh là: '{agent_id}' ({my_agent_name}).\n"
+                f"Hiện tại trong phòng chỉ có một mình bạn là AI Agent hoạt động.\n"
+                f"Hãy tự mình tiếp nhận, sử dụng các công cụ sẵn có (nếu cần) và giải quyết trọn vẹn yêu cầu của người dùng.\n"
+                f"TUYỆT ĐỐI KHÔNG gắn thẻ @agent nào khác vì không có đồng nghiệp nào khác trong phòng này."
+            )
+
+        # Lấy cấu hình và quy định riêng biệt theo từng agent (search sources, độ dài tóm tắt, model...)
+        from app.core.agent_configs import get_agent_config
+        agent_cfg = get_agent_config(agent_id)
+        specific_guidelines = agent_cfg.get("guidelines", "")
+        if specific_guidelines:
+            team_collaboration_guide += (
+                f"\n\n[QUY ĐỊNH VÀ CHUẨN ĐẦU RA RIÊNG CHO BẠN ({agent_cfg.get('role_name', agent_id)})]:\n"
+                f"{specific_guidelines}"
+            )
+
+        # Tích hợp cấu hình Workflow của phòng (Solo / Sequential / Routing)
+        workflow = {}
+        if context and isinstance(context, dict):
+            workflow = context.get("workflow") or {}
+
+        if workflow and workflow.get("enabled"):
+            mode = workflow.get("mode")
+            if mode == "solo":
+                team_collaboration_guide += (
+                    "\n\n[QUY TRÌNH WORKFLOW PHÒNG: CHẠY ĐƠN LẺ (SOLO)]\n"
+                    "Phòng này hiện đang cấu hình ở chế độ Chạy Đơn Lẻ. "
+                    "Bạn hãy tự mình hoàn thành trọn vẹn yêu cầu và đưa ra câu trả lời cuối cùng cho người dùng. "
+                    "TUYỆT ĐỐI KHÔNG gắn thẻ @agent nào khác để chuyển giao."
+                )
+            elif mode == "sequential":
+                order = workflow.get("order", [])
+                order_str = " -> ".join(["@" + str(a) for a in order]) if order else "Chuỗi tuần tự"
+                team_collaboration_guide += (
+                    f"\n\n[QUY TRÌNH WORKFLOW PHÒNG: TUẦN TỰ (SEQUENTIAL PIPELINE)]\n"
+                    f"Thứ tự chuỗi thực thi trong phòng: {order_str}.\n"
+                    "Hệ thống sẽ tự động bàn giao kết quả của bạn sang bước kế tiếp. "
+                    "Bạn hãy tập trung giải quyết xuất sắc phần việc theo chuyên môn của mình."
+                )
+            elif mode == "routing":
+                transitions = workflow.get("transitions", [])
+                trans_lines = [
+                    f"- @{t.get('fromAgentId')} -> @{t.get('toAgentId')}{' (' + t.get('condition') + ')' if t.get('condition') else ''}"
+                    for t in transitions if isinstance(t, dict)
+                ]
+                trans_str = "\n".join(trans_lines) if trans_lines else "Theo quy tắc định tuyến"
+                team_collaboration_guide += (
+                    f"\n\n[QUY TRÌNH WORKFLOW PHÒNG: ĐỊNH TUYẾN THEO QUY TẮC (ROUTING)]\n"
+                    f"Sơ đồ quy tắc chuyển tiếp của phòng:\n{trans_str}\n"
+                    "Hệ thống sẽ tự động điều phối chuyển tiếp theo đúng quy tắc trên."
+                )
 
         agent_system_prompt = f"{base_role_prompt}{team_collaboration_guide}"
 
@@ -170,10 +322,12 @@ class AgentRunner:
 
         try:
             # 8. Khởi tạo State và thực thi LangGraph
+            preferred_model = agent_data.get("model") or "gemini-2.5-flash-lite"
             initial_state: AgentState = {
                 "messages": initial_messages,
                 "agent_id": agent_id,
                 "room_id": room_id,
+                "model": preferred_model,
                 "tool_definitions": tool_definitions,
                 "tools_used": [],
                 "llm_client": self.llm_client,
@@ -238,8 +392,16 @@ class AgentRunner:
             final_answer = "Xin lỗi, tôi không thể tạo ra câu trả lời."
             for msg in reversed(final_messages):
                 if isinstance(msg, AIMessage) and msg.content:
-                    final_answer = msg.content
-                    break
+                    content = msg.content
+                    if isinstance(content, list):
+                        # Gemini có thể trả về content dạng list các part -> ghép lại thành text
+                        content = "".join(
+                            part.get("text", "") if isinstance(part, dict) else str(part)
+                            for part in content
+                        )
+                    if str(content).strip():
+                        final_answer = str(content)
+                        break
 
             # Ghi nhận node Output
             trace_nodes.append({
@@ -273,24 +435,15 @@ class AgentRunner:
             memory_service.append_short_memory(agent_id, "assistant", final_answer, room_id)
 
             # 10. Publish event lên RabbitMQ kèm đầy đủ workflow_trace
-            publish_event(
-                exchange="agent.events",
-                routing_key="agent.reply",
-                payload={
-                    "agent_id": agent_id,
-                    "agentId": agent_id,
-                    "agent_name": agent_data.get("name", agent_id),
-                    "agentName": agent_data.get("name", agent_id),
-                    "room_id": room_id,
-                    "roomId": room_id,
-                    "answer": final_answer,
-                    "reply": final_answer,
-                    "content": final_answer,
-                    "used_tools": tools_used,
-                    "toolsUsed": tools_used,
-                    "workflow_trace": workflow_trace,
-                    "trace": workflow_trace,
-                },
+            self._publish_reply(
+                agent_id=agent_id,
+                agent_name=agent_data.get("name", agent_id),
+                room_id=room_id,
+                answer=final_answer,
+                tools_used=tools_used,
+                workflow_trace=workflow_trace,
+                source=source,
+                context=context,
             )
 
             return {
@@ -336,27 +489,24 @@ class AgentRunner:
             }
 
             # Vẫn phát tán trace lỗi lên RabbitMQ để Frontend mở popup chẩn đoán
-            publish_event(
-                exchange="agent.events",
-                routing_key="agent.reply",
-                payload={
-                    "agent_id": agent_id,
-                    "agentId": agent_id,
-                    "agent_name": agent_data.get("name", agent_id),
-                    "agentName": agent_data.get("name", agent_id),
-                    "room_id": room_id,
-                    "roomId": room_id,
-                    "answer": f"⚠️ [Lỗi Thực Thi Workflow]: Gặp sự cố tại node xử lý: {error_msg}",
-                    "reply": f"⚠️ [Lỗi Thực Thi Workflow]: Gặp sự cố tại node xử lý: {error_msg}",
-                    "content": f"⚠️ [Lỗi Thực Thi Workflow]: Gặp sự cố tại node xử lý: {error_msg}",
-                    "used_tools": [],
-                    "toolsUsed": [],
-                    "workflow_trace": error_trace,
-                    "trace": error_trace,
-                },
+            error_answer = f"⚠️ [Lỗi Thực Thi Workflow]: Gặp sự cố tại node xử lý: {error_msg}"
+            self._publish_reply(
+                agent_id=agent_id,
+                agent_name=agent_data.get("name", agent_id),
+                room_id=room_id,
+                answer=error_answer,
+                tools_used=[],
+                workflow_trace=error_trace,
+                source=source,
+                context=context,
             )
 
-            return {"success": False, "error": error_msg, "workflow_trace": error_trace}
+            return {
+                "success": False,
+                "error": error_msg,
+                "answer": error_answer,
+                "workflow_trace": error_trace,
+            }
 
 
 agent_runner = AgentRunner()

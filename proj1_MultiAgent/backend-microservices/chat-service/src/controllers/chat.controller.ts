@@ -79,13 +79,13 @@ export class ChatController {
         });
 
         // 4. Phân tích đối tượng nhận tin và Dispatch tới Agent nếu có mention hoặc là chat agent
-        const targetAgents: string[] = [];
-        if (targetAgentId) targetAgents.push(targetAgentId);
-
-        const mentioned = agentDispatcher.extractMentionedAgents(message);
-        for (const ag of mentioned) {
-            if (!targetAgents.includes(ag)) targetAgents.push(ag);
-        }
+        const targetAgents = await agentDispatcher.resolveTargetAgents({
+            roomId,
+            message,
+            chatType: resolvedTypeChat,
+            senderType: senderType || "user",
+            targetAgentId,
+        });
 
         if (targetAgents.length > 0) {
             for (const agentId of targetAgents) {
@@ -97,6 +97,7 @@ export class ChatController {
                     senderId,
                     depth: 0,
                     originalTypeChat: resolvedTypeChat,
+                    rootTypeChat: resolvedTypeChat,
                 }).catch((err) => {
                     console.error(`[ChatController] Error dispatching to ${agentId}:`, err);
                 });

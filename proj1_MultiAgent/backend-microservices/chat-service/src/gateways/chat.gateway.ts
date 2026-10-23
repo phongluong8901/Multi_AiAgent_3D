@@ -140,43 +140,14 @@ export const configureSocketChat = (io: SocketIOServer) => {
                     createdAt: (savedMessage as any).createdAt,
                 });
 
-                // 4. Dispatch tới Agent nếu là type "agent" hoặc có mention agent
-                const targetAgents: string[] = [];
-                if (data.targetAgentId) targetAgents.push(data.targetAgentId);
-
-                const mentioned = agentDispatcher.extractMentionedAgents(data.message);
-                for (const ag of mentioned) {
-                    if (!targetAgents.includes(ag)) targetAgents.push(ag);
-                }
-
-                // Nếu người dùng không tag đích danh agent nào nhưng đang ra lệnh / hỏi đáp trong phòng:
-                // Tự động điều phối đến Trưởng nhóm (agent_manager) để phân rã nhiệm vụ cho cả team
-                if (targetAgents.length === 0 && data.senderType === "user") {
-                    const text = data.message.trim().toLowerCase();
-                    const isCommandOrQuestion = 
-                        chatType === "agent" ||
-                        chatType === "workflow" ||
-                        text.startsWith("/") ||
-                        text.includes("?") ||
-                        text.includes("hãy") ||
-                        text.includes("giúp") ||
-                        text.includes("check") ||
-                        text.includes("tìm") ||
-                        text.includes("tính") ||
-                        text.includes("phân tích") ||
-                        text.includes("tóm tắt") ||
-                        text.includes("thời tiết") ||
-                        text.includes("làm") ||
-                        text.includes("xử lý") ||
-                        text.includes("nhóm") ||
-                        text.includes("team") ||
-                        chatType === "team";
-
-                    if (isCommandOrQuestion) {
-                        console.log(`[chat-service] Auto-assigning user request to Team Lead 'agent_manager'`);
-                        targetAgents.push("agent_manager");
-                    }
-                }
+                // 4. Phân tích đối tượng nhận tin và Dispatch tới Agent (dựa trên các agent có mặt trong room)
+                const targetAgents = await agentDispatcher.resolveTargetAgents({
+                    roomId: data.roomId,
+                    message: data.message,
+                    chatType: chatType as any,
+                    senderType: data.senderType,
+                    targetAgentId: data.targetAgentId,
+                });
 
                 if (targetAgents.length > 0) {
                     for (const agentId of targetAgents) {
@@ -188,6 +159,7 @@ export const configureSocketChat = (io: SocketIOServer) => {
                             senderId: data.senderId,
                             depth: 0,
                             originalTypeChat: chatType,
+                            rootTypeChat: chatType,
                         }).catch((err) => {
                             console.error(`[chat-service] Error dispatching to ${agentId}:`, err);
                         });

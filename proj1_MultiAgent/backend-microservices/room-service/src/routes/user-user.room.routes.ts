@@ -45,6 +45,9 @@ router.post("/:id/members", userUserRoomController.addMember);
 // Route PUT: Cập nhật thông tin phòng (Được bảo vệ bởi middleware `requireRoomAdminOrOwner`: chỉ Chủ phòng hoặc Admin mới được đổi)
 router.put("/:id", requireRoomAdminOrOwner, userUserRoomController.updateRoom);
 
+// Route PUT: Cập nhật cấu hình Workflow Agent trong phòng (Được bảo vệ bởi `requireRoomAdminOrOwner`)
+router.put("/:id/workflow", requireRoomAdminOrOwner, userUserRoomController.updateWorkflow);
+
 // Route DELETE: Xóa phòng chat (URL: DELETE /api/v1/rooms/user-user/:id)
 router.delete("/:id", userUserRoomController.deleteRoom);
 

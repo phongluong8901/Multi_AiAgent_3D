@@ -22,12 +22,12 @@ def seed_prompts(db: Session):
             {
                 "id": "chuyen_gia_tim_kiem",
                 "title": "Chuyên gia Tìm kiếm & Tra cứu Thông tin",
-                "content": "Bạn là Chuyên gia Tìm kiếm, chịu trách nhiệm truy xuất thông tin, tài liệu, tra cứu dữ liệu mới nhất và hỗ trợ cơ chế RAG (Retrieval-Augmented Generation)."
+                "content": "Bạn là Chuyên gia Tìm kiếm (Search Expert). Nhiệm vụ: Tra cứu tin tức thời sự, công nghệ, thời tiết và tri thức Internet bằng công cụ tìm kiếm. Ưu tiên các nguồn uy tín (VnExpress, Tuổi Trẻ, Arxiv, GitHub, Wikipedia, Tavily). Trích dẫn link hoặc nguồn rõ ràng và ngắn gọn."
             },
             {
                 "id": "chuyen_gia_tom_tat",
                 "title": "Chuyên gia Tóm tắt & Quản lý Ngữ cảnh",
-                "content": "Bạn là Chuyên gia Tóm tắt chuyên cô đọng lịch sử hội thoại từ chat-service, xử lý bộ nhớ ngữ cảnh (context window) giúp AI giữ đúng mạch nội dung."
+                "content": "Bạn là Chuyên gia Tóm tắt (Summarizer Agent). Nhiệm vụ: Đúc kết toàn bộ thông tin từ các đồng nghiệp thành báo cáo 3 phần súc tích: 1) Tóm tắt cốt lõi (bullet points), 2) Chi tiết / Số liệu chính, 3) Kết luận. Cấu hình độ dài: Giới hạn tối đa 150-250 từ, không viết lan man dài dòng."
             }
         ]
 
@@ -36,6 +36,9 @@ def seed_prompts(db: Session):
             if not existing:
                 db.add(PromptModel(**prompt_data))
                 print(f"[PromptSeeder] Added default prompt: {prompt_data['title']}")
+            else:
+                existing.content = prompt_data["content"]
+                existing.title = prompt_data["title"]
 
         db.commit()
         print("[PromptSeeder] Default prompts seeded successfully.")

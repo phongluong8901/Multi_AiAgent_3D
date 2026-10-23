@@ -151,11 +151,29 @@ services:
     container_name: agents_service
     env_file:
       - ./agent-service/.env
+    # Ghi đè host cho môi trường Docker (file .env dùng localhost cho chạy local)
+    environment:
+      - RABBITMQ_URL=amqp://admin:admin123@rabbitmq:5672
+      - REDIS_URL=redis://redis:6379/0
     ports:
       - "8000:8000"
     depends_on:
       # - db
       - redis
+      - rabbitmq
+    restart: always
+    networks:
+      - multi-agent-network
+
+  # --- Node.js TypeScript Product & Marketplace Microservice ---
+  product-service:
+    build: ./product-service
+    container_name: products_service
+    env_file:
+      - ./product-service/.env
+    ports:
+      - "5004:5004"
+    depends_on:
       - rabbitmq
     restart: always
     networks:
@@ -173,12 +191,14 @@ services:
       - ROOM_SERVICE_URL=http://room-service:5002
       - CHAT_SERVICE_URL=http://chat-service:5003
       - AGENT_SERVICE_URL=http://agent-service:8000
+      - PRODUCT_SERVICE_URL=http://product-service:5004
       - JWT_SECRET=super_secret_key_2026
     depends_on:
       - user-service
       - room-service
       - chat-service
       - agent-service
+      - product-service
     restart: always
     networks:
       - multi-agent-network

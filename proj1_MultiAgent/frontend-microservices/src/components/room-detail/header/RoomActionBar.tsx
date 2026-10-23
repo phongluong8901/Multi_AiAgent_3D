@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { Room, roomsApi } from '@/lib/api'
-import { IconShare2, IconCheck, IconLogOut } from '@/components/ui/icons' // Hoặc icon tương ứng trong dự án
+import { IconShare2, IconCheck, IconLogOut, IconLink } from '@/components/ui/icons' // Hoặc icon tương ứng trong dự án
 
 interface RoomActionBarProps {
     room: Room | null
@@ -59,8 +59,7 @@ export function RoomActionBar({
                         </>
                     ) : (
                         <>
-                            {/* Dùng icon share hoặc icon link tùy ý */}
-                            <span className="text-blue-400 font-bold">🔗</span>
+                            <IconLink className="w-3.5 h-3.5 text-blue-400" />
                             <span>Chia sẻ link</span>
                         </>
                     )}

@@ -17,7 +17,7 @@ interface UseChatProps {
     onRoomUpdated?: () => void
 }
 
-export function useChat({ roomId, typeChat = 'team', onRoomUpdated }: UseChatProps) {
+export function useChat({ roomId, typeChat, onRoomUpdated }: UseChatProps) {
     const [messages, setMessages] = useState<ChatMessage[]>([])
     const [onlineUsers, setOnlineUsers] = useState<UserPresence[]>([])
     const [agentStatuses, setAgentStatuses] = useState<Record<string, AgentStatusMeta>>({})
@@ -34,7 +34,7 @@ export function useChat({ roomId, typeChat = 'team', onRoomUpdated }: UseChatPro
         try {
             setChatLoading(true)
             const [history, presence] = await Promise.all([
-                chatsApi.getHistory(roomId, typeChat, 60).catch(() => []),
+                chatsApi.getHistory(roomId, typeChat, 100).catch(() => []),
                 chatsApi.getPresence(roomId).catch(() => ({ roomId, onlineUsers: [] })),
             ])
 
@@ -165,6 +165,12 @@ export function useChat({ roomId, typeChat = 'team', onRoomUpdated }: UseChatPro
         })
 
         socket.on('room_updated', () => {
+            if (onRoomUpdated) {
+                onRoomUpdated()
+            }
+        })
+
+        socket.on('room_agents_updated', () => {
             if (onRoomUpdated) {
                 onRoomUpdated()
             }

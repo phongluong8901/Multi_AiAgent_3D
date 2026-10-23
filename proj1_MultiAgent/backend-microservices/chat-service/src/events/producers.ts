@@ -51,6 +51,17 @@ export async function publishChatMessage(payload: {
     }
 }
 
+// Ngữ cảnh hội thoại gửi kèm prompt, agent-service sẽ trả lại nguyên vẹn trong agent.reply
+export interface AgentPromptContext {
+    depth: number;
+    typeChat: "team" | "direct" | "agent" | "workflow" | "system";
+    rootTypeChat: "team" | "direct" | "agent" | "workflow" | "system";
+    senderId: string;
+    senderName: string;
+    activeAgents?: string[];
+    workflow?: any;
+}
+
 // Định nghĩa hàm publishAgentPrompt để đẩy yêu cầu xử lý từ user xuống hệ thống AI Agent qua hàng đợi
 export async function publishAgentPrompt(payload: {
     agentId: string;
@@ -58,18 +69,26 @@ export async function publishAgentPrompt(payload: {
     userPrompt: string;
     userName: string;
     userId: string;
+    depth?: number;
+    context?: AgentPromptContext;
 }) {
-    try {
-        const channel = getChannel(); // Lấy channel RabbitMQ
-        if (!channel) return; // Nếu channel không có sẵn thì dừng lại
+    const channel = getChannel(); // Lấy channel RabbitMQ
+    if (!channel) {
+        // QUAN TRỌNG: ném lỗi để AgentDispatcher fallback sang gọi HTTP trực tiếp
+        throw new Error("RabbitMQ channel not available");
+    }
 
+    try {
         const routingKey = `agent.prompt.${payload.agentId}`; // Tạo routing key động gắn liền với ID của agent nhận nhiệm vụ
-        channel.publish(
+        const ok = channel.publish(
             AGENT_EXCHANGE, // Gửi vào Exchange chuyên biệt cho Agent
             routingKey, // Routing key theo từng agent cụ thể
             Buffer.from(JSON.stringify(payload)), // Đóng gói payload thành Buffer dữ liệu JSON
-            { persistent: true } // Cấu hình lưu trữ bền vững (persistent)
+            { persistent: true, contentType: "application/json" } // Cấu hình lưu trữ bền vững (persistent)
         );
+        if (!ok) {
+            console.warn(`[chat-service] RabbitMQ write buffer full while publishing to ${payload.agentId}`);
+        }
         console.log(`[chat-service] Published prompt request to agent ${payload.agentId}`); // Log thông báo thành công
     } catch (err: any) {
         console.warn(`[chat-service] publishAgentPrompt failed (MQ unavailable): ${err.message}`);

@@ -9,6 +9,7 @@ export type Agent = {
     status: AgentStatus
     speech: string | null
     position: [number, number, number]
+    model?: string
     prompt_id?: string | null
     tools?: unknown[]
     ownerName?: string
@@ -23,6 +24,7 @@ export type AgentCreate = {
     pos_x?: number
     pos_y?: number
     pos_z?: number
+    model?: string
     prompt_id?: string | null
     tool_ids?: string[]
 }
@@ -35,6 +37,7 @@ export type AgentUpdate = Partial<{
     pos_x: number
     pos_y: number
     pos_z: number
+    model: string
     prompt_id: string | null
     tool_ids: string[]
 }>

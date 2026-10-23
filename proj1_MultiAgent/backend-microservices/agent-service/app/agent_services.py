@@ -15,6 +15,15 @@ def init_db(max_retries: int = 10, delay: int = 2):
         try:
             Base.metadata.create_all(bind=engine)
             
+            # Đảm bảo cột model tồn tại trên bảng agents (PostgreSQL migration an toàn)
+            from sqlalchemy import text
+            with engine.connect() as conn:
+                try:
+                    conn.execute(text("ALTER TABLE agents ADD COLUMN IF NOT EXISTS model VARCHAR DEFAULT 'gemini-2.5-flash-lite'"))
+                    conn.commit()
+                except Exception as ex_col:
+                    print(f"[agent-service] Note: model column check: {ex_col}")
+
             # --- Chạy toàn bộ seeders (Prompts, Tools, Agents) ---
             db = SessionLocal()
             try:
@@ -45,10 +54,23 @@ def start_rabbitmq_consumer():
                 print(f"[agent-service MQ] Missing agentId or userPrompt: {data}")
                 return
 
-            print(f"[agent-service MQ] Processing prompt for agent '{agent_id}' in room '{room_id}'")
+            # Ngữ cảnh do chat-service gửi kèm, sẽ được trả lại nguyên vẹn trong agent.reply
+            context = data.get("context") or {}
+            context.setdefault("depth", data.get("depth", 0))
+            context.setdefault("senderId", data.get("userId"))
+            context.setdefault("senderName", data.get("userName"))
+
+            print(f"[agent-service MQ] Processing prompt for agent '{agent_id}' in room '{room_id}' (depth {context.get('depth')})")
             db = SessionLocal()
             try:
-                agent_runner.run_agent(db=db, agent_id=agent_id, user_message=user_message, room_id=room_id)
+                agent_runner.run_agent(
+                    db=db,
+                    agent_id=agent_id,
+                    user_message=user_message,
+                    room_id=room_id,
+                    source="mq",
+                    context=context,
+                )
             finally:
                 db.close()
         except Exception as e:

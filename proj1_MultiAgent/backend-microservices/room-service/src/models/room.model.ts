@@ -55,6 +55,25 @@ export interface IRoomPolicy {
     ownedAgentsCount?: number; // Số lượng Agent cá nhân tối đa mà người dùng được gán/sở hữu trong phòng
 }
 
+/** Chế độ thực thi workflow của các Agent trong phòng */
+export type AgentWorkflowMode = "solo" | "sequential" | "routing" | "autonomous";
+
+/** Quy tắc chuyển tiếp giữa các Agent khi ở chế độ routing */
+export interface IWorkflowTransition {
+    fromAgentId: string; // ID của Agent nguồn
+    toAgentId: string;   // ID của Agent đích (hoặc 'end' nếu kết thúc luồng)
+    condition?: string;  // Điều kiện / ghi chú nhiệm vụ bàn giao
+}
+
+/** Cấu hình Workflow Agent trong phòng làm việc */
+export interface IAgentWorkflow {
+    mode: AgentWorkflowMode; // 'solo': chạy đơn lẻ, 'sequential': tuần tự, 'routing': định tuyến quy tắc, 'autonomous': tự do
+    order?: string[]; // Danh sách agent theo chuỗi tuần tự khi mode === 'sequential'
+    transitions?: IWorkflowTransition[]; // Danh sách các bước chuyển tiếp khi mode === 'routing'
+    enabled?: boolean; // Bật/tắt cấu hình workflow
+    description?: string; // Ghi chú mục đích của workflow
+}
+
 /** Interface tổng thể của Document Room trong MongoDB */
 export interface IRoom extends Document {
     name: string;
@@ -67,6 +86,7 @@ export interface IRoom extends Document {
     activeAgents: string[]; // Danh sách các Agent hệ thống đang bật hoạt động trong phòng
     userAgents: IUserAgentBinding[]; // Danh sách các Agent cá nhân được gán cho từng User cụ thể trong phòng
     settings: IRoomSettings;
+    workflow?: IAgentWorkflow; // Cấu hình workflow điều phối Agent trong phòng
     metadata?: Record<string, any>; // Dữ liệu metadata tuỳ chỉnh của phòng
     createdAt: Date;
     updatedAt: Date;
@@ -119,6 +139,25 @@ const RoomSchema = new Schema<IRoom>(
             autonomousHandoff: { type: Boolean, default: true },  // Cho phép chuyển tiếp công việc
             maxAutoTurns: { type: Number, default: 3 },           // Giới hạn 3 vòng phản hồi tự động
             allowGuestJoin: { type: Boolean, default: false },    // Mặc định không cho khách tự do vào
+        },
+
+        // Cấu hình quy trình Workflow Agent của phòng (Đơn lẻ / Tuần tự / Định tuyến / Tự do)
+        workflow: {
+            mode: {
+                type: String,
+                enum: ["solo", "sequential", "routing", "autonomous"],
+                default: "autonomous",
+            },
+            order: { type: [String], default: [] },
+            transitions: [
+                {
+                    fromAgentId: { type: String, required: true },
+                    toAgentId: { type: String, required: true },
+                    condition: { type: String, default: "" },
+                },
+            ],
+            enabled: { type: Boolean, default: false },
+            description: { type: String, default: "" },
         },
 
         // Danh sách thành viên (User & Agent) kèm phân quyền chuẩn nhóm Zalo

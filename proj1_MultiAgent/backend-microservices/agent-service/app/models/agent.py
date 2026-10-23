@@ -15,6 +15,8 @@ class AgentModel(Base):
     pos_y = Column(Float, default=0.0)
     pos_z = Column(Float, default=0.0)
 
+    model = Column(String, default="gemini-2.5-flash-lite")
+
     prompt_id = Column(String, ForeignKey("prompts.id"), nullable=True)
     prompt = relationship("PromptModel", back_populates="agents")
     tools = relationship("ToolModel", secondary=agent_tools, back_populates="agents")

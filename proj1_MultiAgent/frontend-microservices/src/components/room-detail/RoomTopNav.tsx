@@ -17,6 +17,8 @@ import {
     IconLogOut,
     IconLock,
     IconGlobe,
+    IconShoppingBag,
+    IconWorkflow,
 } from '@/components/ui/icons'
 
 import { MapType } from '@/lib/maps/mapRegistry'
@@ -33,6 +35,8 @@ interface RoomTopNavProps {
     setActiveTrace: (trace: any) => void
     setTraceModalOpen: (open: boolean) => void
     onOpenManagement: () => void
+    onOpenWorkflow?: () => void
+    onOpenStore?: () => void
     onLeaveRoom: () => void
     mapType: MapType
     setMapType: (map: MapType) => void
@@ -49,6 +53,8 @@ export function RoomTopNav({
     setActiveTrace,
     setTraceModalOpen,
     onOpenManagement,
+    onOpenWorkflow,
+    onOpenStore,
     onLeaveRoom,
     mapType,
     setMapType,
@@ -255,6 +261,33 @@ export function RoomTopNav({
                     <IconTrace className="w-3.5 h-3.5 text-indigo-400" />
                     <span className="hidden sm:inline">Traces</span>
                 </button>
+
+                {/* Nút Cửa Hàng & Thuê Agent (Product Service) */}
+                {onOpenStore && (
+                    <button
+                        onClick={onOpenStore}
+                        className="text-xs px-3 py-1.5 rounded-xl border border-amber-500/40 bg-gradient-to-r from-amber-500/20 to-purple-500/20 hover:from-amber-500/30 hover:to-purple-500/30 text-amber-300 transition font-bold flex items-center gap-1.5 shadow-sm active:scale-95 animate-pulse"
+                        title="Mở Cửa Hàng Mua Bán & Thuê Agent AI (Product Microservice)"
+                    >
+                        <IconShoppingBag className="w-3.5 h-3.5 text-amber-400" />
+                        <span className="hidden sm:inline">Agent Store</span>
+                    </button>
+                )}
+
+                {/* Nút Cấu hình Workflow Agent */}
+                {onOpenWorkflow && (
+                    <button
+                        onClick={onOpenWorkflow}
+                        className="text-xs px-2.5 sm:px-3 py-1.5 rounded-xl border border-purple-500/30 bg-purple-600/10 hover:bg-purple-600/20 text-purple-300 transition font-medium flex items-center gap-1.5 shadow-sm active:scale-95"
+                        title="Thiết lập Workflow điều phối Agent (Solo, Tuần tự, Định tuyến, Tự do)"
+                    >
+                        <IconWorkflow className="w-3.5 h-3.5 text-purple-400" />
+                        <span className="font-semibold hidden sm:inline">Workflow</span>
+                        <span className="text-[10px] bg-purple-600/30 text-purple-200 px-1.5 py-0.2 rounded-full font-mono uppercase">
+                            {room?.workflow?.mode === 'solo' ? 'Solo' : room?.workflow?.mode === 'sequential' ? 'Tuần tự' : room?.workflow?.mode === 'routing' ? 'Định tuyến' : 'Tự do'}
+                        </span>
+                    </button>
+                )}
 
                 {/* NÚT DUY NHẤT: Quản lý phòng (Thành viên, Phân bổ Agent, Mời) */}
                 <button

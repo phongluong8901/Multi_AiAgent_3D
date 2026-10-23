@@ -12,6 +12,7 @@ import { RoomTopNav } from '@/components/room-detail/RoomTopNav'
 import { AgentTeamStrip } from '@/components/room-detail/AgentTeamStrip'
 import { RoomWorkspaceLayout } from '@/components/room-detail/screen-split/RoomWorkspaceLayout'
 import { ModalsContainer } from '@/components/room-detail/modals/ModalsContainer'
+import { AgentStoreModal } from '@/components/room-detail/modals/AgentStoreModal'
 import { MapType, resolveTargetPositionForAction } from '@/lib/maps/mapRegistry'
 import { useRoom } from '@/hooks/useRoom'
 import { useChat } from '@/hooks/useChat'
@@ -50,7 +51,8 @@ export default function CollaborativeRoomPage() {
     const [pipelineRunning, setPipelineRunning] = useState(false)
     const [traceModalOpen, setTraceModalOpen] = useState(false)
     const [assignmentModalOpen, setAssignmentModalOpen] = useState(false)
-    const [managementTab, setManagementTab] = useState<'members' | 'agents' | 'invite'>('members')
+    const [storeModalOpen, setStoreModalOpen] = useState(false)
+    const [managementTab, setManagementTab] = useState<'members' | 'agents' | 'workflow' | 'invite'>('members')
 
     const isLeavingRef = useRef(false)
     const chatEndRef = useRef<HTMLDivElement | null>(null)
@@ -81,7 +83,6 @@ export default function CollaborativeRoomPage() {
         uploadAndAttachFile, // <--- Đã lấy thêm hàm upload từ hook useChat
     } = useChat({
         roomId,
-        typeChat: 'team', // Mặc định luồng chat là team
         onRoomUpdated: loadRoomData,
     })
 
@@ -308,6 +309,11 @@ export default function CollaborativeRoomPage() {
                     setManagementTab('members')
                     setAssignmentModalOpen(true)
                 }}
+                onOpenWorkflow={() => {
+                    setManagementTab('workflow')
+                    setAssignmentModalOpen(true)
+                }}
+                onOpenStore={() => setStoreModalOpen(true)}
                 onLeaveRoom={handleLeaveRoom}
                 mapType={mapType}
                 setMapType={setMapType}
@@ -378,6 +384,15 @@ export default function CollaborativeRoomPage() {
                 setRoom={setRoom}
                 currentTab={managementTab}
                 setCurrentTab={setManagementTab}
+            />
+
+            <AgentStoreModal
+                isOpen={storeModalOpen}
+                onClose={() => setStoreModalOpen(false)}
+                currentUserId={currentUserId}
+                currentUserName={currentUserName}
+                roomId={roomId}
+                onAgentSummoned={handleAddAgentToRoom}
             />
         </div>
     )

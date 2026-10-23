@@ -9,6 +9,7 @@ class AgentState(TypedDict):
     messages: Annotated[List[Any], operator.add]
     agent_id: str
     room_id: str | None
+    model: str | None
     tool_definitions: List[Dict[str, Any]]
     tools_used: List[str]
     llm_client: Any
@@ -20,14 +21,16 @@ class AgentWorkflow:
         self.tool_executor = tool_executor
 
     def call_model(self, state: AgentState) -> Dict[str, Any]:
-        """Node 1: Gửi messages hiện tại lên LLM (hỗ trợ tool calling)"""
+        """Node 1: Gửi messages hiện tại lên LLM (hỗ trợ tool calling và dynamic model)"""
         messages = state["messages"]
         tool_definitions = state["tool_definitions"]
 
-        # Gọi LLM Client (đã chuẩn hóa OpenAI format)
+        # Gọi LLM Client (đã chuẩn hóa OpenAI format, hỗ trợ agent_id và model riêng biệt)
         response = self.llm_client.chat_completion(
             messages=messages,
             tools=tool_definitions if tool_definitions else None,
+            agent_id=state.get("agent_id"),
+            model=state.get("model"),
         )
         
         response_message = response.choices[0].message

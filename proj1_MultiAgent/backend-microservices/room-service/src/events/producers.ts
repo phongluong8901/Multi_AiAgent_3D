@@ -18,6 +18,7 @@ export async function publishRoomEvent(
         | "room.agents.synced"
         | "room.agent.added"
         | "room.agent.removed"
+        | "room.workflow.updated"
         | "room.invite.created"
         | "room.invite.accepted"
         | "room.invite.declined",

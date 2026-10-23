@@ -19,7 +19,43 @@ import {
     IconLayers,
     IconSettings,
     IconSparkles,
+    IconMap,
+    IconTarget,
+    IconLightbulb,
+    IconFileText,
+    IconBuilding,
+    IconTent,
+    IconBoxes,
+    IconTrees,
+    IconArmchair,
+    IconLaptop,
+    IconPlus,
 } from '@/components/ui/icons'
+
+function renderCatalogIcon(type: PlaceableItemType) {
+    switch (type) {
+        case 'building':
+            return <IconBuilding className="w-5 h-5 text-blue-400" />
+        case 'house':
+            return <IconTent className="w-5 h-5 text-amber-400" />
+        case 'industrial':
+            return <IconBoxes className="w-5 h-5 text-orange-400" />
+        case 'road':
+            return <IconMap className="w-5 h-5 text-slate-400" />
+        case 'crossroad':
+            return <IconPlus className="w-5 h-5 text-zinc-300" />
+        case 'streetlight':
+            return <IconLightbulb className="w-5 h-5 text-yellow-300" />
+        case 'tree':
+            return <IconTrees className="w-5 h-5 text-emerald-400" />
+        case 'bench':
+            return <IconArmchair className="w-5 h-5 text-amber-600" />
+        case 'desk':
+            return <IconLaptop className="w-5 h-5 text-indigo-400" />
+        default:
+            return <IconBoxes className="w-5 h-5 text-zinc-400" />
+    }
+}
 
 const LOCAL_STORAGE_KEY = 'agent_custom_map_designs_v1'
 
@@ -166,7 +202,9 @@ export default function MapSetupPage() {
                     <div className="h-4 w-px bg-zinc-800" />
 
                     <div className="flex items-center gap-2">
-                        <span className="text-xl">🗺️</span>
+                        <div className="w-8 h-8 rounded-xl bg-cyan-950/60 border border-cyan-500/30 flex items-center justify-center">
+                            <IconMap className="w-4 h-4 text-cyan-400" />
+                        </div>
                         <div>
                             <h1 className="font-bold text-sm tracking-tight flex items-center gap-2">
                                 <span>3D Map Studio & Setup</span>
@@ -191,10 +229,10 @@ export default function MapSetupPage() {
                             className="bg-transparent text-zinc-200 outline-none cursor-pointer font-medium text-xs"
                         >
                             <option value="smart_city" className="bg-zinc-900">
-                                🏙️ Smart City IoT
+                                Smart City IoT
                             </option>
                             <option value="empty_canvas" className="bg-zinc-900">
-                                ⬜ Mặt bằng trống
+                                Mặt bằng trống
                             </option>
                         </select>
                     </div>
@@ -275,8 +313,8 @@ export default function MapSetupPage() {
                                             : 'bg-zinc-950/60 border-zinc-800/80 hover:border-zinc-700 text-zinc-300 hover:text-white'
                                     }`}
                                 >
-                                    <div className="w-10 h-10 rounded-lg bg-zinc-900 border border-zinc-800 flex items-center justify-center text-xl shrink-0 shadow-inner">
-                                        {catItem.icon}
+                                    <div className="w-10 h-10 rounded-lg bg-zinc-900 border border-zinc-800 flex items-center justify-center shrink-0 shadow-inner">
+                                        {renderCatalogIcon(catItem.type)}
                                     </div>
                                     <div className="flex-1 min-w-0">
                                         <div className="text-xs font-bold truncate flex items-center justify-between">
@@ -299,7 +337,10 @@ export default function MapSetupPage() {
 
                     {/* Hướng dẫn nhanh */}
                     <div className="p-3 border-t border-zinc-800 bg-zinc-950/40 text-[11px] text-zinc-400 space-y-1">
-                        <div className="font-semibold text-zinc-300">💡 Mẹo thao tác:</div>
+                        <div className="font-semibold text-zinc-300 flex items-center gap-1.5">
+                            <IconLightbulb className="w-3.5 h-3.5 text-amber-400" />
+                            <span>Mẹo thao tác:</span>
+                        </div>
                         <div>1. Chọn 1 vật thể ở trên để bật chế độ đặt.</div>
                         <div>2. Click chuột vào mặt sàn 3D để thả vật thể.</div>
                         <div>3. Click vào vật thể để xoay, đổi màu, kéo thả.</div>
@@ -530,7 +571,7 @@ export default function MapSetupPage() {
                         </div>
                     ) : (
                         <div className="flex-1 flex flex-col items-center justify-center p-6 text-center text-zinc-500 text-xs">
-                            <span className="text-3xl mb-2">🎯</span>
+                            <IconTarget className="w-10 h-10 text-zinc-600 mb-2 stroke-1" />
                             <div className="font-semibold text-zinc-400">Chưa chọn đối tượng nào</div>
                             <p className="mt-1 text-[11px]">
                                 Click trực tiếp vào một vật thể bất kỳ trên khung nhìn 3D để xem và chỉnh sửa thông số.
@@ -546,7 +587,7 @@ export default function MapSetupPage() {
                     <div className="w-full max-w-2xl bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
                         <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
                             <div className="flex items-center gap-2">
-                                <span className="text-cyan-400 text-lg">📄</span>
+                                <IconFileText className="w-4 h-4 text-cyan-400" />
                                 <h3 className="font-bold text-sm text-white">
                                     Dữ liệu Bản đồ 3D (JSON Format)
                                 </h3>

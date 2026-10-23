@@ -4,7 +4,8 @@ import { useState, useEffect } from 'react'
 import { Agent, Room, UserPresence, WorkflowTrace, roomsApi, usersApi, InviteUser } from '@/lib/api'
 import WorkflowTraceModal from '@/components/ui/WorkflowTraceModal'
 import UserAgentAssignmentModal from '@/components/ui/UserAgentAssignmentModal'
-import { IconX, IconPlus, IconUsers, IconUser, IconBot } from '@/components/ui/icons'
+import { AgentWorkflowPanel } from './AgentWorkflowPanel'
+import { IconX, IconPlus, IconUsers, IconUser, IconBot, IconWorkflow } from '@/components/ui/icons'
 import { getUser } from '@/lib/auth'
 
 interface ModalsContainerProps {
@@ -23,8 +24,8 @@ interface ModalsContainerProps {
     assignmentModalOpen: boolean
     setAssignmentModalOpen: (open: boolean) => void
     setRoom: (room: Room) => void
-    currentTab?: 'members' | 'agents' | 'invite'
-    setCurrentTab?: (tab: 'members' | 'agents' | 'invite') => void
+    currentTab?: 'members' | 'agents' | 'workflow' | 'invite'
+    setCurrentTab?: (tab: 'members' | 'agents' | 'workflow' | 'invite') => void
 }
 
 export function ModalsContainer({
@@ -49,10 +50,10 @@ export function ModalsContainer({
     const me = getUser()
     const myId = String(me?.id || '').trim()
 
-    const [localTab, setLocalTab] = useState<'members' | 'agents' | 'invite'>(currentTab)
+    const [localTab, setLocalTab] = useState<'members' | 'agents' | 'workflow' | 'invite'>(currentTab)
     const activeTab = currentTab || localTab
 
-    const handleSwitchTab = (tab: 'members' | 'agents' | 'invite') => {
+    const handleSwitchTab = (tab: 'members' | 'agents' | 'workflow' | 'invite') => {
         setLocalTab(tab)
         if (setCurrentTab) setCurrentTab(tab)
     }
@@ -182,6 +183,15 @@ export function ModalsContainer({
                                     }`}
                             >
                                 Phân bổ Agent ({room?.activeAgents?.length || 0})
+                            </button>
+                            <button
+                                onClick={() => handleSwitchTab('workflow')}
+                                className={`flex-1 py-1.5 px-3 rounded-lg transition text-center whitespace-nowrap ${activeTab === 'workflow'
+                                    ? 'bg-purple-600 text-white shadow'
+                                    : 'text-zinc-400 hover:text-white'
+                                    }`}
+                            >
+                                Quy trình ({room?.workflow?.mode === 'solo' ? 'Solo' : room?.workflow?.mode === 'sequential' ? 'Tuần tự' : room?.workflow?.mode === 'routing' ? 'Định tuyến' : 'Tự do'})
                             </button>
                             <button
                                 onClick={() => handleSwitchTab('invite')}
@@ -341,6 +351,16 @@ export function ModalsContainer({
                                     isEmbedded={true}
                                 />
                             </div>
+                        )}
+
+                        {/* TAB: CẤU HÌNH WORKFLOW ĐIỀU PHỐI AGENT */}
+                        {activeTab === 'workflow' && (
+                            <AgentWorkflowPanel
+                                roomId={roomId}
+                                room={room}
+                                allAgents={allAgents}
+                                setRoom={setRoom}
+                            />
                         )}
 
                         {/* TAB 3: MỜI THÀNH VIÊN VÀO PHÒNG (Tích hợp danh sách online nhanh) */}

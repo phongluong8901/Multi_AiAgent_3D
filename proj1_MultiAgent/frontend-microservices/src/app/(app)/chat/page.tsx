@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { roomsApi, agentsApi, Room, Agent } from '@/lib/api'
+import { IconBuilding, IconBot } from '@/components/ui/icons'
 
 export default function ChatListPage() {
     const [rooms, setRooms] = useState<Room[]>([])
@@ -58,8 +59,9 @@ export default function ChatListPage() {
                                 >
                                     <div>
                                         <div className="flex items-center justify-between">
-                                            <h3 className="font-semibold text-white group-hover:text-blue-400 text-sm">
-                                                🏢 {room.name}
+                                            <h3 className="font-semibold text-white group-hover:text-blue-400 text-sm flex items-center gap-1.5">
+                                                <IconBuilding className="w-4 h-4 text-blue-400 shrink-0" />
+                                                <span>{room.name}</span>
                                             </h3>
                                             <span className="text-[10px] text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full font-medium">
                                                 {room.activeAgents?.length || 0} agents

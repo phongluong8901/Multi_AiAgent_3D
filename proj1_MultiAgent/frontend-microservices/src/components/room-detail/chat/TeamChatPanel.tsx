@@ -120,9 +120,13 @@ export function TeamChatPanel({
             targetUserIdToSend = selectedDirectUserId || undefined
         } else if (activeTab === 'agent') {
             typeChatToSend = 'agent'
-            targetAgentIdToSend = targetAgentId || undefined
+            // Ưu tiên agent đang chọn, hoặc agent trưởng nhóm trong phòng, hoặc agent đầu tiên có mặt
+            const leadAgent = roomAgents.find((a) => a.id.includes('manager') || a.id.includes('lead'))?.id || roomAgents[0]?.id
+            targetAgentIdToSend = targetAgentId || leadAgent
         } else if (activeTab === 'workflow') {
             typeChatToSend = 'workflow'
+            const leadAgent = roomAgents.find((a) => a.id.includes('manager') || a.id.includes('lead'))?.id || roomAgents[0]?.id
+            targetAgentIdToSend = targetAgentId || leadAgent
         } else {
             typeChatToSend = 'team'
         }
@@ -161,10 +165,12 @@ export function TeamChatPanel({
 
         if (isSystem) return true
 
-        // 1. Tab Phòng nhóm (team)
+        // 1. Tab Phòng nhóm (team): tin toàn phòng và tin agent phản hồi từ các lệnh trong phòng
         if (activeTab === 'team') {
-            if (msgType === 'team') return true
-            if (!msgType && !isAgent && !m.targetUserId && !m.targetAgentId) return true
+            if (msgType === 'team' || m.metadata?.rootTypeChat === 'team') return true
+            if (!msgType && !isAgent && !m.targetUserId) return true
+            if (isAgent && (m.metadata?.rootTypeChat === 'team' || (!m.metadata?.rootTypeChat && msgType !== 'direct'))) return true
+            if (!isAgent && !m.targetUserId && (m.message?.includes('@agent_') || m.message?.includes('@all') || m.message?.includes('@team'))) return true
             return false
         }
 
@@ -182,18 +188,19 @@ export function TeamChatPanel({
             return m.senderId === currentUserId || m.targetUserId === currentUserId
         }
 
-        // 3. Tab Hỏi đáp Agent (agent)
+        // 3. Tab Hỏi đáp Agent (agent): hiển thị toàn bộ tin trao đổi giữa user và agent (kể cả chuỗi bàn giao handoff)
         if (activeTab === 'agent') {
-            if (msgType === 'agent') return true
-            if (isAgent && !m.metadata?.isAgentToAgent && !m.metadata?.workflowTrace) return true
-            if (!isAgent && (m.targetAgentId || m.message.includes('@agent_'))) return true
+            if (msgType === 'agent' || m.metadata?.rootTypeChat === 'agent') return true
+            if (isAgent) return true
+            if (!isAgent && (m.targetAgentId || m.message?.includes('@agent_') || msgType === 'agent')) return true
             return false
         }
 
-        // 4. Tab Agent Pipeline (workflow)
+        // 4. Tab Agent Pipeline (workflow): các bước điều phối sâu giữa các agent
         if (activeTab === 'workflow') {
-            if (msgType === 'workflow') return true
+            if (msgType === 'workflow' || m.metadata?.rootTypeChat === 'workflow') return true
             if (isAgent && (m.metadata?.isAgentToAgent || m.metadata?.workflowTrace || m.metadata?.depth > 0)) return true
+            if (!isAgent && (msgType === 'workflow' || m.message?.includes('pipeline') || m.message?.includes('workflow'))) return true
             return false
         }
 
@@ -492,7 +499,26 @@ export function TeamChatPanel({
                 {activeTab === 'agent' && (
                     <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs scrollbar-none">
                         <span className="shrink-0 text-[11px] text-zinc-500 font-medium">Hỏi Agent:</span>
-                        {roomAgents.map((ag: any) => (
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setTargetAgentId('agent_manager')
+                                setInput((p) => {
+                                    const clean = p.replace(/^@[a-zA-Z0-9_-]+\s*/, '')
+                                    return `@agent_manager ${clean}`
+                                })
+                            }}
+                            className={`flex shrink-0 items-center gap-1 rounded-lg border px-2.5 py-0.5 font-medium transition ${targetAgentId === 'agent_manager' || !targetAgentId ? 'border-amber-500 bg-amber-600/30 text-amber-300' : 'border-zinc-800 bg-zinc-950 text-zinc-400 hover:text-amber-300'}`}
+                        >
+                            <IconBot className="h-3 w-3 text-amber-400" />
+                            @manager (Trưởng nhóm)
+                        </button>
+                        {(roomAgents.length > 0 ? roomAgents : [
+                            { id: 'agent_search', name: 'Search Expert' },
+                            { id: 'agent_ml', name: 'ML Expert' },
+                            { id: 'agent_analyst', name: 'Data Analyst' },
+                            { id: 'agent_summarizer', name: 'Summarizer Agent' },
+                        ]).filter((ag: any) => ag.id !== 'agent_manager').map((ag: any) => (
                             <button
                                 key={ag.id}
                                 type="button"

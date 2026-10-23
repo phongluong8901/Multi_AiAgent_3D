@@ -3,6 +3,7 @@ import { userUserRoomService } from "../services/user-user.room.service"; // Imp
 import { roomRepository } from "../repositories/room.repository";        // Import repository để truy vấn trực tiếp cơ sở dữ liệu phòng
 import { asyncHandler } from "../middlewares/async.middleware";          // Import middleware bọc bắt lỗi tự động cho các hàm async/await
 import { AuthenticatedRequest } from "../middlewares/auth.middleware";   // Import kiểu request đã được xác thực thông qua JWT middleware
+import { publishRoomEvent } from "../events/producers";
 
 export class UserUserRoomController {
 
@@ -96,13 +97,34 @@ export class UserUserRoomController {
 
     // --- 5. CẬP NHẬT THÔNG TIN PHÒNG (UPDATE ROOM) ---
     updateRoom = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+        const roomId = req.params.id as string;
         const updated = await roomRepository.updateRoom(
-            req.params.id as string,
+            roomId,
             req.body // Cập nhật toàn bộ data truyền lên từ body
         );
         if (!updated) {
             return res.status(404).json({ success: false, message: "Room not found" });
         }
+        await publishRoomEvent("room.updated", { roomId, ...req.body, activeAgents: updated.activeAgents, workflow: updated.workflow });
+        if (req.body.workflow) {
+            await publishRoomEvent("room.workflow.updated", { roomId, workflow: req.body.workflow, activeAgents: updated.activeAgents });
+        }
+        return res.status(200).json({ success: true, data: updated });
+    });
+
+    // --- CẬP NHẬT WORKFLOW ĐIỀU PHỐI AGENT TRONG PHÒNG ---
+    updateWorkflow = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+        const roomId = req.params.id as string;
+        const workflowData = req.body;
+        const updated = await roomRepository.updateRoom(roomId, { workflow: workflowData });
+        if (!updated) {
+            return res.status(404).json({ success: false, message: "Room not found" });
+        }
+        await publishRoomEvent("room.workflow.updated", {
+            roomId,
+            workflow: workflowData,
+            activeAgents: updated.activeAgents,
+        });
         return res.status(200).json({ success: true, data: updated });
     });
 

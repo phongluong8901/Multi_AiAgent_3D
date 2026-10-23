@@ -3,6 +3,17 @@
 import Link from 'next/link'
 import { useAgents } from '@/hooks/useAgents'
 import { agentsApi } from '@/lib/api'
+import {
+    IconBot,
+    IconCpu,
+    IconFileText,
+    IconWrench,
+    IconPlus,
+    IconMessageSquare,
+    IconBuilding,
+    IconTrash,
+    IconSparkles,
+} from '@/components/ui/icons'
 
 export default function AgentsPage() {
     const { agents, connected, refresh } = useAgents()
@@ -45,21 +56,22 @@ export default function AgentsPage() {
                     href="/agents/setup"
                     className="rounded-lg bg-blue-600 hover:bg-blue-500 text-sm px-4 py-2.5 transition font-medium flex items-center gap-1.5"
                 >
-                    <span className="text-base leading-none">+</span>
-                    Create agent
+                    <IconPlus className="w-4 h-4" />
+                    <span>Tạo agent mới</span>
                 </Link>
             </div>
 
             {/* Empty state */}
             {agents.length === 0 && (
                 <div className="rounded-2xl border border-dashed border-zinc-700 bg-zinc-900/40 py-16 text-center">
-                    <div className="text-4xl mb-3 opacity-40">🤖</div>
+                    <IconBot className="w-12 h-12 text-zinc-600 mx-auto mb-3" />
                     <p className="text-zinc-400 text-sm">Chưa có agent nào</p>
                     <Link
                         href="/agents/setup"
-                        className="mt-3 inline-block text-sm text-blue-400 hover:underline"
+                        className="mt-3 inline-flex items-center gap-1 text-sm text-blue-400 hover:underline"
                     >
-                        Tạo agent đầu tiên →
+                        <span>Tạo agent đầu tiên</span>
+                        <span>→</span>
                     </Link>
                 </div>
             )}
@@ -111,11 +123,31 @@ export default function AgentsPage() {
                                 </div>
 
                                 {/* Speech / description */}
-                                <p className="text-sm text-zinc-400 line-clamp-2 min-h-[40px]">
+                                <p className="text-sm text-zinc-400 line-clamp-2 min-h-[36px]">
                                     {agent.speech || (
                                         <span className="italic text-zinc-600">Chưa có lời nói</span>
                                     )}
                                 </p>
+
+                                {/* Badges: Model, Prompt, Tools */}
+                                <div className="mt-2.5 flex flex-wrap items-center gap-1.5 text-[10px]">
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono">
+                                        <IconCpu className="w-3 h-3 text-emerald-400 shrink-0" />
+                                        <span>{agent.model || 'gemini-2.5-flash-lite'}</span>
+                                    </span>
+                                    {agent.prompt_id && (
+                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                                            <IconFileText className="w-3 h-3 text-blue-400 shrink-0" />
+                                            <span>{agent.prompt_id}</span>
+                                        </span>
+                                    )}
+                                    {Array.isArray(agent.tools) && agent.tools.length > 0 && (
+                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-pink-500/10 text-pink-400 border border-pink-500/20">
+                                            <IconWrench className="w-3 h-3 text-pink-400 shrink-0" />
+                                            <span>{agent.tools.length} tool{agent.tools.length > 1 ? 's' : ''}</span>
+                                        </span>
+                                    )}
+                                </div>
                             </Link>
 
                             {/* Footer actions */}
@@ -123,30 +155,34 @@ export default function AgentsPage() {
                                 <div className="flex gap-2">
                                     <Link
                                         href={`/agents/${agent.id}`}
-                                        className="text-xs text-zinc-400 hover:text-white transition px-2 py-1 rounded-md hover:bg-zinc-800"
+                                        className="text-xs text-blue-400 hover:text-blue-300 transition px-2.5 py-1 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/20 font-medium flex items-center gap-1.5"
                                     >
-                                        Edit
+                                        <IconBot className="w-3.5 h-3.5" />
+                                        <span>3D Studio</span>
                                     </Link>
                                     <Link
                                         href={`/chat/${agent.id}`}
-                                        className="text-xs text-zinc-400 hover:text-blue-400 transition px-2 py-1 rounded-md hover:bg-zinc-800"
+                                        className="text-xs text-zinc-400 hover:text-blue-400 transition px-2 py-1 rounded-md hover:bg-zinc-800 flex items-center gap-1"
                                     >
-                                        Chat
+                                        <IconMessageSquare className="w-3 h-3" />
+                                        <span>Chat</span>
                                     </Link>
                                     <Link
                                         href="/office"
-                                        className="text-xs text-zinc-400 hover:text-emerald-400 transition px-2 py-1 rounded-md hover:bg-zinc-800"
+                                        className="text-xs text-zinc-400 hover:text-emerald-400 transition px-2 py-1 rounded-md hover:bg-zinc-800 flex items-center gap-1"
                                     >
-                                        Office
+                                        <IconBuilding className="w-3 h-3" />
+                                        <span>Office</span>
                                     </Link>
                                 </div>
 
                                 <button
                                     type="button"
                                     onClick={() => handleDelete(agent.id, agent.name)}
-                                    className="text-xs text-zinc-500 hover:text-red-400 transition px-2 py-1 rounded-md hover:bg-red-950/40"
+                                    className="text-xs text-zinc-500 hover:text-red-400 transition px-2 py-1 rounded-md hover:bg-red-950/40 flex items-center gap-1"
                                 >
-                                    Delete
+                                    <IconTrash className="w-3 h-3" />
+                                    <span>Xóa</span>
                                 </button>
                             </div>
                         </div>

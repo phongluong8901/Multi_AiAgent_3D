@@ -31,5 +31,6 @@ def chat_with_specific_agent(
         agent_id=agent_id,
         user_message=payload.message,
         room_id=payload.room_id,
+        source="http",  # chat-service sẽ bỏ qua reply event này trên MQ (đã nhận qua HTTP response)
     )
     return result

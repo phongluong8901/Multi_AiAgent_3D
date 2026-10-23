@@ -119,6 +119,8 @@ export default function SetupAgentPage() {
                 throw new Error('ID hoặc Name không được để trống')
             }
 
+            const chosenModel = modelId || 'gemini-2.5-flash-lite'
+
             await agentsApi.create({
                 id: agentId,
                 name: name.trim(),
@@ -128,13 +130,14 @@ export default function SetupAgentPage() {
                 pos_x: 0,
                 pos_y: 0,
                 pos_z: 0,
+                model: chosenModel,
                 prompt_id: promptId,
                 tool_ids: selectedTools,
             })
 
-            // Lưu model preference phía client (BE chưa có field)
-            if (typeof window !== 'undefined' && modelId) {
-                localStorage.setItem(`agent_model:${agentId}`, modelId)
+            // Lưu model preference phía client để backup
+            if (typeof window !== 'undefined') {
+                localStorage.setItem(`agent_model:${agentId}`, chosenModel)
             }
 
             router.push('/agents')
@@ -163,8 +166,22 @@ export default function SetupAgentPage() {
                 <div className="grid lg:grid-cols-[240px_1fr_240px] gap-5">
                     {/* ===== LEFT: Prompts + Tools ===== */}
                     <div className="space-y-6">
-                        <PromptPalette prompts={prompts} loading={loadingMeta} />
-                        <ToolsPalette tools={tools} loading={loadingMeta} />
+                        <PromptPalette
+                            prompts={prompts}
+                            loading={loadingMeta}
+                            selectedPromptId={promptId}
+                            onSelect={(p) => setPromptId(p.id)}
+                        />
+                        <ToolsPalette
+                            tools={tools}
+                            loading={loadingMeta}
+                            selectedToolIds={selectedTools}
+                            onSelect={(t) =>
+                                setSelectedTools((prev) =>
+                                    prev.includes(t.id) ? prev.filter((x) => x !== t.id) : [...prev, t.id]
+                                )
+                            }
+                        />
                     </div>
 
                     {/* ===== CENTER: Robot + Slots + Form ===== */}
@@ -247,7 +264,12 @@ export default function SetupAgentPage() {
 
                     {/* ===== RIGHT: Models ===== */}
                     <div>
-                        <ModelPalette models={models} loading={loadingMeta} />
+                        <ModelPalette
+                            models={models}
+                            loading={loadingMeta}
+                            selectedModelId={modelId}
+                            onSelect={(m) => setModelId(m.id)}
+                        />
                     </div>
                 </div>
 

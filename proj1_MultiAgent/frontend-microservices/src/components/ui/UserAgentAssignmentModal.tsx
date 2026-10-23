@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { Agent, UserAgentBinding, roomsApi, Room, UserPresence } from '@/lib/api'
 import { getUser } from '@/lib/auth'
-import { IconUsers, IconUser, IconX, IconSparkles, IconBot } from './icons'
+import { IconUsers, IconUser, IconX, IconSparkles, IconBot, IconGlobe, IconCpu, IconFileText } from './icons'
 
 type Props = {
     roomId: string
@@ -149,7 +149,8 @@ export default function UserAgentAssignmentModal({
                         )
                     })}
                     <div className="px-2.5 py-1 rounded-xl border bg-zinc-900 border-zinc-800 text-zinc-400 flex items-center gap-1.5">
-                        <span className="text-zinc-500">🌐 Dùng chung:</span>
+                        <IconGlobe className="w-3 h-3 text-zinc-400 shrink-0" />
+                        <span className="text-zinc-400 font-medium">Dùng chung:</span>
                         <span className="font-bold px-1.5 py-0.2 bg-zinc-800 text-zinc-300 rounded-md font-mono text-[10px]">
                             {sharedAgentCount} Agent
                         </span>
@@ -183,9 +184,21 @@ export default function UserAgentAssignmentModal({
                                     <div className="text-xs font-bold text-white flex items-center gap-2 flex-wrap">
                                         <span>{ag.name}</span>
                                         <span className="text-[10px] text-zinc-500 font-mono">@{ag.id}</span>
+                                        {ag.model && (
+                                            <span className="text-[9px] bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 px-1.5 py-0.5 rounded-md font-mono inline-flex items-center gap-1">
+                                                <IconCpu className="w-2.5 h-2.5 text-emerald-400" />
+                                                <span>{ag.model}</span>
+                                            </span>
+                                        )}
+                                        {ag.prompt_id && (
+                                            <span className="text-[9px] bg-blue-500/15 text-blue-400 border border-blue-500/20 px-1.5 py-0.5 rounded-md inline-flex items-center gap-1">
+                                                <IconFileText className="w-2.5 h-2.5 text-blue-400" />
+                                                <span>{ag.prompt_id}</span>
+                                            </span>
+                                        )}
                                     </div>
-                                    <div className="text-[11px] text-zinc-400 truncate max-w-sm">
-                                        {ag.description || 'Chuyên gia AI tự hành'}
+                                    <div className="text-[11px] text-zinc-400 truncate max-w-sm mt-0.5">
+                                        {ag.description || ag.speech || 'Chuyên gia AI tự hành'}
                                     </div>
                                 </div>
                             </div>
@@ -202,10 +215,10 @@ export default function UserAgentAssignmentModal({
                                             onChange={(e) => handleAssignChange(ag, e.target.value)}
                                             className="text-xs bg-zinc-900 border border-zinc-700 hover:border-blue-500 text-zinc-200 rounded-xl px-2.5 py-1.5 outline-none font-medium transition cursor-pointer"
                                         >
-                                            <option value="">🌐 Dùng chung (Tất cả)</option>
+                                            <option value="">Dùng chung (Tất cả)</option>
                                             {availableAssignees.map((u) => (
                                                 <option key={u.id} value={u.id}>
-                                                    👤 {u.name}
+                                                    {u.name}
                                                 </option>
                                             ))}
                                         </select>

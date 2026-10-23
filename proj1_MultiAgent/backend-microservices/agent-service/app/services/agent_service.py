@@ -13,6 +13,7 @@ class AgentService:
             "status": agent.status,
             "speech": agent.speech,
             "position": [agent.pos_x, agent.pos_y, agent.pos_z],
+            "model": getattr(agent, "model", None) or "gemini-2.5-flash-lite",
             "prompt_id": agent.prompt_id,
             "tools": agent.tools
         }

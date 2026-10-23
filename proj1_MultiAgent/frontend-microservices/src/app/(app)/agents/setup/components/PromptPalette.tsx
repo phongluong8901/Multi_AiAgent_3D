@@ -7,9 +7,19 @@ import { colorFromId } from '@/lib/colorFormId' // hoặc copy hàm vào đây
 type Props = {
     prompts: Prompt[]
     loading?: boolean
+    selectedPromptId?: string | null
+    onSelect?: (prompt: Prompt) => void
 }
 
-function DraggablePromptCard({ prompt }: { prompt: Prompt }) {
+function DraggablePromptCard({
+    prompt,
+    isSelected,
+    onSelect,
+}: {
+    prompt: Prompt
+    isSelected?: boolean
+    onSelect?: (prompt: Prompt) => void
+}) {
     const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
         id: `prompt-${prompt.id}`,
         data: { type: 'prompt', item: prompt },
@@ -27,11 +37,12 @@ function DraggablePromptCard({ prompt }: { prompt: Prompt }) {
             style={style}
             {...listeners}
             {...attributes}
+            onClick={() => onSelect && onSelect(prompt)}
             className={`
         group cursor-grab active:cursor-grabbing
-        rounded-xl border border-zinc-700/80 bg-zinc-800/70
+        rounded-xl border ${isSelected ? 'border-blue-500 bg-blue-950/30 ring-1 ring-blue-500' : 'border-zinc-700/80 bg-zinc-800/70'}
         px-3 py-2.5 text-sm transition-all duration-150
-        hover:bg-zinc-800
+        hover:bg-zinc-800 hover:border-zinc-600
         ${isDragging ? 'opacity-40 scale-95 shadow-lg' : ''}
       `}
         >
@@ -45,7 +56,14 @@ function DraggablePromptCard({ prompt }: { prompt: Prompt }) {
                     }}
                 />
                 <div className="min-w-0 flex-1">
-                    <div className="font-medium text-zinc-100 truncate">{prompt.title}</div>
+                    <div className="flex items-center justify-between gap-1">
+                        <span className="font-medium text-zinc-100 truncate">{prompt.title}</span>
+                        {isSelected && (
+                            <span className="text-[10px] bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded-full font-mono">
+                                Đã chọn
+                            </span>
+                        )}
+                    </div>
                     <div className="text-[11px] text-zinc-500 mt-0.5 line-clamp-2 leading-relaxed">
                         {prompt.content || 'No content'}
                     </div>
@@ -55,7 +73,7 @@ function DraggablePromptCard({ prompt }: { prompt: Prompt }) {
     )
 }
 
-export default function PromptPalette({ prompts, loading }: Props) {
+export default function PromptPalette({ prompts, loading, selectedPromptId, onSelect }: Props) {
     return (
         <div className="space-y-3">
             <div className="flex items-center justify-between">
@@ -81,7 +99,12 @@ export default function PromptPalette({ prompts, loading }: Props) {
             ) : (
                 <div className="space-y-2 max-h-[280px] overflow-y-auto pr-1">
                     {prompts.map((p) => (
-                        <DraggablePromptCard key={p.id} prompt={p} />
+                        <DraggablePromptCard
+                            key={p.id}
+                            prompt={p}
+                            isSelected={selectedPromptId === p.id}
+                            onSelect={onSelect}
+                        />
                     ))}
                 </div>
             )}

@@ -35,6 +35,22 @@ export type UserAgentBinding = {
     assignedAt?: string
 }
 
+export type AgentWorkflowMode = 'solo' | 'sequential' | 'routing' | 'autonomous'
+
+export type WorkflowTransition = {
+    fromAgentId: string
+    toAgentId: string
+    condition?: string
+}
+
+export type AgentWorkflow = {
+    mode: AgentWorkflowMode
+    order?: string[]
+    transitions?: WorkflowTransition[]
+    enabled?: boolean
+    description?: string
+}
+
 export type Room = {
     _id?: string
     id?: string
@@ -47,6 +63,7 @@ export type Room = {
     policy?: RoomPolicy
     settings: RoomSettings
     members: RoomMember[]
+    workflow?: AgentWorkflow
     createdAt?: string
     updatedAt?: string
 }
@@ -237,6 +254,14 @@ export const roomsApi = {
         const res = await request<{ success: boolean; data: Room }>(
             `${UU}/${roomId}/leave`,
             { method: 'POST' }
+        )
+        return res.data
+    },
+
+    updateWorkflow: async (roomId: string, workflow: AgentWorkflow): Promise<Room> => {
+        const res = await request<{ success: boolean; data: Room }>(
+            `${UU}/${roomId}/workflow`,
+            { method: 'PUT', body: JSON.stringify(workflow) }
         )
         return res.data
     },
