@@ -45,3 +45,9 @@ git checkout -b p8_update_agent-service
 git add .
 git commit -m "change: first"
 git push origin p8_update_agent-service
+
+--- 
+git checkout -b p9_update_drawmap-service
+git add .
+git commit -m "change: first"
+git push origin p9_update_drawmap-service
