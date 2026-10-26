@@ -1,5 +1,6 @@
 'use client'
 
+import { useMemo } from 'react'
 import Scene, { MapType } from '@/components/Scene'
 import { AgentAction } from '@/components/agents/Agent'
 import {
@@ -15,7 +16,12 @@ import {
     IconDroplets,
     IconGameController,
     IconUser,
+    IconDuck,
+    IconAmr,
+    IconDrone,
+    IconHumanoid,
 } from '@/components/ui/icons'
+import NvidiaIsaacHud from '@/components/agents/NvidiaIsaacHud'
 
 interface Workspace3DPanelProps {
     mapType: MapType
@@ -40,6 +46,22 @@ export function Workspace3DPanel({
     handleTriggerAction,
 }: Workspace3DPanelProps) {
     const selectedAgent = roomAgents.find((a) => a.id === selected3dAgentId)
+
+    const robotForm = useMemo<'humanoid' | 'duck' | 'amr' | 'drone'>(() => {
+        if (!selectedAgent) return 'humanoid'
+        if (typeof window !== 'undefined' && selectedAgent.id) {
+            const saved = localStorage.getItem(`agent_form:${selectedAgent.id}`)
+            if (saved === 'duck' || saved === 'amr' || saved === 'drone' || saved === 'humanoid') return saved
+        }
+        const lower = ((selectedAgent.name || '') + ' ' + (selectedAgent.id || '')).toLowerCase()
+        if (lower.includes('duck') || lower.includes('vit')) return 'duck'
+        if (lower.includes('amr') || lower.includes('agv') || lower.includes('xe') || lower.includes('logistics')) return 'amr'
+        if (lower.includes('drone') || lower.includes('fly') || lower.includes('bay')) return 'drone'
+        return 'humanoid'
+    }, [selectedAgent])
+
+    const FormIcon = robotForm === 'duck' ? IconDuck : robotForm === 'amr' ? IconAmr : robotForm === 'drone' ? IconDrone : IconHumanoid
+    const formLabel = robotForm === 'duck' ? 'MicroDuck Bipedal' : robotForm === 'amr' ? 'Nova Carter AMR' : robotForm === 'drone' ? 'Cyber Falcon' : 'Project GR00T'
 
     return (
         <div className="relative h-full w-full min-h-0 overflow-hidden">
@@ -83,10 +105,20 @@ export function Workspace3DPanel({
                         </span>
                     )}
                     <span className="text-zinc-500">·</span>
-                    <span className="font-medium text-blue-400">
-                        {roomAgents.length} agents
+                    <span className="font-medium text-[#76b900] flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#76b900]" />
+                        {roomAgents.length} robots
                     </span>
                 </div>
+            </div>
+
+            {/* Top Right: NVIDIA Isaac Telemetry Bar */}
+            <div className="pointer-events-none absolute right-3 top-3 z-10 hidden sm:block">
+                <NvidiaIsaacHud
+                    compact
+                    agentForm={robotForm}
+                    agentName={selectedAgent?.name}
+                />
             </div>
 
             {/* HUD điều khiển */}
@@ -98,22 +130,26 @@ export function Workspace3DPanel({
                                 className="h-3.5 w-3.5 shrink-0 rounded-full ring-2 ring-white/20"
                                 style={{ backgroundColor: selectedAgent?.color || '#3b82f6' }}
                             />
-                            <div className="truncate text-xs font-bold text-white">
-                                {selectedAgent?.name || 'Chưa chọn Agent'}
-                                <span className="ml-1 font-mono text-[10px] font-normal text-zinc-400">
+                            <div className="truncate text-xs font-bold text-white flex items-center gap-1.5">
+                                <span>{selectedAgent?.name || 'Chưa chọn Agent'}</span>
+                                <span className="inline-flex items-center gap-1 text-[10px] text-[#76b900] bg-[#76b900]/15 border border-[#76b900]/30 px-1.5 py-0.5 rounded-md font-mono">
+                                    <FormIcon className="w-3 h-3 text-[#76b900]" />
+                                    <span>{formLabel}</span>
+                                </span>
+                                <span className="font-mono text-[10px] font-normal text-zinc-400">
                                     (@{selected3dAgentId})
                                 </span>
                                 {selectedAgent?.ownerName && (
-                                    <span className="ml-1 inline-flex items-center gap-0.5 rounded-full border border-blue-500/30 bg-blue-900/40 px-1.5 text-[10px] text-blue-300">
+                                    <span className="inline-flex items-center gap-0.5 rounded-full border border-blue-500/30 bg-blue-900/40 px-1.5 text-[10px] text-blue-300">
                                         <IconUser className="h-2.5 w-2.5" />
                                         {selectedAgent.ownerName}
                                     </span>
                                 )}
                             </div>
                         </div>
-                        <div className="hidden shrink-0 items-center gap-1 rounded-full border border-blue-500/20 bg-blue-500/10 px-2 py-0.5 font-mono text-[10px] text-blue-400 sm:flex">
+                        <div className="hidden shrink-0 items-center gap-1 rounded-full border border-[#76b900]/30 bg-[#76b900]/10 px-2 py-0.5 font-mono text-[10px] text-[#76b900] sm:flex">
                             <IconGameController className="h-3 w-3" />
-                            WASD
+                            WASD DRIVE
                         </div>
                     </div>
 
@@ -124,6 +160,24 @@ export function Workspace3DPanel({
 
                         {mapType === 'office' ? (
                             <>
+                                <ActionBtn
+                                    onClick={() => handleTriggerAction(selected3dAgentId, 'management_office')}
+                                    className="border-amber-500/40 bg-amber-600/20 text-amber-200 hover:bg-amber-600/30"
+                                    icon={<IconUser className="h-3.5 w-3.5" />}
+                                    label="P. Quản lý"
+                                />
+                                <ActionBtn
+                                    onClick={() => handleTriggerAction(selected3dAgentId, 'research_lab')}
+                                    className="border-cyan-500/40 bg-cyan-600/20 text-cyan-200 hover:bg-cyan-600/30"
+                                    icon={<IconDuck className="h-3.5 w-3.5" />}
+                                    label="P. Nghiên cứu"
+                                />
+                                <ActionBtn
+                                    onClick={() => handleTriggerAction(selected3dAgentId, 'analytics_dept')}
+                                    className="border-emerald-500/40 bg-emerald-600/20 text-emerald-200 hover:bg-emerald-600/30"
+                                    icon={<IconActivity className="h-3.5 w-3.5" />}
+                                    label="P. Phân tích"
+                                />
                                 <ActionBtn
                                     onClick={() => handleTriggerAction(selected3dAgentId, 'desk')}
                                     className="border-blue-500/40 bg-blue-600/25 text-blue-200 hover:bg-blue-600/35"

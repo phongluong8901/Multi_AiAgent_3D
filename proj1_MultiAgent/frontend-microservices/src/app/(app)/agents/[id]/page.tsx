@@ -23,7 +23,7 @@ import {
     AgentUpdate,
 } from '@/lib/api'
 
-import RobotCanvas from '../setup/components/RobotCanvas'
+import RobotCanvas, { AgentFormType } from '../setup/components/RobotCanvas'
 import PromptPalette from '../setup/components/PromptPalette'
 import ToolsPalette from '../setup/components/ToolsPalette'
 import ModelPalette from '../setup/components/ModelPalette'
@@ -37,7 +37,29 @@ import {
     IconAlertCircle,
     IconX,
     IconSave,
+    IconDuck,
+    IconAmr,
+    IconDrone,
+    IconHumanoid,
 } from '@/components/ui/icons'
+
+const COLOR_PRESETS = [
+    { label: 'MicroDuck Blue', hex: '#7dd3fc' },
+    { label: 'Duck Beak Orange', hex: '#f97316' },
+    { label: 'NVIDIA Lime', hex: '#76b900' },
+    { label: 'Nova Orange', hex: '#f97316' },
+    { label: 'Falcon Cyan', hex: '#06b6d4' },
+    { label: 'Cobalt Blue', hex: '#3b82f6' },
+    { label: 'Stealth Carbon', hex: '#27272a' },
+    { label: 'Titanium White', hex: '#e2e8f0' },
+]
+
+const FORM_SIGNATURE_COLORS: Record<AgentFormType, string> = {
+    humanoid: '#76b900',
+    duck: '#7dd3fc',
+    amr: '#f97316',
+    drone: '#06b6d4',
+}
 
 export default function AgentDetailPage() {
     const params = useParams()
@@ -46,7 +68,8 @@ export default function AgentDetailPage() {
 
     const [agent, setAgent] = useState<Agent | null>(null)
     const [name, setName] = useState('')
-    const [color, setColor] = useState('#4299e1')
+    const [color, setColor] = useState('#76b900')
+    const [agentForm, setAgentForm] = useState<AgentFormType>('humanoid')
     const [status, setStatus] = useState('idle')
     const [speech, setSpeech] = useState('')
 
@@ -91,6 +114,21 @@ export default function AgentDetailPage() {
                             typeof item === 'string' ? item : item.id
                         )
                     )
+                }
+
+                // Nhận diện chassis robot từ localStorage hoặc keyword
+                const savedForm =
+                    typeof window !== 'undefined'
+                        ? localStorage.getItem(`agent_form:${ag.id}`)
+                        : null
+                if (savedForm === 'duck' || savedForm === 'amr' || savedForm === 'drone' || savedForm === 'humanoid') {
+                    setAgentForm(savedForm as AgentFormType)
+                } else {
+                    const lower = ((ag.name || '') + ' ' + ag.id).toLowerCase()
+                    if (lower.includes('duck') || lower.includes('vit')) setAgentForm('duck')
+                    else if (lower.includes('amr') || lower.includes('agv') || lower.includes('xe') || lower.includes('carter')) setAgentForm('amr')
+                    else if (lower.includes('drone') || lower.includes('fly') || lower.includes('falcon')) setAgentForm('drone')
+                    else setAgentForm('humanoid')
                 }
 
                 // Model priority: backend agent.model -> localStorage -> default
@@ -175,8 +213,9 @@ export default function AgentDetailPage() {
             const updated = await agentsApi.update(id, updatePayload)
             setAgent(updated)
 
-            // Lưu model preference phía client
+            // Lưu model preference & form chassis phía client
             if (typeof window !== 'undefined') {
+                localStorage.setItem(`agent_form:${id}`, agentForm)
                 localStorage.setItem(`agent_model:${id}`, chosenModel)
             }
 
@@ -341,6 +380,8 @@ export default function AgentDetailPage() {
                             modelId={modelId}
                             customColor={color}
                             label={name || id}
+                            agentForm={agentForm}
+                            onFormChange={setAgentForm}
                         />
 
                         {/* Attached slots (drop zones) */}
@@ -365,6 +406,60 @@ export default function AgentDetailPage() {
                                     Thông tin định danh & Tính cách
                                 </h3>
                                 <span className="text-[11px] text-zinc-500 font-mono">ID: {id}</span>
+                            </div>
+
+                            {/* CHỌN HÌNH THÁI CHASSIS ROBOT (NVIDIA ROBOTICS FLEET) */}
+                            <div>
+                                <div className="flex items-center justify-between mb-2">
+                                    <label className="text-xs font-semibold text-zinc-300">
+                                        Hình thái Robot 3D (NVIDIA Robotics Fleet)
+                                    </label>
+                                    <span className="text-[10px] font-mono text-[#76b900] bg-[#76b900]/10 px-1.5 py-0.5 rounded border border-[#76b900]/30">
+                                        ISAAC SIM ENGINE
+                                    </span>
+                                </div>
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                                    {[
+                                        { id: 'humanoid', label: 'Project GR00T', desc: 'Biped Robot 2 chân', icon: IconHumanoid, glow: 'hover:border-[#76b900] text-[#76b900]' },
+                                        { id: 'duck', label: 'MicroDuck Bipedal', desc: 'Vịt 2 chân Servo AI', icon: IconDuck, glow: 'hover:border-sky-400 text-sky-400' },
+                                        { id: 'amr', label: 'Nova Carter AMR', desc: 'Tự hành 360° LiDAR', icon: IconAmr, glow: 'hover:border-orange-500 text-orange-400' },
+                                        { id: 'drone', label: 'Cyber Falcon', desc: 'Drone tuần tra RTK', icon: IconDrone, glow: 'hover:border-cyan-400 text-cyan-400' },
+                                    ].map((f) => {
+                                        const active = agentForm === f.id
+                                        const FormIcon = f.icon
+                                        return (
+                                            <button
+                                                key={f.id}
+                                                type="button"
+                                                onClick={() => {
+                                                    const nextForm = f.id as AgentFormType
+                                                    setAgentForm(nextForm)
+                                                    if (Object.values(FORM_SIGNATURE_COLORS).includes(color) || color === '#4299e1') {
+                                                        setColor(FORM_SIGNATURE_COLORS[nextForm])
+                                                    }
+                                                }}
+                                                className={`p-2.5 rounded-xl border text-left transition flex flex-col justify-between ${
+                                                    active
+                                                        ? 'bg-zinc-800/90 border-[#76b900] text-white shadow-[0_0_15px_rgba(118,185,0,0.2)]'
+                                                        : 'bg-zinc-800/40 border-zinc-700/60 text-zinc-400 hover:text-white hover:bg-zinc-800 ' + f.glow
+                                                }`}
+                                            >
+                                                <div className="flex items-center justify-between">
+                                                    <div className={`p-1.5 rounded-lg ${active ? 'bg-[#76b900]/20 text-[#76b900]' : 'bg-zinc-700/40 text-zinc-400'}`}>
+                                                        <FormIcon className="w-5 h-5" />
+                                                    </div>
+                                                    {active && (
+                                                        <span className="w-2 h-2 rounded-full bg-[#76b900] shadow-[0_0_6px_#76b900]" />
+                                                    )}
+                                                </div>
+                                                <div className="mt-2">
+                                                    <div className="text-xs font-semibold truncate">{f.label}</div>
+                                                    <div className="text-[10px] text-zinc-500 truncate">{f.desc}</div>
+                                                </div>
+                                            </button>
+                                        )
+                                    })}
+                                </div>
                             </div>
 
                             <div className="grid sm:grid-cols-2 gap-3.5">
@@ -398,32 +493,57 @@ export default function AgentDetailPage() {
                                 </div>
                             </div>
 
-                            <div className="grid sm:grid-cols-[100px_1fr] gap-3.5">
-                                <div>
-                                    <label className="block text-xs text-zinc-400 mb-1 font-medium">
-                                        Mã màu 3D
-                                    </label>
-                                    <div className="flex items-center gap-2">
+                            {/* Bảng màu và Preset Swatches */}
+                            <div>
+                                <label className="block text-xs text-zinc-400 mb-1.5 font-medium">
+                                    Màu sơn ngoại thất & Đèn LED
+                                </label>
+                                <div className="flex items-center flex-wrap gap-2">
+                                    <div className="flex items-center gap-2 pr-2 border-r border-zinc-800">
                                         <input
                                             type="color"
                                             value={color}
                                             onChange={(e) => setColor(e.target.value)}
-                                            className="h-10 w-full rounded-xl border border-zinc-700 bg-zinc-800 cursor-pointer"
+                                            className="h-8 w-10 rounded border border-zinc-700 bg-zinc-800 cursor-pointer p-0.5"
                                         />
+                                        <span className="text-xs font-mono text-zinc-300 uppercase">{color}</span>
+                                    </div>
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                        {COLOR_PRESETS.map((p) => {
+                                            const isSelectedColor = color.toLowerCase() === p.hex.toLowerCase()
+                                            return (
+                                                <button
+                                                    key={p.hex}
+                                                    type="button"
+                                                    title={p.label}
+                                                    onClick={() => setColor(p.hex)}
+                                                    className={`w-6 h-6 rounded-full border transition flex items-center justify-center ${
+                                                        isSelectedColor
+                                                            ? 'border-white scale-110 shadow-[0_0_8px_rgba(255,255,255,0.4)]'
+                                                            : 'border-zinc-700 hover:scale-105'
+                                                    }`}
+                                                    style={{ backgroundColor: p.hex }}
+                                                >
+                                                    {isSelectedColor && (
+                                                        <span className="w-1.5 h-1.5 rounded-full bg-black/80" />
+                                                    )}
+                                                </button>
+                                            )
+                                        })}
                                     </div>
                                 </div>
+                            </div>
 
-                                <div>
-                                    <label className="block text-xs text-zinc-400 mb-1 font-medium">
-                                        Lời chào mặc định / Speech
-                                    </label>
-                                    <input
-                                        value={speech}
-                                        onChange={(e) => setSpeech(e.target.value)}
-                                        placeholder="Xin chào! Tôi là trợ lý AI sẵn sàng hỗ trợ..."
-                                        className="w-full rounded-xl bg-zinc-800/80 border border-zinc-700/80 px-3.5 py-2.5 text-sm text-white outline-none focus:border-blue-500 transition"
-                                    />
-                                </div>
+                            <div>
+                                <label className="block text-xs text-zinc-400 mb-1 font-medium">
+                                    Lời chào mặc định / Speech
+                                </label>
+                                <input
+                                    value={speech}
+                                    onChange={(e) => setSpeech(e.target.value)}
+                                    placeholder="Xin chào! Tôi là trợ lý AI sẵn sàng hỗ trợ..."
+                                    className="w-full rounded-xl bg-zinc-800/80 border border-zinc-700/80 px-3.5 py-2.5 text-sm text-white outline-none focus:border-blue-500 transition"
+                                />
                             </div>
 
                             <button

@@ -1,0 +1,4 @@
+build/
+dist/
+worker_env/
+worker.spec

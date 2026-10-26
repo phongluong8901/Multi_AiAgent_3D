@@ -45,8 +45,26 @@ export function MapEditorCanvas({
 
     return (
         <div className="relative w-full h-full bg-zinc-950 select-none">
+            {/* Top Left: Isaac Sim 3D World Engine HUD */}
+            <div className="pointer-events-none absolute left-3 top-3 z-10 flex items-center gap-2 px-3 py-1.5 rounded-xl bg-black/85 border border-zinc-800 text-[11px] backdrop-blur font-mono text-zinc-300 shadow-xl">
+                <span className="w-2 h-2 rounded-full bg-[#76b900] shadow-[0_0_6px_#76b900]" />
+                <span className="font-bold text-white tracking-wider">NVIDIA ISAAC SIM</span>
+                <span className="text-zinc-600">|</span>
+                <span className="text-[#76b900]">PHYSX 5.3 GRID</span>
+                <span className="text-zinc-500">({items.length} assets)</span>
+                <span className="text-zinc-600">|</span>
+                <span className="text-zinc-400">Snap: 2.0m</span>
+            </div>
+
             <Canvas
                 shadows
+                dpr={[1, 1.5]}
+                gl={{
+                    powerPreference: 'high-performance',
+                    antialias: true,
+                    stencil: false,
+                    depth: true,
+                }}
                 camera={{ position: [30, 24, 30], fov: 45 }}
                 className="w-full h-full"
             >
@@ -62,7 +80,7 @@ export function MapEditorCanvas({
                     position={[20, 35, 20]}
                     intensity={1.5}
                     castShadow
-                    shadow-mapSize={[2048, 2048]}
+                    shadow-mapSize={[1024, 1024]}
                 />
                 <pointLight position={[0, 15, 0]} intensity={0.5} color="#38bdf8" />
 
@@ -70,6 +88,8 @@ export function MapEditorCanvas({
                 <OrbitControls
                     ref={controlsRef}
                     makeDefault
+                    enableDamping
+                    dampingFactor={0.05}
                     minDistance={8}
                     maxDistance={120}
                     maxPolarAngle={Math.PI / 2 - 0.05}

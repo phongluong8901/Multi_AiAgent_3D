@@ -84,6 +84,9 @@ export function resolveTargetPositionForAction(
         if (action === 'roundtable') return OFFICE_ACTION_SPOTS.roundtable
         if (action === 'pingpong') return OFFICE_ACTION_SPOTS.pingpong
         if (action === 'coffee') return OFFICE_ACTION_SPOTS.coffee
+        if (action === 'management_office') return OFFICE_ACTION_SPOTS.management_office
+        if (action === 'research_lab') return OFFICE_ACTION_SPOTS.research_lab
+        if (action === 'analytics_dept') return OFFICE_ACTION_SPOTS.analytics_dept
         if (action === 'desk') {
             return OFFICE_DESK_SLOTS[agentIndex % OFFICE_DESK_SLOTS.length]
         }

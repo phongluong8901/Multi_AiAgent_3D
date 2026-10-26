@@ -36,3 +36,4 @@ pnpm tauri dev
 
 -
 pnpm tauri build
+

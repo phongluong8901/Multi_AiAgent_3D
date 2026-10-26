@@ -7,7 +7,9 @@ export interface IProduct extends Document {
     description: string;
     avatarUrl?: string;
     color: string;
-    category: "AI Engineering" | "Research & Search" | "Data Analytics" | "Management" | "Content & Summary" | "DevOps & Cloud";
+    category: string;
+    formType?: "duck" | "amr" | "humanoid" | "drone";
+    computeTier?: string; // e.g. "Jetson Orin Nano 40 TOPS", "AGX Orin 275 TOPS", "DGX Spark"
     pricing: {
         buyPrice: number;        // Giá mua đứt vĩnh viễn (Coin)
         rentHourlyRate: number;  // Giá thuê theo giờ (Coin/giờ)
@@ -35,13 +37,14 @@ const ProductSchema = new Schema<IProduct>(
         title: { type: String, required: true },
         description: { type: String, required: true },
         avatarUrl: { type: String, default: "" },
-        color: { type: String, default: "#3b82f6" },
+        color: { type: String, default: "#76b900" },
         category: {
             type: String,
             required: true,
-            enum: ["AI Engineering", "Research & Search", "Data Analytics", "Management", "Content & Summary", "DevOps & Cloud"],
             index: true
         },
+        formType: { type: String, default: "humanoid" },
+        computeTier: { type: String, default: "NVIDIA Jetson Orin" },
         pricing: {
             buyPrice: { type: Number, required: true, default: 500 },
             rentHourlyRate: { type: Number, required: true, default: 10 },

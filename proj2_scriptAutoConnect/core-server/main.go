@@ -17,33 +17,39 @@ var upgrader = websocket.Upgrader{
 func handleConnections(w http.ResponseWriter, r *http.Request) {
 	ws, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Printf("❌ Lỗi nâng cấp WebSocket: %v", err)
+		log.Printf("[ERROR] WebSocket Upgrade Failed: %v", err)
 		return
 	}
 	defer ws.Close()
-
-	fmt.Println("🟢 Đã có một Worker kết nối thành công tới Server!")
 
 	for {
 		var msg map[string]interface{}
 		err := ws.ReadJSON(&msg)
 		if err != nil {
-			log.Printf("⚠️ Worker đã ngắt kết nối: %v", err)
+			log.Printf("[WARN] Connection closed: %v", err)
 			break
 		}
 
-		msgType := msg["type"]
+		msgType, _ := msg["type"].(string)
 
-		if msgType == "REGISTER_WORKER" {
+		switch msgType {
+		case "PING_CHECK":
+			// Phản hồi ngay cho bước kiểm tra kết nối từ UI
+			_ = ws.WriteJSON(map[string]interface{}{
+				"type":   "PONG_OK",
+				"status": "ONLINE",
+			})
+			log.Println("[PING] Client connection test verified.")
+
+		case "REGISTER_WORKER":
 			token := msg["token"]
-
 			hardware, hwOk := msg["hardware"].(map[string]interface{})
 			if !hwOk {
-				log.Println("⚠️ Dữ liệu hardware không hợp lệ")
+				log.Println("[WARN] Invalid hardware payload")
+				continue
 			}
 
-			city := "Unknown"
-			country := "Unknown"
+			city, country := "Unknown", "Unknown"
 			if loc, ok := msg["location"].(map[string]interface{}); ok {
 				if c, exists := loc["city"].(string); exists {
 					city = c
@@ -53,20 +59,35 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 
-			fmt.Println("\n----------------------------------------")
-			fmt.Println("📋 NHẬN ĐĂNG KÝ WORKER THÀNH CÔNG:")
-			fmt.Printf("🔑 Token tài khoản: %v\n", token)
-			if hwOk {
-				fmt.Printf("💻 OS: %v | CPU Cores: %v\n", hardware["os"], hardware["cpu_cores"])
-				fmt.Printf("🎮 GPU: %v (VRAM: %v GB)\n", hardware["gpu_name"], hardware["vram_gb"])
+			fmt.Println("==================================================")
+			fmt.Println("[OK] WORKER NODE REGISTERED")
+			fmt.Println("--------------------------------------------------")
+			fmt.Printf("  Auth Token       : %v\n", token)
+			fmt.Printf("  Operating System : %v\n", hardware["os"])
+			fmt.Printf("  Allocated CPU    : %v / %v Cores\n", hardware["cpu_cores"], hardware["cpu_cores_total"])
+			fmt.Printf("  Allocated RAM    : %v / %v GB\n", hardware["system_ram_gb"], hardware["system_ram_total_gb"])
+			fmt.Printf("  GPU Accelerator  : %v (VRAM: %v GB)\n", hardware["gpu_name"], hardware["vram_gb"])
+			fmt.Printf("  Geo Location     : %s, %s\n", city, country)
+			fmt.Printf("  Supported Models : %v\n", hardware["supported_models"])
+			fmt.Println("==================================================")
+
+		case "HEARTBEAT":
+			token := msg["token"]
+			metrics, ok := msg["metrics"].(map[string]interface{})
+			if ok {
+				log.Printf(
+					"[TELEMETRY] Token: %v | CPU Load: %v%% (Limit: %v Cores) | RAM Used: %v GB (%v%% | Limit: %v GB)",
+					token,
+					metrics["cpu_usage_percent"],
+					metrics["allocated_cpu"],
+					metrics["ram_used_gb"],
+					metrics["ram_usage_percent"],
+					metrics["allocated_ram_gb"],
+				)
 			}
-			fmt.Printf("📍 Vị trí địa lý: %s, %s\n", city, country)
-			if hwOk {
-				fmt.Printf("🤖 Model hỗ trợ: %v\n", hardware["supported_models"])
-			}
-			fmt.Println("----------------------------------------\n")
-		} else {
-			fmt.Printf("📩 Nhận tin nhắn khác: %v\n", msg)
+
+		default:
+			log.Printf("[MESSAGE] Unknown payload: %v\n", msg)
 		}
 	}
 }
@@ -75,10 +96,9 @@ func main() {
 	http.HandleFunc("/ws", handleConnections)
 
 	port := ":8080"
-	fmt.Printf("🚀 Core Server (Golang) đang khởi chạy tại cổng %s...\n", port)
+	log.Printf("[SYSTEM] Core Server (Golang) listening on port %s...\n", port)
 
-	err := http.ListenAndServe(port, nil)
-	if err != nil {
-		log.Fatal("❌ Không thể khởi động server: ", err)
+	if err := http.ListenAndServe(port, nil); err != nil {
+		log.Fatal("[FATAL] Server startup failed: ", err)
 	}
 }

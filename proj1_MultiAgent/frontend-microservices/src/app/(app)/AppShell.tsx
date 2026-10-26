@@ -12,10 +12,12 @@ const NAV = [
     { href: '/rooms', label: 'Team Rooms' },
     { href: '/office', label: '3D Office' },
     { href: '/maps/setup', label: 'Map Studio 3D' },
+    { href: '/store', label: 'Agent Store' },
     { href: '/agents', label: 'Agents' },
     { href: '/prompts', label: 'Prompts' },
     { href: '/tools', label: 'Tools' },
     { href: '/models', label: 'Models' },
+    { href: '/firmware', label: 'Firmware 3D' },
     { href: '/chat', label: 'Chat' },
     { href: '/profile', label: 'Profile' },
     { href: '/seller-profile', label: 'Seller-Profile' },
@@ -109,7 +111,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             {/* Layout chính kết hợp Sidebar dọc và Main Content */}
             <div className="flex flex-1">
                 <Sidebar />
-                <main className={`flex-1 ${pathname.startsWith('/office') || pathname.startsWith('/maps/setup') || pathname.includes('/rooms/') ? '' : 'max-w-7xl mx-auto px-4 py-6'}`}>
+                <main className={`flex-1 ${pathname.startsWith('/office') || pathname.startsWith('/maps/setup') || pathname.startsWith('/firmware') || pathname.startsWith('/store') || pathname.includes('/rooms/') ? '' : 'max-w-7xl mx-auto px-4 py-6'}`}>
                     {children}
                 </main>
             </div>

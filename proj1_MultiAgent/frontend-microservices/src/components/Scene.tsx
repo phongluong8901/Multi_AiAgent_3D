@@ -35,9 +35,16 @@ export default function Scene({
         <div className="w-full h-full min-h-[calc(100vh-3.5rem)] relative select-none">
             <Canvas
                 shadows
+                dpr={[1, 1.5]}
+                gl={{
+                    powerPreference: 'high-performance',
+                    antialias: true,
+                    stencil: false,
+                    depth: true,
+                }}
                 camera={{
-                    position: isIot ? [28, 22, 28] : isOutdoor ? [18, 18, 18] : [16, 16, 16],
-                    fov: isIot ? 42 : isOutdoor ? 45 : 40,
+                    position: isIot ? [28, 22, 28] : isOutdoor ? [18, 18, 18] : [20, 19, 20],
+                    fov: isIot ? 42 : isOutdoor ? 45 : 44,
                 }}
             >
                 {/* Ánh sáng & Bầu trời theo từng map */}
@@ -54,7 +61,7 @@ export default function Scene({
                             position={[15, 28, 18]}
                             intensity={isIot ? 1.4 : 1.6}
                             castShadow
-                            shadow-mapSize={[2048, 2048]}
+                            shadow-mapSize={[1024, 1024]}
                         />
                         {isIot && (
                             <pointLight position={[0, 12, 0]} intensity={0.4} color="#38bdf8" />
@@ -67,7 +74,7 @@ export default function Scene({
                             position={[12, 18, 10]}
                             intensity={1.3}
                             castShadow
-                            shadow-mapSize={[2048, 2048]}
+                            shadow-mapSize={[1024, 1024]}
                         />
                     </>
                 )}
@@ -101,6 +108,8 @@ export default function Scene({
                 </Physics>
 
                 <OrbitControls
+                    enableDamping
+                    dampingFactor={0.05}
                     maxPolarAngle={Math.PI / 2.15}
                     minDistance={isIot ? 12 : 8}
                     maxDistance={isIot ? 55 : 40}

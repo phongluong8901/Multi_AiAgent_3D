@@ -19,7 +19,27 @@ import {
     IconShoppingBag,
     IconX,
     IconPlus,
+    IconStar,
+    IconDuck,
+    IconAmr,
+    IconDrone,
+    IconHumanoid,
+    IconCpu,
 } from '@/components/ui/icons'
+
+function getRobotIcon(form?: string, agentId?: string) {
+    const f = form || (agentId?.includes('duck') ? 'duck' : agentId?.includes('amr') ? 'amr' : agentId?.includes('drone') ? 'drone' : 'humanoid')
+    switch (f) {
+        case 'duck':
+            return <IconDuck className="h-6 w-6 text-white" />
+        case 'amr':
+            return <IconAmr className="h-6 w-6 text-white" />
+        case 'drone':
+            return <IconDrone className="h-6 w-6 text-white" />
+        default:
+            return <IconHumanoid className="h-6 w-6 text-white" />
+    }
+}
 
 interface AgentStoreModalProps {
     isOpen: boolean
@@ -82,7 +102,7 @@ export function AgentStoreModal({
             const res = await marketplaceApi.faucetCoin({ userId: currentUserId, amount: 500 })
             if (res.success) {
                 setWallet(res.data)
-                alert('🎉 Đã nạp thành công +500 Coin vào ví của bạn!')
+                alert('Đã nạp thành công +500 Coin vào ví của bạn!')
             }
         } catch (err: any) {
             alert('Lỗi nạp coin: ' + err.message)
@@ -109,7 +129,7 @@ export function AgentStoreModal({
             })
 
             if (res.success) {
-                alert(`🎉 ${res.message}`)
+                alert(res.message)
                 await loadData()
             }
         } catch (err: any) {
@@ -133,7 +153,7 @@ export function AgentStoreModal({
             })
 
             if (res.success) {
-                alert(`🎉 ${res.message}`)
+                alert(res.message)
                 setRentModalProduct(null)
                 await loadData()
             }
@@ -191,7 +211,7 @@ export function AgentStoreModal({
                     <div className="flex items-center gap-4">
                         {/* Ví Coin */}
                         <div className="flex items-center gap-2 rounded-2xl border border-amber-500/30 bg-amber-950/40 px-3.5 py-1.5 shadow-inner">
-                            <span className="text-sm">💰</span>
+                            <IconCoins className="w-4 h-4 text-amber-400" />
                             <div className="text-left">
                                 <span className="block text-[10px] uppercase font-bold text-amber-500">Ví Coin</span>
                                 <span className="text-sm font-black text-amber-300">
@@ -315,17 +335,19 @@ export function AgentStoreModal({
                                                     <div className="flex items-center gap-3">
                                                         <div
                                                             className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl shadow-inner ring-2 ring-white/10"
-                                                            style={{ backgroundColor: prod.color || '#3b82f6' }}
+                                                            style={{ backgroundColor: prod.color || '#76b900' }}
                                                         >
-                                                            <IconBot className="h-6 w-6 text-white" />
+                                                            {getRobotIcon(prod.formType, prod.agentId)}
                                                         </div>
                                                         <div>
-                                                            <h3 className="font-bold text-white group-hover:text-indigo-300 transition">
+                                                            <h3 className="font-bold text-white group-hover:text-lime-400 transition text-sm">
                                                                 {prod.name}
                                                             </h3>
-                                                            <span className="text-[11px] font-medium text-zinc-400">
-                                                                {prod.category}
-                                                            </span>
+                                                            <div className="flex items-center gap-1.5 mt-0.5">
+                                                                <span className="text-[10px] font-mono text-zinc-400">
+                                                                    {prod.computeTier || prod.category}
+                                                                </span>
+                                                            </div>
                                                         </div>
                                                     </div>
 
@@ -340,7 +362,8 @@ export function AgentStoreModal({
                                                         </span>
                                                     ) : (
                                                         <span className="flex items-center gap-1 text-[11px] font-semibold text-amber-400">
-                                                            ⭐ {prod.rating} ({prod.reviewsCount})
+                                                            <IconStar className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
+                                                            <span>{prod.rating} ({prod.reviewsCount})</span>
                                                         </span>
                                                     )}
                                                 </div>

@@ -135,11 +135,23 @@ docker compose up --build
 - build toan bo
 docker compose up --build -d
 
+--- mapdraw-service (Port 5005 - 3D Map Drawing & Spatial World Storage)
+cd backend-microservices/mapdraw-service
+npm install
+npm run dev
+
+--- savecoin-service
+npm install
+npm run dev
+
+
 - build rieng
 docker compose up --build -d user-service
 docker compose up --build -d room-service 
 docker compose up --build -d chat-service
 docker compose up --build -d agent-service
+docker compose up --build -d product-service
+docker compose up --build -d mapdraw-service
 docker compose up --build -d api-gateway
 
 

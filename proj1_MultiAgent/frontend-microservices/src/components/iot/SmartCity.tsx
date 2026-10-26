@@ -91,6 +91,7 @@ export default function SmartCity({
                         targetAction={target?.action}
                         targetPosition={target?.targetPos}
                         ownerName={agent.ownerName}
+                        form={agent.form}
                     />
                 )
             })}

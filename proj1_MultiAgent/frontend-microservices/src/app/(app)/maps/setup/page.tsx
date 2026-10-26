@@ -30,7 +30,18 @@ import {
     IconArmchair,
     IconLaptop,
     IconPlus,
+    IconDownload,
+    IconCoins,
+    IconDuck,
+    IconAmr,
+    IconDrone,
+    IconHumanoid,
 } from '@/components/ui/icons'
+import { mapsApi, CloudMapDesign } from '@/lib/api/maps'
+import { notify } from '@/lib/toast'
+import { getUser } from '@/lib/auth'
+import { coinsApi, UserWallet } from '@/lib/api/coins'
+import PlanTasksModal from '@/components/coins/PlanTasksModal'
 
 function renderCatalogIcon(type: PlaceableItemType) {
     switch (type) {
@@ -52,6 +63,163 @@ function renderCatalogIcon(type: PlaceableItemType) {
             return <IconArmchair className="w-5 h-5 text-amber-600" />
         case 'desk':
             return <IconLaptop className="w-5 h-5 text-indigo-400" />
+
+        // --- NVIDIA ROBOTICS FLEET ---
+        case 'agent_gr00t':
+            return <IconHumanoid className="w-5 h-5 text-[#76b900]" />
+        case 'agent_amr':
+            return <IconAmr className="w-5 h-5 text-orange-400" />
+        case 'agent_duck':
+            return <IconDuck className="w-5 h-5 text-amber-400" />
+        case 'agent_drone':
+            return <IconDrone className="w-5 h-5 text-cyan-400" />
+
+        // --- CÔNG NGHIỆP & ROBOTICS ---
+        case 'robot_arm':
+            return (
+                <svg className="w-5 h-5 text-yellow-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="6" cy="18" r="3" />
+                    <circle cx="18" cy="6" r="3" />
+                    <path d="M8.5 16l7-7" />
+                    <path d="M14 6h4v4" />
+                </svg>
+            )
+        case 'robot_prototype':
+            return (
+                <svg className="w-5 h-5 text-sky-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <rect x="3" y="11" width="18" height="10" rx="2" />
+                    <circle cx="12" cy="5" r="2" />
+                    <path d="M12 7v4" />
+                    <line x1="8" y1="16" x2="8.01" y2="16" />
+                    <line x1="16" y1="16" x2="16.01" y2="16" />
+                </svg>
+            )
+        case 'industrial_lamp':
+            return (
+                <svg className="w-5 h-5 text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M12 2v6" />
+                    <path d="M7 8h10l2 6H5l2-6z" />
+                    <path d="M9 14v4a3 3 0 0 0 6 0v-4" />
+                </svg>
+            )
+        case 'industrial_fan':
+            return (
+                <svg className="w-5 h-5 text-zinc-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="12" cy="12" r="9" />
+                    <path d="M12 12c-2-2-4-2-4 0s2 4 4 4 4-2 4-4-2-2-4 0z" />
+                    <circle cx="12" cy="12" r="2" />
+                </svg>
+            )
+        case 'cctv_camera':
+            return (
+                <svg className="w-5 h-5 text-rose-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M2 10l13-5 5 5-13 5z" />
+                    <path d="M7 16v5" />
+                    <path d="M5 21h4" />
+                    <circle cx="17" cy="11" r="2" />
+                </svg>
+            )
+        case 'conveyor':
+            return (
+                <svg className="w-5 h-5 text-slate-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <rect x="2" y="8" width="20" height="8" rx="4" />
+                    <circle cx="6" cy="12" r="2" />
+                    <circle cx="12" cy="12" r="2" />
+                    <circle cx="18" cy="12" r="2" />
+                    <line x1="4" y1="16" x2="2" y2="21" />
+                    <line x1="20" y1="16" x2="22" y2="21" />
+                </svg>
+            )
+
+        // --- NHÀ THÔNG MINH (SMART HOME IOT) ---
+        case 'smart_led':
+            return (
+                <svg className="w-5 h-5 text-purple-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="12" cy="12" r="4" />
+                    <path d="M12 2v2" />
+                    <path d="M12 20v2" />
+                    <path d="M4.93 4.93l1.41 1.41" />
+                    <path d="M17.66 17.66l1.41 1.41" />
+                    <path d="M2 12h2" />
+                    <path d="M20 12h2" />
+                    <path d="M6.34 17.66l-1.41 1.41" />
+                    <path d="M19.07 4.93l-1.41 1.41" />
+                </svg>
+            )
+        case 'water_sprinkler':
+            return (
+                <svg className="w-5 h-5 text-cyan-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M12 22V12" />
+                    <path d="M8 12h8" />
+                    <path d="M7 7l5 5 5-5" />
+                    <circle cx="12" cy="6" r="2" />
+                    <path d="M5 3l2 2" />
+                    <path d="M19 3l-2 2" />
+                </svg>
+            )
+        case 'smart_curtain':
+            return (
+                <svg className="w-5 h-5 text-slate-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <rect x="2" y="3" width="20" height="3" rx="1" />
+                    <path d="M4 6v14" />
+                    <path d="M8 6v14" />
+                    <path d="M16 6v14" />
+                    <path d="M20 6v14" />
+                </svg>
+            )
+        case 'air_conditioner':
+            return (
+                <svg className="w-5 h-5 text-teal-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <rect x="2" y="5" width="20" height="10" rx="2" />
+                    <line x1="6" y1="12" x2="18" y2="12" />
+                    <path d="M7 19c2-1 3-2 3-4" />
+                    <path d="M12 19c2-1 3-2 3-4" />
+                </svg>
+            )
+        case 'smart_door':
+            return (
+                <svg className="w-5 h-5 text-indigo-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M4 21V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v16" />
+                    <path d="M14 12v.01" />
+                    <path d="M4 21h16" />
+                </svg>
+            )
+        case 'duck':
+            return (
+                <svg className="w-5 h-5 text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="15.5" cy="8.5" r="3.5" />
+                    <path d="M19 8.5h2.5c.5 0 .8.5.5.9l-1.5 2.1c-.3.4-.8.5-1.2.3l-.3-.1" />
+                    <circle cx="16.5" cy="7.5" r=".7" fill="currentColor" />
+                    <path d="M14 11.5c-2.5 1-4.5 3-5 5.5-1 0-3-1-4-2.5-.5-.8-.5-1.8 0-2.5 1.2-1.8 3.5-2.8 6-2.5" />
+                    <path d="M9 17c1.5 2 4 3 7 3 3 0 5-2 5-5 0-1-.3-2-.8-2.8" />
+                </svg>
+            )
+        case 'amr':
+            return (
+                <svg className="w-5 h-5 text-amber-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <rect x="3" y="11" width="18" height="6" rx="2" />
+                    <circle cx="7" cy="19" r="2" />
+                    <circle cx="17" cy="19" r="2" />
+                    <path d="M7 11V7a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v4" />
+                    <line x1="12" y1="5" x2="12" y2="2" />
+                    <circle cx="12" cy="2" r="1" fill="currentColor" />
+                </svg>
+            )
+        case 'drone':
+            return (
+                <svg className="w-5 h-5 text-cyan-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="12" cy="12" r="3" />
+                    <path d="m5 5 4 4" />
+                    <path d="m19 5-4 4" />
+                    <path d="m5 19 4-4" />
+                    <path d="m19 19-4-4" />
+                    <circle cx="4" cy="4" r="2" />
+                    <circle cx="20" cy="4" r="2" />
+                    <circle cx="4" cy="20" r="2" />
+                    <circle cx="20" cy="20" r="2" />
+                </svg>
+            )
+
         default:
             return <IconBoxes className="w-5 h-5 text-zinc-400" />
     }
@@ -94,6 +262,141 @@ export default function MapSetupPage() {
         }
     }
 
+    // Cloud MapDraw & SaveCoin States
+    const [cloudMaps, setCloudMaps] = useState<CloudMapDesign[]>([])
+    const [cloudModalOpen, setCloudModalOpen] = useState(false)
+    const [saveCloudModalOpen, setSaveCloudModalOpen] = useState(false)
+    const [cloudMapTitle, setCloudMapTitle] = useState(mapDesign.name || 'Bản đồ 3D Mới')
+    const [cloudMapDesc, setCloudMapDesc] = useState('')
+    const [isSavingCloud, setIsSavingCloud] = useState(false)
+    const [isLoadingCloud, setIsLoadingCloud] = useState(false)
+    const [userWallet, setUserWallet] = useState<UserWallet | null>(null)
+    const [planTasksModalOpen, setPlanTasksModalOpen] = useState(false)
+
+    // Tải số dư ví Coin khi vào trang
+    useEffect(() => {
+        const user = getUser()
+        if (user?.id) {
+            coinsApi.getWallet(user.id, user.name || user.email).then((w) => {
+                if (w) setUserWallet(w)
+            })
+        }
+    }, [])
+
+    // Tải danh sách bản đồ từ Cloud (mapdraw-service)
+    const handleFetchCloudMaps = async () => {
+        setIsLoadingCloud(true)
+        try {
+            const user = getUser()
+            const res = await mapsApi.getMaps({ userId: user?.id })
+            if (res?.data) {
+                setCloudMaps(res.data)
+            }
+        } catch (e: any) {
+            console.error('Lỗi tải bản đồ Cloud:', e)
+            notify.error('Không thể kết nối mapdraw-service: ' + e.message)
+        } finally {
+            setIsLoadingCloud(false)
+        }
+    }
+
+    // Mở modal quản lý Cloud Maps
+    const handleOpenCloudModal = () => {
+        setCloudModalOpen(true)
+        handleFetchCloudMaps()
+    }
+
+    // Mở modal lưu lên Cloud
+    const handleOpenSaveCloudModal = () => {
+        setCloudMapTitle(mapDesign.name || 'Bản đồ 3D Mới')
+        setSaveCloudModalOpen(true)
+    }
+
+    // Thực hiện lưu lên Cloud & Nhận thưởng Coin PlanTask
+    const handleConfirmSaveCloud = async () => {
+        if (!cloudMapTitle.trim()) {
+            notify.error('Vui lòng nhập tên bản đồ!')
+            return
+        }
+
+        setIsSavingCloud(true)
+        try {
+            const user = getUser()
+            const res = await mapsApi.saveMap({
+                mapId: mapDesign.id || `map_${Date.now()}`,
+                name: cloudMapTitle.trim(),
+                description: cloudMapDesc.trim(),
+                skyPreset: mapDesign.skyPreset,
+                groundColor: mapDesign.groundColor,
+                groundSize: mapDesign.groundSize,
+                items: mapDesign.items,
+                userId: user?.id || 'anonymous',
+                userName: user?.name || user?.email || 'Thành viên',
+            })
+
+            if (res?.success) {
+                const reward = (res as any).reward
+                if (reward?.earnedCoins) {
+                    notify.success(`Đã lưu bản đồ & nhận thưởng +${reward.earnedCoins} Coins!`)
+                    if (reward.details && Array.isArray(reward.details)) {
+                        reward.details.forEach((d: string) => notify.info(d))
+                    }
+                } else {
+                    notify.success('Đã lưu bản đồ thành công lên Cloud!')
+                }
+
+                if (reward?.wallet) {
+                    setUserWallet(reward.wallet)
+                } else if (user?.id) {
+                    coinsApi.getWallet(user.id).then((w) => w && setUserWallet(w))
+                }
+
+                setMapDesign((prev) => ({
+                    ...prev,
+                    id: res.data.mapId,
+                    name: res.data.name,
+                }))
+                setSaveCloudModalOpen(false)
+            }
+        } catch (e: any) {
+            console.error('Lỗi lưu bản đồ lên Cloud:', e)
+            notify.error('Lỗi lưu Cloud: ' + e.message)
+        } finally {
+            setIsSavingCloud(false)
+        }
+    }
+
+    // Tải 1 bản đồ từ Cloud vào editor
+    const handleLoadCloudMap = (map: CloudMapDesign) => {
+        setMapDesign({
+            id: map.mapId,
+            name: map.name,
+            description: map.description,
+            skyPreset: (map.skyPreset as any) || 'city',
+            groundColor: map.groundColor || '#18181b',
+            groundSize: map.groundSize || [60, 60],
+            items: map.items || [],
+            updatedAt: map.updatedAt || new Date().toISOString(),
+        })
+        setSelectedId(null)
+        setActiveTool(null)
+        setCloudModalOpen(false)
+        notify.success(`Đã nạp bản đồ '${map.name}' (${map.items.length} vật thể) từ Cloud!`)
+    }
+
+    // Xóa bản đồ trên Cloud
+    const handleDeleteCloudMap = async (mapId: string, mapName: string) => {
+        if (!confirm(`Bạn có chắc muốn xóa bản đồ '${mapName}' trên Cloud không?`)) return
+
+        try {
+            await mapsApi.deleteMap(mapId)
+            notify.success(`Đã xóa bản đồ '${mapName}' thành công.`)
+            setCloudMaps((prev) => prev.filter((m) => m.mapId !== mapId))
+        } catch (e: any) {
+            notify.error('Lỗi xóa bản đồ: ' + e.message)
+        }
+    }
+
     const handleSaveLocalStorage = () => {
         try {
             const updated = {
@@ -102,9 +405,9 @@ export default function MapSetupPage() {
             }
             localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updated))
             setMapDesign(updated)
-            alert('Đã lưu bản đồ vào trình duyệt thành công!')
+            notify.success('Đã lưu bản đồ vào bộ nhớ máy (Local Storage)!')
         } catch (e) {
-            alert('Lỗi lưu bản đồ!')
+            notify.error('Lỗi lưu bản đồ vào máy!')
         }
     }
 
@@ -181,7 +484,7 @@ export default function MapSetupPage() {
         }
     }
 
-    const categories = ['Tất cả', 'Kiến trúc', 'Hạ tầng', 'Cảnh quan', 'Nội thất']
+    const categories = ['Tất cả', 'AI Agent & Robot', 'Công nghiệp', 'Nhà thông minh', 'Kiến trúc', 'Hạ tầng', 'Cảnh quan', 'Nội thất']
     const filteredCatalog = ITEM_CATALOG.filter(
         (c) => selectedCategory === 'Tất cả' || c.category === selectedCategory
     )
@@ -231,25 +534,62 @@ export default function MapSetupPage() {
                             <option value="smart_city" className="bg-zinc-900">
                                 Smart City IoT
                             </option>
+                            <option value="industrial_factory" className="bg-zinc-900">
+                                Nhà máy Công nghiệp 4.0 & Robotics
+                            </option>
+                            <option value="smarthome_iot" className="bg-zinc-900">
+                                Biệt thự Smart Home IoT
+                            </option>
                             <option value="empty_canvas" className="bg-zinc-900">
                                 Mặt bằng trống
                             </option>
                         </select>
                     </div>
 
+                    {/* Huy hiệu Coin & Nút Plan Tasks kiếm Coin */}
                     <button
-                        onClick={handleSaveLocalStorage}
+                        onClick={() => setPlanTasksModalOpen(true)}
+                        className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-500/15 via-yellow-500/10 to-amber-500/20 border border-amber-500/40 text-amber-300 hover:text-amber-200 hover:border-amber-400 font-medium transition flex items-center gap-2 shadow-sm group"
+                        title="Nhiệm vụ Plan Tasks & Cơ chế kiếm Coin ảo"
+                    >
+                        <IconCoins className="w-4 h-4 text-amber-400" />
+                        <span className="font-mono font-bold text-xs">
+                            {userWallet?.balance?.toLocaleString() ?? '500'}
+                        </span>
+                        <span className="text-[10px] bg-amber-500/20 px-1.5 py-0.5 rounded text-amber-300 font-bold group-hover:bg-amber-500 group-hover:text-black transition">
+                            Plan Tasks
+                        </span>
+                    </button>
+
+                    <button
+                        onClick={handleOpenCloudModal}
+                        className="px-3 py-1.5 rounded-xl bg-cyan-950/80 hover:bg-cyan-900/80 text-cyan-300 border border-cyan-500/30 font-medium transition flex items-center gap-1.5"
+                    >
+                        <IconLayers className="w-3.5 h-3.5" />
+                        <span>Bản đồ Cloud</span>
+                    </button>
+
+                    <button
+                        onClick={handleOpenSaveCloudModal}
                         className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 font-medium text-white transition flex items-center gap-1.5 shadow"
                     >
                         <IconSave className="w-3.5 h-3.5" />
-                        <span>Lưu thay đổi</span>
+                        <span>Lưu lên Cloud</span>
+                    </button>
+
+                    <button
+                        onClick={handleSaveLocalStorage}
+                        className="px-2.5 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700 font-medium transition flex items-center gap-1.5"
+                        title="Lưu tạm vào LocalStorage của trình duyệt"
+                    >
+                        <span>Lưu Local</span>
                     </button>
 
                     <button
                         onClick={handleOpenExportJson}
-                        className="px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 font-medium transition flex items-center gap-1.5"
+                        className="px-2.5 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 font-medium transition flex items-center gap-1.5"
                     >
-                        <span>JSON Data</span>
+                        <span>JSON</span>
                     </button>
 
                     <Link
@@ -359,14 +699,6 @@ export default function MapSetupPage() {
                         groundSize={mapDesign.groundSize}
                         skyPreset={mapDesign.skyPreset}
                     />
-
-                    {/* Thống kê số lượng vật thể */}
-                    <div className="absolute top-3 left-3 pointer-events-none bg-black/70 backdrop-blur border border-zinc-800 px-3 py-1.5 rounded-xl text-xs text-zinc-300 flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                        <span>{mapDesign.items.length} vật thể trên bản đồ</span>
-                        <span className="text-zinc-600">|</span>
-                        <span className="text-zinc-400">Lưới snap: 2.0m</span>
-                    </div>
                 </div>
 
                 {/* 3. CỘT PHẢI: BẢNG INSPECTOR ĐIỀU CHỈNH THÔNG SỐ VẬT THỂ */}
@@ -652,6 +984,178 @@ export default function MapSetupPage() {
                     </div>
                 </div>
             )}
+
+            {/* ===== MODAL LƯU BẢN ĐỒ LÊN CLOUD (MAPDRAW-SERVICE) ===== */}
+            {saveCloudModalOpen && (
+                <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+                    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl">
+                        <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
+                            <h3 className="font-bold text-sm text-white flex items-center gap-2">
+                                <IconSave className="w-4 h-4 text-blue-400" />
+                                <span>Lưu Bản Đồ lên Cloud (mapdraw-service)</span>
+                            </h3>
+                            <button
+                                onClick={() => setSaveCloudModalOpen(false)}
+                                className="text-zinc-400 hover:text-white text-xs"
+                            >
+                                Đóng
+                            </button>
+                        </div>
+
+                        <div className="p-4 space-y-3 text-xs">
+                            <div>
+                                <label className="text-zinc-400 font-medium mb-1 block">Tên bản đồ:</label>
+                                <input
+                                    type="text"
+                                    value={cloudMapTitle}
+                                    onChange={(e) => setCloudMapTitle(e.target.value)}
+                                    placeholder="Nhập tên bản đồ (ví dụ: Smart City Zone 1)..."
+                                    className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-white outline-none focus:border-blue-500"
+                                />
+                            </div>
+
+                            <div>
+                                <label className="text-zinc-400 font-medium mb-1 block">Mô tả bản đồ (tùy chọn):</label>
+                                <textarea
+                                    value={cloudMapDesc}
+                                    onChange={(e) => setCloudMapDesc(e.target.value)}
+                                    placeholder="Ghi chú về bản đồ hoặc vị trí của các agent..."
+                                    rows={3}
+                                    className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-white outline-none focus:border-blue-500 resize-none"
+                                />
+                            </div>
+
+                            <div className="p-3 rounded-xl bg-zinc-950 border border-zinc-800 text-[11px] text-zinc-400 flex items-center justify-between">
+                                <span>Tổng số vật thể: <strong className="text-white">{mapDesign.items.length}</strong></span>
+                                <span>Kích thước sàn: <strong className="text-white">{mapDesign.groundSize[0]}x{mapDesign.groundSize[1]}m</strong></span>
+                            </div>
+                        </div>
+
+                        <div className="p-4 border-t border-zinc-800 bg-zinc-950/40 flex items-center justify-end gap-2">
+                            <button
+                                onClick={() => setSaveCloudModalOpen(false)}
+                                className="px-3 py-1.5 rounded-xl text-zinc-400 hover:text-white text-xs"
+                            >
+                                Hủy
+                            </button>
+                            <button
+                                onClick={handleConfirmSaveCloud}
+                                disabled={isSavingCloud || !cloudMapTitle.trim()}
+                                className="px-4 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-medium text-xs transition disabled:opacity-50 flex items-center gap-1.5"
+                            >
+                                <IconSave className="w-3.5 h-3.5" />
+                                <span>{isSavingCloud ? 'Đang lưu Cloud...' : 'Xác nhận Lưu'}</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ===== MODAL DANH SÁCH BẢN ĐỒ TRÊN CLOUD ===== */}
+            {cloudModalOpen && (
+                <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+                    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-2xl max-h-[80vh] flex flex-col overflow-hidden shadow-2xl">
+                        <div className="p-4 border-b border-zinc-800 flex items-center justify-between shrink-0">
+                            <div>
+                                <h3 className="font-bold text-sm text-white flex items-center gap-2">
+                                    <IconLayers className="w-4 h-4 text-cyan-400" />
+                                    <span>Bản Đồ Của Người Dùng (mapdraw-service)</span>
+                                </h3>
+                                <p className="text-[11px] text-zinc-400 mt-0.5">
+                                    Danh sách các bản đồ không gian 3D được lưu trữ trên Cloud MongoDB Atlas
+                                </p>
+                            </div>
+                            <button
+                                onClick={() => setCloudModalOpen(false)}
+                                className="text-zinc-400 hover:text-white text-xs"
+                            >
+                                Đóng
+                            </button>
+                        </div>
+
+                        <div className="p-4 flex-1 overflow-y-auto space-y-3">
+                            {isLoadingCloud ? (
+                                <div className="py-12 text-center text-xs text-zinc-500">
+                                    Đang tải danh sách bản đồ từ Cloud...
+                                </div>
+                            ) : cloudMaps.length === 0 ? (
+                                <div className="py-12 text-center space-y-2">
+                                    <IconMap className="w-8 h-8 text-zinc-600 mx-auto" />
+                                    <p className="text-xs text-zinc-400 font-medium">Chưa có bản đồ nào được lưu trên Cloud.</p>
+                                    <p className="text-[11px] text-zinc-500">Hãy vẽ bản đồ và bấm "Lưu lên Cloud" để lưu trữ lâu dài!</p>
+                                </div>
+                            ) : (
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    {cloudMaps.map((cm) => (
+                                        <div
+                                            key={cm.mapId}
+                                            className="p-3.5 rounded-xl bg-zinc-950 border border-zinc-800 hover:border-cyan-500/50 transition flex flex-col justify-between group"
+                                        >
+                                            <div className="space-y-1.5">
+                                                <div className="flex items-start justify-between gap-2">
+                                                    <h4 className="font-semibold text-xs text-white group-hover:text-cyan-300 transition truncate">
+                                                        {cm.name}
+                                                    </h4>
+                                                    <span className="text-[10px] bg-cyan-950 text-cyan-400 border border-cyan-500/30 px-1.5 py-0.5 rounded font-mono shrink-0">
+                                                        {cm.items?.length || 0} items
+                                                    </span>
+                                                </div>
+                                                {cm.description && (
+                                                    <p className="text-[11px] text-zinc-400 line-clamp-2">
+                                                        {cm.description}
+                                                    </p>
+                                                )}
+                                                <div className="text-[10px] text-zinc-500 flex items-center gap-2">
+                                                    <span>Bởi: {cm.userName || 'Ẩn danh'}</span>
+                                                    <span>•</span>
+                                                    <span>Sàn: {cm.groundSize?.[0] || 60}x{cm.groundSize?.[1] || 60}m</span>
+                                                </div>
+                                            </div>
+
+                                            <div className="mt-3 pt-2.5 border-t border-zinc-800/80 flex items-center justify-between">
+                                                <button
+                                                    onClick={() => handleDeleteCloudMap(cm.mapId, cm.name)}
+                                                    className="p-1 rounded-lg text-zinc-500 hover:text-rose-400 hover:bg-rose-950/20 transition"
+                                                    title="Xóa bản đồ này trên Cloud"
+                                                >
+                                                    <IconTrash className="w-3.5 h-3.5" />
+                                                </button>
+
+                                                <button
+                                                    onClick={() => handleLoadCloudMap(cm)}
+                                                    className="px-3 py-1 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-medium text-xs transition flex items-center gap-1 shadow-sm"
+                                                >
+                                                    <span>Mở trên 3D Editor</span>
+                                                    <span>→</span>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="p-3 border-t border-zinc-800 bg-zinc-950/40 flex items-center justify-between text-xs text-zinc-400">
+                            <span>Tổng số bản đồ: <strong className="text-white">{cloudMaps.length}</strong></span>
+                            <button
+                                onClick={handleFetchCloudMaps}
+                                className="text-xs text-cyan-400 hover:underline"
+                            >
+                                Làm mới danh sách
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ===== MODAL NHIỆM VỤ PLANTASKS & KIẾM COIN ẢO (SAVECOIN-SERVICE) ===== */}
+            <PlanTasksModal
+                isOpen={planTasksModalOpen}
+                onClose={() => setPlanTasksModalOpen(false)}
+                userId={getUser()?.id || 'anonymous'}
+                userName={getUser()?.name || getUser()?.email}
+                onWalletUpdate={(w) => setUserWallet(w)}
+            />
         </div>
     )
 }

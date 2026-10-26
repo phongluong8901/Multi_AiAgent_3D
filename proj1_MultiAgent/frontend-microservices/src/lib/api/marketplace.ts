@@ -9,6 +9,8 @@ export interface AgentProduct {
     avatarUrl?: string;
     color: string;
     category: string;
+    formType?: 'duck' | 'amr' | 'humanoid' | 'drone' | string;
+    computeTier?: string;
     pricing: {
         buyPrice: number;
         rentHourlyRate: number;

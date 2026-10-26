@@ -1,17 +1,40 @@
-# --- Python ---
+# ====================================================================
+#   PYTHON STANDARD & ENTERPRISE .GITIGNORE FOR AGENT-SERVICE
+# ====================================================================
+
+# --- 1. Python Bytecode & Compilation Cache ---
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
-.Python
+*.pyd
+*.pyo
+*.c
+
+# --- 2. Virtual Environments (Tuyệt đối không commit lên Git) ---
+.venv/
+venv/
+ENV/
+env/
+env.bak/
+venv.bak/
+.env.local
+.venv*/
+virtualenv/
+bin/
+include/
+lib/
+lib64/
+share/
+pyvenv.cfg
+
+# --- 3. Pip, Package Distribution & Build Artifacts ---
 build/
 develop-eggs/
 dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
 parts/
 sdist/
 var/
@@ -22,25 +45,55 @@ share/python-wheels/
 *.egg
 MANIFEST
 
-# --- Virtual Environments ---
-venv/
-env/
-ENV/
-.venv/
-ENV/
-
-# --- Environment Variables & Secrets ---
+# --- 4. Environment Variables & Secret Credentials ---
 .env
+.env.*
+!.env.example
 
-# --- IDEs & Editors ---
+# --- 5. Unit Test, Coverage & Tool Caches ---
+.pytest_cache/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+htmlcov/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
+.ruff_cache/
+cython_debug/
+
+# --- 6. Jupyter Notebook & Machine Learning Caches ---
+.ipynb_checkpoints
+*/.ipynb_checkpoints/*
+*.pkl
+*.h5
+*.onnx
+*.pt
+*.pth
+*.bin
+
+# --- 7. Logs, Databases & Local State ---
+*.log
+logs/
+*.sqlite
+*.sqlite3
+*.db
+agents_db/
+postgres_data/
+
+# --- 8. IDEs, Editors & OS Files ---
 .idea/
 .vscode/
 *.swp
 *.swo
 *~
 .history/
-
-# --- OS generated files ---
 .DS_Store
 .DS_Store?
 ._*
@@ -48,9 +101,4 @@ ENV/
 .Trashes
 ehthumbs.db
 Thumbs.db
-
-# --- Logs & Databases (Local) ---
-*.log
-logs/
-*.sqlite3
-*.db
+desktop.ini

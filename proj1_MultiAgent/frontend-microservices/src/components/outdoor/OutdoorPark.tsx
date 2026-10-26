@@ -124,6 +124,7 @@ export default function OutdoorPark({
                         isSelected={isSelected}
                         onSelect={() => onSelectAgent?.(agent.id)}
                         ownerName={agent.ownerName}
+                        form={agent.form}
                     />
                 )
             })}

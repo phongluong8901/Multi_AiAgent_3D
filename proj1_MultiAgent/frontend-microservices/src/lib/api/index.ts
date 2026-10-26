@@ -52,3 +52,5 @@ export {
     type GithubAuthPayload,
 } from './auth'
 
+export { mapsApi, type CloudMapDesign } from './maps'
+

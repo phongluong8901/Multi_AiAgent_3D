@@ -179,6 +179,34 @@ services:
     networks:
       - multi-agent-network
 
+  # --- Node.js TypeScript 3D MapDraw Microservice ---
+  mapdraw-service:
+    build: ./mapdraw-service
+    container_name: mapdraw_service
+    env_file:
+      - ./mapdraw-service/.env
+    environment:
+      - SAVECOIN_SERVICE_URL=http://savecoin-service:5006
+    ports:
+      - "5005:5005"
+    depends_on:
+      - savecoin-service
+    restart: always
+    networks:
+      - multi-agent-network
+
+  # --- Node.js TypeScript SaveCoin & PlanTask Microservice ---
+  savecoin-service:
+    build: ./savecoin-service
+    container_name: savecoin_service
+    env_file:
+      - ./savecoin-service/.env
+    ports:
+      - "5006:5006"
+    restart: always
+    networks:
+      - multi-agent-network
+
   # --- API Gateway (Cổng giao tiếp duy nhất cho Client) ---
   api-gateway:
     build: ./gateway-service
@@ -192,6 +220,8 @@ services:
       - CHAT_SERVICE_URL=http://chat-service:5003
       - AGENT_SERVICE_URL=http://agent-service:8000
       - PRODUCT_SERVICE_URL=http://product-service:5004
+      - MAPDRAW_SERVICE_URL=http://mapdraw-service:5005
+      - SAVECOIN_SERVICE_URL=http://savecoin-service:5006
       - JWT_SECRET=super_secret_key_2026
     depends_on:
       - user-service
@@ -199,6 +229,8 @@ services:
       - chat-service
       - agent-service
       - product-service
+      - mapdraw-service
+      - savecoin-service
     restart: always
     networks:
       - multi-agent-network

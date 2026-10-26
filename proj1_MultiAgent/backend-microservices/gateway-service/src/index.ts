@@ -9,6 +9,8 @@ import roomRouter from "./routes/room-proxy.routes";
 import chatRouter from "./routes/chat-proxy.routes";
 import agentRouter from "./routes/agent-proxy.routes";
 import productRouter from "./routes/product-proxy.routes";
+import mapRouter from "./routes/map-proxy.routes";
+import coinRouter from "./routes/coin-proxy.routes";
 import fs from "fs";
 import path from "path";
 
@@ -56,6 +58,8 @@ app.use(roomRouter);
 app.use(chatRouter);
 app.use(agentRouter);
 app.use(productRouter);
+app.use(mapRouter);
+app.use(coinRouter);
 
 // Khởi chạy Gateway Server bằng http.Server để hỗ trợ trơn tru WebSocket & HTTP
 server.listen(PORT, () => {

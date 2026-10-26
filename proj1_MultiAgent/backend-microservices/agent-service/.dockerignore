@@ -1,8 +1,66 @@
+# ====================================================================
+#   DOCKERIGNORE FOR AGENT-SERVICE
+#   Chặn các file nặng, rác và môi trường local lọt vào container Linux
+# ====================================================================
+
+# --- 1. Môi trường ảo Python Local (QUAN TRỌNG NHẤT - Hàng chục nghìn file) ---
 .venv
+.venv/
+venv
+venv/
+ENV
+ENV/
+env
+env/
+pyvenv.cfg
+bin/
+include/
+lib/
+lib64/
+
+# --- 2. Bytecode & Cache của Python ---
 __pycache__
+__pycache__/
 *.pyc
 *.pyo
 *.pyd
+.pytest_cache
+.pytest_cache/
+.mypy_cache
+.mypy_cache/
+.ruff_cache
+.ruff_cache/
+.coverage
+htmlcov/
+
+# --- 3. Git & Quản lý phiên bản ---
 .git
+.git/
 .gitignore
+.gitattributes
+
+# --- 4. File môi trường & Bí mật (Docker compose tự inject qua env_file) ---
+.env.local
+.env.development
+.env.test
+
+# --- 5. Tài liệu & Markdown không cần trong runtime ---
 README.md
+*.md
+docs/
+
+# --- 6. Editor & IDEs ---
+.vscode
+.vscode/
+.idea
+.idea/
+*.swp
+*.swo
+
+# --- 7. OS Cache & Temp ---
+.DS_Store
+Thumbs.db
+*.log
+logs/
+*.sqlite3
+*.db
