@@ -15,6 +15,8 @@ import {
     IconSliders,
     IconCheck,
     IconAlertCircle,
+    IconWrench,
+    IconSparkles,
 } from '@/components/ui/icons'
 
 interface AgentWorkflowPanelProps {
@@ -22,6 +24,39 @@ interface AgentWorkflowPanelProps {
     room: Room | null
     allAgents: Agent[]
     setRoom: (room: Room) => void
+}
+
+// Bảng công cụ mặc định cho các Agent mẫu khi chưa có danh sách trong database
+const DEFAULT_AGENT_TOOLS_MAP: Record<string, { id: string; name: string }[]> = {
+    agent_manager: [
+        { id: 'web_search_tool', name: 'Tìm kiếm Web' },
+        { id: 'data_analysis_tool', name: 'Phân tích Dữ liệu' },
+    ],
+    agent_search: [
+        { id: 'web_search_tool', name: 'Tìm kiếm Web' },
+        { id: 'database_query_tool', name: 'Truy vấn CSDL' },
+    ],
+    agent_summary: [
+        { id: 'text_summarizer_tool', name: 'Tóm tắt Văn bản' },
+        { id: 'web_search_tool', name: 'Tìm kiếm Web' },
+    ],
+    agent_calc: [
+        { id: 'calculator_tool', name: 'Máy tính Số học' },
+        { id: 'data_analysis_tool', name: 'Phân tích Dữ liệu' },
+    ],
+    agent_analyst: [
+        { id: 'data_analysis_tool', name: 'Phân tích Dữ liệu' },
+        { id: 'calculator_tool', name: 'Máy tính Số học' },
+        { id: 'web_search_tool', name: 'Tìm kiếm Web' },
+    ],
+    agent_ml: [
+        { id: 'ml_evaluator_tool', name: 'Đánh giá ML' },
+        { id: 'data_analysis_tool', name: 'Phân tích Dữ liệu' },
+    ],
+    agent_visualize: [
+        { id: 'data_visualization_tool', name: 'Vẽ Biểu đồ Dữ liệu' },
+        { id: 'data_analysis_tool', name: 'Phân tích Dữ liệu' },
+    ],
 }
 
 export function AgentWorkflowPanel({
@@ -37,6 +72,8 @@ export function AgentWorkflowPanel({
         transitions: [],
         enabled: true,
         description: '',
+        stepTools: {},
+        agentTools: {},
     }
 
     const [mode, setMode] = useState<AgentWorkflowMode>(currentWf.mode || 'autonomous')
@@ -44,6 +81,8 @@ export function AgentWorkflowPanel({
     const [description, setDescription] = useState<string>(currentWf.description || '')
     const [order, setOrder] = useState<string[]>(currentWf.order || [])
     const [transitions, setTransitions] = useState<WorkflowTransition[]>(currentWf.transitions || [])
+    const [stepTools, setStepTools] = useState<Record<number, string>>(currentWf.stepTools || {})
+    const [agentTools, setAgentTools] = useState<Record<string, string[]>>(currentWf.agentTools || {})
     const [saving, setSaving] = useState(false)
     const [saveSuccess, setSaveSuccess] = useState(false)
     const [errorMsg, setErrorMsg] = useState<string | null>(null)
@@ -56,6 +95,8 @@ export function AgentWorkflowPanel({
             setDescription(room.workflow.description || '')
             setOrder(room.workflow.order || [])
             setTransitions(room.workflow.transitions || [])
+            setStepTools(room.workflow.stepTools || {})
+            setAgentTools(room.workflow.agentTools || {})
         }
     }, [room?.workflow])
 
@@ -71,6 +112,20 @@ export function AgentWorkflowPanel({
         return found ? found.name : agentId
     }
 
+    // Lấy danh sách tool của một Agent
+    const getAgentTools = (agentId: string): { id: string; name: string }[] => {
+        const found = allAgents.find((a) => a.id === agentId)
+        if (found && Array.isArray(found.tools) && found.tools.length > 0) {
+            return found.tools
+                .map((t: any) => ({
+                    id: typeof t === 'string' ? t : (t?.id || t?.name || ''),
+                    name: typeof t === 'string' ? t : (t?.name || t?.id || ''),
+                }))
+                .filter((t) => Boolean(t.id))
+        }
+        return DEFAULT_AGENT_TOOLS_MAP[agentId] || []
+    }
+
     // Xử lý thứ tự Sequential
     const handleAddSequentialStep = (agentId: string) => {
         if (!agentId) return
@@ -79,6 +134,16 @@ export function AgentWorkflowPanel({
 
     const handleRemoveSequentialStep = (index: number) => {
         setOrder((prev) => prev.filter((_, i) => i !== index))
+        // Cập nhật lại chỉ mục stepTools
+        setStepTools((prev) => {
+            const next: Record<number, string> = {}
+            Object.entries(prev).forEach(([keyStr, toolId]) => {
+                const k = Number(keyStr)
+                if (k < index) next[k] = toolId
+                else if (k > index) next[k - 1] = toolId
+            })
+            return next
+        })
     }
 
     const handleMoveStep = (index: number, direction: 'up' | 'down') => {
@@ -89,6 +154,61 @@ export function AgentWorkflowPanel({
         newOrder[index] = newOrder[targetIndex]
         newOrder[targetIndex] = temp
         setOrder(newOrder)
+
+        // Hoán đổi stepTools tương ứng
+        setStepTools((prev) => {
+            const next = { ...prev }
+            const curTool = prev[index]
+            const targetTool = prev[targetIndex]
+            if (curTool) next[targetIndex] = curTool
+            else delete next[targetIndex]
+            if (targetTool) next[index] = targetTool
+            else delete next[index]
+            return next
+        })
+    }
+
+    const handleSelectStepTool = (index: number, toolId: string) => {
+        setStepTools((prev) => {
+            const next = { ...prev }
+            if (!toolId) {
+                delete next[index]
+            } else {
+                next[index] = toolId
+            }
+            return next
+        })
+    }
+
+    // Bật/tắt công cụ được cấp quyền cho Agent trong phòng
+    const handleToggleAgentTool = (agentId: string, toolId: string) => {
+        const allAvailableTools = getAgentTools(agentId).map((t) => t.id)
+        const currentActive = agentTools[agentId] ?? allAvailableTools
+        let updated: string[]
+
+        if (currentActive.includes(toolId)) {
+            // Nếu bỏ chọn, không cho tắt hết nếu còn 1 tool cuối cùng
+            if (currentActive.length <= 1) {
+                alert('Agent cần có ít nhất 1 công cụ kích hoạt trong phòng!')
+                return
+            }
+            updated = currentActive.filter((id) => id !== toolId)
+        } else {
+            updated = [...currentActive, toolId]
+        }
+
+        setAgentTools((prev) => ({
+            ...prev,
+            [agentId]: updated,
+        }))
+    }
+
+    const handleResetAgentTools = (agentId: string) => {
+        const allAvailableTools = getAgentTools(agentId).map((t) => t.id)
+        setAgentTools((prev) => ({
+            ...prev,
+            [agentId]: allAvailableTools,
+        }))
     }
 
     // Xử lý quy tắc Routing
@@ -133,6 +253,8 @@ export function AgentWorkflowPanel({
                 description: description.trim(),
                 order: mode === 'sequential' ? order : [],
                 transitions: mode === 'routing' ? transitions : [],
+                stepTools: mode === 'sequential' ? stepTools : undefined,
+                agentTools,
             }
 
             const updatedRoom = await roomsApi.updateWorkflow(roomId, payload)
@@ -345,55 +467,88 @@ export function AgentWorkflowPanel({
                         </div>
                     ) : (
                         <div className="space-y-2">
-                            {order.map((agentId, idx) => (
-                                <div
-                                    key={`${agentId}-${idx}`}
-                                    className="flex items-center justify-between p-2.5 rounded-xl bg-zinc-900 border border-zinc-800"
-                                >
-                                    <div className="flex items-center gap-3">
-                                        <span className="w-6 h-6 rounded-lg bg-blue-600/20 text-blue-400 border border-blue-500/30 flex items-center justify-center font-bold text-xs font-mono">
-                                            {idx + 1}
-                                        </span>
-                                        <div>
-                                            <div className="text-xs font-semibold text-white flex items-center gap-2">
-                                                <span>{getAgentName(agentId)}</span>
-                                                <span className="text-[10px] text-zinc-400 font-mono">
-                                                    ({agentId})
+                            {order.map((agentId, idx) => {
+                                const tools = getAgentTools(agentId)
+                                return (
+                                    <div
+                                        key={`${agentId}-${idx}`}
+                                        className="p-2.5 rounded-xl bg-zinc-900 border border-zinc-800 space-y-2"
+                                    >
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-3">
+                                                <span className="w-6 h-6 rounded-lg bg-blue-600/20 text-blue-400 border border-blue-500/30 flex items-center justify-center font-bold text-xs font-mono">
+                                                    {idx + 1}
                                                 </span>
+                                                <div>
+                                                    <div className="text-xs font-semibold text-white flex items-center gap-2">
+                                                        <span>{getAgentName(agentId)}</span>
+                                                        <span className="text-[10px] text-zinc-400 font-mono">
+                                                            ({agentId})
+                                                        </span>
+                                                        {tools.length > 1 && (
+                                                            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-300 border border-blue-500/20 flex items-center gap-1">
+                                                                <IconWrench className="w-2.5 h-2.5" />
+                                                                {tools.length} công cụ
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <div className="flex items-center gap-1.5">
+                                                <button
+                                                    type="button"
+                                                    disabled={idx === 0}
+                                                    onClick={() => handleMoveStep(idx, 'up')}
+                                                    className="p-1 rounded text-zinc-400 hover:text-white disabled:opacity-30 transition"
+                                                    title="Lên trên"
+                                                >
+                                                    <IconArrowDown className="w-3.5 h-3.5 rotate-180" />
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    disabled={idx === order.length - 1}
+                                                    onClick={() => handleMoveStep(idx, 'down')}
+                                                    className="p-1 rounded text-zinc-400 hover:text-white disabled:opacity-30 transition"
+                                                    title="Xuống dưới"
+                                                >
+                                                    <IconArrowDown className="w-3.5 h-3.5" />
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleRemoveSequentialStep(idx)}
+                                                    className="p-1 rounded text-zinc-400 hover:text-rose-400 transition ml-1"
+                                                    title="Xóa bước này"
+                                                >
+                                                    <IconTrash className="w-3.5 h-3.5" />
+                                                </button>
                                             </div>
                                         </div>
-                                    </div>
 
-                                    <div className="flex items-center gap-1.5">
-                                        <button
-                                            type="button"
-                                            disabled={idx === 0}
-                                            onClick={() => handleMoveStep(idx, 'up')}
-                                            className="p-1 rounded text-zinc-400 hover:text-white disabled:opacity-30 transition"
-                                            title="Lên trên"
-                                        >
-                                            <IconArrowDown className="w-3.5 h-3.5 rotate-180" />
-                                        </button>
-                                        <button
-                                            type="button"
-                                            disabled={idx === order.length - 1}
-                                            onClick={() => handleMoveStep(idx, 'down')}
-                                            className="p-1 rounded text-zinc-400 hover:text-white disabled:opacity-30 transition"
-                                            title="Xuống dưới"
-                                        >
-                                            <IconArrowDown className="w-3.5 h-3.5" />
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => handleRemoveSequentialStep(idx)}
-                                            className="p-1 rounded text-zinc-400 hover:text-rose-400 transition ml-1"
-                                            title="Xóa bước này"
-                                        >
-                                            <IconTrash className="w-3.5 h-3.5" />
-                                        </button>
+                                        {/* Nếu Agent sở hữu > 1 tool, cho phép chỉ định công cụ mục tiêu cho bước này */}
+                                        {tools.length > 1 && (
+                                            <div className="pt-2 border-t border-zinc-800/80 flex items-center justify-between gap-2 bg-zinc-950/40 p-2 rounded-lg">
+                                                <span className="text-[10px] text-zinc-400 flex items-center gap-1">
+                                                    <IconSparkles className="w-3 h-3 text-amber-400" />
+                                                    Công cụ mục tiêu bước này:
+                                                </span>
+                                                <select
+                                                    value={stepTools[idx] || ''}
+                                                    onChange={(e) => handleSelectStepTool(idx, e.target.value)}
+                                                    className="bg-zinc-900 border border-zinc-700/80 text-[11px] text-zinc-200 px-2 py-1 rounded-lg outline-none focus:border-blue-500"
+                                                >
+                                                    <option value="">🤖 Tự động (Agent tự chọn)</option>
+                                                    {tools.map((t) => (
+                                                        <option key={t.id} value={t.id}>
+                                                            🛠️ {t.name} ({t.id})
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                        )}
                                     </div>
-                                </div>
-                            ))}
+                                )
+                            })}
                         </div>
                     )}
                 </div>
@@ -531,6 +686,106 @@ export function AgentWorkflowPanel({
                     </p>
                 </div>
             )}
+
+            {/* 5. CẤU HÌNH CÔNG CỤ CỦA AGENT TRONG PHÒNG (KHI AGENT SỞ HỮU > 1 TOOL) */}
+            <div className="space-y-3 p-4 rounded-2xl bg-zinc-950/80 border border-amber-500/30">
+                <div className="flex items-center justify-between">
+                    <div>
+                        <div className="text-xs font-bold text-white flex items-center gap-1.5">
+                            <IconWrench className="w-4 h-4 text-amber-400" />
+                            <span>Cấu hình công cụ của Agent trong phòng</span>
+                        </div>
+                        <p className="text-[11px] text-zinc-400">
+                            Nếu 1 Agent sở hữu nhiều hơn 1 công cụ, bạn có thể bật/tắt để chỉ định công cụ được phép dùng trong phòng này.
+                        </p>
+                    </div>
+                </div>
+
+                {(() => {
+                    const multiToolAgents = roomAgents.filter((ag) => getAgentTools(ag.id).length > 1)
+                    if (multiToolAgents.length === 0) {
+                        return (
+                            <div className="text-center py-4 text-xs text-zinc-500 border border-dashed border-zinc-800 rounded-xl">
+                                Tất cả Agent trong phòng hiện chỉ sở hữu 1 công cụ mặc định hoặc chưa có Agent nào.
+                            </div>
+                        )
+                    }
+
+                    return (
+                        <div className="space-y-3">
+                            {multiToolAgents.map((ag) => {
+                                const tools = getAgentTools(ag.id)
+                                const activeTools = agentTools[ag.id] ?? tools.map((t) => t.id)
+
+                                return (
+                                    <div
+                                        key={ag.id}
+                                        className="p-3 rounded-xl bg-zinc-900 border border-zinc-800 space-y-2.5"
+                                    >
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-2">
+                                                <div className="w-6 h-6 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center justify-center font-bold text-xs">
+                                                    <IconBot className="w-3.5 h-3.5" />
+                                                </div>
+                                                <span className="text-xs font-semibold text-white">
+                                                    {getAgentName(ag.id)}
+                                                </span>
+                                                <span className="text-[10px] text-zinc-400 font-mono">
+                                                    ({ag.id})
+                                                </span>
+                                                <span className="text-[10px] text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
+                                                    {activeTools.length}/{tools.length} tool kích hoạt
+                                                </span>
+                                            </div>
+
+                                            <button
+                                                type="button"
+                                                onClick={() => handleResetAgentTools(ag.id)}
+                                                className="text-[10px] text-zinc-400 hover:text-amber-300 transition"
+                                                title="Khôi phục bật tất cả công cụ"
+                                            >
+                                                Bật tất cả
+                                            </button>
+                                        </div>
+
+                                        {/* Danh sách các tool dạng toggle pill */}
+                                        <div className="flex flex-wrap gap-2 pt-1">
+                                            {tools.map((t) => {
+                                                const isEnabled = activeTools.includes(t.id)
+                                                return (
+                                                    <button
+                                                        key={t.id}
+                                                        type="button"
+                                                        onClick={() => handleToggleAgentTool(ag.id, t.id)}
+                                                        className={`px-2.5 py-1.5 rounded-xl text-xs font-medium border flex items-center gap-1.5 transition active:scale-95 ${
+                                                            isEnabled
+                                                                ? 'bg-amber-950/40 border-amber-500/60 text-amber-200 shadow-sm shadow-amber-500/10'
+                                                                : 'bg-zinc-950/60 border-zinc-800 text-zinc-500 hover:text-zinc-300 hover:border-zinc-700'
+                                                        }`}
+                                                    >
+                                                        <span
+                                                            className={`w-2 h-2 rounded-full ${
+                                                                isEnabled ? 'bg-amber-400 animate-pulse' : 'bg-zinc-600'
+                                                            }`}
+                                                        />
+                                                        <span>{t.name}</span>
+                                                        <span className="text-[9px] opacity-60 font-mono">
+                                                            ({t.id})
+                                                        </span>
+                                                        {isEnabled && (
+                                                            <IconCheck className="w-3 h-3 text-amber-400 ml-0.5" />
+                                                        )}
+                                                    </button>
+                                                )
+                                            })}
+                                        </div>
+                                    </div>
+                                )
+                            })}
+                        </div>
+                    )
+                })()}
+            </div>
 
             {/* Thông báo lỗi nếu có */}
             {errorMsg && (

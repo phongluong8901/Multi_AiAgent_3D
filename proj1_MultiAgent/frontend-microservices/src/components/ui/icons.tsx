@@ -12,7 +12,8 @@ import {
     Link, Target, Play, Circle, ExternalLink, HelpCircle,
     ArrowRight, ArrowDown, GitBranch, Workflow, ListOrdered, Sliders,
     Download, Server, Key, Eye, EyeOff, RefreshCw, HardDrive, Gauge, Shield, Code,
-    RotateCcw, Wifi, MapPin, Star, Home, Factory
+    RotateCcw, Wifi, MapPin, Star, Home, Factory, Pencil,
+    TrendingUp, ShieldAlert
 } from 'lucide-react'
 
 export interface IconProps extends React.SVGProps<SVGSVGElement> {
@@ -21,6 +22,9 @@ export interface IconProps extends React.SVGProps<SVGSVGElement> {
 }
 
 // Re-export Lucide icons with uniform names
+export const IconTrendingUp = TrendingUp
+export const IconShieldAlert = ShieldAlert
+export const IconEdit = Pencil
 export const IconPaperclip = Paperclip
 export const IconLogOut = LogOut
 export const IconGlobe = Globe

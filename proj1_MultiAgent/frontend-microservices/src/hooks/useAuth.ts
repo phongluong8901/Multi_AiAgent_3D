@@ -8,6 +8,7 @@ import {
     ResendOtpPayload,
     GoogleAuthPayload,
     GithubAuthPayload,
+    HuggingfaceAuthPayload,
 } from '@/lib/api'
 import { setSession } from '@/lib/auth'
 import { notify } from '@/lib/toast'
@@ -209,6 +210,53 @@ export function useAuth() {
         }
     }
 
+    const startHuggingfaceLogin = () => {
+        const clientId = process.env.NEXT_PUBLIC_HUGGINGFACE_CLIENT_ID
+        if (!clientId) {
+            const msg = 'Thiếu NEXT_PUBLIC_HUGGINGFACE_CLIENT_ID'
+            setError(msg)
+            notify.error(msg)
+            return
+        }
+        const redirectUri = `${window.location.origin}/auth/huggingface/callback`
+        const scope = 'openid profile email'
+        const state = Math.random().toString(36).substring(2)
+        const url =
+            `https://huggingface.co/oauth/authorize` +
+            `?response_type=code` +
+            `&client_id=${encodeURIComponent(clientId)}` +
+            `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+            `&scope=${encodeURIComponent(scope)}` +
+            `&state=${encodeURIComponent(state)}`
+        notify.info('Chuyển tới Hugging Face...')
+        window.location.href = url
+    }
+
+    const huggingfaceLogin = async (payload: HuggingfaceAuthPayload) => {
+        clearMessages()
+        setLoading(true)
+        try {
+            const redirectUri = typeof window !== 'undefined' ? `${window.location.origin}/auth/huggingface/callback` : undefined
+            const data = await authService.huggingfaceAuth({ ...payload, redirectUri: payload.redirectUri || redirectUri })
+            if (data.success) {
+                const { token, user } = pickTokenAndUser(data)
+                setSession(token, user)
+                notify.success('Đăng nhập Hugging Face thành công', {
+                    description: `Xin chào, ${user.name}`,
+                })
+                router.replace('/dashboard')
+            }
+            return data
+        } catch (err) {
+            const msg = errMsg(err, 'Đăng nhập Hugging Face thất bại')
+            setError(msg)
+            notify.error('Hugging Face login thất bại', { description: msg })
+            throw new Error(msg)
+        } finally {
+            setLoading(false)
+        }
+    }
+
     return {
         loading,
         error,
@@ -220,6 +268,8 @@ export function useAuth() {
         googleLogin,
         startGithubLogin,
         githubLogin,
+        startHuggingfaceLogin,
+        huggingfaceLogin,
         clearMessages,
     }
 }

@@ -21,6 +21,7 @@ import {
     IconAmr,
     IconDrone,
     IconHumanoid,
+    IconEdit,
 } from '@/components/ui/icons'
 
 type AgentFormType = 'humanoid' | 'duck' | 'amr' | 'drone'
@@ -288,10 +289,14 @@ export default function AgentsPage() {
                                 <div>
                                     {/* Header card: Icon/Avatar + Tên + Badge Hình Thái */}
                                     <div className="flex items-start justify-between gap-3 mb-3">
-                                        <div className="flex items-center gap-3 min-w-0">
+                                        <Link
+                                            href={`/agents/${agent.id}`}
+                                            className="flex items-center gap-3 min-w-0 flex-1 hover:opacity-95 group/title cursor-pointer"
+                                            title={`Bấm để chỉnh sửa Agent: ${agent.name}`}
+                                        >
                                             {/* Avatar Box với biểu tượng hình thái */}
                                             <div
-                                                className="w-12 h-12 rounded-2xl flex items-center justify-center text-xl shrink-0 shadow-lg relative border border-white/10"
+                                                className="w-12 h-12 rounded-2xl flex items-center justify-center text-xl shrink-0 shadow-lg relative border border-white/10 group-hover/title:scale-105 transition-transform"
                                                 style={{ backgroundColor: agent.color || '#3b82f6' }}
                                             >
                                                 <span>{meta.icon}</span>
@@ -300,15 +305,18 @@ export default function AgentsPage() {
                                                 </div>
                                             </div>
 
-                                            <div className="min-w-0">
-                                                <h2 className="font-bold text-base text-zinc-100 truncate group-hover:text-blue-400 transition">
-                                                    {agent.name}
-                                                </h2>
+                                            <div className="min-w-0 flex-1">
+                                                <div className="flex items-center gap-1.5">
+                                                    <h2 className="font-bold text-base text-zinc-100 truncate group-hover/title:text-blue-400 transition">
+                                                        {agent.name}
+                                                    </h2>
+                                                    <IconEdit className="w-3.5 h-3.5 text-zinc-500 group-hover/title:text-blue-400 opacity-60 group-hover/title:opacity-100 transition shrink-0" />
+                                                </div>
                                                 <p className="text-[11px] text-zinc-500 font-mono truncate">
                                                     @{agent.id}
                                                 </p>
                                             </div>
-                                        </div>
+                                        </Link>
 
                                         {/* Badge dạng Agent */}
                                         <span className={`px-2 py-0.5 text-[10px] font-bold rounded-full border shrink-0 ${meta.badgeBg}`}>
@@ -316,33 +324,40 @@ export default function AgentsPage() {
                                         </span>
                                     </div>
 
-                                    {/* Speech / Description */}
-                                    <div className="bg-zinc-950/50 rounded-xl p-2.5 border border-zinc-800/50 mb-3 min-h-[50px] flex items-center">
-                                        <p className="text-xs text-zinc-300 line-clamp-2 italic">
-                                            {agent.speech ? `"${agent.speech}"` : (
-                                                <span className="text-zinc-600 not-italic">Sẵn sàng nhận chỉ đạo tác vụ từ hệ thống...</span>
-                                            )}
-                                        </p>
-                                    </div>
+                                    {/* Clickable Speech & Specs to Edit */}
+                                    <Link
+                                        href={`/agents/${agent.id}`}
+                                        className="block cursor-pointer group/desc"
+                                        title={`Bấm để chỉnh sửa Agent: ${agent.name}`}
+                                    >
+                                        {/* Speech / Description */}
+                                        <div className="bg-zinc-950/50 group-hover/desc:bg-zinc-900/60 group-hover/desc:border-zinc-700/80 rounded-xl p-2.5 border border-zinc-800/50 mb-3 min-h-[50px] flex items-center transition">
+                                            <p className="text-xs text-zinc-300 line-clamp-2 italic group-hover/desc:text-zinc-200">
+                                                {agent.speech ? `"${agent.speech}"` : (
+                                                    <span className="text-zinc-600 not-italic">Sẵn sàng nhận chỉ đạo tác vụ từ hệ thống...</span>
+                                                )}
+                                            </p>
+                                        </div>
 
-                                    {/* Silicon Hardware Spec & Tags */}
-                                    <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
-                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-zinc-950 border border-zinc-800 font-mono text-zinc-300">
-                                            <IconCpu className="w-3 h-3 text-lime-400 shrink-0" />
-                                            <span>{meta.sub}</span>
-                                        </span>
-
-                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono">
-                                            <span>{agent.model || 'gemini-2.5-flash-lite'}</span>
-                                        </span>
-
-                                        {agent.prompt_id && (
-                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/20 font-medium">
-                                                <IconFileText className="w-3 h-3 text-blue-400 shrink-0" />
-                                                <span className="truncate max-w-[100px]">{agent.prompt_id}</span>
+                                        {/* Silicon Hardware Spec & Tags */}
+                                        <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
+                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-zinc-950 border border-zinc-800 font-mono text-zinc-300">
+                                                <IconCpu className="w-3 h-3 text-lime-400 shrink-0" />
+                                                <span>{meta.sub}</span>
                                             </span>
-                                        )}
-                                    </div>
+
+                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono">
+                                                <span>{agent.model || 'gemini-2.5-flash-lite'}</span>
+                                            </span>
+
+                                            {agent.prompt_id && (
+                                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/20 font-medium">
+                                                    <IconFileText className="w-3 h-3 text-blue-400 shrink-0" />
+                                                    <span className="truncate max-w-[100px]">{agent.prompt_id}</span>
+                                                </span>
+                                            )}
+                                        </div>
+                                    </Link>
                                 </div>
 
                                 {/* Footer Action Buttons */}
@@ -351,9 +366,10 @@ export default function AgentsPage() {
                                         <Link
                                             href={`/agents/${agent.id}`}
                                             className="text-xs text-blue-400 hover:text-white transition px-2.5 py-1.5 rounded-xl bg-blue-500/10 hover:bg-blue-600 border border-blue-500/20 font-semibold flex items-center gap-1.5"
+                                            title={`Chỉnh sửa cấu hình Agent: ${agent.name}`}
                                         >
-                                            <IconBot className="w-3.5 h-3.5" />
-                                            <span>3D Studio</span>
+                                            <IconEdit className="w-3.5 h-3.5" />
+                                            <span>Chỉnh sửa</span>
                                         </Link>
 
                                         <Link

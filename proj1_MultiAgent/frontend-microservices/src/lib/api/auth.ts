@@ -28,6 +28,11 @@ export type GithubAuthPayload = {
     code: string
 }
 
+export type HuggingfaceAuthPayload = {
+    code: string
+    redirectUri?: string
+}
+
 /** Giữ tên authService để useAuth khỏi đổi nhiều */
 export const authService = {
     register: (payload: RegisterPayload) =>
@@ -62,6 +67,12 @@ export const authService = {
 
     githubAuth: (payload: GithubAuthPayload) =>
         request<any>('/auth/github', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        }),
+
+    huggingfaceAuth: (payload: HuggingfaceAuthPayload) =>
+        request<any>('/auth/huggingface', {
             method: 'POST',
             body: JSON.stringify(payload),
         }),

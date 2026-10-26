@@ -1,8 +1,14 @@
-### 0. Kiểm tra API Gateway
-GET http://localhost:4000/
+@baseUrl = http://localhost:4000
+
+### 0. Kiểm tra API Gateway (Health Check)
+GET {{baseUrl}}/
+
+### 0.1. Lấy danh sách các AI Models khả dụng
+GET {{baseUrl}}/api/v1/models
 
 ### 1. [User Service] Đăng ký tài khoản mới
-POST http://localhost:4000/api/v1/users/register
+# @name register
+POST {{baseUrl}}/api/v1/users/register
 Content-Type: application/json
 
 {
@@ -12,8 +18,9 @@ Content-Type: application/json
   "role": "admin"
 }
 
-### 2. [User Service] Đăng nhập
-POST http://localhost:4000/api/v1/users/login
+### 2. [User Service] Đăng nhập (Tự động trích xuất token cho các request bên dưới)
+# @name login
+POST {{baseUrl}}/api/v1/users/login
 Content-Type: application/json
 
 {
@@ -21,27 +28,63 @@ Content-Type: application/json
   "password": "Password123@"
 }
 
+### Biến lưu token trích xuất từ phản hồi đăng nhập
+@token = {{login.response.body.data.token}}
+
 ### 3. [User Service] Lấy danh sách Users
-GET http://localhost:4000/api/v1/users
+GET {{baseUrl}}/api/v1/users
+Authorization: Bearer {{token}}
 
 ### 4. [Room Service] Tạo phòng họp mới
-POST http://localhost:4000/api/v1/rooms
+# @name createRoom
+POST {{baseUrl}}/api/v1/rooms/user-user
+Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
   "name": "Virtual Office Main Hall",
-  "description": "Phong hop tong quan 3D",
+  "description": "Phong hop tong quan 3D Multi-Agent",
   "maxCapacity": 20
 }
 
-### 5. [Room Service] Lấy danh sách phòng họp
-GET http://localhost:4000/api/v1/rooms
+### Biến lưu Room ID vừa tạo (hoặc fallback mặc định)
+@roomId = {{createRoom.response.body.data._id}}
 
-### 6. [Chat Service] Lấy lịch sử chat của phòng (thay ROOM_ID bằng ID thật)
-GET http://localhost:4000/api/v1/chats/history/room_test_123
+### 5. [Room Service] Lấy danh sách phòng họp
+GET {{baseUrl}}/api/v1/rooms/user-user
+Authorization: Bearer {{token}}
+
+### 5.1. [Room Service] Lấy chi tiết phòng họp theo ID
+GET {{baseUrl}}/api/v1/rooms/user-user/{{roomId}}
+Authorization: Bearer {{token}}
+
+### 5.2. [Room Service] Cập nhật Cấu hình Workflow Tuần Tự (Sequential Pipeline)
+PUT {{baseUrl}}/api/v1/rooms/user-user/{{roomId}}/workflow
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "mode": "sequential",
+  "enabled": true,
+  "description": "Quy trinh phan tich va truc quan hoa gia vang",
+  "order": ["agent_manager", "agent_search", "agent_visualize"],
+  "stepTools": {
+    "0": "workflow_planner_tool",
+    "1": "web_search_tool",
+    "2": "data_visualization_tool"
+  },
+  "agentTools": {
+    "agent_manager": ["workflow_planner_tool", "system_control_tool"],
+    "agent_visualize": ["data_visualization_tool", "data_analysis_tool"]
+  }
+}
+
+### 6. [Chat Service] Lấy lịch sử chat của phòng
+GET {{baseUrl}}/api/v1/chats/history/{{roomId}}
+Authorization: Bearer {{token}}
 
 ### 7. [Agent Service] Tạo Tool mới
-POST http://localhost:4000/api/v1/tools
+POST {{baseUrl}}/api/v1/tools
 Content-Type: application/json
 
 {
@@ -50,11 +93,21 @@ Content-Type: application/json
   "description": "Cong cu tinh toan so hoc co ban"
 }
 
+### 7.1. [Agent Service] Tạo Tool Trực quan hóa Biểu đồ (Data Visualization)
+POST {{baseUrl}}/api/v1/tools
+Content-Type: application/json
+
+{
+  "id": "data_visualization_tool",
+  "name": "Data Visualization",
+  "description": "Ve bieu do truc quan Line, Bar, Pie, Area dua tren so lieu thi truong"
+}
+
 ### 8. [Agent Service] Lấy danh sách Tools
-GET http://localhost:4000/api/v1/tools
+GET {{baseUrl}}/api/v1/tools
 
 ### 9. [Agent Service] Tạo Prompt mới
-POST http://localhost:4000/api/v1/prompts
+POST {{baseUrl}}/api/v1/prompts
 Content-Type: application/json
 
 {
@@ -64,10 +117,10 @@ Content-Type: application/json
 }
 
 ### 10. [Agent Service] Lấy danh sách Prompts
-GET http://localhost:4000/api/v1/prompts
+GET {{baseUrl}}/api/v1/prompts
 
 ### 11. [Agent Service] Tạo Agent mới
-POST http://localhost:4000/api/v1/agents
+POST {{baseUrl}}/api/v1/agents
 Content-Type: application/json
 
 {
@@ -84,33 +137,37 @@ Content-Type: application/json
 }
 
 ### 12. [Agent Service] Lấy danh sách Agents
-GET http://localhost:4000/api/v1/agents
+GET {{baseUrl}}/api/v1/agents
 
 ### 13. [Room Service] Đồng bộ nhóm Agent vào Room
-POST http://localhost:4000/api/v1/rooms/room_test_123/agents
+POST {{baseUrl}}/api/v1/rooms/agent-agent/{{roomId}}/agents
+Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
-  "activeAgents": ["agent_manager", "agent_ml", "agent_analyst", "agent_search", "agent_summarizer"]
+  "activeAgents": ["agent_manager", "agent_search", "agent_visualize", "agent_analyst"]
 }
 
 ### 14. [Chat Service] Lấy danh sách thành viên & Agent Online trong phòng
-GET http://localhost:4000/api/v1/chats/presence/room_test_123
+GET {{baseUrl}}/api/v1/chats/presence/{{roomId}}
+Authorization: Bearer {{token}}
 
 ### 15. [Chat Service] Gửi tin nhắn ra lệnh chéo cho Agent trong phòng
-POST http://localhost:4000/api/v1/chats/send
+POST {{baseUrl}}/api/v1/chats/send
+Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
-  "roomId": "room_test_123",
+  "roomId": "{{roomId}}",
   "senderId": "user_alice",
   "senderName": "Alice",
   "senderType": "user",
-  "message": "@agent_search Hãy tra cứu xu hướng AI Agent năm 2026 và @agent_ml hãy tính toán mô hình."
+  "message": "@agent_manager tim cho t gia vang hom nay"
 }
 
 ### 16. [Chat Service] Báo cáo sự hiện diện của User (Presence)
-POST http://localhost:4000/api/v1/chats/presence/room_test_123
+POST {{baseUrl}}/api/v1/chats/presence/{{roomId}}
+Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
@@ -122,17 +179,13 @@ Content-Type: application/json
   }
 }
 
-### 17. [Chat Service] Realtime Server-Sent Events (SSE) Stream
-GET http://localhost:4000/api/v1/chats/stream/room_test_123
-Accept: text/event-stream
+### 17. [User Service] Lấy thông tin Profile cá nhân
+GET {{baseUrl}}/api/v1/users/me
+Authorization: Bearer {{token}}
 
-### 18. [User Service] Lấy thông tin Profile cá nhân
-GET http://localhost:4000/api/v1/users/me
-Authorization: Bearer YOUR_JWT_TOKEN_HERE
-
-### 19. [User Service] Cập nhật Profile cá nhân (name, bio, avatar)
-PUT http://localhost:4000/api/v1/users/me
-Authorization: Bearer YOUR_JWT_TOKEN_HERE
+### 18. [User Service] Cập nhật Profile cá nhân (name, bio, avatar)
+PUT {{baseUrl}}/api/v1/users/me
+Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
@@ -141,23 +194,25 @@ Content-Type: application/json
   "avatar": "https://api.dicebear.com/7.x/bottts/svg?seed=PhongLuong"
 }
 
-### 20. [User Service] Lấy danh sách Agent của riêng User
-GET http://localhost:4000/api/v1/users/me/agents
-Authorization: Bearer YOUR_JWT_TOKEN_HERE
+### 19. [User Service] Lấy danh sách Agent của riêng User
+GET {{baseUrl}}/api/v1/users/me/agents
+Authorization: Bearer {{token}}
 
-### 21. [User Service] Đăng ký sở hữu Agent
-POST http://localhost:4000/api/v1/users/me/agents/agent_ml
-Authorization: Bearer YOUR_JWT_TOKEN_HERE
+### 20. [User Service] Đăng ký sở hữu Agent
+POST {{baseUrl}}/api/v1/users/me/agents/agent_ml
+Authorization: Bearer {{token}}
 
-### 22. [Room Service] Thêm Agent vào phòng (Add Agent to Room)
-POST http://localhost:4000/api/v1/rooms/room_test_123/agents/agent_ml
-Content-Type: application/json
+### 21. [Room Service] Thêm 1 Agent vào phòng
+POST {{baseUrl}}/api/v1/rooms/agent-agent/{{roomId}}/agents/agent_ml
+Authorization: Bearer {{token}}
 
-### 23. [Room Service] Rút bớt Agent khỏi phòng (Remove Agent from Room)
-DELETE http://localhost:4000/api/v1/rooms/room_test_123/agents/agent_ml
+### 22. [Room Service] Rút bớt Agent khỏi phòng
+DELETE {{baseUrl}}/api/v1/rooms/agent-agent/{{roomId}}/agents/agent_ml
+Authorization: Bearer {{token}}
 
-### 24. [Room Service] Gán sở hữu Agent cho User trong phòng (User-Agent Binding)
-POST http://localhost:4000/api/v1/rooms/room_test_123/user-agents
+### 23. [Room Service] Gán sở hữu Agent cho User trong phòng (User-Agent Binding)
+POST {{baseUrl}}/api/v1/rooms/user-agent/{{roomId}}/user-agents
+Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
@@ -168,6 +223,6 @@ Content-Type: application/json
   "agentName": "ML Expert"
 }
 
-### 25. [Room Service] Hủy gán sở hữu Agent trong phòng
-DELETE http://localhost:4000/api/v1/rooms/room_test_123/user-agents/agent_ml
-
+### 24. [Room Service] Hủy gán sở hữu Agent trong phòng
+DELETE {{baseUrl}}/api/v1/rooms/user-agent/{{roomId}}/user-agents/agent_ml
+Authorization: Bearer {{token}}

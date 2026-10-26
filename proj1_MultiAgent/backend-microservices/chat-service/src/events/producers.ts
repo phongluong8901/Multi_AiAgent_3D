@@ -1,4 +1,5 @@
 import { getChannel } from "./rabbitmq"; // Import hàm lấy channel RabbitMQ đang hoạt động từ file quản lý kết nối
+import { ChatType } from "../models/chat.model";
 
 const CHAT_EXCHANGE = "chat.events";   // Khai báo tên Exchange dùng cho các sự kiện liên quan đến tin nhắn chat
 const AGENT_EXCHANGE = "agent.events"; // Khai báo tên Exchange dùng để giao tiếp, truyền prompt xuống các AI agent
@@ -16,7 +17,7 @@ export interface ChatAttachmentPayload {
 export async function publishChatMessage(payload: {
     messageId: string;
     roomId: string;
-    typeChat?: "team" | "direct" | "agent" | "system" | "workflow";
+    typeChat?: ChatType;
     senderId: string;
     senderName: string;
     senderType: "user" | "agent" | "system";
@@ -54,8 +55,8 @@ export async function publishChatMessage(payload: {
 // Ngữ cảnh hội thoại gửi kèm prompt, agent-service sẽ trả lại nguyên vẹn trong agent.reply
 export interface AgentPromptContext {
     depth: number;
-    typeChat: "team" | "direct" | "agent" | "workflow" | "system";
-    rootTypeChat: "team" | "direct" | "agent" | "workflow" | "system";
+    typeChat: ChatType;
+    rootTypeChat: ChatType;
     senderId: string;
     senderName: string;
     activeAgents?: string[];

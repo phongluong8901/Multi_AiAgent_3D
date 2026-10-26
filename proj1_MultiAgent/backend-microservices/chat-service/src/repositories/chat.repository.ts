@@ -1,17 +1,32 @@
-import { ChatModel, IChat } from "../models/chat.model";
+import {
+    ChatModel,
+    UserUserChatModel,
+    UserAgentChatModel,
+    AgentAgentChatModel,
+    getChatModelByType,
+    IChat
+} from "../models/chat.model";
 
 export class ChatRepository {
     /**
-     * Tạo và lưu một tin nhắn mới vào MongoDB
+     * Tạo và lưu một tin nhắn mới vào đúng Collection tương ứng (user-user, user-agent, agent-agent)
+     * Đồng thời cũng lưu 1 bản vào collection chats dùng chung để đảm bảo tính tương thích
      */
     async create(chatData: Partial<IChat>): Promise<any> {
-        const chat = new ChatModel(chatData);
+        const SpecificModel = getChatModelByType(chatData.typeChat);
+        const chat = new SpecificModel(chatData);
         const saved = await chat.save();
+
+        // Nếu collection riêng khác collection chung chats, ghi thêm 1 bản dự phòng
+        if (SpecificModel !== ChatModel) {
+            ChatModel.create(chatData).catch(() => {});
+        }
+
         return saved.toObject ? saved.toObject() : saved;
     }
 
     /**
-     * Lấy lịch sử chat của phòng, có thể lọc theo typeChat (tùy chọn)
+     * Lấy lịch sử chat của phòng theo từng phân loại (User-User, User-Agent, Agent-Agent)
      */
     async findByRoomId(
         roomId: string,
@@ -21,7 +36,7 @@ export class ChatRepository {
     ): Promise<any[]> {
         const query: Record<string, any> = { roomId };
 
-        // Nếu có truyền vào typeChat thì thêm vào điều kiện lọc
+        // Nếu có truyền vào typeChat thì truy vấn chính xác từ collection chuyên biệt
         if (typeChat) {
             query.typeChat = typeChat;
 
@@ -44,10 +59,17 @@ export class ChatRepository {
             if (typeChat === "agent" && options?.targetAgentId) {
                 query.targetAgentId = options.targetAgentId;
             }
+
+            const TargetModel = getChatModelByType(typeChat);
+            return await TargetModel.find(query)
+                .sort({ createdAt: 1 })
+                .limit(limit)
+                .lean();
         }
 
+        // Nếu không truyền typeChat (lấy tổng hợp toàn bộ phòng): Lấy từ ChatModel chung
         return await ChatModel.find(query)
-            .sort({ createdAt: 1 }) // Sắp xếp tăng dần theo thời gian (cũ ở trên, mới ở dưới)
+            .sort({ createdAt: 1 })
             .limit(limit)
             .lean();
     }

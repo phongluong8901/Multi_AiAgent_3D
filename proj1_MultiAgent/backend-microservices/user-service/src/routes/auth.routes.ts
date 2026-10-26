@@ -11,6 +11,7 @@ router.post("/register", authLimiter, authController.register);
 router.post("/login", authLimiter, authController.login);
 router.post("/google", authLimiter, authController.googleAuth);
 router.post("/github", authLimiter, authController.githubAuth);
+router.post("/huggingface", authLimiter, authController.huggingfaceAuth);
 router.post("/verify-otp", authLimiter, authController.verifyOtp);
 router.post("/resend-otp", authLimiter, authController.resendOtp);
 

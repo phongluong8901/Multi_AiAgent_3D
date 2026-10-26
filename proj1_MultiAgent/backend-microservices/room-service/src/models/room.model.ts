@@ -69,6 +69,8 @@ export interface IWorkflowTransition {
 export interface IAgentWorkflow {
     mode: AgentWorkflowMode; // 'solo': chạy đơn lẻ, 'sequential': tuần tự, 'routing': định tuyến quy tắc, 'autonomous': tự do
     order?: string[]; // Danh sách agent theo chuỗi tuần tự khi mode === 'sequential'
+    stepTools?: Record<string, string>; // Công cụ chỉ định cho từng bước tuần tự (ví dụ: { "0": "web_search_tool" })
+    agentTools?: Record<string, string[]>; // Danh sách công cụ được kích hoạt cho từng agent trong phòng
     transitions?: IWorkflowTransition[]; // Danh sách các bước chuyển tiếp khi mode === 'routing'
     enabled?: boolean; // Bật/tắt cấu hình workflow
     description?: string; // Ghi chú mục đích của workflow
@@ -149,6 +151,8 @@ const RoomSchema = new Schema<IRoom>(
                 default: "autonomous",
             },
             order: { type: [String], default: [] },
+            stepTools: { type: Schema.Types.Mixed, default: {} },
+            agentTools: { type: Schema.Types.Mixed, default: {} },
             transitions: [
                 {
                     fromAgentId: { type: String, required: true },
@@ -201,7 +205,13 @@ RoomSchema.index({ name: "text", description: "text" });
 // Single field index trên `members.memberId` giúp tìm nhanh danh sách tất cả các phòng mà 1 User/Agent đang tham gia
 RoomSchema.index({ "members.memberId": 1 });
 
-// Single field index trên `ownerId` giúp lọc cực nhanh tất cả các phòng do 1 User làm chủ
-RoomSchema.index({ ownerId: 1 });
+export const RoomModel = model<IRoom>("Room", RoomSchema, "rooms");
 
-export const RoomModel = model<IRoom>("Room", RoomSchema);
+// 1. Collection chuyên lưu cấu trúc phòng & thành viên Người dùng (User-User Track)
+export const UserUserRoomModel = model<IRoom>("UserUserRoom", RoomSchema, "rooms_user_user");
+
+// 2. Collection chuyên lưu cấu hình & trạng thái Agent trong phòng (Agent-Agent Track)
+export const AgentAgentRoomModel = model<IRoom>("AgentAgentRoom", RoomSchema, "rooms_agent_agent");
+
+// 3. Collection chuyên lưu liên kết gán Agent cá nhân cho User (User-Agent Track)
+export const UserAgentRoomModel = model<IRoom>("UserAgentRoom", RoomSchema, "rooms_user_agent");

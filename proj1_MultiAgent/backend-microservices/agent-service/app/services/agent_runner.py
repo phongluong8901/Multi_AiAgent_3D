@@ -58,6 +58,129 @@ class AgentRunner:
             },
         )
 
+    def _build_room_collaboration_matrix(
+        self,
+        db: Session,
+        agent_id: str,
+        agent_data: dict,
+        room_id: Optional[str] = None,
+        context: Optional[dict] = None,
+    ) -> str:
+        """
+        Xây dựng Ma trận Năng lực & Công cụ trong phòng (Room Agent & Tool Matrix)
+        để Agent nhận thức chính xác:
+        1. Bản thân sở hữu công cụ nào (chỉ được gọi trực tiếp công cụ của chính mình).
+        2. Trong phòng hiện tại có những đồng nghiệp nào và mỗi đồng nghiệp đang sở hữu công cụ gì.
+        3. Phân biệt rõ cách xử lý:
+           - Bài toán đơn giản: gọi đúng 1 công cụ của mình rồi trả lời ngay.
+           - Bài toán phức tạp (ví dụ Giá Vàng): làm phần việc của mình, nếu thiếu công cụ (như vẽ biểu đồ) thì kiểm tra xem trong phòng ai sở hữu công cụ đó để bàn giao.
+        """
+        # 1. Xác định danh sách Agent thực tế đang có mặt trong không gian hiện tại
+        active_room_agent_ids = []
+        if context and isinstance(context, dict):
+            ctx_agents = context.get("activeAgents") or context.get("room_agents") or context.get("roomAgents") or context.get("active_agents")
+            if isinstance(ctx_agents, list):
+                active_room_agent_ids = [str(a.get("id") if isinstance(a, dict) else a) for a in ctx_agents if a]
+
+        if not active_room_agent_ids and room_id and room_id not in ["office", "default", "global"]:
+            try:
+                import urllib.request, json, os
+                room_svc_url = os.getenv("ROOM_SERVICE_URL", "http://room-service:5002")
+                req = urllib.request.Request(
+                    f"{room_svc_url}/api/v1/internal/rooms/{room_id}",
+                    headers={
+                        "User-Agent": "AgentService",
+                        "x-internal-service": "agent-service",
+                        "x-user-id": "system-internal",
+                    }
+                )
+                with urllib.request.urlopen(req, timeout=1.5) as resp:
+                    r_json = json.loads(resp.read().decode())
+                    active_room_agent_ids = r_json.get("data", {}).get("activeAgents", [])
+            except Exception:
+                pass
+
+        # Nếu ở 3D Office (room_id=="office" hoặc không truyền room_id): toàn bộ các chuyên gia đều cùng hiện diện trong văn phòng
+        if not active_room_agent_ids and (not room_id or room_id in ["office", "default", "global"]):
+            from app.models.agent import AgentModel
+            all_db_agents = db.query(AgentModel.id).all()
+            active_room_agent_ids = [a[0] for a in all_db_agents] if all_db_agents else [
+                "agent_manager", "agent_search", "agent_summarizer", 
+                "agent_calculate", "agent_analysis", "agent_analyst", "agent_ml", "agent_visualize"
+            ]
+
+        # 2. Bóc tách danh sách công cụ của bản thân
+        my_agent_name = agent_data.get("name", agent_id)
+        my_tools = [t.name if hasattr(t, "name") else str(t.get("name", t.get("id", ""))) for t in agent_data.get("tools", [])]
+        my_tools_str = ", ".join(my_tools) if my_tools else "Không được trang bị công cụ ngoài"
+
+        # 3. Lấy thông tin chi tiết từng đồng nghiệp trong phòng kèm công cụ họ sở hữu
+        colleagues_lines = []
+        for member_agent_id in active_room_agent_ids:
+            if member_agent_id == agent_id:
+                continue
+            try:
+                colleague = agent_service.get_agent_by_id(db, member_agent_id)
+                colleague_name = colleague.get("name", member_agent_id)
+                colleague_tools = [t.name if hasattr(t, "name") else str(t.get("name", t.get("id", ""))) for t in colleague.get("tools", [])]
+                
+                role_desc = "Trợ lý chuyên gia"
+                if colleague.get("prompt_id"):
+                    from app.services.prompt_service import prompt_service
+                    c_prompt = prompt_service.get_prompt(db, colleague["prompt_id"])
+                    if c_prompt and c_prompt.content:
+                        role_desc = c_prompt.content.split("\n")[0][:120]
+
+                tools_str = f" [CÔNG CỤ SỞ HỮU: {', '.join(colleague_tools)}]" if colleague_tools else " [Không có công cụ ngoài]"
+                colleagues_lines.append(f"- @{member_agent_id} ({colleague_name}): {role_desc}{tools_str}")
+            except Exception:
+                colleagues_lines.append(f"- @{member_agent_id}: Đồng nghiệp có mặt trong phòng")
+
+        # 4. Tạo chỉ dẫn làm việc nhóm dựa trên ma trận thực tế
+        if colleagues_lines:
+            colleagues_list_str = "\n".join(colleagues_lines)
+            team_guide = (
+                f"\n\n[MA TRẬN NĂNG LỰC & CÔNG CỤ CỦA CÁC AGENT ĐANG CÓ MẶT TRONG PHÒNG HIỆN TẠI]\n"
+                f"1. BẢN THÂN BẠN: '@{agent_id}' ({my_agent_name}).\n"
+                f"   - Công cụ bạn ĐANG SỞ HỮU: [{my_tools_str}].\n"
+                f"   - NGUYÊN TẮC QUYỀN SỞ HỮU CÔNG CỤ: Bạn CHỈ ĐƯỢC PHÉP trực tiếp kích hoạt các công cụ bạn đang sở hữu ở trên. Bạn TUYỆT ĐỐI KHÔNG THỂ tự gọi các công cụ mà bạn không có.\n\n"
+                f"2. DANH SÁCH ĐỒNG NGHIỆP ĐANG CÓ MẶT TRONG PHÒNG VÀ CÔNG CỤ CỦA HỌ:\n"
+                f"{colleagues_list_str}\n\n"
+                f"3. QUY TẮC XỬ LÝ (TÍNH TOÁN THEO CÔNG CỤ VÀ AGENT TRONG PHÒNG):\n"
+                f"   A. KHI CÂU HỎI ĐƠN GIẢN (Chỉ cần 1 công cụ):\n"
+                f"      - Nếu công cụ đó THUỘC SỞ HỮU CỦA BẠN: Hãy gọi đúng 1 công cụ đó rồi trả lời dứt điểm ngay cho người dùng mà không cần chuyển giao thêm.\n"
+                f"      - Nếu công cụ đó BẠN KHÔNG CÓ nhưng trong phòng CÓ ĐỒNG NGHIỆP SỞ HỮU: Hãy gắn thẻ @agent_id của đồng nghiệp đó để chuyển giao.\n\n"
+                f"   B. KHI CÂU HỎI PHỨC TẠP (Ví dụ: Tra cứu giá vàng, phân tích biến động, vẽ biểu đồ):\n"
+                f"      - Bạn phải kiểm tra xem bạn sở hữu công cụ nào trong chuỗi tác vụ trên:\n"
+                f"        + Nếu bạn có công cụ liên quan (ví dụ tìm kiếm hoặc phân tích): Hãy gọi công cụ của bạn để giải quyết phần việc của mình trước.\n"
+                f"        + Sau khi xong, nếu còn công đoạn tiếp theo (ví dụ: vẽ biểu đồ trực quan):\n"
+                f"          * Nếu BẢN THÂN BẠN có 'data_visualization_tool': Bạn tự gọi tiếp 'data_visualization_tool' để vẽ biểu đồ.\n"
+                f"          * Nếu BẢN THÂN BẠN KHÔNG CÓ 'data_visualization_tool':\n"
+                f"            > Kiểm tra danh sách đồng nghiệp ở trên: Nếu trong phòng CÓ đồng nghiệp sở hữu 'data_visualization_tool' (ví dụ @agent_visualize): BẮT BUỘC tóm tắt số liệu và gắn thẻ '@agent_visualize Hãy vẽ biểu đồ đường cho số liệu trên'.\n"
+                f"            > Nếu TRONG PHÒNG KHÔNG CÓ ai sở hữu 'data_visualization_tool': Hãy thông báo rõ cho người dùng là 'Hiện trong phòng không có Agent trực quan hóa biểu đồ' và trình bày bảng số liệu Markdown đẹp mắt.\n"
+                f"   C. TUYỆT ĐỐI KHÔNG gắn thẻ bất kỳ @agent_id nào KHÔNG CÓ TÊN trong danh sách đồng nghiệp đang có mặt ở trên."
+            )
+        else:
+            team_guide = (
+                f"\n\n[TRẠNG THÁI PHÒNG: LÀM VIỆC ĐỘC LẬP (SOLO)]\n"
+                f"Bạn có định danh là: '@{agent_id}' ({my_agent_name}).\n"
+                f"Trong phòng hiện tại CHỈ CÓ MỘT MÌNH BẠN hoạt động.\n"
+                f"Công cụ bạn sở hữu: [{my_tools_str}].\n"
+                f"Bạn hãy tự mình hoàn thành yêu cầu bằng các công cụ sẵn có của mình. TUYỆT ĐỐI KHÔNG gắn thẻ @agent nào khác vì không có ai khác trong phòng."
+            )
+
+        # Lấy quy định riêng của từng Agent
+        from app.core.agent_configs import get_agent_config
+        agent_cfg = get_agent_config(agent_id)
+        specific_guidelines = agent_cfg.get("guidelines", "")
+        if specific_guidelines:
+            team_guide += (
+                f"\n\n[QUY ĐỊNH VÀ CHUẨN ĐẦU RA RIÊNG CHO BẠN ({agent_cfg.get('role_name', agent_id)})]:\n"
+                f"{specific_guidelines}"
+            )
+
+        return team_guide
+
     def run_agent(
         self,
         db: Session,
@@ -76,7 +199,6 @@ class AgentRunner:
             agent_data = agent_service.get_agent_by_id(db, agent_id)
         except Exception:
             error_msg = f"Agent '{agent_id}' not found"
-            # Vẫn phản hồi để người dùng không phải chờ vô hạn trong chat
             self._publish_reply(
                 agent_id=agent_id,
                 agent_name=agent_id,
@@ -89,7 +211,7 @@ class AgentRunner:
             )
             return {"success": False, "error": error_msg}
 
-        # 2. Lấy system prompt từ Agent kết hợp ngữ cảnh làm việc nhóm
+        # 2. Lấy system prompt từ Agent kết hợp Ma trận Năng lực & Công cụ trong phòng
         base_role_prompt = "Bạn là một trợ lý ảo thông minh trong văn phòng 3D ảo."
         if agent_data.get("prompt_id"):
             from app.services.prompt_service import prompt_service
@@ -97,83 +219,14 @@ class AgentRunner:
             if prompt:
                 base_role_prompt = prompt.content
 
-        # Xác định danh sách các Agent thực tế đang có mặt trong phòng hiện tại
-        active_room_agent_ids = []
-        if context and isinstance(context, dict):
-            ctx_agents = context.get("activeAgents") or context.get("room_agents") or context.get("roomAgents")
-            if isinstance(ctx_agents, list):
-                active_room_agent_ids = [str(a) for a in ctx_agents if a]
-
-        if not active_room_agent_ids and room_id:
-            try:
-                import urllib.request
-                import json
-                import os
-                room_svc_url = os.getenv("ROOM_SERVICE_URL", "http://room-service:5002")
-                req = urllib.request.Request(f"{room_svc_url}/api/v1/rooms/user-user/{room_id}", headers={"User-Agent": "AgentService"})
-                with urllib.request.urlopen(req, timeout=1.5) as resp:
-                    r_json = json.loads(resp.read().decode())
-                    active_room_agent_ids = r_json.get("data", {}).get("activeAgents", [])
-            except Exception:
-                pass
-
-        # Lấy thông tin chi tiết của các đồng nghiệp trong phòng để xây dựng bảng năng lực
-        colleagues_info = []
-        if active_room_agent_ids:
-            for member_agent_id in active_room_agent_ids:
-                if member_agent_id == agent_id:
-                    continue
-                try:
-                    colleague = agent_service.get_agent_by_id(db, member_agent_id)
-                    colleague_name = colleague.get("name", member_agent_id)
-                    colleague_tools = [t.name if hasattr(t, "name") else t.get("name", "") for t in colleague.get("tools", [])]
-                    
-                    role_desc = "Trợ lý hỗ trợ đa nhiệm"
-                    if colleague.get("prompt_id"):
-                        from app.services.prompt_service import prompt_service
-                        c_prompt = prompt_service.get_prompt(db, colleague["prompt_id"])
-                        if c_prompt and c_prompt.content:
-                            role_desc = c_prompt.content.split("\n")[0][:100]
-
-                    tools_str = f" [Công cụ: {', '.join(colleague_tools)}]" if colleague_tools else " [Không dùng công cụ ngoài]"
-                    colleagues_info.append(f"- @{member_agent_id} ({colleague_name}): {role_desc}{tools_str}")
-                except Exception:
-                    colleagues_info.append(f"- @{member_agent_id}: Thành viên trong phòng")
-
-        # Ngữ cảnh làm việc nhóm đa agent linh hoạt theo từng phòng (Autonomous Multi-Agent Room Collaboration)
-        my_agent_name = agent_data.get('name', agent_id)
-        if colleagues_info:
-            colleagues_list_str = "\n".join(colleagues_info)
-            team_collaboration_guide = (
-                f"\n\n[HỆ THỐNG LÀM VIỆC NHÓM ĐA AGENT TRONG PHÒNG HIỆN TẠI]\n"
-                f"Bạn có định danh là: '{agent_id}' ({my_agent_name}).\n"
-                f"Danh sách các đồng nghiệp ĐANG CÓ MẶT TRONG PHÒNG NÀY:\n"
-                f"{colleagues_list_str}\n\n"
-                f"QUY TẮC CỘNG TÁC TỰ ĐỘNG (AUTONOMOUS HANDOFF):\n"
-                f"1. Bạn CHỈ được phép bàn giao công việc cho các đồng nghiệp CÓ TÊN TRONG DANH SÁCH TRÊN bằng cú pháp @agent_id (ví dụ: '@{colleagues_info[0].split(' ')[1][1:]} hãy...'). TUYỆT ĐỐI KHÔNG gắn tag bất kỳ agent nào không có mặt trong danh sách phòng này.\n"
-                f"2. Nếu bạn sở hữu công cụ phù hợp với yêu cầu của người dùng, hãy chủ động dùng công cụ để xử lý phần việc của mình trước.\n"
-                f"3. Sau khi giải quyết xong phần việc của mình, nếu cần sự hỗ trợ của một đồng nghiệp trong phòng để hoàn thành mục tiêu, hãy tóm tắt kết quả của bạn và BẮT BUỘC gắn thẻ @agent_id của đồng nghiệp đó kèm yêu cầu cụ thể.\n"
-                f"4. Nếu nhiệm vụ đã được xử lý xong trọn vẹn hoặc bạn là người đúc kết cuối cùng, hãy đưa ra câu trả lời chi tiết, thẩm mỹ cho người dùng và TUYỆT ĐỐI KHÔNG gắn thêm thẻ @agent nào nữa để kết thúc chu trình.\n"
-                f"5. Nếu tin nhắn có tiền tố '[Bàn giao nhiệm vụ từ...]': Bạn hãy tiếp nhận dữ liệu được gửi kèm và giải quyết theo đúng chuyên môn của bạn."
-            )
-        else:
-            team_collaboration_guide = (
-                f"\n\n[NGỮ CẢNH HOẠT ĐỘNG TRONG PHÒNG]\n"
-                f"Bạn có định danh là: '{agent_id}' ({my_agent_name}).\n"
-                f"Hiện tại trong phòng chỉ có một mình bạn là AI Agent hoạt động.\n"
-                f"Hãy tự mình tiếp nhận, sử dụng các công cụ sẵn có (nếu cần) và giải quyết trọn vẹn yêu cầu của người dùng.\n"
-                f"TUYỆT ĐỐI KHÔNG gắn thẻ @agent nào khác vì không có đồng nghiệp nào khác trong phòng này."
-            )
-
-        # Lấy cấu hình và quy định riêng biệt theo từng agent (search sources, độ dài tóm tắt, model...)
-        from app.core.agent_configs import get_agent_config
-        agent_cfg = get_agent_config(agent_id)
-        specific_guidelines = agent_cfg.get("guidelines", "")
-        if specific_guidelines:
-            team_collaboration_guide += (
-                f"\n\n[QUY ĐỊNH VÀ CHUẨN ĐẦU RA RIÊNG CHO BẠN ({agent_cfg.get('role_name', agent_id)})]:\n"
-                f"{specific_guidelines}"
-            )
+        # Xây dựng ma trận Agent & Tool có mặt trong phòng
+        team_collaboration_guide = self._build_room_collaboration_matrix(
+            db=db,
+            agent_id=agent_id,
+            agent_data=agent_data,
+            room_id=room_id,
+            context=context,
+        )
 
         # Tích hợp cấu hình Workflow của phòng (Solo / Sequential / Routing)
         workflow = {}
@@ -219,12 +272,49 @@ class AgentRunner:
         if memory_context:
             agent_system_prompt = f"{agent_system_prompt}\n\n{memory_context}"
 
+        # Kiểm tra cấu hình công cụ trong phòng (Room Workflow Agent Tools / Step Tools)
+        wf_cfg = (context or {}).get("workflow") or {}
+        agent_tools_cfg = wf_cfg.get("agentTools", {})
+        if agent_id in agent_tools_cfg and isinstance(agent_tools_cfg[agent_id], list) and len(agent_tools_cfg[agent_id]) > 0:
+            allowed = set(agent_tools_cfg[agent_id])
+            agent_tools = [
+                t for t in agent_data.get("tools", [])
+                if (t.id if hasattr(t, "id") else t.get("id")) in allowed or (t.name if hasattr(t, "name") else t.get("name")) in allowed
+            ]
+        else:
+            agent_tools = agent_data.get("tools", [])
+
+        # Kiểm tra nếu đang chạy theo bước tuần tự có công cụ chỉ định
+        if wf_cfg.get("mode") == "sequential":
+            order_list = wf_cfg.get("order", [])
+            step_idx = order_list.index(agent_id) if agent_id in order_list else (context or {}).get("depth", 0)
+            step_tools = wf_cfg.get("stepTools", {})
+            assigned_tool = step_tools.get(str(step_idx)) or step_tools.get(step_idx)
+            if assigned_tool and assigned_tool != "all":
+                agent_system_prompt += (
+                    f"\n\n[CHỈ ĐỊNH CÔNG CỤ TẠI BƯỚC NÀY (BƯỚC #{step_idx + 1})]\n"
+                    f"Quy trình phòng chỉ định bạn ưu tiên sử dụng công cụ: '{assigned_tool}' để thực thi phần việc của bước này.\n"
+                )
+
+        # Thêm hướng dẫn liên kết nhiều công cụ (Multi-Tool Chaining) nếu Agent sở hữu >= 1 tool
+        if len(agent_tools) > 0:
+            tool_names_str = ", ".join([t.name if hasattr(t, "name") else str(t.get("name", t.get("id", ""))) for t in agent_tools])
+            agent_system_prompt += (
+                f"\n\n[HƯỚNG DẪN SỬ DỤNG VÀ KẾT HỢP CÔNG CỤ (FLEXIBLE TOOL CHAINING)]\n"
+                f"Bạn đang được trang bị các công cụ: [{tool_names_str}].\n"
+                f"- Nếu câu hỏi đơn giản hoặc chỉ cần 1 công cụ: Bạn hãy gọi đúng 1 công cụ đó (ví dụ chỉ tính toán thì gọi calculator_tool, chỉ vẽ biểu đồ thì gọi data_visualization_tool) rồi phản hồi ngay cho người dùng.\n"
+                f"- Nếu câu hỏi yêu cầu chuỗi xử lý phức tạp (ví dụ tra cứu giá vàng/thị trường, phân tích rồi vẽ biểu đồ): Bạn CÓ THỂ gọi liên hoàn nhiều công cụ theo chuỗi:\n"
+                f"  + Bước 1: Gọi web_search_tool hoặc google_search_tool để thu thập số liệu mới nhất.\n"
+                f"  + Bước 2: Gọi data_analysis_tool để thống kê số liệu (min, max, mean, xu hướng tăng giảm).\n"
+                f"  + Bước 3: Gọi data_visualization_tool truyền mốc thời gian (labels) và số liệu (datasets) để tạo biểu đồ trực quan (line, bar, pie).\n"
+                f"  + Bước 4: Đưa ra nhận xét súc tích, ngắn gọn, chuẩn xác.\n"
+            )
+
         # 4. Lấy Short Memory (conversation history) từ Redis
         short_memory = memory_service.get_short_memory(agent_id, room_id)
 
         # 5. Xây dựng tool definitions
         tool_definitions = []
-        agent_tools = agent_data.get("tools", [])
         for tool in agent_tools:
             tool_id = tool.id if hasattr(tool, "id") else tool.get("id", "")
             tool_name_val = tool.name if hasattr(tool, "name") else tool.get("name", "")
@@ -244,6 +334,56 @@ class AgentRunner:
                     "input": {"type": "string", "description": "Biểu thức toán học dự phòng"}
                 }
                 required = ["expression"]
+            elif "summar" in tool_id_lower:
+                properties = {
+                    "text": {"type": "string", "description": "Văn bản, tài liệu hoặc kết quả tìm kiếm cần tóm tắt lại"},
+                    "max_length": {"type": "integer", "description": "Độ dài tóm tắt mong muốn (mặc định 150 ký tự)"},
+                    "input": {"type": "string", "description": "Văn bản cần tóm tắt dự phòng"}
+                }
+                required = ["text"]
+            elif "visualiz" in tool_id_lower or "chart" in tool_id_lower:
+                properties = {
+                    "title": {"type": "string", "description": "Tiêu đề biểu đồ (ví dụ: 'Biến động Giá Vàng SJC Tháng 10/2026')"},
+                    "chart_type": {"type": "string", "description": "Loại biểu đồ: 'line' (đường), 'bar' (cột), 'pie' (tròn), 'area' (diện tích)"},
+                    "labels": {"type": "array", "items": {"type": "string"}, "description": "Danh sách các nhãn trục X / mốc thời gian (ví dụ: ['01/10', '05/10', '10/10', '15/10', '20/10', '25/10'])"},
+                    "datasets": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "label": {"type": "string", "description": "Tên chuỗi dữ liệu (ví dụ: 'Giá Vàng SJC (triệu VND/lượng)')"},
+                                "data": {"type": "array", "items": {"type": "number"}, "description": "Danh sách giá trị số tương ứng từng mốc nhãn"}
+                            },
+                            "required": ["label", "data"]
+                        },
+                        "description": "Các chuỗi dữ liệu cần vẽ biểu đồ"
+                    },
+                    "unit": {"type": "string", "description": "Đơn vị tính (ví dụ: 'triệu VNĐ/lượng', 'USD/oz', '%')"},
+                    "summary": {"type": "string", "description": "Tóm tắt ngắn gọn 1-2 câu về xu hướng của biểu đồ"}
+                }
+                required = ["title", "labels", "datasets"]
+            elif "analysis" in tool_id_lower or "analyst" in tool_id_lower or "db_query" in tool_id_lower:
+                properties = {
+                    "data": {"type": "string", "description": "Dãy số hoặc mảng số liệu cần phân tích thống kê (ví dụ: '[12, 15, 20, 25, 30]' hoặc '10, 20, 30')"},
+                    "input": {"type": "string", "description": "Dữ liệu phân tích dự phòng"}
+                }
+                required = ["data"]
+            elif "ml" in tool_id_lower or "evaluator" in tool_id_lower:
+                properties = {
+                    "task_type": {"type": "string", "description": "Loại bài toán: 'classification' (phân loại), 'regression' (hồi quy), hoặc 'recommendation' (gợi ý mô hình)"},
+                    "tp": {"type": "number", "description": "True Positives (nếu đánh giá phân loại)"},
+                    "fp": {"type": "number", "description": "False Positives"},
+                    "tn": {"type": "number", "description": "True Negatives"},
+                    "fn": {"type": "number", "description": "False Negatives"},
+                    "data_type": {"type": "string", "description": "Loại dữ liệu ('tabular', 'nlp', 'time_series') nếu cần gợi ý mô hình"}
+                }
+                required = ["task_type"]
+            elif "plan" in tool_id_lower or "workflow" in tool_id_lower or "control" in tool_id_lower:
+                properties = {
+                    "goal": {"type": "string", "description": "Mục tiêu bài toán phức tạp cần phân rã thành các bước và gán cho các agent chuyên trách"},
+                    "input": {"type": "string", "description": "Mục tiêu bài toán dự phòng"}
+                }
+                required = ["goal"]
             elif "crawl" in tool_id_lower:
                 properties = {
                     "url": {"type": "string", "description": "Đường dẫn URL bài viết/website cần thu thập nội dung"},
@@ -507,6 +647,273 @@ class AgentRunner:
                 "answer": error_answer,
                 "workflow_trace": error_trace,
             }
+
+    def stream_agent(
+        self,
+        db: Session,
+        agent_id: str,
+        user_message: str,
+        room_id: Optional[str] = None,
+        source: str = "http",
+        context: Optional[dict] = None,
+    ):
+        """
+        Stream tiến trình suy nghĩ, gọi tool và từng token câu trả lời của agent qua SSE (Server-Sent Events).
+        """
+        import json
+
+        # 1. Lấy thông tin Agent từ DB
+        try:
+            agent_data = agent_service.get_agent_by_id(db, agent_id)
+        except Exception:
+            yield f"data: {json.dumps({'type': 'error', 'content': f'Agent {agent_id} not found'}, ensure_ascii=False)}\n\n"
+            return
+
+        agent_name = agent_data.get("name", agent_id)
+        yield f"data: {json.dumps({'type': 'status', 'content': f'Đang kết nối Agent {agent_name}...'}, ensure_ascii=False)}\n\n"
+
+        # 2. Xây dựng System prompt kết hợp Ma trận Năng lực & Công cụ trong phòng
+        base_role_prompt = "Bạn là một trợ lý ảo thông minh trong văn phòng 3D ảo."
+        if agent_data.get("prompt_id"):
+            from app.services.prompt_service import prompt_service
+            prompt = prompt_service.get_prompt(db, agent_data["prompt_id"])
+            if prompt:
+                base_role_prompt = prompt.content
+
+        # Xây dựng ma trận năng lực và công cụ thực tế của các Agent trong phòng
+        team_collaboration_guide = self._build_room_collaboration_matrix(
+            db=db,
+            agent_id=agent_id,
+            agent_data=agent_data,
+            room_id=room_id,
+            context=context,
+        )
+
+        agent_system_prompt = f"{base_role_prompt}{team_collaboration_guide}"
+
+        long_memories = memory_service.get_long_memories(db, agent_id, room_id, limit=10)
+        memory_context = memory_service.format_long_memories_as_context(long_memories)
+        if memory_context:
+            agent_system_prompt = f"{agent_system_prompt}\n\n{memory_context}"
+
+        # Kiểm tra cấu hình công cụ trong phòng (Room Workflow Agent Tools / Step Tools)
+        wf_cfg = (context or {}).get("workflow") or {}
+        agent_tools_cfg = wf_cfg.get("agentTools", {})
+        if agent_id in agent_tools_cfg and isinstance(agent_tools_cfg[agent_id], list) and len(agent_tools_cfg[agent_id]) > 0:
+            allowed = set(agent_tools_cfg[agent_id])
+            agent_tools = [
+                t for t in agent_data.get("tools", [])
+                if (t.id if hasattr(t, "id") else t.get("id")) in allowed or (t.name if hasattr(t, "name") else t.get("name")) in allowed
+            ]
+        else:
+            agent_tools = agent_data.get("tools", [])
+
+        # Kiểm tra nếu đang chạy theo bước tuần tự có công cụ chỉ định
+        if wf_cfg.get("mode") == "sequential":
+            order_list = wf_cfg.get("order", [])
+            step_idx = order_list.index(agent_id) if agent_id in order_list else (context or {}).get("depth", 0)
+            step_tools = wf_cfg.get("stepTools", {})
+            assigned_tool = step_tools.get(str(step_idx)) or step_tools.get(step_idx)
+            if assigned_tool and assigned_tool != "all":
+                agent_system_prompt += (
+                    f"\n\n[CHỈ ĐỊNH CÔNG CỤ TẠI BƯỚC NÀY (BƯỚC #{step_idx + 1})]\n"
+                    f"Quy trình phòng chỉ định bạn ưu tiên sử dụng công cụ: '{assigned_tool}' để thực thi phần việc của bước này.\n"
+                )
+
+        short_memory = memory_service.get_short_memory(agent_id, room_id)
+
+        # 3. Tool definitions
+        tool_definitions = []
+        for tool in agent_tools:
+            tool_id = tool.id if hasattr(tool, "id") else tool.get("id", "")
+            tool_name_val = tool.name if hasattr(tool, "name") else tool.get("name", "")
+            tool_desc = tool.description if hasattr(tool, "description") else tool.get("description", "")
+            
+            tool_id_lower = str(tool_id).lower()
+            if "search" in tool_id_lower:
+                properties = {
+                    "query": {"type": "string", "description": "Từ khóa tìm kiếm thông tin trên internet (ví dụ: 'thời tiết Hà Nội hôm nay')"},
+                    "input": {"type": "string", "description": "Từ khóa tìm kiếm dự phòng"}
+                }
+                required = ["query"]
+            elif "calc" in tool_id_lower:
+                properties = {
+                    "expression": {"type": "string", "description": "Biểu thức toán học cần tính toán (ví dụ: '125 * 8 + 50')"},
+                    "input": {"type": "string", "description": "Biểu thức toán học dự phòng"}
+                }
+                required = ["expression"]
+            elif "summar" in tool_id_lower:
+                properties = {
+                    "text": {"type": "string", "description": "Văn bản, tài liệu hoặc kết quả tìm kiếm cần tóm tắt lại"},
+                    "max_length": {"type": "integer", "description": "Độ dài tóm tắt mong muốn (mặc định 150 ký tự)"},
+                    "input": {"type": "string", "description": "Văn bản cần tóm tắt dự phòng"}
+                }
+                required = ["text"]
+            elif "visualiz" in tool_id_lower or "chart" in tool_id_lower:
+                properties = {
+                    "title": {"type": "string", "description": "Tiêu đề biểu đồ (ví dụ: 'Biến động Giá Vàng SJC Tháng 10/2026')"},
+                    "chart_type": {"type": "string", "description": "Loại biểu đồ: 'line' (đường), 'bar' (cột), 'pie' (tròn), 'area' (diện tích)"},
+                    "labels": {"type": "array", "items": {"type": "string"}, "description": "Danh sách các nhãn trục X / mốc thời gian (ví dụ: ['01/10', '05/10', '10/10', '15/10', '20/10', '25/10'])"},
+                    "datasets": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "label": {"type": "string", "description": "Tên chuỗi dữ liệu (ví dụ: 'Giá Vàng SJC (triệu VND/lượng)')"},
+                                "data": {"type": "array", "items": {"type": "number"}, "description": "Danh sách giá trị số tương ứng từng mốc nhãn"}
+                            },
+                            "required": ["label", "data"]
+                        },
+                        "description": "Các chuỗi dữ liệu cần vẽ biểu đồ"
+                    },
+                    "unit": {"type": "string", "description": "Đơn vị tính (ví dụ: 'triệu VNĐ/lượng', 'USD/oz', '%')"},
+                    "summary": {"type": "string", "description": "Tóm tắt ngắn gọn 1-2 câu về xu hướng của biểu đồ"}
+                }
+                required = ["title", "labels", "datasets"]
+            elif "analysis" in tool_id_lower or "analyst" in tool_id_lower or "db_query" in tool_id_lower:
+                properties = {
+                    "data": {"type": "string", "description": "Dãy số hoặc mảng số liệu cần phân tích thống kê (ví dụ: '[12, 15, 20, 25, 30]' hoặc '10, 20, 30')"},
+                    "input": {"type": "string", "description": "Dữ liệu phân tích dự phòng"}
+                }
+                required = ["data"]
+            elif "ml" in tool_id_lower or "evaluator" in tool_id_lower:
+                properties = {
+                    "task_type": {"type": "string", "description": "Loại bài toán: 'classification' (phân loại), 'regression' (hồi quy), hoặc 'recommendation' (gợi ý mô hình)"},
+                    "tp": {"type": "number", "description": "True Positives"},
+                    "fp": {"type": "number", "description": "False Positives"},
+                    "tn": {"type": "number", "description": "True Negatives"},
+                    "fn": {"type": "number", "description": "False Negatives"},
+                    "data_type": {"type": "string", "description": "Loại dữ liệu ('tabular', 'nlp', 'time_series') nếu cần gợi ý mô hình"}
+                }
+                required = ["task_type"]
+            elif "plan" in tool_id_lower or "workflow" in tool_id_lower or "control" in tool_id_lower:
+                properties = {
+                    "goal": {"type": "string", "description": "Mục tiêu bài toán phức tạp cần phân rã thành các bước và gán cho các agent chuyên trách"},
+                    "input": {"type": "string", "description": "Mục tiêu bài toán dự phòng"}
+                }
+                required = ["goal"]
+            elif "crawl" in tool_id_lower:
+                properties = {
+                    "url": {"type": "string", "description": "Đường dẫn URL bài viết/website cần thu thập nội dung"},
+                    "input": {"type": "string", "description": "Đường dẫn URL dự phòng"}
+                }
+                required = ["url"]
+            else:
+                properties = {
+                    "input": {"type": "string", "description": "Nội dung đầu vào thực thi công cụ"}
+                }
+                required = ["input"]
+
+            tool_definitions.append({
+                "type": "function",
+                "function": {
+                    "name": tool_id,
+                    "description": tool_desc or f"Execute {tool_name_val}",
+                    "parameters": {
+                        "type": "object",
+                        "properties": properties,
+                        "required": required,
+                    },
+                },
+            })
+
+        # 4. Messages
+        initial_messages = [SystemMessage(content=agent_system_prompt)]
+        for m in short_memory:
+            role = m.get("role")
+            content = m.get("content", "")
+            if role == "user":
+                initial_messages.append(HumanMessage(content=content))
+            elif role == "assistant":
+                initial_messages.append(AIMessage(content=content))
+
+        initial_messages.append(HumanMessage(content=user_message))
+        memory_service.append_short_memory(agent_id, "user", user_message, room_id)
+
+        preferred_model = agent_data.get("model") or "gemini-2.5-flash-lite"
+        current_messages = list(initial_messages)
+        tools_used = []
+        final_answer = ""
+
+        # 5. ReAct streaming loop (tối đa 5 lượt tool liên hoàn)
+        for step in range(5):
+            yield f"data: {json.dumps({'type': 'thinking', 'step': step + 1, 'content': 'Đang phân tích và xử lý...'}, ensure_ascii=False)}\n\n"
+
+            stream_gen = self.llm_client.stream_chat_completion(
+                messages=current_messages,
+                tools=tool_definitions if tool_definitions else None,
+                agent_id=agent_id,
+                model=preferred_model,
+            )
+
+            tool_calls = None
+            step_text = ""
+            for item in stream_gen:
+                if item["type"] == "token":
+                    step_text += item["content"]
+                    yield f"data: {json.dumps({'type': 'token', 'content': item['content']}, ensure_ascii=False)}\n\n"
+                elif item["type"] == "tool_calls":
+                    tool_calls = item["tool_calls"]
+
+            if tool_calls:
+                lc_tool_calls = []
+                for tc in tool_calls:
+                    args = tc.function.arguments
+                    if isinstance(args, str):
+                        try:
+                            args = json.loads(args)
+                        except Exception:
+                            args = {"input": args}
+                    lc_tool_calls.append({
+                        "id": tc.id,
+                        "name": tc.function.name,
+                        "args": args,
+                        "type": "tool_call"
+                    })
+
+                current_messages.append(AIMessage(content=step_text, tool_calls=lc_tool_calls))
+
+                for tc in lc_tool_calls:
+                    tool_name = tc["name"]
+                    tool_args = tc["args"]
+                    tool_id = tc["id"]
+                    tools_used.append(tool_name)
+
+                    yield f"data: {json.dumps({'type': 'tool_start', 'tool': tool_name, 'args': tool_args, 'message': f'Đang gọi công cụ {tool_name}...'}, ensure_ascii=False)}\n\n"
+
+                    try:
+                        tool_result = self.tool_executor.execute(tool_name, tool_args)
+                    except Exception as e:
+                        tool_result = f"Error: {str(e)}"
+
+                    current_messages.append(ToolMessage(content=str(tool_result), tool_call_id=tool_id))
+                    yield f"data: {json.dumps({'type': 'tool_end', 'tool': tool_name, 'result': str(tool_result)[:300]}, ensure_ascii=False)}\n\n"
+
+                # Tiếp tục vòng lặp để model nhận ToolMessage và quyết định gọi tool tiếp theo hoặc trả lời
+                continue
+            else:
+                final_answer = step_text
+                break
+
+        if not final_answer:
+            final_answer = "Đã hoàn thành các bước xử lý dữ liệu."
+
+        # Lưu assistant reply vào memory
+        memory_service.append_short_memory(agent_id, "assistant", final_answer, room_id)
+
+        # Publish reply lên RabbitMQ
+        self._publish_reply(
+            agent_id=agent_id,
+            agent_name=agent_name,
+            room_id=room_id,
+            answer=final_answer,
+            tools_used=tools_used,
+            workflow_trace=None,
+            source=source,
+            context=context,
+        )
+
+        yield f"data: {json.dumps({'type': 'done', 'answer': final_answer, 'tools_used': tools_used}, ensure_ascii=False)}\n\n"
 
 
 agent_runner = AgentRunner()

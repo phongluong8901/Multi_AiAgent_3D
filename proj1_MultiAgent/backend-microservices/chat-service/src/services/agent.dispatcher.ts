@@ -12,7 +12,8 @@ const AGENT_REPLY_TIMEOUT_MS = parseInt(process.env.AGENT_REPLY_TIMEOUT_MS || "1
 // Giới hạn số bước bàn giao giữa các agent để tránh vòng lặp vô hạn
 const MAX_HANDOFF_DEPTH = 4;
 
-export type ChatType = "team" | "direct" | "agent" | "workflow" | "system";
+import { ChatType } from "../models/chat.model";
+export { ChatType };
 
 export type AgentWorkflowMode = "solo" | "sequential" | "routing" | "autonomous";
 
@@ -25,6 +26,8 @@ export interface IWorkflowTransition {
 export interface IAgentWorkflow {
     mode: AgentWorkflowMode;
     order?: string[];
+    stepTools?: Record<string, string>;
+    agentTools?: Record<string, string[]>;
     transitions?: IWorkflowTransition[];
     enabled?: boolean;
     description?: string;
@@ -102,10 +105,27 @@ export class AgentDispatcher {
             return cached.agents;
         }
 
+        const internalHeaders = {
+            "x-internal-service": "chat-service",
+            "x-user-id": "system-internal",
+            "x-user-role": "admin",
+        };
+
         try {
-            const res = await axios.get(`${ROOM_SERVICE_URL}/api/v1/rooms/user-user/${roomId}`, {
-                timeout: 3000,
-            });
+            // Thử endpoint internal trước
+            let res: any;
+            try {
+                res = await axios.get(`${ROOM_SERVICE_URL}/api/v1/internal/rooms/${roomId}`, {
+                    headers: internalHeaders,
+                    timeout: 3000,
+                });
+            } catch {
+                res = await axios.get(`${ROOM_SERVICE_URL}/api/v1/rooms/user-user/${roomId}`, {
+                    headers: internalHeaders,
+                    timeout: 3000,
+                });
+            }
+
             const roomData = res.data?.data || res.data || {};
             const active = Array.isArray(roomData.activeAgents) ? roomData.activeAgents : [];
             this.roomAgentsCache.set(roomId, { agents: active, expiresAt: now + 30000 });
@@ -135,10 +155,26 @@ export class AgentDispatcher {
             return cached.workflow || null;
         }
 
+        const internalHeaders = {
+            "x-internal-service": "chat-service",
+            "x-user-id": "system-internal",
+            "x-user-role": "admin",
+        };
+
         try {
-            const res = await axios.get(`${ROOM_SERVICE_URL}/api/v1/rooms/user-user/${roomId}`, {
-                timeout: 3000,
-            });
+            let res: any;
+            try {
+                res = await axios.get(`${ROOM_SERVICE_URL}/api/v1/internal/rooms/${roomId}`, {
+                    headers: internalHeaders,
+                    timeout: 3000,
+                });
+            } catch {
+                res = await axios.get(`${ROOM_SERVICE_URL}/api/v1/rooms/user-user/${roomId}`, {
+                    headers: internalHeaders,
+                    timeout: 3000,
+                });
+            }
+
             const roomData = res.data?.data || res.data || {};
             const workflow = (roomData.workflow as IAgentWorkflow) || null;
             this.roomWorkflowCache.set(roomId, { workflow, expiresAt: now + 30000 });
@@ -163,7 +199,7 @@ export class AgentDispatcher {
 
     /**
      * Trích xuất các agent được nhắc tới trong tin nhắn (@agent_id hoặc @all/@team)
-     * Ưu tiên tìm trong danh sách các agent thực tế của phòng
+     * Ưu tiên tìm trong danh sách các agent thực tế của phòng, hỗ trợ fuzzy matching
      */
     extractMentionedAgents(text: string, activeRoomAgents?: string[]): string[] {
         if (!text) return [];
@@ -180,10 +216,15 @@ export class AgentDispatcher {
 
         const mentioned: string[] = [];
         for (const agentId of candidateAgents) {
-            const shortName = agentId.replace(/^agent_/, "");
+            const idLower = agentId.toLowerCase();
+            const shortName = idLower.replace(/^agent_/, "");
+            // Lấy từ khóa vai trò cốt lõi (ví dụ search-1 -> search, manager_lead -> manager)
+            const baseRole = idLower.split("-")[0].split("_")[0].replace(/^agent/, "") || idLower;
+
             if (
-                lower.includes(`@${agentId.toLowerCase()}`) ||
-                (shortName && lower.includes(`@${shortName.toLowerCase()}`))
+                lower.includes(`@${idLower}`) ||
+                (shortName && lower.includes(`@${shortName}`)) ||
+                (baseRole && (lower.includes(`@agent_${baseRole}`) || lower.includes(`@${baseRole}`)))
             ) {
                 mentioned.push(agentId);
             }
@@ -238,7 +279,7 @@ export class AgentDispatcher {
         // Chọn agent trưởng nhóm (có chữ manager hoặc lead) hoặc agent đầu tiên trong phòng
         const defaultAgent = roomAgents.find(a => a.includes("manager") || a.includes("lead")) || roomAgents[0];
 
-        if (chatType === "agent" || chatType === "workflow") {
+        if (chatType === "agent" || chatType === "workflow" || chatType === "meeting") {
             return defaultAgent ? [defaultAgent] : [];
         }
 
@@ -360,6 +401,66 @@ export class AgentDispatcher {
         const roomAgents = await this.getRoomActiveAgents(roomId);
         const workflow = await this.getRoomWorkflow(roomId);
 
+        // 0. CHẾ ĐỘ HỌP AGENT (ROUND-ROBIN MEETING & BRAINSTORMING)
+        if (rootTypeChat === "meeting" || chatType === "meeting") {
+            const meetingAgents = roomAgents.length > 0 ? roomAgents : this.knownAgentIds.slice(0, 4);
+            const curIdx = meetingAgents.indexOf(agentId);
+            const totalMembers = meetingAgents.length;
+            
+            console.log(`[AgentDispatcher] Meeting round-robin in room ${roomId}: agentId=${agentId}, index=${curIdx}/${totalMembers}, depth=${depth}`);
+
+            if (curIdx >= 0 && curIdx < totalMembers - 1) {
+                // Chuyển tiếp cho thành viên tiếp theo trong phòng phát biểu ý kiến
+                const nextAgent = meetingAgents[curIdx + 1];
+                const roundStep = curIdx + 2;
+
+                broadcastToRoom(this.io, roomId, "agent_status", {
+                    roomId,
+                    agentId: nextAgent,
+                    status: "thinking",
+                    speech: `Đang chuẩn bị phát biểu ý kiến (Lượt ${roundStep}/${totalMembers})...`,
+                });
+
+                await this.dispatchToAgent({
+                    agentId: nextAgent,
+                    roomId,
+                    prompt: `[CUỘC HỌP TEAM AGENT - VÒNG THẢO LUẬN - LƯỢT ${roundStep}/${totalMembers}]\nThành viên trước (${agentName}) vừa phát biểu:\n"${answer}"\n\nDựa trên chuyên môn và góc nhìn riêng của bạn, hãy đóng góp ý kiến, bổ sung hoặc phản biện để cùng nhóm hoàn thiện vấn đề.`,
+                    senderName: agentName,
+                    senderId: agentId,
+                    depth: depth + 1,
+                    originalTypeChat: "meeting",
+                    rootTypeChat: "meeting",
+                });
+                return;
+            } else if (curIdx === totalMembers - 1) {
+                // Tất cả thành viên đã phát biểu 1 lượt. Nếu người cuối cùng không phải là Trưởng nhóm, gọi Trưởng nhóm đúc kết
+                const leaderAgent = meetingAgents.find(a => a.includes("manager") || a.includes("lead")) || meetingAgents[0];
+                if (leaderAgent && leaderAgent !== agentId) {
+                    broadcastToRoom(this.io, roomId, "agent_status", {
+                        roomId,
+                        agentId: leaderAgent,
+                        status: "thinking",
+                        speech: `Chủ tọa đang tổng hợp biên bản kết luận cuộc họp...`,
+                    });
+
+                    await this.dispatchToAgent({
+                        agentId: leaderAgent,
+                        roomId,
+                        prompt: `[ĐÚC KẾT VÀ BẾ MẠC CUỘC HỌP TEAM AGENT]\nToàn bộ các thành viên trong nhóm vừa hoàn thành lượt phát biểu thảo luận. Ý kiến thành viên cuối (${agentName}):\n"${answer}"\n\nVới vai trò Trưởng nhóm / Chủ tọa cuộc họp, bạn hãy đưa ra: [BIÊN BẢN KẾT LUẬN CUỘC HỌP]:\n1. Tóm tắt các ý kiến then chốt của các thành viên.\n2. Phương án và giải pháp thống nhất của nhóm.\n3. Các bước hành động cụ thể (Action Items).`,
+                        senderName: agentName,
+                        senderId: agentId,
+                        depth: depth + 1,
+                        originalTypeChat: "meeting",
+                        rootTypeChat: "meeting",
+                    });
+                    return;
+                } else {
+                    console.log(`[AgentDispatcher] Meeting completed in room ${roomId}. Leader has finalized.`);
+                    return;
+                }
+            }
+        }
+
         // 1. CHẾ ĐỘ ĐƠN LẺ (SOLO): Dừng ngay lập tức, không chuyển tiếp cho agent nào khác
         if (workflow?.enabled && workflow.mode === "solo") {
             console.log(`[AgentDispatcher] Room ${roomId} workflow is 'solo'. Stopping handoff after '${agentId}'.`);
@@ -368,33 +469,42 @@ export class AgentDispatcher {
 
         // 2. CHẾ ĐỘ TUẦN TỰ (SEQUENTIAL PIPELINE): Chuyển tiếp theo thứ tự chuỗi pipeline
         if (workflow?.enabled && workflow.mode === "sequential" && Array.isArray(workflow.order) && workflow.order.length > 0) {
-            const currentIndex = workflow.order.indexOf(agentId);
+            let currentIndex = workflow.order.indexOf(agentId);
+            if (currentIndex === -1) {
+                // Khớp linh hoạt theo ID (ví dụ agent_manager vs manager)
+                currentIndex = workflow.order.findIndex(id =>
+                    id === agentId ||
+                    id.toLowerCase().includes(agentId.toLowerCase()) ||
+                    agentId.toLowerCase().includes(id.toLowerCase())
+                );
+            }
+
+            console.log(`[AgentDispatcher] Checking sequential pipeline: agentId=${agentId}, order=${JSON.stringify(workflow.order)}, currentIndex=${currentIndex}`);
+
             if (currentIndex >= 0 && currentIndex < workflow.order.length - 1) {
                 const nextAgent = workflow.order[currentIndex + 1];
-                if (roomAgents.includes(nextAgent)) {
-                    const stepNum = currentIndex + 2;
-                    const totalSteps = workflow.order.length;
-                    console.log(`[AgentDispatcher] Sequential pipeline in room ${roomId}: ${agentId} -> ${nextAgent} (Step ${stepNum}/${totalSteps})`);
+                const stepNum = currentIndex + 2;
+                const totalSteps = workflow.order.length;
+                console.log(`[AgentDispatcher] Sequential pipeline in room ${roomId}: ${agentId} -> ${nextAgent} (Step ${stepNum}/${totalSteps})`);
 
-                    broadcastToRoom(this.io, roomId, "agent_status", {
-                        roomId,
-                        agentId,
-                        status: "speaking",
-                        speech: `Chuyển tiếp bước ${stepNum}/${totalSteps} cho ${this.getAgentDisplayName(nextAgent)}...`,
-                    });
+                broadcastToRoom(this.io, roomId, "agent_status", {
+                    roomId,
+                    agentId: nextAgent,
+                    status: "thinking",
+                    speech: `Chuyển tiếp bước ${stepNum}/${totalSteps} cho ${this.getAgentDisplayName(nextAgent)}...`,
+                });
 
-                    await this.dispatchToAgent({
-                        agentId: nextAgent,
-                        roomId,
-                        prompt: `[Chuỗi tuần tự Bước ${stepNum}/${totalSteps} - Bàn giao từ ${agentName}]:\n${answer}`,
-                        senderName: agentName,
-                        senderId: agentId,
-                        depth: depth + 1,
-                        originalTypeChat: "workflow",
-                        rootTypeChat,
-                    });
-                    return;
-                }
+                await this.dispatchToAgent({
+                    agentId: nextAgent,
+                    roomId,
+                    prompt: `[Chuỗi tuần tự Bước ${stepNum}/${totalSteps} - Bàn giao từ ${agentName}]:\n${answer}`,
+                    senderName: agentName,
+                    senderId: agentId,
+                    depth: depth + 1,
+                    originalTypeChat: rootTypeChat || "agent",
+                    rootTypeChat,
+                });
+                return;
             } else if (currentIndex === workflow.order.length - 1) {
                 console.log(`[AgentDispatcher] Sequential pipeline completed in room ${roomId} at last agent '${agentId}'.`);
                 return;

@@ -8,10 +8,16 @@ export interface AuthenticatedRequest extends Request {
     };
 }
 
-// 1. Chỉ cần đăng nhập (USER, SELLER, ADMIN đều qua được)
+// 1. Chỉ cần đăng nhập (USER, SELLER, ADMIN đều qua được, hoặc internal service)
 export const requireAuth = (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     const userId = req.headers["x-user-id"] as string;
-    const role = req.headers["x-user-role"] as string;
+    const role = (req.headers["x-user-role"] as string) || "user";
+    const internalService = req.headers["x-internal-service"] as string;
+
+    if (internalService || userId === "system-internal") {
+        req.user = { userId: userId || "system-internal", role: "admin" };
+        return next();
+    }
 
     if (!userId) {
         return res.status(401).json({

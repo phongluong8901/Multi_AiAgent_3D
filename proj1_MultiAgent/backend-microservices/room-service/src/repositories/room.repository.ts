@@ -1,12 +1,27 @@
-import { RoomModel, IRoom, IRoomMember, IUserAgentBinding } from "../models/room.model"; // Import Mongoose model và các TypeScript interface liên quan
+import {
+    RoomModel,
+    UserUserRoomModel,
+    AgentAgentRoomModel,
+    UserAgentRoomModel,
+    IRoom,
+    IRoomMember,
+    IUserAgentBinding
+} from "../models/room.model"; // Import Mongoose models và các TypeScript interface liên quan
 
 export class RoomRepository {
     // --- 1. CRUD CƠ BẢN ---
 
-    // Hàm tạo mới một phòng chat trong cơ sở dữ liệu
+    // Hàm tạo mới một phòng chat trong cơ sở dữ liệu và đồng bộ vào các collection chuyên biệt
     async create(roomData: Partial<IRoom>): Promise<IRoom> {
         const room = new RoomModel(roomData); // Khởi tạo instance document mới của Mongoose
-        return await room.save();              // Lưu vào MongoDB và trả về kết quả
+        const saved = await room.save();       // Lưu vào MongoDB collection rooms
+
+        // Đồng bộ bản ghi cấu trúc sang collection rooms_user_user
+        try {
+            await UserUserRoomModel.create(saved.toObject ? saved.toObject() : saved);
+        } catch (_) {}
+
+        return saved;
     }
 
     // Hàm lấy danh sách toàn bộ các phòng có trong hệ thống
@@ -94,31 +109,38 @@ export class RoomRepository {
 
     // Hàm ghi đè toàn bộ danh sách agent đang hoạt động trong phòng
     async updateActiveAgents(roomId: string, activeAgents: string[]): Promise<IRoom | null> {
-        return await RoomModel.findByIdAndUpdate(
+        const updated = await RoomModel.findByIdAndUpdate(
             roomId,
             { $set: { activeAgents } },
             { new: true }
         );
+        // Đồng bộ sang collection chuyên biệt rooms_agent_agent
+        AgentAgentRoomModel.findByIdAndUpdate(roomId, { $set: { activeAgents } }, { upsert: true }).catch(() => {});
+        return updated;
     }
 
     // Hàm thêm một agent vào danh sách activeAgents (dùng $addToSet để tránh bị trùng lặp)
     async addAgent(roomId: string, agentId: string): Promise<IRoom | null> {
-        return await RoomModel.findByIdAndUpdate(
+        const updated = await RoomModel.findByIdAndUpdate(
             roomId,
             { $addToSet: { activeAgents: agentId } }, // Chỉ thêm vào mảng nếu agentId chưa tồn tại trước đó
             { new: true }
         );
+        AgentAgentRoomModel.findByIdAndUpdate(roomId, { $addToSet: { activeAgents: agentId } }, { upsert: true }).catch(() => {});
+        return updated;
     }
 
     // Hàm gỡ bỏ một agent khỏi phòng (xóa cả trong activeAgents lẫn danh sách liên kết userAgents)
     async removeAgent(roomId: string, agentId: string): Promise<IRoom | null> {
-        return await RoomModel.findByIdAndUpdate(
+        const updated = await RoomModel.findByIdAndUpdate(
             roomId,
             {
                 $pull: { activeAgents: agentId, userAgents: { agentId } }, // Xóa đồng thời ở cả 2 mảng
             },
             { new: true }
         );
+        AgentAgentRoomModel.findByIdAndUpdate(roomId, { $pull: { activeAgents: agentId } }).catch(() => {});
+        return updated;
     }
 
     // --- 4. QUẢN LÝ USER-AGENT BINDINGS (USER-AGENT TRACK) ---
@@ -131,7 +153,7 @@ export class RoomRepository {
         );
 
         // Bước 2: Push binding mới vào mảng userAgents và đồng thời đưa agentId vào activeAgents
-        return await RoomModel.findByIdAndUpdate(
+        const updated = await RoomModel.findByIdAndUpdate(
             roomId,
             {
                 $push: { userAgents: userAgent },
@@ -139,17 +161,29 @@ export class RoomRepository {
             },
             { new: true }
         );
+        // Đồng bộ sang collection chuyên biệt rooms_user_agent
+        UserAgentRoomModel.findByIdAndUpdate(
+            roomId,
+            {
+                $push: { userAgents: userAgent },
+                $addToSet: { activeAgents: userAgent.agentId },
+            },
+            { upsert: true }
+        ).catch(() => {});
+        return updated;
     }
 
     // Hàm gỡ bỏ liên kết user-agent binding khỏi phòng
     async removeUserAgent(roomId: string, agentId: string): Promise<IRoom | null> {
-        return await RoomModel.findByIdAndUpdate(
+        const updated = await RoomModel.findByIdAndUpdate(
             roomId,
             {
                 $pull: { userAgents: { agentId } },
             },
             { new: true }
         );
+        UserAgentRoomModel.findByIdAndUpdate(roomId, { $pull: { userAgents: { agentId } } }).catch(() => {});
+        return updated;
     }
 
     // --- 5. QUẢN LÝ LỜI MỜI (INVITES) ---

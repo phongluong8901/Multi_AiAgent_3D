@@ -77,4 +77,87 @@ export const agentsApi = {
             method: 'POST',
             body: JSON.stringify({ message, room_id }),
         }),
+
+    chatStream: async (
+        id: string,
+        message: string,
+        room_id?: string,
+        onEvent?: (event: AgentStreamEvent) => void,
+        options?: { activeAgents?: string[]; context?: Record<string, any> }
+    ): Promise<string> => {
+        const { getToken, getUser } = await import('@/lib/auth')
+        const token = getToken()
+        const user = getUser()
+
+        const headers: Record<string, string> = {
+            'Content-Type': 'application/json',
+            Accept: 'text/event-stream',
+        }
+        if (token) headers['Authorization'] = `Bearer ${token}`
+        if (user?.id) headers['x-user-id'] = user.id
+
+        const res = await fetch(`${API_BASE}/agents/${id}/chat/stream`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+                message,
+                room_id,
+                active_agents: options?.activeAgents,
+                context: options?.context,
+            }),
+        })
+
+        if (!res.ok) {
+            const err = await res.text()
+            throw new Error(err || `HTTP ${res.status}`)
+        }
+
+        const reader = res.body?.getReader()
+        if (!reader) throw new Error('No readable stream available')
+
+        const decoder = new TextDecoder()
+        let fullAnswer = ''
+        let buffer = ''
+
+        while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
+
+            buffer += decoder.decode(value, { stream: true })
+            const lines = buffer.split('\n')
+            buffer = lines.pop() ?? ''
+
+            for (const line of lines) {
+                const trimmed = line.trim()
+                if (trimmed.startsWith('data:')) {
+                    try {
+                        const jsonStr = trimmed.replace(/^data:\s*/, '')
+                        const event: AgentStreamEvent = JSON.parse(jsonStr)
+                        if (event.type === 'token' && event.content) {
+                            fullAnswer += event.content
+                        } else if (event.type === 'done' && event.answer) {
+                            fullAnswer = event.answer
+                        }
+                        onEvent?.(event)
+                    } catch {
+                        // ignore malformed SSE line
+                    }
+                }
+            }
+        }
+
+        return fullAnswer
+    },
+}
+
+export interface AgentStreamEvent {
+    type: 'status' | 'thinking' | 'tool_start' | 'tool_end' | 'token' | 'done' | 'error'
+    step?: number
+    tool?: string
+    args?: any
+    result?: string
+    message?: string
+    content?: string
+    answer?: string
+    tools_used?: string[]
 }

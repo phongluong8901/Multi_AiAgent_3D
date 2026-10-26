@@ -229,6 +229,86 @@ export class AuthService {
     }
 
     /** 
+     * Đăng nhập / Đăng ký bằng Hugging Face OAuth 
+     * Trao đổi authorization code lấy access token của Hugging Face, truy vấn thông tin người dùng và cấp phiên 
+     */
+    async huggingfaceLogin(code: string, deviceId: string = "default_device", redirectUriParam?: string) {
+        if (!code) throw new AppError("Thiếu Hugging Face authorization code.", 400);
+        const clientId = process.env.HUGGINGFACE_CLIENT_ID;
+        const clientSecret = process.env.HUGGINGFACE_CLIENT_SECRET;
+        const redirectUri = redirectUriParam || process.env.HUGGINGFACE_REDIRECT_URI || "http://localhost:3000/auth/huggingface/callback";
+
+        if (!clientId || !clientSecret) {
+            throw new AppError("Chưa cấu hình HUGGINGFACE_CLIENT_ID hoặc HUGGINGFACE_CLIENT_SECRET trên hệ thống.", 500);
+        }
+
+        const bodyParams = new URLSearchParams({
+            grant_type: "authorization_code",
+            client_id: clientId,
+            client_secret: clientSecret,
+            code,
+            redirect_uri: redirectUri,
+        });
+
+        const tokenRes = await fetch("https://huggingface.co/oauth/token", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/x-www-form-urlencoded",
+                Accept: "application/json",
+            },
+            body: bodyParams.toString(),
+        });
+        const tokenData = await tokenRes.json();
+        if (tokenData.error) {
+            throw new AppError(`Lỗi Hugging Face: ${tokenData.error_description || tokenData.error}`, 401);
+        }
+
+        const userRes = await fetch("https://huggingface.co/oauth/userinfo", {
+            headers: {
+                Authorization: `Bearer ${tokenData.access_token}`,
+                Accept: "application/json",
+            },
+        });
+        const hfUser = await userRes.json();
+        const huggingfaceId = String(hfUser.sub || "");
+        if (!huggingfaceId) {
+            throw new AppError("Không lấy được thông tin người dùng từ Hugging Face.", 401);
+        }
+
+        const huggingfaceUsername = hfUser.preferred_username || hfUser.name || `hf_${huggingfaceId.slice(0, 6)}`;
+        const email = (hfUser.email || `${huggingfaceId}@users.noreply.huggingface.co`).toLowerCase().trim();
+        const avatarUrl = hfUser.picture || "";
+
+        let user = (await userRepository.findByHuggingfaceId(huggingfaceId)) || (await userRepository.findByEmail(email));
+        if (user) {
+            user = await userRepository.update(user._id.toString(), {
+                huggingfaceId,
+                huggingfaceUsername,
+                avatarUrl: user.avatarUrl || avatarUrl,
+                status: "online",
+                isVerified: true,
+            });
+        } else {
+            user = await userRepository.create({
+                username: hfUser.name || huggingfaceUsername,
+                email,
+                huggingfaceId,
+                huggingfaceUsername,
+                avatarUrl,
+                role: "user",
+                status: "online",
+                isVerified: true,
+            });
+        }
+
+        const accessToken = generateToken({ userId: user!._id.toString(), email: user!.email, role: user!.role });
+        const refreshToken = generateRefreshToken({ userId: user!._id.toString(), deviceId }, "7d");
+        await redisClient.set(`refresh_token:${user!._id.toString()}:${deviceId}`, refreshToken, { EX: 7 * 24 * 60 * 60 });
+
+        return { accessToken, refreshToken, user: { id: user!._id, username: user!.username, email: user!.email, role: user!.role, avatarUrl: user!.avatarUrl } };
+    }
+
+    /** 
      * Yêu cầu quên mật khẩu 
      * Tạo mã OTP đặt lại mật khẩu, lưu vào Redis với TTL 10 phút và gửi thông báo qua email 
      */

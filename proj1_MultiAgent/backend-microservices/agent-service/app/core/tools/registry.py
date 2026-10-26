@@ -6,21 +6,48 @@ from .web_crawler import WebCrawlerTool
 from .text_summarizer import TextSummarizerTool
 from .tools_api.web_search_tool import WebSearchTool
 from .tools_api.google_search_tool import GoogleSearchTool
+from .data_analysis_tool import DataAnalysisTool
+from .ml_evaluator_tool import MLEvaluatorTool
+from .workflow_planner_tool import WorkflowPlannerTool
+from .data_visualization_tool import DataVisualizationTool
 
 class ToolRegistry:
     def __init__(self):
         self._tools: Dict[str, BaseTool] = {}
-        # Đăng ký các tool
+        # 1. Công cụ Tính toán
         self.register(CalculatorTool())
-        self.register(WebCrawlerTool())
-        # self.register(SentimentTool())
+        
+        # 2. Công cụ Tóm tắt
         summarizer = TextSummarizerTool()
         self.register(summarizer)
         self._tools["summarizer_tool"] = summarizer
+        self._tools["text_summarizer"] = summarizer
 
-        #api tool
+        # 3. Công cụ Tìm kiếm & Web
         self.register(WebSearchTool())
         self.register(GoogleSearchTool())
+        self.register(WebCrawlerTool())
+        self._tools["crawler_tool"] = self._tools["web_crawler_tool"]
+
+        # 4. Công cụ Phân tích dữ liệu & Thống kê
+        self.register(DataAnalysisTool())
+        self._tools["analysis_tool"] = self._tools["data_analysis_tool"]
+        self._tools["db_query_tool"] = self._tools["data_analysis_tool"]
+
+        # 5. Công cụ Machine Learning & AI
+        self.register(MLEvaluatorTool())
+        self._tools["ml_tool"] = self._tools["ml_evaluator_tool"]
+
+        # 6. Công cụ Lập kế hoạch & Quản lý cho Manager
+        self.register(WorkflowPlannerTool())
+        self._tools["system_control_tool"] = self._tools["workflow_planner_tool"]
+
+        # 7. Công cụ Trực quan hóa Biểu đồ (Data Visualization)
+        visualizer = DataVisualizationTool()
+        self.register(visualizer)
+        self._tools["visualization_tool"] = visualizer
+        self._tools["chart_tool"] = visualizer
+        self._tools["chart_visualizer_tool"] = visualizer
         
         
 

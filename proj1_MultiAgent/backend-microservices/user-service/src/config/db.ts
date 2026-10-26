@@ -8,7 +8,23 @@ export const connectDB = async (maxRetries = 15, delay = 2000): Promise<void> =>
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
             await mongoose.connect(mongoUri);
-            console.log("[user-service] MongoDB Connected Successfully!");
+            console.log("[user-service] MongoDB Connected Successfully to users_db!");
+
+            // Đảm bảo collection 'users' được tạo ngay trên Atlas
+            try {
+                const db = mongoose.connection.db;
+                if (db) {
+                    const collections = await db.listCollections().toArray();
+                    const names = collections.map((c) => c.name);
+                    if (!names.includes("users")) {
+                        await db.createCollection("users");
+                        console.log("[user-service] Initialized collection 'users' in users_db");
+                    }
+                }
+            } catch (initErr: any) {
+                console.warn("[user-service] Collection init warning:", initErr.message);
+            }
+
             return;
         } catch (error) {
             console.warn(`[user-service] Waiting for MongoDB (${attempt}/${maxRetries})...`);

@@ -101,6 +101,29 @@ export class AuthController {
     });
 
     /** 
+     * Xác thực thông qua Hugging Face OAuth 
+     * Trao đổi authorization code lấy token Hugging Face, lấy thông tin user, 
+     * cấp phát phiên đăng nhập và lưu Cookie bảo mật 
+     */
+    huggingfaceAuth = asyncHandler(async (req: Request, res: Response) => {
+        const { code, redirectUri } = req.body;
+        if (!code) throw new AppError("Hugging Face authorization code is required", 400);
+
+        const deviceId = (req.headers["x-device-id"] as string) || "default_device";
+        const result = await authService.huggingfaceLogin(code, deviceId, redirectUri);
+        const { accessToken, refreshToken, user } = result;
+
+        res.cookie("refreshToken", refreshToken, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === "production",
+            sameSite: "lax",
+            maxAge: 7 * 24 * 60 * 60 * 1000,
+        });
+
+        return res.status(200).json({ success: true, data: { accessToken, user } });
+    });
+
+    /** 
      * Yêu cầu quên mật khẩu 
      * Tạo mã OTP đặt lại mật khẩu và gửi thông báo qua email hệ thống 
      */

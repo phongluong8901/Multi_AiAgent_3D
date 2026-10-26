@@ -46,6 +46,8 @@ export type WorkflowTransition = {
 export type AgentWorkflow = {
     mode: AgentWorkflowMode
     order?: string[]
+    stepTools?: Record<number, string> // Công cụ chỉ định cho từng bước tuần tự (0-indexed)
+    agentTools?: Record<string, string[]> // Danh sách công cụ được phép kích hoạt cho từng agent trong phòng
     transitions?: WorkflowTransition[]
     enabled?: boolean
     description?: string

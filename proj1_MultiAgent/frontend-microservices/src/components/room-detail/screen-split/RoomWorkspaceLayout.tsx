@@ -39,6 +39,7 @@ interface RoomWorkspaceLayoutProps {
     chatScrollRef: React.RefObject<HTMLDivElement | null>
     currentUserId: string
     currentUserName: string
+    isWaitingReply?: boolean
 }
 
 export function RoomWorkspaceLayout({
@@ -70,6 +71,7 @@ export function RoomWorkspaceLayout({
     chatScrollRef,
     currentUserId,
     currentUserName,
+    isWaitingReply = false,
 }: RoomWorkspaceLayoutProps) {
     return (
         <div className="relative flex min-h-0 flex-1">
@@ -123,6 +125,7 @@ export function RoomWorkspaceLayout({
                         chatScrollRef={chatScrollRef}
                         currentUserId={currentUserId}
                         currentUserName={currentUserName}
+                        isWaitingReply={isWaitingReply}
                     />
                 </div>
             )}

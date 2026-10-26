@@ -6,7 +6,7 @@ import { MapType, resolveTargetPositionForAction } from '@/lib/maps/mapRegistry'
 import AssignTaskDialog, { PipelineStep } from '@/components/ui/AssignTaskDialog'
 import TaskPipelinePanel from '@/components/ui/TaskPipelinePanel'
 import { useAgents } from '@/hooks/useAgents'
-import { Agent } from '@/lib/api'
+import { Agent, agentsApi } from '@/lib/api'
 import { AgentAction } from '@/components/agents/Agent'
 import { AgentTeamStrip } from '@/components/room-detail/AgentTeamStrip'
 import NvidiaIsaacHud, { ROBOT_HARDWARE_SPECS } from '@/components/agents/NvidiaIsaacHud'
@@ -42,10 +42,10 @@ const DEFAULT_OFFICE_AGENTS: Agent[] = [
         name: 'Manager Lead',
         color: '#facc15',
         status: 'idle',
-        speech: 'Chào mừng bạn đến với Claw Office 3D HQ!',
+        speech: 'Chào mừng bạn đến với Claw Office 3D! Tôi phụ trách điều phối và giao việc cho các chuyên gia.',
         position: [-9.5, 0, -8.0],
-        model: 'gpt-4o',
-        prompt_id: 'executive_prompt',
+        model: 'gemini-2.5-flash',
+        prompt_id: 'manager',
         form: 'humanoid',
     },
     {
@@ -53,44 +53,66 @@ const DEFAULT_OFFICE_AGENTS: Agent[] = [
         name: 'Search Researcher',
         color: '#38bdf8',
         status: 'idle',
-        speech: 'Sẵn sàng thu thập và tra cứu dữ liệu nghiên cứu.',
+        speech: 'Sẵn sàng thu thập, tra cứu tin tức và trích xuất dữ liệu Internet chuyên sâu.',
         position: [5.5, 0, -8.0],
-        model: 'claude-3-5-sonnet',
-        prompt_id: 'research_prompt',
+        model: 'gemini-2.5-flash-lite',
+        prompt_id: 'chuyen_gia_tim_kiem',
         form: 'duck',
+    },
+    {
+        id: 'agent_summarizer',
+        name: 'Summarizer Pro',
+        color: '#e53e3e',
+        status: 'idle',
+        speech: 'Tôi đúc kết toàn bộ ngữ cảnh thành báo cáo 3 phần súc tích và mạch lạc.',
+        position: [9.5, 0, 4.0],
+        model: 'gemini-2.5-flash-lite',
+        prompt_id: 'chuyen_gia_tom_tat',
+        form: 'amr',
+    },
+    {
+        id: 'agent_calculate',
+        name: 'Calculator Pro',
+        color: '#9333ea',
+        status: 'idle',
+        speech: 'Chuyên gia xử lý tính toán số học, tài chính và công thức đại số chính xác 100%.',
+        position: [1.5, 0, 4.0],
+        model: 'gemini-2.5-flash-lite',
+        prompt_id: 'chuyen_gia_tinh_toan',
+        form: 'humanoid',
     },
     {
         id: 'agent_analyst',
         name: 'Data Analyst',
         color: '#fb923c',
         status: 'idle',
-        speech: 'Theo dõi chỉ số và đánh giá chất lượng realtime.',
+        speech: 'Phân tích thống kê mô tả (mean, median, std, min, max) và phát hiện xu hướng dữ liệu.',
         position: [5.5, 0, 4.0],
-        model: 'deepseek-r1',
-        prompt_id: 'analytics_prompt',
+        model: 'gemini-2.5-flash',
+        prompt_id: 'chuyen_gia_phan_tich',
         form: 'amr',
     },
     {
         id: 'agent_ml',
-        name: 'ML Engineer',
-        color: '#a855f7',
+        name: 'ML Scientist',
+        color: '#10b981',
         status: 'idle',
-        speech: 'Huấn luyện và tối ưu mô hình học máy.',
+        speech: 'Chuyên gia Machine Learning & AI, đánh giá metrics (Accuracy, F1, MSE) và gợi ý kiến trúc tối ưu.',
         position: [9.5, 0, -8.0],
-        model: 'gpt-4o',
-        prompt_id: 'ml_prompt',
+        model: 'gemini-2.5-flash',
+        prompt_id: 'chuyen_gia_ml',
         form: 'humanoid',
     },
     {
-        id: 'agent_summarizer',
-        name: 'Doc Evaluator',
-        color: '#34d399',
+        id: 'agent_visualize',
+        name: 'Data Visualizer',
+        color: '#ec4899',
         status: 'idle',
-        speech: 'Đánh giá checklist tiêu chuẩn và tóm tắt biên bản.',
-        position: [9.5, 0, 4.0],
-        model: 'gemini-1.5-pro',
-        prompt_id: 'eval_prompt',
-        form: 'amr',
+        speech: 'Chuyên gia trực quan hóa dữ liệu, biến biến động giá cả và số liệu thành biểu đồ trực quan.',
+        position: [-1.5, 0, 4.0],
+        model: 'gemini-2.5-flash',
+        prompt_id: 'chuyen_gia_truc_quan',
+        form: 'drone',
     },
 ]
 
@@ -184,8 +206,8 @@ export default function OfficePage() {
         }))
     }
 
-    // Gửi tin nhắn chat
-    const handleSendMessage = (text: string, directTargetId?: string) => {
+    // Gửi tin nhắn chat và nhận luồng dữ liệu streaming từ Agent
+    const handleSendMessage = async (text: string, directTargetId?: string) => {
         const targetId = directTargetId || targetAgentId || selectedAgentId
         const target = localAgents.find((a) => a.id === targetId)
 
@@ -200,56 +222,177 @@ export default function OfficePage() {
 
         setMessages((prev) => [...prev, userMsg])
 
-        // Đổi trạng thái Agent thành thinking / working
-        if (target) {
-            setLocalAgents((prev) =>
-                prev.map((a) => (a.id === target.id ? { ...a, status: 'thinking' } : a))
+        if (!target) return
+
+        // Đổi trạng thái Agent 3D thành thinking
+        setLocalAgents((prev) =>
+            prev.map((a) => (a.id === target.id ? { ...a, status: 'thinking', speech: 'Đang suy nghĩ...' } : a))
+        )
+
+        const botMsgId = `bot-${Date.now()}`
+        const initialBotMsg: OfficeMessage = {
+            id: botMsgId,
+            senderId: target.id,
+            senderName: target.name,
+            senderType: 'agent',
+            agentColor: target.color,
+            content: '',
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            isStreaming: true,
+            thinkingText: 'Đang khởi động tiến trình tư duy...',
+            onRetry: () => handleSendMessage(text, target.id),
+        }
+
+        setMessages((prev) => [...prev, initialBotMsg])
+
+        let accumulatedContent = ''
+
+        try {
+            const activeIds = localAgents.map((a) => a.id)
+            await agentsApi.chatStream(
+                target.id,
+                text,
+                'office',
+                (event) => {
+                    if (event.event === 'status' || event.event === 'thinking') {
+                        const thinkMsg = event.content || event.thought || 'Đang phân tích yêu cầu...'
+                        setMessages((prev) =>
+                            prev.map((m) =>
+                                m.id === botMsgId
+                                    ? { ...m, thinkingText: thinkMsg }
+                                    : m
+                            )
+                        )
+                        setLocalAgents((prev) =>
+                            prev.map((a) =>
+                                a.id === target.id
+                                    ? { ...a, status: 'thinking', speech: thinkMsg.slice(0, 45) + '...' }
+                                    : a
+                            )
+                        )
+                    } else if (event.event === 'tool_start') {
+                        const toolName = event.tool || 'công cụ phụ trợ'
+                        setMessages((prev) =>
+                            prev.map((m) =>
+                                m.id === botMsgId
+                                    ? { ...m, toolExecuting: toolName, thinkingText: `Đang chạy công cụ: ${toolName}...` }
+                                    : m
+                            )
+                        )
+                        setLocalAgents((prev) =>
+                            prev.map((a) =>
+                                a.id === target.id
+                                    ? { ...a, status: 'working', speech: `⚙️ Thực thi ${toolName}` }
+                                    : a
+                            )
+                        )
+                    } else if (event.event === 'tool_end') {
+                        setMessages((prev) =>
+                            prev.map((m) =>
+                                m.id === botMsgId
+                                    ? { ...m, toolExecuting: undefined, thinkingText: 'Đang tổng hợp kết quả công cụ...' }
+                                    : m
+                            )
+                        )
+                    } else if (event.event === 'token') {
+                        accumulatedContent += (event.content || '')
+                        setMessages((prev) =>
+                            prev.map((m) =>
+                                m.id === botMsgId
+                                    ? { ...m, content: accumulatedContent, thinkingText: undefined }
+                                    : m
+                            )
+                        )
+                    } else if (event.event === 'done') {
+                        const finalContent = event.content || accumulatedContent
+                        setMessages((prev) =>
+                            prev.map((m) =>
+                                m.id === botMsgId
+                                    ? {
+                                          ...m,
+                                          content: finalContent || m.content,
+                                          isStreaming: false,
+                                          thinkingText: undefined,
+                                          toolExecuting: undefined,
+                                      }
+                                    : m
+                            )
+                        )
+                        // Cập nhật speech bubble và status sang speaking
+                        setLocalAgents((prev) =>
+                            prev.map((a) =>
+                                a.id === target.id
+                                    ? {
+                                          ...a,
+                                          status: 'speaking',
+                                          speech: (finalContent || 'Hoàn tất nhiệm vụ!').slice(0, 50) + '...',
+                                      }
+                                    : a
+                            )
+                        )
+                        setTimeout(() => {
+                            setLocalAgents((prev) =>
+                                prev.map((a) => (a.id === target.id ? { ...a, status: 'idle' } : a))
+                            )
+                        }, 6000)
+                    } else if (event.event === 'error') {
+                        const errorMsg = event.error || event.content || 'Đã xảy ra sự cố trong quá trình phản hồi.'
+                        setMessages((prev) =>
+                            prev.map((m) =>
+                                m.id === botMsgId
+                                    ? {
+                                          ...m,
+                                          isStreaming: false,
+                                          isError: true,
+                                          errorDetail: errorMsg,
+                                          content: m.content || 'Agent gặp lỗi khi đang xử lý tác vụ.',
+                                      }
+                                    : m
+                            )
+                        )
+                        setLocalAgents((prev) =>
+                            prev.map((a) =>
+                                a.id === target.id
+                                    ? { ...a, status: 'error', speech: '⚠️ Gặp lỗi khi xử lý!' }
+                                    : a
+                            )
+                        )
+                        setTimeout(() => {
+                            setLocalAgents((prev) =>
+                                prev.map((a) => (a.id === target.id ? { ...a, status: 'idle' } : a))
+                            )
+                        }, 5000)
+                    }
+                },
+                { activeAgents: activeIds }
             )
-
-            setTimeout(() => {
-                const dept = detectAgentDepartment(target)
-                let replyContent = ''
-
-                if (dept === 'management') {
-                    replyContent = `[P. Quản lý] Tôi đã tiếp nhận chỉ đạo: "${text}". Đang phân bổ tài nguyên cho P. Nghiên cứu và P. Phân tích thực thi.`
-                } else if (dept === 'research') {
-                    replyContent = `[P. Nghiên cứu] Đã nhận yêu cầu: "${text}". Hệ thống đang tra cứu cơ sở dữ liệu và quét tài liệu liên quan.`
-                } else {
-                    replyContent = `[P. Phân tích] Ghi nhận tác vụ: "${text}". Realtime Dashboard đang cập nhật các metrics và đối chiếu tiêu chuẩn.`
-                }
-
-                // Cập nhật speech bubble và status sang speaking
-                setLocalAgents((prev) =>
-                    prev.map((a) =>
-                        a.id === target.id
-                            ? {
-                                  ...a,
-                                  status: 'speaking',
-                                  speech: replyContent.slice(0, 50) + '...',
-                              }
-                            : a
-                    )
+        } catch (err: unknown) {
+            const errString = err instanceof Error ? err.message : String(err)
+            setMessages((prev) =>
+                prev.map((m) =>
+                    m.id === botMsgId
+                        ? {
+                              ...m,
+                              isStreaming: false,
+                              isError: true,
+                              errorDetail: errString || 'Không thể kết nối với Agent Service',
+                              content: m.content || 'Không thể kết nối đến dịch vụ Agent. Vui lòng kiểm tra dịch vụ.',
+                          }
+                        : m
                 )
-
-                const replyMsg: OfficeMessage = {
-                    id: `bot-${Date.now()}`,
-                    senderId: target.id,
-                    senderName: target.name,
-                    senderType: 'agent',
-                    agentColor: target.color,
-                    content: replyContent,
-                    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                }
-
-                setMessages((prev) => [...prev, replyMsg])
-
-                // Reset về idle sau 5 giây
-                setTimeout(() => {
-                    setLocalAgents((prev) =>
-                        prev.map((a) => (a.id === target.id ? { ...a, status: 'idle' } : a))
-                    )
-                }, 5000)
-            }, 1200)
+            )
+            setLocalAgents((prev) =>
+                prev.map((a) =>
+                    a.id === target.id
+                        ? { ...a, status: 'error', speech: '⚠️ Mất kết nối Agent Service' }
+                        : a
+                )
+            )
+            setTimeout(() => {
+                setLocalAgents((prev) =>
+                    prev.map((a) => (a.id === target.id ? { ...a, status: 'idle' } : a))
+                )
+            }, 5000)
         }
     }
 

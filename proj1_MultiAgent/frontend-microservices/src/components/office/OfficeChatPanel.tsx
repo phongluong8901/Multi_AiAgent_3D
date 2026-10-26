@@ -16,7 +16,12 @@ import {
     IconBarChart,
     IconLayers,
     IconX,
+    IconAlertCircle,
+    IconRotateCcw,
+    IconWrench,
+    IconCpu,
 } from '@/components/ui/icons'
+import InteractiveChartRenderer, { parseContentWithCharts } from '@/components/ui/InteractiveChartRenderer'
 
 export interface OfficeMessage {
     id: string
@@ -27,6 +32,12 @@ export interface OfficeMessage {
     timestamp: string
     agentColor?: string
     isWorkflowTrace?: boolean
+    isStreaming?: boolean
+    thinkingText?: string
+    toolExecuting?: string
+    isError?: boolean
+    errorDetail?: string
+    onRetry?: () => void
 }
 
 interface OfficeChatPanelProps {
@@ -96,6 +107,12 @@ export default function OfficeChatPanel({
             text: '@agent_analyst Hãy đánh giá các chỉ số hiệu năng và chất lượng KCS.',
             icon: IconBarChart,
             color: 'border-orange-500/40 text-orange-300 bg-orange-500/10',
+        },
+        {
+            label: 'Vẽ biểu đồ Giá Vàng',
+            text: '@agent_visualize Hãy vẽ biểu đồ đường thể hiện biến động giá vàng SJC trong 10 ngày qua và đưa ra nhận xét ngắn gọn.',
+            icon: IconBarChart,
+            color: 'border-pink-500/40 text-pink-300 bg-pink-500/10',
         },
     ]
 
@@ -215,6 +232,44 @@ export default function OfficeChatPanel({
                             )
                         }
 
+                        if (m.isError) {
+                            return (
+                                <div key={m.id} className="flex flex-col items-start w-full">
+                                    <div className="flex items-center gap-1.5 mb-1 text-[10px] text-zinc-400 font-mono">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
+                                        <span className="font-semibold text-rose-300">{m.senderName}</span>
+                                        <span>·</span>
+                                        <span>{m.timestamp}</span>
+                                    </div>
+
+                                    <div className="max-w-[90%] rounded-2xl p-3.5 text-xs bg-rose-950/40 border border-rose-500/30 text-rose-200 rounded-bl-none shadow-lg">
+                                        <div className="flex items-center gap-2 font-semibold text-rose-400 mb-1.5">
+                                            <IconAlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                                            <span>Sự cố xử lý Agent</span>
+                                        </div>
+                                        <p className="text-zinc-200 leading-relaxed mb-2">{m.content}</p>
+
+                                        {m.errorDetail && (
+                                            <div className="p-2 rounded-lg bg-black/50 border border-rose-500/20 text-[10px] text-rose-300/90 font-mono overflow-x-auto mb-2.5">
+                                                <code>{m.errorDetail}</code>
+                                            </div>
+                                        )}
+
+                                        {m.onRetry && (
+                                            <button
+                                                type="button"
+                                                onClick={m.onRetry}
+                                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-semibold text-[11px] transition shadow"
+                                            >
+                                                <IconRotateCcw className="w-3.5 h-3.5" />
+                                                <span>Gửi lại yêu cầu</span>
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                            )
+                        }
+
                         return (
                             <div
                                 key={m.id}
@@ -231,7 +286,7 @@ export default function OfficeChatPanel({
                                 </div>
 
                                 <div
-                                    className={`max-w-[85%] rounded-2xl px-3.5 py-2 text-xs leading-relaxed shadow-sm ${
+                                    className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 text-xs leading-relaxed shadow-sm ${
                                         isUser
                                             ? 'bg-blue-600 text-white rounded-br-none'
                                             : m.isWorkflowTrace
@@ -239,7 +294,52 @@ export default function OfficeChatPanel({
                                             : 'bg-zinc-900 border border-zinc-800 text-zinc-200 rounded-bl-none'
                                     }`}
                                 >
-                                    {m.content}
+                                    {/* AI Thinking / Tool Activity Badge */}
+                                    {m.isStreaming && (
+                                        <div className="space-y-1.5 mb-2.5">
+                                            {m.thinkingText && (
+                                                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-500/10 border border-blue-500/25 text-blue-300 text-[11px] font-medium animate-pulse">
+                                                    <IconSparkles className="w-3 h-3 text-blue-400 animate-spin" />
+                                                    <span>{m.thinkingText}</span>
+                                                </div>
+                                            )}
+                                            {m.toolExecuting && (
+                                                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/25 text-amber-300 text-[11px] font-mono">
+                                                    <IconWrench className="w-3 h-3 text-amber-400 shrink-0" />
+                                                    <span>Công cụ: <strong className="text-white">{m.toolExecuting}</strong></span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    {/* Message Text with Streaming Cursor and Interactive Charts */}
+                                    {m.content ? (
+                                        <div className="space-y-2">
+                                            {parseContentWithCharts(m.content).map((seg, sIdx) => {
+                                                if (seg.type === 'chart' && seg.chartConfig) {
+                                                    return (
+                                                        <InteractiveChartRenderer
+                                                            key={sIdx}
+                                                            config={seg.chartConfig}
+                                                        />
+                                                    )
+                                                }
+                                                return (
+                                                    <div key={sIdx} className="whitespace-pre-wrap">
+                                                        {seg.text}
+                                                    </div>
+                                                )
+                                            })}
+                                            {m.isStreaming && (
+                                                <span className="inline-block w-1.5 h-3.5 ml-1 bg-blue-400 animate-pulse align-middle" />
+                                            )}
+                                        </div>
+                                    ) : m.isStreaming ? (
+                                        <div className="flex items-center gap-1.5 py-1 text-zinc-400 text-xs italic">
+                                            <span className="w-2 h-2 rounded-full bg-blue-400 animate-ping" />
+                                            <span>AI đang tạo câu trả lời...</span>
+                                        </div>
+                                    ) : null}
                                 </div>
                             </div>
                         )

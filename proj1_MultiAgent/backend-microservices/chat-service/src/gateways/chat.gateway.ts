@@ -2,6 +2,7 @@ import { Server as SocketIOServer, Socket } from "socket.io";
 import { chatService } from "../services/chat.service";
 import { publishChatMessage } from "../events/producers";
 import { agentDispatcher, broadcastToRoom, roomPresence } from "../services/agent.dispatcher";
+import { ChatType } from "../models/chat.model";
 
 // Theo dõi bản đồ ánh xạ từ socket ID -> thông tin phòng và người dùng ({ roomId, userId, userName, avatar })
 const socketUserMap = new Map<string, { roomId: string; userId: string; userName: string; avatar?: string }>();
@@ -87,7 +88,7 @@ export const configureSocketChat = (io: SocketIOServer) => {
         // --- 3. SỰ KIỆN: SEND MESSAGE ---
         socket.on("send_message", async (data: {
             roomId: string;
-            typeChat?: "team" | "direct" | "agent" | "system" | "workflow";
+            typeChat?: ChatType;
             senderId: string;
             senderType: "user" | "agent" | "system";
             senderName: string;

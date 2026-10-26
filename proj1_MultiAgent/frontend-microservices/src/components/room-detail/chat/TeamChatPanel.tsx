@@ -16,7 +16,15 @@ import {
     IconTrace,
     IconPaperclip,
     IconX,
+    IconBrain,
+    IconAlertCircle,
+    IconActivity,
+    IconRefreshCw,
+    IconTrendingUp,
+    IconShieldAlert,
+    IconSettings,
 } from '@/components/ui/icons'
+import InteractiveChartRenderer, { parseContentWithCharts } from '@/components/ui/InteractiveChartRenderer'
 
 interface TeamChatPanelProps {
     messages: ChatMessage[]
@@ -44,9 +52,10 @@ interface TeamChatPanelProps {
     chatScrollRef?: React.RefObject<HTMLDivElement | null>
     currentUserId?: string
     currentUserName?: string
+    isWaitingReply?: boolean
 }
 
-export type ChatTab = 'team' | 'direct' | 'agent' | 'workflow'
+export type ChatTab = 'team' | 'direct' | 'agent' | 'meeting' | 'workflow'
 
 export function TeamChatPanel({
     messages,
@@ -70,6 +79,7 @@ export function TeamChatPanel({
     chatScrollRef,
     currentUserId = '',
     currentUserName = '',
+    isWaitingReply = false,
 }: TeamChatPanelProps) {
     const [selectedFile, setSelectedFile] = useState<File | null>(null)
     const [uploading, setUploading] = useState(false)
@@ -123,6 +133,10 @@ export function TeamChatPanel({
             // Ưu tiên agent đang chọn, hoặc agent trưởng nhóm trong phòng, hoặc agent đầu tiên có mặt
             const leadAgent = roomAgents.find((a) => a.id.includes('manager') || a.id.includes('lead'))?.id || roomAgents[0]?.id
             targetAgentIdToSend = targetAgentId || leadAgent
+        } else if (activeTab === 'meeting') {
+            typeChatToSend = 'meeting'
+            const leadAgent = roomAgents.find((a) => a.id.includes('manager') || a.id.includes('lead'))?.id || roomAgents[0]?.id
+            targetAgentIdToSend = targetAgentId || leadAgent
         } else if (activeTab === 'workflow') {
             typeChatToSend = 'workflow'
             const leadAgent = roomAgents.find((a) => a.id.includes('manager') || a.id.includes('lead'))?.id || roomAgents[0]?.id
@@ -169,7 +183,7 @@ export function TeamChatPanel({
         if (activeTab === 'team') {
             if (msgType === 'team' || m.metadata?.rootTypeChat === 'team') return true
             if (!msgType && !isAgent && !m.targetUserId) return true
-            if (isAgent && (m.metadata?.rootTypeChat === 'team' || (!m.metadata?.rootTypeChat && msgType !== 'direct'))) return true
+            if (isAgent && (m.metadata?.rootTypeChat === 'team' || (!m.metadata?.rootTypeChat && msgType !== 'direct' && msgType !== 'meeting'))) return true
             if (!isAgent && !m.targetUserId && (m.message?.includes('@agent_') || m.message?.includes('@all') || m.message?.includes('@team'))) return true
             return false
         }
@@ -188,11 +202,18 @@ export function TeamChatPanel({
             return m.senderId === currentUserId || m.targetUserId === currentUserId
         }
 
-        // 3. Tab Hỏi đáp Agent (agent): hiển thị toàn bộ tin trao đổi giữa user và agent (kể cả chuỗi bàn giao handoff)
+        // 3. Tab Hỏi đáp Agent (agent): hiển thị toàn bộ tin trao đổi giữa user và agent
         if (activeTab === 'agent') {
             if (msgType === 'agent' || m.metadata?.rootTypeChat === 'agent') return true
-            if (isAgent) return true
+            if (isAgent && msgType !== 'meeting' && m.metadata?.rootTypeChat !== 'meeting') return true
             if (!isAgent && (m.targetAgentId || m.message?.includes('@agent_') || msgType === 'agent')) return true
+            return false
+        }
+
+        // 3.1 Tab Họp Agent (meeting): hiển thị chuỗi thảo luận vòng tròn giữa các Agent
+        if (activeTab === 'meeting') {
+            if (msgType === 'meeting' || m.metadata?.rootTypeChat === 'meeting') return true
+            if (m.message?.includes('[CUỘC HỌP') || m.message?.includes('[ĐÚC KẾT') || m.message?.includes('BIÊN BẢN KẾT LUẬN')) return true
             return false
         }
 
@@ -209,7 +230,7 @@ export function TeamChatPanel({
 
     return (
         <div className="flex h-full min-h-0 w-full flex-col bg-zinc-950">
-            {/* Tabs chuyển đổi 4 vùng chat: Nhóm | 1-1 Direct | Hỏi đáp Agent | Agent Pipeline */}
+            {/* Tabs chuyển đổi các vùng chat: Nhóm | 1-1 Direct | Hỏi đáp Agent | Họp Agent | Agent Pipeline */}
             <div className="flex shrink-0 items-center justify-between border-b border-zinc-800 bg-zinc-900/60 px-3 py-2">
                 <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none">
                     <button
@@ -247,6 +268,18 @@ export function TeamChatPanel({
                     </button>
                     <button
                         type="button"
+                        onClick={() => setActiveTab('meeting')}
+                        className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition ${activeTab === 'meeting'
+                            ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/30'
+                            : 'text-zinc-400 hover:bg-zinc-800 hover:text-white'
+                            }`}
+                    >
+                        <IconMessageSquare className="h-3.5 w-3.5 text-purple-300" />
+                        <span>Họp Agent (Thảo luận)</span>
+                        <span className="flex h-1.5 w-1.5 rounded-full bg-purple-400 animate-pulse" />
+                    </button>
+                    <button
+                        type="button"
                         onClick={() => setActiveTab('workflow')}
                         className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition ${activeTab === 'workflow'
                             ? 'bg-indigo-600 text-white shadow'
@@ -258,6 +291,53 @@ export function TeamChatPanel({
                     </button>
                 </div>
             </div>
+
+            {/* Thanh phụ trợ cho từng Tab */}
+            {activeTab === 'meeting' && (
+                <div className="flex shrink-0 items-center justify-between gap-2 overflow-x-auto border-b border-purple-500/20 bg-purple-950/20 p-2.5 scrollbar-none">
+                    <div className="flex items-center gap-2">
+                        <span className="flex shrink-0 items-center gap-1 text-[11px] font-semibold text-purple-300 bg-purple-500/10 px-2 py-0.5 rounded-full border border-purple-500/30">
+                            <IconUsers className="h-3.5 w-3.5 text-purple-400" />
+                            Hội nghị bàn tròn ({roomAgents.length} Agent)
+                        </span>
+                        <span className="shrink-0 text-[11px] font-medium text-zinc-400">Chủ đề mẫu:</span>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setInput('Thảo luận chiến lược giá vàng và giải pháp đầu tư trong quý này')
+                            }}
+                            className="flex shrink-0 items-center gap-1.5 rounded-lg border border-purple-500/30 bg-purple-900/30 px-2 py-0.5 text-xs text-purple-200 hover:bg-purple-800/40"
+                        >
+                            <IconTrendingUp className="h-3.5 w-3.5 text-purple-400" />
+                            <span>Giá Vàng & Chiến lược</span>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setInput('Đánh giá rủi ro thị trường và đề xuất phân bổ danh mục đầu tư')
+                            }}
+                            className="flex shrink-0 items-center gap-1.5 rounded-lg border border-purple-500/30 bg-purple-900/30 px-2 py-0.5 text-xs text-purple-200 hover:bg-purple-800/40"
+                        >
+                            <IconShieldAlert className="h-3.5 w-3.5 text-amber-400" />
+                            <span>Đánh giá Rủi ro</span>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setInput('Thống nhất giải pháp kiến trúc hệ thống và lộ trình triển khai')
+                            }}
+                            className="flex shrink-0 items-center gap-1.5 rounded-lg border border-purple-500/30 bg-purple-900/30 px-2 py-0.5 text-xs text-purple-200 hover:bg-purple-800/40"
+                        >
+                            <IconSettings className="h-3.5 w-3.5 text-indigo-400" />
+                            <span>Giải pháp Kỹ thuật</span>
+                        </button>
+                    </div>
+
+                    <span className="text-[10px] text-purple-300/80 italic shrink-0 hidden sm:inline">
+                        * Từng Agent sẽ lần lượt phát biểu - Trưởng nhóm đúc kết
+                    </span>
+                </div>
+            )}
 
             {/* Thanh phụ trợ cho từng Tab */}
             {activeTab === 'direct' && (
@@ -446,20 +526,63 @@ export function TeamChatPanel({
                                         </div>
                                     )}
 
+                                    {/* Badge nhận diện Cuộc họp bàn tròn Multi-Agent */}
+                                    {(m.typeChat === 'meeting' || m.metadata?.rootTypeChat === 'meeting' || m.message?.startsWith('[CUỘC HỌP') || m.message?.startsWith('[ĐÚC KẾT')) && (
+                                        <div className="mb-2 flex items-center justify-between gap-1.5 rounded-lg border border-purple-500/40 bg-purple-950/60 px-2.5 py-1 text-[11px] font-semibold text-purple-200 shadow-sm shadow-purple-500/10">
+                                            <span className="flex items-center gap-1.5">
+                                                <IconUsers className="h-3.5 w-3.5 text-purple-400 animate-pulse shrink-0" />
+                                                <span className="flex items-center gap-1.5">
+                                                    {m.message?.startsWith('[ĐÚC KẾT') ? (
+                                                        <>
+                                                            <IconFileText className="h-3.5 w-3.5 text-amber-400" />
+                                                            <span>Biên bản Kết luận Cuộc họp</span>
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <IconMessageSquare className="h-3.5 w-3.5 text-purple-400" />
+                                                            <span>Ý kiến Hội đồng Thảo luận vòng tròn</span>
+                                                        </>
+                                                    )}
+                                                </span>
+                                            </span>
+                                            {m.metadata?.depth > 0 && (
+                                                <span className="rounded bg-purple-900/80 border border-purple-500/30 px-1.5 py-0.5 text-[10px] text-purple-200 font-mono">
+                                                    Lượt #{m.metadata.depth + 1}
+                                                </span>
+                                            )}
+                                        </div>
+                                    )}
+
                                     {/* Badge nhận diện chu trình chuyển giao / cộng tác đa agent */}
-                                    {(m.typeChat === 'workflow' || m.message?.startsWith('[Bàn giao nhiệm vụ') || m.metadata?.depth > 0) && (
-                                        <div className="mb-2 flex items-center gap-1.5 rounded-lg border border-purple-500/30 bg-purple-950/50 px-2.5 py-1 text-[11px] font-medium text-purple-300 shadow-sm">
-                                            <IconSparkles className="h-3.5 w-3.5 text-purple-400 animate-pulse shrink-0" />
+                                    {m.typeChat !== 'meeting' && m.metadata?.rootTypeChat !== 'meeting' && (m.typeChat === 'workflow' || m.message?.startsWith('[Bàn giao nhiệm vụ') || m.metadata?.depth > 0) && (
+                                        <div className="mb-2 flex items-center gap-1.5 rounded-lg border border-indigo-500/30 bg-indigo-950/50 px-2.5 py-1 text-[11px] font-medium text-indigo-300 shadow-sm">
+                                            <IconSparkles className="h-3.5 w-3.5 text-indigo-400 animate-pulse shrink-0" />
                                             <span>Chu trình Phối hợp Đa Agent (Multi-Agent Handoff)</span>
                                             {m.metadata?.depth > 0 && (
-                                                <span className="rounded bg-purple-900/60 px-1.5 py-0.2 text-[10px] text-purple-200">
+                                                <span className="rounded bg-indigo-900/60 px-1.5 py-0.2 text-[10px] text-indigo-200">
                                                     Bước #{m.metadata.depth}
                                                 </span>
                                             )}
                                         </div>
                                     )}
 
-                                    <div className="whitespace-pre-wrap">{m.message}</div>
+                                    <div className="space-y-2">
+                                        {parseContentWithCharts(m.message || '').map((seg, sIdx) => {
+                                            if (seg.type === 'chart' && seg.chartConfig) {
+                                                return (
+                                                    <InteractiveChartRenderer
+                                                        key={sIdx}
+                                                        config={seg.chartConfig}
+                                                    />
+                                                )
+                                            }
+                                            return (
+                                                <div key={sIdx} className="whitespace-pre-wrap">
+                                                    {seg.text}
+                                                </div>
+                                            )
+                                        })}
+                                    </div>
 
                                     {usedTools.length > 0 && (
                                         <div className="mt-2.5 flex flex-wrap gap-1.5 border-t border-zinc-800/80 pt-2">
@@ -490,12 +613,100 @@ export function TeamChatPanel({
                         )
                     })
                 )}
+                {/* Thinking / Working Indicator khi Agent đang xử lý */}
+                {roomAgents
+                    .filter((a: any) => a.status === 'thinking' || a.status === 'working')
+                    .map((ag: any) => (
+                        <div
+                            key={ag.id}
+                            className="flex items-center gap-3 rounded-2xl border border-blue-500/40 bg-blue-950/50 p-3.5 text-xs text-blue-200 shadow-xl backdrop-blur animate-pulse"
+                        >
+                            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-blue-500/25 text-blue-400">
+                                <IconBrain className="h-4 w-4 animate-spin [animation-duration:3s]" />
+                            </div>
+                            <div className="flex-1">
+                                <div className="flex items-center gap-2">
+                                    <span className="font-semibold text-blue-300">{ag.name || ag.id}</span>
+                                    <span className="rounded bg-blue-500/20 px-2 py-0.5 text-[10px] font-mono uppercase text-blue-400 border border-blue-500/30">
+                                        {ag.status === 'working' ? 'Đang chạy công cụ...' : 'Đang suy nghĩ (Thinking)...'}
+                                    </span>
+                                </div>
+                                <p className="text-[11px] text-zinc-300 mt-0.5 font-medium">
+                                    {ag.speech || 'Hệ thống đang suy nghĩ, phân tích context và lập luận...'}
+                                </p>
+                            </div>
+                            <div className="flex items-center gap-1.5 text-blue-400">
+                                <span className="h-2 w-2 rounded-full bg-blue-400 animate-bounce [animation-delay:0ms]" />
+                                <span className="h-2 w-2 rounded-full bg-blue-400 animate-bounce [animation-delay:150ms]" />
+                                <span className="h-2 w-2 rounded-full bg-blue-400 animate-bounce [animation-delay:300ms]" />
+                            </div>
+                        </div>
+                    ))}
+
+                {/* Loading Banner khi vừa gửi lệnh chờ Agent phản hồi */}
+                {isWaitingReply && roomAgents.every((a: any) => a.status !== 'thinking' && a.status !== 'working') && (
+                    <div className="flex items-center gap-3 rounded-2xl border border-purple-500/40 bg-purple-950/40 p-3.5 text-xs text-purple-200 shadow-xl backdrop-blur animate-pulse">
+                        <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-purple-500/25 text-purple-400">
+                            <IconBrain className="h-4 w-4 animate-spin [animation-duration:2.5s]" />
+                        </div>
+                        <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                                <span className="font-semibold text-purple-300">Hệ thống Agent đang xử lý...</span>
+                                <span className="rounded bg-purple-500/20 px-2 py-0.5 text-[10px] font-mono uppercase text-purple-300 border border-purple-500/30">
+                                    AI Thinking
+                                </span>
+                            </div>
+                            <p className="text-[11px] text-zinc-300 mt-0.5 font-medium">
+                                Đang chuyển tiếp thông điệp tới hệ thống AI Agents trong phòng...
+                            </p>
+                        </div>
+                        <div className="flex items-center gap-1.5 text-purple-400">
+                            <span className="h-2 w-2 rounded-full bg-purple-400 animate-bounce [animation-delay:0ms]" />
+                            <span className="h-2 w-2 rounded-full bg-purple-400 animate-bounce [animation-delay:150ms]" />
+                            <span className="h-2 w-2 rounded-full bg-purple-400 animate-bounce [animation-delay:300ms]" />
+                        </div>
+                    </div>
+                )}
+
+                {/* Error Indicator khi Agent gặp sự cố */}
+                {roomAgents
+                    .filter((a: any) => a.status === 'error')
+                    .map((ag: any) => (
+                        <div
+                            key={ag.id}
+                            className="flex items-center gap-2.5 rounded-2xl border border-red-500/40 bg-red-950/40 p-3 text-xs text-red-200 shadow-lg"
+                        >
+                            <div className="flex h-7 w-7 items-center justify-center rounded-xl bg-red-500/20 text-red-400">
+                                <IconAlertCircle className="h-4 w-4" />
+                            </div>
+                            <div className="flex-1">
+                                <span className="font-semibold text-red-300">{ag.name || ag.id} gặp sự cố</span>
+                                <p className="text-[11px] text-red-400/80">
+                                    {ag.speech || 'Agent phản hồi lỗi hoặc mô hình AI quá tải.'}
+                                </p>
+                            </div>
+                        </div>
+                    ))}
+
                 <div ref={chatEndRef} />
             </div>
 
             {/* Composer / Input Bar */}
             <div className="relative shrink-0 space-y-2 border-t border-zinc-800 bg-zinc-900/90 p-3 backdrop-blur">
                 {/* Selector đối tượng nhận tương ứng theo Tab */}
+                {activeTab === 'meeting' && (
+                    <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs scrollbar-none">
+                        <span className="shrink-0 text-[11px] text-purple-400 font-semibold flex items-center gap-1">
+                            <IconUsers className="h-3 w-3 text-purple-400" />
+                            Chủ đề thảo luận vòng tròn:
+                        </span>
+                        <span className="text-[11px] text-zinc-300 bg-purple-500/20 border border-purple-500/30 px-2.5 py-0.5 rounded-lg flex items-center gap-1">
+                            Toàn bộ {roomAgents.length} AI Agent trong phòng
+                        </span>
+                        <span className="text-[10px] text-zinc-400 italic">➔ Tự động phát biểu lần lượt & Trưởng nhóm đúc kết biên bản</span>
+                    </div>
+                )}
+
                 {activeTab === 'agent' && (
                     <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs scrollbar-none">
                         <span className="shrink-0 text-[11px] text-zinc-500 font-medium">Hỏi Agent:</span>
@@ -556,6 +767,14 @@ export function TeamChatPanel({
                         >
                             <IconBot className="h-3 w-3 text-purple-400" />
                             Phối hợp Team Lead
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setInput('@agent_manager Hãy phối hợp @agent_search tra cứu giá vàng SJC gần đây, @agent_analyst phân tích số liệu và @agent_visualize vẽ biểu đồ đường trực quan')}
+                            className="flex shrink-0 items-center gap-1 rounded-lg border border-amber-500/30 bg-amber-950/40 px-2 py-0.5 text-xs text-amber-300 hover:bg-amber-900/50"
+                        >
+                            <IconBarChart className="h-3 w-3 text-amber-400" />
+                            Giá Vàng & Biểu đồ 3D
                         </button>
                         <button
                             type="button"
@@ -626,9 +845,11 @@ export function TeamChatPanel({
                                         : 'Chọn thành viên ở danh sách trên để chat 1-1...'
                                     : activeTab === 'agent'
                                         ? 'Hỏi đáp với AI Agent (gõ @agent hoặc nhập câu hỏi)...'
-                                        : 'Nhập câu hỏi hoặc chỉ đạo cho Agent Pipeline...'
+                                        : activeTab === 'meeting'
+                                            ? 'Nhập chủ đề để nhóm Agent bắt đầu cuộc họp bàn tròn...'
+                                            : 'Nhập câu hỏi hoặc chỉ đạo cho Agent Pipeline...'
                         }
-                        className="flex-1 rounded-xl border border-zinc-700/80 bg-zinc-950 px-3.5 py-2.5 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-blue-500"
+                        className="flex-1 rounded-xl border border-zinc-700/80 bg-zinc-950 px-3.5 py-2.5 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-purple-500"
                     />
                     <button
                         type="submit"
@@ -637,13 +858,15 @@ export function TeamChatPanel({
                             ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500'
                             : activeTab === 'agent'
                                 ? 'bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500'
-                                : activeTab === 'workflow'
-                                    ? 'bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500'
-                                    : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500'
+                                : activeTab === 'meeting'
+                                    ? 'bg-gradient-to-r from-purple-600 to-fuchsia-600 hover:from-purple-500 hover:to-fuchsia-500 shadow-purple-600/30'
+                                    : activeTab === 'workflow'
+                                        ? 'bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500'
+                                        : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500'
                             }`}
                     >
                         <IconSend className="h-4 w-4" />
-                        {uploading ? 'Đang tải...' : 'Gửi'}
+                        {uploading ? 'Đang tải...' : activeTab === 'meeting' ? 'Khởi động họp' : 'Gửi'}
                     </button>
                 </form>
             </div>

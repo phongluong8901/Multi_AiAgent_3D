@@ -6,7 +6,7 @@ import { GoogleLogin } from '@react-oauth/google'
 import { useAuth } from '@/hooks/useAuth'
 
 export default function RegisterPage() {
-    const { register, googleLogin, startGithubLogin, loading, error } = useAuth()
+    const { register, googleLogin, startGithubLogin, startHuggingfaceLogin, loading, error } = useAuth()
     const [name, setName] = useState('')
     const [email, setEmail] = useState('')
     const [password, setPassword] = useState('')
@@ -104,6 +104,24 @@ export default function RegisterPage() {
                         />
                     </svg>
                     Đăng ký với GitHub
+                </button>
+
+                {/* Hugging Face */}
+                <button
+                    type="button"
+                    onClick={startHuggingfaceLogin}
+                    disabled={loading}
+                    className="w-full flex items-center justify-center gap-2.5 rounded-lg bg-[#272115] hover:bg-[#382f1d] disabled:opacity-50 text-amber-200 text-sm font-medium py-2.5 border border-amber-500/30 hover:border-amber-500/60 shadow-sm transition"
+                >
+                    <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 24 24" fill="none">
+                        <circle cx="12" cy="12" r="10" fill="#FFD21E" />
+                        <circle cx="8" cy="10" r="1.5" fill="#18181B" />
+                        <circle cx="16" cy="10" r="1.5" fill="#18181B" />
+                        <path d="M8 14.5C9.2 16.2 10.5 17 12 17C13.5 17 14.8 16.2 16 14.5" stroke="#18181B" strokeWidth="1.8" strokeLinecap="round" />
+                        <path d="M4.5 14C3.8 14.5 3 15.5 3 17C3 18.7 4.3 20 6 20C7.2 20 8.2 19.3 8.7 18.2" stroke="#18181B" strokeWidth="1.5" strokeLinecap="round" />
+                        <path d="M19.5 14C20.2 14.5 21 15.5 21 17C21 18.7 19.7 20 18 20C16.8 20 15.8 19.3 15.3 18.2" stroke="#18181B" strokeWidth="1.5" strokeLinecap="round" />
+                    </svg>
+                    Đăng ký với Hugging Face
                 </button>
             </div>
 

@@ -43,6 +43,20 @@ initSocket(server);
 app.use(cors());          // Cho phép chia sẻ tài nguyên chéo nguồn (CORS)
 app.use(express.json());  // Parse dữ liệu đầu vào dạng JSON từ request body
 
+// --- ENDPOINT NỘI BỘ DÀNH RIÊNG CHO INTER-MICROSERVICE (CHAT-SERVICE, AGENT-SERVICE) ---
+import { roomRepository } from "./repositories/room.repository";
+app.get("/api/v1/internal/rooms/:id", async (req, res) => {
+    try {
+        const room = await roomRepository.findById(req.params.id);
+        if (!room) {
+            return res.status(404).json({ success: false, message: "Room not found" });
+        }
+        return res.status(200).json({ success: true, data: room });
+    } catch (e: any) {
+        return res.status(500).json({ success: false, message: e.message });
+    }
+});
+
 // --- ĐĂNG KÝ CÁC ROUTE API ---
 app.use("/api/v1/rooms/user-user", userUserRoomRoutes);
 app.use("/api/v1/rooms/agent-agent", agentAgentRoomRoutes);

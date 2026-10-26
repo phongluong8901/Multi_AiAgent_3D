@@ -26,6 +26,8 @@ export interface IUser extends Document {
     googleId?: string; // Mã định danh tài khoản Google (dùng khi đăng nhập SSO Google)
     githubId?: string; // Mã định danh tài khoản GitHub (dùng khi đăng nhập SSO GitHub)
     githubUsername?: string; // Bổ sung thông tin tài khoản GitHub
+    huggingfaceId?: string; // Mã định danh tài khoản Hugging Face (dùng khi đăng nhập SSO Hugging Face)
+    huggingfaceUsername?: string; // Tên tài khoản Hugging Face
     role: "guest" | "user" | "admin" | "seller";
     avatarUrl?: string;
     bio?: string;  // Đoạn tiểu sử hoặc giới thiệu ngắn cá nhân
@@ -51,6 +53,8 @@ const UserSchema = new Schema<IUser>(
         googleId: { type: String, unique: true, sparse: true }, //ID từ tài khoản Google
         githubId: { type: String, unique: true, sparse: true }, //ID từ tài khoản GitHub
         githubUsername: { type: String, default: "" },
+        huggingfaceId: { type: String, unique: true, sparse: true }, // ID từ tài khoản Hugging Face
+        huggingfaceUsername: { type: String, default: "" },
         role: { type: String, enum: ["guest", "user", "admin", "seller"], default: "user" },
         avatarUrl: { type: String, default: "" },
         bio: { type: String, default: "" },

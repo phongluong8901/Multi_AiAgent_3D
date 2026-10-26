@@ -37,6 +37,15 @@ export interface GithubPayloadUser {
     avatarUrl: string;      // Đường dẫn URL ảnh đại diện gốc lấy từ GitHub
 }
 
+// Định nghĩa cấu trúc dữ liệu người dùng được trích xuất từ tài khoản Hugging Face khi thực hiện xác thực OAuth
+export interface HuggingfacePayloadUser {
+    huggingfaceId: string;       // Mã định danh duy nhất (sub) của tài khoản Hugging Face
+    huggingfaceUsername: string; // Tên tài khoản (preferred_username) trên Hugging Face
+    email: string;              // Địa chỉ email của tài khoản Hugging Face
+    name: string;               // Tên hiển thị trên Hugging Face
+    avatarUrl: string;          // Đường dẫn URL ảnh đại diện (picture) từ Hugging Face
+}
+
 // jwt token types
 export interface TokenPayload {
     userId: string;

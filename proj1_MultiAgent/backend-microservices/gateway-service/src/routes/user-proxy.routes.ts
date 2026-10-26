@@ -12,6 +12,7 @@ const PUBLIC_PATHS = [
     "/api/v1/auth/login",
     "/api/v1/auth/google",
     "/api/v1/auth/github",
+    "/api/v1/auth/huggingface",
     "/api/v1/auth/verify-otp",
     "/api/v1/auth/resend-otp",
     "/api/v1/auth/forgot-password",
@@ -28,14 +29,18 @@ const USER_BASE_PATHS = [
 
 // Middleware kiểm tra xem request có phải là public path hay không
 const checkAuthIfNeeded = (req: any, res: any, next: any) => {
-    const fullPath = req.url.split("?")[0];
+    const rawPath = (req.originalUrl || req.url || "").split("?")[0];
+    const fullPath = rawPath.endsWith("/") && rawPath.length > 1 ? rawPath.slice(0, -1) : rawPath;
 
     // Nếu request không thuộc các route của User Service, bỏ qua để các route sau xử lý
     if (!USER_BASE_PATHS.some((p) => fullPath.startsWith(p))) {
         return next();
     }
 
-    const isPublic = PUBLIC_PATHS.includes(fullPath);
+    const isPublic = PUBLIC_PATHS.some((p) => {
+        const cleanP = p.endsWith("/") && p.length > 1 ? p.slice(0, -1) : p;
+        return cleanP === fullPath;
+    });
 
     if (isPublic) {
         return next();

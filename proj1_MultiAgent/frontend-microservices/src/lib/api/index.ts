@@ -5,7 +5,7 @@ export type Agent = BaseAgent & {
     description?: string
 }
 
-export type { AgentStatus, AgentCreate, AgentUpdate } from './agents'
+export type { AgentStatus, AgentCreate, AgentUpdate, AgentStreamEvent } from './agents'
 export { agentsApi } from './agents'
 
 export type { UserProfile, InviteUser } from './users'
@@ -50,6 +50,7 @@ export {
     type ResendOtpPayload,
     type GoogleAuthPayload,
     type GithubAuthPayload,
+    type HuggingfaceAuthPayload,
 } from './auth'
 
 export { mapsApi, type CloudMapDesign } from './maps'

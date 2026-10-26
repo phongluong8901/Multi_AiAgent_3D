@@ -53,6 +53,7 @@ export default function CollaborativeRoomPage() {
     const [assignmentModalOpen, setAssignmentModalOpen] = useState(false)
     const [storeModalOpen, setStoreModalOpen] = useState(false)
     const [managementTab, setManagementTab] = useState<'members' | 'agents' | 'workflow' | 'invite'>('members')
+    const [isWaitingReply, setIsWaitingReply] = useState(false)
 
     const isLeavingRef = useRef(false)
     const chatEndRef = useRef<HTMLDivElement | null>(null)
@@ -134,6 +135,15 @@ export default function CollaborativeRoomPage() {
     useEffect(() => {
         if (!room) return
         const activeIds = room.activeAgents?.length ? room.activeAgents : DEFAULT_AGENTS
+        
+        // Nếu có bất kỳ Agent nào chuyển sang thinking hoặc working, tắt cờ isWaitingReply
+        const hasAgentBusy = Object.values(agentStatuses).some(
+            (s: any) => s?.status === 'thinking' || s?.status === 'working' || s?.status === 'speaking'
+        )
+        if (hasAgentBusy) {
+            setIsWaitingReply(false)
+        }
+
         setRoomAgents(
             activeIds.map((id) => {
                 const found = allAgents.find((a) => a.id === id)
@@ -160,8 +170,13 @@ export default function CollaborativeRoomPage() {
         )
     }, [room, allAgents, agentStatuses])
 
-    // Tự động cuộn chat
+    // Tự động cuộn chat và clear cờ chờ khi có tin nhắn từ Agent
     useEffect(() => {
+        const lastMsg = messages[messages.length - 1]
+        if (lastMsg && (lastMsg.senderType === 'agent' || lastMsg.senderId?.startsWith('agent_'))) {
+            setIsWaitingReply(false)
+        }
+
         if (messages.length <= prevMsgCountRef.current) {
             prevMsgCountRef.current = messages.length
             return
@@ -176,7 +191,7 @@ export default function CollaborativeRoomPage() {
             isFirstScrollRef.current = false
         }
         prevMsgCountRef.current = messages.length
-    }, [messages.length])
+    }, [messages.length, messages])
 
     // Lọc danh sách online users
     const visibleOnlineUsers = useMemo(() => {
@@ -235,6 +250,19 @@ export default function CollaborativeRoomPage() {
         const text = input.trim()
         setInput('')
         setMentionPopupOpen(false)
+
+        // Nếu gửi vào các kênh agent/meeting/workflow hoặc có mention agent -> bật cờ chờ
+        const isAgentDest =
+            options?.typeChat === 'agent' ||
+            options?.typeChat === 'meeting' ||
+            options?.typeChat === 'workflow' ||
+            Boolean(options?.targetAgentId) ||
+            Boolean(targetAgentId) ||
+            text.includes('@agent_') ||
+            text.includes('@all')
+        if (isAgentDest) {
+            setIsWaitingReply(true)
+        }
 
         // Gọi hàm sendMessage từ useChat với đầy đủ typeChat và targets
         const attachmentsList = attachment ? [attachment] : undefined
@@ -357,6 +385,7 @@ export default function CollaborativeRoomPage() {
                 chatScrollRef={chatScrollRef}
                 currentUserId={currentUserId}
                 currentUserName={currentUserName}
+                isWaitingReply={isWaitingReply}
             />
 
             <ModalsContainer

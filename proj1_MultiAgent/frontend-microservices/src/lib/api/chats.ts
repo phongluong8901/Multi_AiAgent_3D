@@ -11,7 +11,7 @@ export type ChatAttachment = {
     extension: string
 }
 
-export type ChatType = 'team' | 'direct' | 'agent' | 'system' | 'workflow'
+export type ChatType = 'team' | 'direct' | 'agent' | 'system' | 'workflow' | 'meeting'
 
 export type ChatMessage = {
     _id?: string

@@ -35,6 +35,11 @@ export class UserRepository {
         return await UserModel.findOne({ githubId }); // Tìm bản ghi khớp với githubId
     }
 
+    // Phương thức tìm kiếm người dùng theo mã định danh Hugging Face ID (dùng trong xác thực SSO Hugging Face)
+    async findByHuggingfaceId(huggingfaceId: string): Promise<IUser | null> {
+        return await UserModel.findOne({ huggingfaceId }); // Tìm bản ghi khớp với huggingfaceId
+    }
+
     // Phương thức tìm kiếm người dùng theo mã thông báo xác thực tài khoản (verificationToken)
     async findByVerificationToken(token: string) {
         return await UserModel.findOne({ verificationToken: token }); // Tìm kiếm theo token xác thực email
