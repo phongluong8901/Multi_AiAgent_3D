@@ -2,6 +2,7 @@
 
 import React, { useRef, useState } from 'react'
 import { ChatMessage, UserPresence, WorkflowTrace, ChatAttachment, ChatType } from '@/lib/api'
+import { toast } from 'sonner'
 import {
     IconZap,
     IconUsers,
@@ -112,7 +113,7 @@ export function TeamChatPanel({
                 }
             } catch (err: any) {
                 console.error('❌ Lỗi upload file:', err)
-                alert(`Không thể tải file lên: ${err.message || 'Lỗi không xác định'}`)
+                toast.error(`Không thể tải file lên: ${err.message || 'Lỗi không xác định'}`)
                 setUploading(false)
                 return
             } finally {

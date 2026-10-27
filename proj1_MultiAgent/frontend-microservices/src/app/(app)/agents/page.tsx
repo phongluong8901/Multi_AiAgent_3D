@@ -4,6 +4,8 @@ import { useState, useMemo, useEffect } from 'react'
 import Link from 'next/link'
 import { useAgents } from '@/hooks/useAgents'
 import { agentsApi } from '@/lib/api'
+import { toast } from 'sonner'
+import { useConfirm } from '@/context/ConfirmContext'
 import {
     IconBot,
     IconCpu,
@@ -27,6 +29,7 @@ import {
 type AgentFormType = 'humanoid' | 'duck' | 'amr' | 'drone'
 
 export default function AgentsPage() {
+    const { confirm } = useConfirm()
     const { agents, connected, refresh } = useAgents()
     const [searchQuery, setSearchQuery] = useState('')
     const [selectedFormFilter, setSelectedFormFilter] = useState<string>('all')
@@ -59,15 +62,22 @@ export default function AgentsPage() {
     }, [agents])
 
     async function handleDelete(id: string, name: string) {
-        if (!confirm(`Xóa agent "${name}" (${id})?`)) return
+        const isConfirmed = await confirm({
+            title: 'Xóa Agent',
+            description: `Bạn có chắc chắn muốn xóa Agent "${name}" (${id}) không?`,
+            confirmText: 'Xóa Agent',
+            variant: 'danger',
+        })
+        if (!isConfirmed) return
         try {
             await agentsApi.remove(id)
             if (typeof window !== 'undefined') {
                 localStorage.removeItem(`agent_form:${id}`)
             }
+            toast.success(`Đã xóa Agent "${name}"`)
             refresh()
         } catch (e) {
-            alert(e instanceof Error ? e.message : 'Delete failed')
+            toast.error(e instanceof Error ? e.message : 'Xóa Agent thất bại')
         }
     }
 

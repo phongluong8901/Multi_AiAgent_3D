@@ -12,6 +12,7 @@ import swaggerUi from "swagger-ui-express";
 import { swaggerSpecs } from "./config/swagger";
 
 import { metricsMiddleware } from "./middlewares/metrics.middleware";
+import { errorHandler } from "./middlewares/error.middleware";
 
 // Polyfill đối tượng crypto toàn cục (globalThis)
 if (!(globalThis as any).crypto) {
@@ -49,5 +50,7 @@ app.get("/", (req, res) => {
 app.get("/health", (req, res) => {
     res.status(200).json({ status: "ok", service: "user-service" });
 });
+
+app.use(errorHandler);
 
 export default app;

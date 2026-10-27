@@ -116,6 +116,18 @@ export function useChat({ roomId, typeChat, onRoomUpdated }: UseChatProps) {
 
                     return [...prev, newMsg]
                 })
+
+                // Tự động lưu hội thoại cuối của Agent để hiển thị trên UI 3D
+                if (newMsg.senderType === 'agent' || newMsg.senderId?.startsWith('agent_')) {
+                    setAgentStatuses((prev) => ({
+                        ...prev,
+                        [newMsg.senderId]: {
+                            agentId: newMsg.senderId,
+                            status: prev[newMsg.senderId]?.status || 'idle',
+                            speech: newMsg.message,
+                        },
+                    }))
+                }
             } catch (err) {
                 console.error('[Chat Socket] Error parsing receive_message event:', err)
             }
@@ -125,14 +137,18 @@ export function useChat({ roomId, typeChat, onRoomUpdated }: UseChatProps) {
             try {
                 const statusMeta: AgentStatusMeta = data.data || data
                 if (statusMeta.agentId) {
-                    setAgentStatuses((prev) => ({
-                        ...prev,
-                        [statusMeta.agentId]: {
-                            agentId: statusMeta.agentId,
-                            status: statusMeta.status,
-                            speech: statusMeta.speech,
-                        },
-                    }))
+                    setAgentStatuses((prev) => {
+                        const prevSpeech = prev[statusMeta.agentId]?.speech
+                        return {
+                            ...prev,
+                            [statusMeta.agentId]: {
+                                agentId: statusMeta.agentId,
+                                status: statusMeta.status,
+                                // Luôn giữ lại hội thoại cuối, không để bị reset về null khi idle
+                                speech: statusMeta.speech || prevSpeech || null,
+                            },
+                        }
+                    })
                 }
             } catch (err) {
                 console.error('[Chat Socket] Error parsing agent_status event:', err)

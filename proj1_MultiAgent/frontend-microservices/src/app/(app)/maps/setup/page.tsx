@@ -42,6 +42,7 @@ import { notify } from '@/lib/toast'
 import { getUser } from '@/lib/auth'
 import { coinsApi, UserWallet } from '@/lib/api/coins'
 import PlanTasksModal from '@/components/coins/PlanTasksModal'
+import { useConfirm } from '@/context/ConfirmContext'
 
 function renderCatalogIcon(type: PlaceableItemType) {
     switch (type) {
@@ -228,6 +229,7 @@ function renderCatalogIcon(type: PlaceableItemType) {
 const LOCAL_STORAGE_KEY = 'agent_custom_map_designs_v1'
 
 export default function MapSetupPage() {
+    const { confirm } = useConfirm()
     const [mapDesign, setMapDesign] = useState<CustomMapDesign>(DEFAULT_MAP_PRESETS.smart_city)
     const [selectedId, setSelectedId] = useState<string | null>(null)
     const [activeTool, setActiveTool] = useState<PlaceableItemType | null>(null)
@@ -386,7 +388,13 @@ export default function MapSetupPage() {
 
     // Xóa bản đồ trên Cloud
     const handleDeleteCloudMap = async (mapId: string, mapName: string) => {
-        if (!confirm(`Bạn có chắc muốn xóa bản đồ '${mapName}' trên Cloud không?`)) return
+        const isConfirmed = await confirm({
+            title: 'Xóa bản đồ Cloud',
+            description: `Bạn có chắc muốn xóa bản đồ '${mapName}' trên Cloud không? Hành động này không thể hoàn tác.`,
+            confirmText: 'Xóa bản đồ',
+            variant: 'danger',
+        })
+        if (!isConfirmed) return
 
         try {
             await mapsApi.deleteMap(mapId)
@@ -478,9 +486,9 @@ export default function MapSetupPage() {
             setMapDesign(parsed)
             setSelectedId(null)
             setJsonModalOpen(false)
-            alert('Đã nhập dữ liệu bản đồ thành công!')
+            notify.success('Đã nhập dữ liệu bản đồ thành công!')
         } catch (err: any) {
-            alert(`Lỗi cú pháp JSON: ${err.message}`)
+            notify.error(`Lỗi cú pháp JSON: ${err.message}`)
         }
     }
 

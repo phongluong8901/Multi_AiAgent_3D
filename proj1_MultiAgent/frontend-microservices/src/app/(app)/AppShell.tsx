@@ -11,6 +11,7 @@ const NAV = [
     { href: '/dashboard', label: 'Dashboard' },
     { href: '/rooms', label: 'Team Rooms' },
     { href: '/office', label: '3D Office' },
+    { href: '/lab', label: 'Agent Lab 3D' },
     { href: '/maps/setup', label: 'Map Studio 3D' },
     { href: '/store', label: 'Agent Store' },
     { href: '/agents', label: 'Agents' },
@@ -65,7 +66,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                                     <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
                                 </svg>
                             </div>
-                            <span className="font-bold bg-gradient-to-r from-white via-zinc-200 to-zinc-400 bg-clip-text text-transparent">Claw Office</span>
+                            <span className="font-bold bg-gradient-to-r from-white via-zinc-200 to-zinc-400 bg-clip-text text-transparent">Microservice Multi</span>
                         </Link>
                         <nav className="hidden sm:flex items-center gap-1">
                             {NAV.map((item) => {

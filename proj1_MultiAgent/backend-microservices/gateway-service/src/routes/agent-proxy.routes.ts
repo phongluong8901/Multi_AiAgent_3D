@@ -4,7 +4,7 @@ import { gatewayAuthMiddleware } from "../middlewares/auth.middleware";
 
 const router = Router();
 const AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || "http://localhost:8000";
-const AGENT_PATHS = ["/api/v1/agents", "/api/v1/prompts", "/api/v1/tools", "/api/v1/memory", "/api/v1/executors"];
+const AGENT_PATHS = ["/api/v1/agents", "/api/v1/prompts", "/api/v1/tools", "/api/v1/memory", "/api/v1/executors", "/api/v1/lab"];
 
 const checkAgentAuth = (req: any, res: any, next: any) => {
     if (AGENT_PATHS.some((p) => req.url.startsWith(p))) {

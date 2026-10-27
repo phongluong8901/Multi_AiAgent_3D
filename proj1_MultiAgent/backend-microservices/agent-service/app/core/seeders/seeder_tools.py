@@ -82,6 +82,41 @@ def seed_tools(db: Session):
                 "name": "Visualization Tool",
                 "description": "Bí danh công cụ trực quan hóa số liệu và biến động thị trường."
             },
+
+            # 8. Computer Vision & OCR Tools
+            {
+                "id": "image_analyzer_tool",
+                "name": "Image OCR & Vision Classifier",
+                "description": "Công cụ thị giác máy tính: Trích xuất toàn văn chữ/hóa đơn (OCR) và phân loại, nhận diện đối tượng trong ảnh."
+            },
+
+            # 9. CSV Profiling & Analysis Tools
+            {
+                "id": "csv_analyzer_tool",
+                "name": "CSV Data Profiler & Analyzer",
+                "description": "Công cụ phân tích chuyên sâu file CSV: cấu trúc số dòng/cột, tỷ lệ thiếu dữ liệu, thống kê mô tả và insights."
+            },
+
+            # 10. Python Code Generation Tools
+            {
+                "id": "python_code_generator_tool",
+                "name": "Python Code Generator",
+                "description": "Công cụ sinh mã nguồn Python chuyên nghiệp, chuẩn PEP8, có type hints, docstring và ví dụ test chạy thử."
+            },
+
+            # 11. Isolated Sandbox Execution Tools
+            {
+                "id": "python_sandbox_tool",
+                "name": "Isolated Python Sandbox Runner",
+                "description": "Công cụ thực thi mã Python an toàn trong Container Sandbox cô lập, bảo mật dữ liệu tuyệt đối và chặn lệnh nguy hiểm."
+            },
+
+            # 12. PDF & Document Intelligence Tools
+            {
+                "id": "pdf_analyzer_tool",
+                "name": "PDF Document Analyzer & OCR",
+                "description": "Công cụ đọc và phân tích file PDF: bóc tách bảng số liệu, trích xuất hóa đơn, báo cáo tài chính và tóm tắt văn bản."
+            },
         ]
 
         for tool_data in default_tools:

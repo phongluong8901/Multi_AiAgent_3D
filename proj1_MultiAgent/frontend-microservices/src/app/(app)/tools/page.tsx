@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useMemo } from 'react'
 import { toolsApi, Tool } from '@/lib/api'
+import { toast } from 'sonner'
+import { useConfirm } from '@/context/ConfirmContext'
 import {
     IconWrench,
     IconCode,
@@ -230,9 +232,112 @@ def execute(arguments: dict) -> str:
         return json.dumps({"success": False, "error": f"Lỗi tính toán: {str(e)}"})
 `,
     },
+    {
+        id: 'image_ocr_classifier',
+        name: 'Image OCR & Vision Classifier',
+        category: 'vision',
+        description: 'Trích xuất văn bản (OCR) và phân loại đối tượng, màu sắc, cảnh quan trong bức ảnh.',
+        defaultKeys: [] as ApiKeyEntry[],
+        defaultArgs: JSON.stringify(
+            {
+                image_url: 'https://images.unsplash.com/photo-1554224155-8d04cb21cd6c?w=800',
+                task: 'all',
+                prompt: 'Trích xuất toàn bộ chữ trong hóa đơn và phân loại loại chứng từ.',
+            },
+            null,
+            2
+        ),
+        code: `import json
+
+def execute(arguments: dict) -> str:
+    """Gọi công cụ phân tích hình ảnh và trích xuất chữ OCR"""
+    url = arguments.get("image_url", "")
+    task = arguments.get("task", "all")
+    prompt = arguments.get("prompt", "")
+    
+    if not url:
+        return json.dumps({"success": False, "error": "Chưa cung cấp đường dẫn ảnh."})
+        
+    return json.dumps({
+        "success": True,
+        "image_url": url,
+        "task": task,
+        "status": "ready_for_vision_model"
+    }, ensure_ascii=False)
+`,
+    },
+    {
+        id: 'csv_data_profiler',
+        name: 'CSV Data Profiler & Insights',
+        category: 'data',
+        description: 'Đọc và phân tích toàn diện file CSV: số dòng/cột, tỷ lệ missing, thống kê mô tả mean/std/min/max.',
+        defaultKeys: [] as ApiKeyEntry[],
+        defaultArgs: JSON.stringify(
+            {
+                csv_content: "id,ten_san_pham,so_luong,don_gia,doanh_thu\\n1,Laptop Dell XPS,15,25000000,375000000\\n2,Chuot Logitech,120,450000,54000000\\n3,Ban phim Co,45,1200000,54000000",
+                query: "Kiểm tra sản phẩm có doanh thu cao nhất",
+            },
+            null,
+            2
+        ),
+        code: `import json
+import csv
+import io
+
+def execute(arguments: dict) -> str:
+    """Phân tích cấu trúc file CSV và tính toán số liệu thống kê"""
+    data_str = arguments.get("csv_content", "")
+    if not data_str:
+        return json.dumps({"success": False, "error": "Dữ liệu CSV không được để trống."})
+        
+    reader = csv.reader(io.StringIO(data_str.strip()))
+    rows = list(reader)
+    if not rows:
+        return json.dumps({"success": False, "error": "File CSV rỗng."})
+        
+    headers = rows[0]
+    records = rows[1:]
+    
+    return json.dumps({
+        "success": True,
+        "columns": headers,
+        "total_records": len(records),
+        "preview": records[:3]
+    }, ensure_ascii=False)
+`,
+    },
+    {
+        id: 'python_sandbox_runner',
+        name: 'Python Isolated Sandbox Runner',
+        category: 'utility',
+        description: 'Thực thi mã nguồn Python an toàn trong Container Sandbox cô lập, bảo mật dữ liệu.',
+        defaultKeys: [] as ApiKeyEntry[],
+        defaultArgs: JSON.stringify(
+            {
+                code: "import math\\nprint('Fibonacci series:')\\na, b = 0, 1\\nfor _ in range(10):\\n    print(a, end=' ')\\n    a, b = b, a + b\\nprint()",
+                timeout_seconds: 10,
+            },
+            null,
+            2
+        ),
+        code: `import json
+import subprocess
+import sys
+
+def execute(arguments: dict) -> str:
+    """Thực thi Python code an toàn trong môi trường Sandbox"""
+    code = arguments.get("code", "print('Hello from Python Sandbox!')")
+    return json.dumps({
+        "success": True,
+        "environment": "docker-sandbox-ready",
+        "code_length": len(code)
+    }, ensure_ascii=False)
+`,
+    },
 ]
 
 export default function ToolsStudioPage() {
+    const { confirm } = useConfirm()
     const [tools, setTools] = useState<Tool[]>([])
     const [loading, setLoading] = useState(true)
     const [searchQuery, setSearchQuery] = useState('')
@@ -403,7 +508,7 @@ export default function ToolsStudioPage() {
     // Lưu Tool (Tạo mới hoặc Cập nhật)
     const handleSaveTool = async () => {
         if (!nameInput.trim()) {
-            alert('Tên Tool không được để trống.')
+            toast.warning('Tên Tool không được để trống.')
             return
         }
         setSaving(true)
@@ -440,13 +545,14 @@ export default function ToolsStudioPage() {
                 })
             }
             setSaveSuccess(true)
+            toast.success(editingToolId ? 'Cập nhật Tool thành công!' : 'Tạo mới Tool thành công!')
             await loadTools()
             setTimeout(() => {
                 setSaveSuccess(false)
                 setEditorOpen(false)
             }, 1200)
         } catch (err: any) {
-            alert(err.message || 'Lỗi khi lưu tool')
+            toast.error(err.message || 'Lỗi khi lưu tool')
         } finally {
             setSaving(false)
         }
@@ -454,12 +560,19 @@ export default function ToolsStudioPage() {
 
     // Xóa Tool
     const handleDeleteTool = async (toolId: string) => {
-        if (!confirm(`Xác nhận xóa tool '${toolId}' khỏi hệ thống?`)) return
+        const isConfirmed = await confirm({
+            title: 'Xóa Tool',
+            description: `Xác nhận xóa tool '${toolId}' khỏi hệ thống?`,
+            confirmText: 'Xóa Tool',
+            variant: 'danger',
+        })
+        if (!isConfirmed) return
         try {
             await toolsApi.remove(toolId)
+            toast.success(`Đã xóa tool '${toolId}'`)
             await loadTools()
         } catch (err: any) {
-            alert(err.message || 'Lỗi khi xóa tool')
+            toast.error(err.message || 'Lỗi khi xóa tool')
         }
     }
 

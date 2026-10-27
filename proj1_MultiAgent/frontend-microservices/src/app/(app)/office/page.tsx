@@ -42,7 +42,7 @@ const DEFAULT_OFFICE_AGENTS: Agent[] = [
         name: 'Manager Lead',
         color: '#facc15',
         status: 'idle',
-        speech: 'Chào mừng bạn đến với Claw Office 3D! Tôi phụ trách điều phối và giao việc cho các chuyên gia.',
+        speech: 'Chào mừng bạn đến với Microservice Multi 3D! Tôi phụ trách điều phối và giao việc cho các chuyên gia.',
         position: [-9.5, 0, -8.0],
         model: 'gemini-2.5-flash',
         prompt_id: 'manager',
@@ -309,12 +309,12 @@ export default function OfficePage() {
                             prev.map((m) =>
                                 m.id === botMsgId
                                     ? {
-                                          ...m,
-                                          content: finalContent || m.content,
-                                          isStreaming: false,
-                                          thinkingText: undefined,
-                                          toolExecuting: undefined,
-                                      }
+                                        ...m,
+                                        content: finalContent || m.content,
+                                        isStreaming: false,
+                                        thinkingText: undefined,
+                                        toolExecuting: undefined,
+                                    }
                                     : m
                             )
                         )
@@ -323,10 +323,10 @@ export default function OfficePage() {
                             prev.map((a) =>
                                 a.id === target.id
                                     ? {
-                                          ...a,
-                                          status: 'speaking',
-                                          speech: (finalContent || 'Hoàn tất nhiệm vụ!').slice(0, 50) + '...',
-                                      }
+                                        ...a,
+                                        status: 'speaking',
+                                        speech: (finalContent || 'Hoàn tất nhiệm vụ!').slice(0, 50) + '...',
+                                    }
                                     : a
                             )
                         )
@@ -341,12 +341,12 @@ export default function OfficePage() {
                             prev.map((m) =>
                                 m.id === botMsgId
                                     ? {
-                                          ...m,
-                                          isStreaming: false,
-                                          isError: true,
-                                          errorDetail: errorMsg,
-                                          content: m.content || 'Agent gặp lỗi khi đang xử lý tác vụ.',
-                                      }
+                                        ...m,
+                                        isStreaming: false,
+                                        isError: true,
+                                        errorDetail: errorMsg,
+                                        content: m.content || 'Agent gặp lỗi khi đang xử lý tác vụ.',
+                                    }
                                     : m
                             )
                         )
@@ -372,12 +372,12 @@ export default function OfficePage() {
                 prev.map((m) =>
                     m.id === botMsgId
                         ? {
-                              ...m,
-                              isStreaming: false,
-                              isError: true,
-                              errorDetail: errString || 'Không thể kết nối với Agent Service',
-                              content: m.content || 'Không thể kết nối đến dịch vụ Agent. Vui lòng kiểm tra dịch vụ.',
-                          }
+                            ...m,
+                            isStreaming: false,
+                            isError: true,
+                            errorDetail: errString || 'Không thể kết nối với Agent Service',
+                            content: m.content || 'Không thể kết nối đến dịch vụ Agent. Vui lòng kiểm tra dịch vụ.',
+                        }
                         : m
                 )
             )
@@ -455,10 +455,10 @@ export default function OfficePage() {
                     prev.map((a) =>
                         a.id === st.agentId
                             ? {
-                                  ...a,
-                                  status: 'working',
-                                  speech: `Đang thực hiện: ${st.task}`,
-                              }
+                                ...a,
+                                status: 'working',
+                                speech: `Đang thực hiện: ${st.task}`,
+                            }
                             : a
                     )
                 )
@@ -510,7 +510,7 @@ export default function OfficePage() {
                 <div className="flex items-center gap-2.5">
                     <span className="w-2.5 h-2.5 rounded-full bg-[#76b900] shadow-[0_0_8px_#76b900]" />
                     <span className="font-bold text-sm tracking-wide text-white">
-                        Claw Office 3D HQ
+                        Microservice Multi 3D HQ
                     </span>
                     <span className="hidden md:inline-block text-xs text-zinc-500">
                         · 3 Phân khu (P. Quản lý, P. Nghiên cứu, P. Phân tích)
@@ -522,9 +522,8 @@ export default function OfficePage() {
                     <button
                         type="button"
                         onClick={() => setMapType('office')}
-                        className={`text-xs font-semibold px-2.5 py-1 rounded-lg transition flex items-center gap-1 ${
-                            mapType === 'office' ? 'bg-blue-600 text-white shadow' : 'text-zinc-400 hover:text-white'
-                        }`}
+                        className={`text-xs font-semibold px-2.5 py-1 rounded-lg transition flex items-center gap-1 ${mapType === 'office' ? 'bg-blue-600 text-white shadow' : 'text-zinc-400 hover:text-white'
+                            }`}
                     >
                         <IconBuilding className="w-3.5 h-3.5" />
                         <span>Office</span>
@@ -532,9 +531,8 @@ export default function OfficePage() {
                     <button
                         type="button"
                         onClick={() => setMapType('outdoor')}
-                        className={`text-xs font-semibold px-2.5 py-1 rounded-lg transition flex items-center gap-1 ${
-                            mapType === 'outdoor' ? 'bg-emerald-600 text-white shadow' : 'text-zinc-400 hover:text-white'
-                        }`}
+                        className={`text-xs font-semibold px-2.5 py-1 rounded-lg transition flex items-center gap-1 ${mapType === 'outdoor' ? 'bg-emerald-600 text-white shadow' : 'text-zinc-400 hover:text-white'
+                            }`}
                     >
                         <IconTrees className="w-3.5 h-3.5" />
                         <span>Outdoor</span>
@@ -542,9 +540,8 @@ export default function OfficePage() {
                     <button
                         type="button"
                         onClick={() => setMapType('iot')}
-                        className={`text-xs font-semibold px-2.5 py-1 rounded-lg transition flex items-center gap-1 ${
-                            mapType === 'iot' ? 'bg-cyan-600 text-white shadow' : 'text-zinc-400 hover:text-white'
-                        }`}
+                        className={`text-xs font-semibold px-2.5 py-1 rounded-lg transition flex items-center gap-1 ${mapType === 'iot' ? 'bg-cyan-600 text-white shadow' : 'text-zinc-400 hover:text-white'
+                            }`}
                     >
                         <IconGlobe className="w-3.5 h-3.5" />
                         <span>Smart City</span>
@@ -582,22 +579,20 @@ export default function OfficePage() {
                         <button
                             type="button"
                             onClick={() => setViewMode('3d')}
-                            className={`px-2.5 py-1 rounded text-xs font-medium transition ${
-                                viewMode === '3d'
+                            className={`px-2.5 py-1 rounded text-xs font-medium transition ${viewMode === '3d'
                                     ? 'bg-zinc-800 text-white shadow'
                                     : 'text-zinc-400 hover:text-white'
-                            }`}
+                                }`}
                         >
                             3D Full
                         </button>
                         <button
                             type="button"
                             onClick={() => setViewMode('split')}
-                            className={`px-2.5 py-1 rounded text-xs font-medium transition flex items-center gap-1 ${
-                                viewMode === 'split'
+                            className={`px-2.5 py-1 rounded text-xs font-medium transition flex items-center gap-1 ${viewMode === 'split'
                                     ? 'bg-blue-600 text-white shadow'
                                     : 'text-zinc-400 hover:text-white'
-                            }`}
+                                }`}
                         >
                             <IconMessageSquare className="w-3 h-3" />
                             <span>3D + Chat</span>

@@ -1,7 +1,6 @@
-from langchain_core.messages import AIMessage
 from typing import Optional
 from sqlalchemy.orm import Session
-from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, ToolMessage
 
 from app.core.llm.llm_registry import llm_registry
 from app.services.tool_executor import tool_executor
@@ -146,18 +145,15 @@ class AgentRunner:
                 f"   - NGUYÊN TẮC QUYỀN SỞ HỮU CÔNG CỤ: Bạn CHỈ ĐƯỢC PHÉP trực tiếp kích hoạt các công cụ bạn đang sở hữu ở trên. Bạn TUYỆT ĐỐI KHÔNG THỂ tự gọi các công cụ mà bạn không có.\n\n"
                 f"2. DANH SÁCH ĐỒNG NGHIỆP ĐANG CÓ MẶT TRONG PHÒNG VÀ CÔNG CỤ CỦA HỌ:\n"
                 f"{colleagues_list_str}\n\n"
-                f"3. QUY TẮC XỬ LÝ (TÍNH TOÁN THEO CÔNG CỤ VÀ AGENT TRONG PHÒNG):\n"
-                f"   A. KHI CÂU HỎI ĐƠN GIẢN (Chỉ cần 1 công cụ):\n"
-                f"      - Nếu công cụ đó THUỘC SỞ HỮU CỦA BẠN: Hãy gọi đúng 1 công cụ đó rồi trả lời dứt điểm ngay cho người dùng mà không cần chuyển giao thêm.\n"
-                f"      - Nếu công cụ đó BẠN KHÔNG CÓ nhưng trong phòng CÓ ĐỒNG NGHIỆP SỞ HỮU: Hãy gắn thẻ @agent_id của đồng nghiệp đó để chuyển giao.\n\n"
-                f"   B. KHI CÂU HỎI PHỨC TẠP (Ví dụ: Tra cứu giá vàng, phân tích biến động, vẽ biểu đồ):\n"
-                f"      - Bạn phải kiểm tra xem bạn sở hữu công cụ nào trong chuỗi tác vụ trên:\n"
-                f"        + Nếu bạn có công cụ liên quan (ví dụ tìm kiếm hoặc phân tích): Hãy gọi công cụ của bạn để giải quyết phần việc của mình trước.\n"
-                f"        + Sau khi xong, nếu còn công đoạn tiếp theo (ví dụ: vẽ biểu đồ trực quan):\n"
-                f"          * Nếu BẢN THÂN BẠN có 'data_visualization_tool': Bạn tự gọi tiếp 'data_visualization_tool' để vẽ biểu đồ.\n"
-                f"          * Nếu BẢN THÂN BẠN KHÔNG CÓ 'data_visualization_tool':\n"
-                f"            > Kiểm tra danh sách đồng nghiệp ở trên: Nếu trong phòng CÓ đồng nghiệp sở hữu 'data_visualization_tool' (ví dụ @agent_visualize): BẮT BUỘC tóm tắt số liệu và gắn thẻ '@agent_visualize Hãy vẽ biểu đồ đường cho số liệu trên'.\n"
-                f"            > Nếu TRONG PHÒNG KHÔNG CÓ ai sở hữu 'data_visualization_tool': Hãy thông báo rõ cho người dùng là 'Hiện trong phòng không có Agent trực quan hóa biểu đồ' và trình bày bảng số liệu Markdown đẹp mắt.\n"
+                f"   A. QUY TẮC BÁO CÁO VÀ BÀN GIAO ('AI NHẬN NGƯỜI ẤY TRẢ'):\n"
+                f"      - NGUYÊN TẮC VÀNG: Nếu bạn nhận nhiệm vụ do Trưởng nhóm (@agent_manager) giao phó: Sau khi bạn dùng công cụ của mình thu thập/xử lý dữ liệu xong, bạn BẮT BUỘC gắn thẻ '@agent_manager Đã hoàn thành, báo cáo kết quả lại cho Trưởng nhóm tổng hợp và trả lời người dùng'. Trưởng nhóm @agent_manager là người chịu trách nhiệm chốt hạ và phản hồi cuối cùng cho người dùng.\n"
+                f"      - NẾU BẠN NHẬN YÊU CẦU TRỰC TIẾP TỪ NGƯỜI DÙNG: Dùng công cụ của bạn xử lý dứt điểm và trực tiếp trả lời kết quả cho người dùng.\n"
+                f"      - Nếu bài toán đòi hỏi công cụ mà BẠN KHÔNG CÓ nhưng trong phòng CÓ ĐỒNG NGHIỆP SỞ HỮU: Hãy gắn thẻ @agent_id của đúng đồng nghiệp đó để chuyển giao.\n"
+                f"      - TUYỆT ĐỐI KHÔNG tự ý tag qua lại giữa các chuyên viên (worker) để tránh lặp vòng lặp.\n\n"
+                f"   B. KHI BÀI TOÁN CẦN VẼ BIỂU ĐỒ HOẶC TÍNH TOÁN LIÊN HOÀN:\n"
+                f"      - Bạn dùng công cụ của mình xử lý phần việc của mình trước.\n"
+                f"      - Nếu cần vẽ biểu đồ và trong phòng có @agent_visualize: Gắn thẻ '@agent_visualize Hãy vẽ biểu đồ từ số liệu trên'.\n"
+                f"      - Chuyên gia cuối cùng hoàn thành chuỗi BẮT BUỘC báo cáo kết quả về lại cho '@agent_manager' (nếu Manager là người khởi xướng).\n"
                 f"   C. TUYỆT ĐỐI KHÔNG gắn thẻ bất kỳ @agent_id nào KHÔNG CÓ TÊN trong danh sách đồng nghiệp đang có mặt ở trên."
             )
         else:
@@ -384,12 +380,49 @@ class AgentRunner:
                     "input": {"type": "string", "description": "Mục tiêu bài toán dự phòng"}
                 }
                 required = ["goal"]
+            elif "image" in tool_id_lower or "vision" in tool_id_lower or "ocr" in tool_id_lower:
+                properties = {
+                    "image_url": {"type": "string", "description": "Đường dẫn URL của hình ảnh cần phân tích (link Cloudinary, link web)"},
+                    "image_path": {"type": "string", "description": "Đường dẫn file ảnh trên hệ thống cục bộ"},
+                    "task": {"type": "string", "description": "Tác vụ: 'all' (OCR đọc chữ + phân loại ảnh), 'ocr' (chỉ trích xuất chữ), 'classification' (phân loại nhãn và mô tả đối tượng)"},
+                    "prompt": {"type": "string", "description": "Câu hỏi hoặc yêu cầu cụ thể về bức ảnh (ví dụ: 'Hóa đơn này có tổng tiền là bao nhiêu?')"}
+                }
+                required = []
+            elif "csv" in tool_id_lower:
+                properties = {
+                    "file_url": {"type": "string", "description": "Đường dẫn URL tải file CSV"},
+                    "file_path": {"type": "string", "description": "Đường dẫn file CSV trên ổ đĩa"},
+                    "csv_content": {"type": "string", "description": "Nội dung chuỗi dữ liệu bảng tính CSV thô"},
+                    "query": {"type": "string", "description": "Câu hỏi hoặc khía cạnh cần tập trung phân tích trong file CSV"}
+                }
+                required = []
+            elif "generator" in tool_id_lower or "code_gen" in tool_id_lower:
+                properties = {
+                    "task": {"type": "string", "description": "Mô tả bài toán hoặc chức năng cần viết mã nguồn Python"},
+                    "libraries": {"type": "array", "items": {"type": "string"}, "description": "Danh sách thư viện yêu cầu sử dụng (ví dụ: ['pandas', 'numpy', 'matplotlib'])"},
+                    "include_tests": {"type": "boolean", "description": "Tự động sinh khối kiểm thử mẫu chạy thử mã nguồn (mặc định true)"}
+                }
+                required = ["task"]
+            elif "sandbox" in tool_id_lower or "runner" in tool_id_lower:
+                properties = {
+                    "code": {"type": "string", "description": "Mã nguồn Python hoàn chỉnh cần thực thi an toàn trong Container Sandbox"},
+                    "timeout_seconds": {"type": "integer", "description": "Thời gian thực thi tối đa (1 - 30 giây, mặc định 15)"}
+                }
+                required = ["code"]
             elif "crawl" in tool_id_lower:
                 properties = {
                     "url": {"type": "string", "description": "Đường dẫn URL bài viết/website cần thu thập nội dung"},
                     "input": {"type": "string", "description": "Đường dẫn URL dự phòng"}
                 }
                 required = ["url"]
+            elif "pdf" in tool_id_lower or "ph_n_t" in tool_id_lower or "document" in tool_id_lower:
+                properties = {
+                    "pdf_url": {"type": "string", "description": "Đường dẫn URL tải file PDF (link Cloudinary, link web trực tiếp hoặc đường dẫn file)"},
+                    "file_path": {"type": "string", "description": "Đường dẫn file PDF trên ổ đĩa"},
+                    "prompt": {"type": "string", "description": "Câu hỏi hoặc yêu cầu trích xuất bảng biểu / số liệu cụ thể"},
+                    "input": {"type": "string", "description": "Đường dẫn URL hoặc nội dung dự phòng"}
+                }
+                required = []
             else:
                 properties = {
                     "input": {"type": "string", "description": "Nội dung đầu vào thực thi công cụ"}

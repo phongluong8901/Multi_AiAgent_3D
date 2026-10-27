@@ -61,6 +61,9 @@ export interface AgentPromptContext {
     senderName: string;
     activeAgents?: string[];
     workflow?: any;
+    initiatorAgentId?: string;
+    userGoal?: string;
+    visitedAgents?: string[];
 }
 
 // Định nghĩa hàm publishAgentPrompt để đẩy yêu cầu xử lý từ user xuống hệ thống AI Agent qua hàng đợi

@@ -1,9 +1,10 @@
 from fastapi import APIRouter
-from app.api.v1.endpoints import agents, prompts, tools, executors, agent_chat, memory, models
+from app.api.v1.endpoints import agents, prompts, tools, executors, agent_chat, memory, models, agent_lab
 
 api_router = APIRouter()
 api_router.include_router(agents.router)
 api_router.include_router(agent_chat.router)
+api_router.include_router(agent_lab.router)
 api_router.include_router(prompts.router)
 api_router.include_router(tools.router)
 api_router.include_router(models.router)

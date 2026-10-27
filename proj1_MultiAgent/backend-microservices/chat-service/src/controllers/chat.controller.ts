@@ -98,6 +98,9 @@ export class ChatController {
                     depth: 0,
                     originalTypeChat: resolvedTypeChat,
                     rootTypeChat: resolvedTypeChat,
+                    initiatorAgentId: agentId,
+                    userGoal: message,
+                    visitedAgents: [agentId],
                 }).catch((err) => {
                     console.error(`[ChatController] Error dispatching to ${agentId}:`, err);
                 });

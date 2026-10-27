@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { Room, Agent, AgentWorkflow, AgentWorkflowMode, WorkflowTransition, roomsApi } from '@/lib/api'
+import { toast } from 'sonner'
 import {
     IconBot,
     IconPlus,
@@ -189,7 +190,7 @@ export function AgentWorkflowPanel({
         if (currentActive.includes(toolId)) {
             // Nếu bỏ chọn, không cho tắt hết nếu còn 1 tool cuối cùng
             if (currentActive.length <= 1) {
-                alert('Agent cần có ít nhất 1 công cụ kích hoạt trong phòng!')
+                toast.warning('Agent cần có ít nhất 1 công cụ kích hoạt trong phòng!')
                 return
             }
             updated = currentActive.filter((id) => id !== toolId)
@@ -216,7 +217,7 @@ export function AgentWorkflowPanel({
         const defaultFrom = roomAgents[0]?.id || ''
         const defaultTo = roomAgents[1]?.id || 'end'
         if (!defaultFrom) {
-            alert('Cần ít nhất 1 Agent trong phòng để thiết lập quy tắc chuyển tiếp')
+            toast.warning('Cần ít nhất 1 Agent trong phòng để thiết lập quy tắc chuyển tiếp')
             return
         }
         setTransitions((prev) => [

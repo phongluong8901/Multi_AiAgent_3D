@@ -8,9 +8,12 @@ import { RoomsHeader } from '@/components/room/RoomsHeader'
 import { RoomInvitesList } from '@/components/room/RoomInvitesList'
 import { RoomCard } from '@/components/room/RoomCard'
 import { CreateRoomModal } from '@/components/room/CreateRoomModal'
+import { toast } from 'sonner'
+import { useConfirm } from '@/context/ConfirmContext'
 
 export default function RoomsHubPage() {
     const me = getUser()
+    const { confirm } = useConfirm()
 
     const [rooms, setRooms] = useState<Room[]>([])
     const [availableAgents, setAvailableAgents] = useState<Agent[]>([])
@@ -115,7 +118,7 @@ export default function RoomsHubPage() {
 
         const currentUser = getUser()
         if (!currentUser?.id) {
-            alert('Bạn cần đăng nhập để tạo phòng')
+            toast.error('Bạn cần đăng nhập để tạo phòng')
             return
         }
 
@@ -162,9 +165,10 @@ export default function RoomsHubPage() {
             setDescription('')
             setIsPublic(true)
             setPassword('')
+            toast.success('Tạo phòng thành công!')
             await loadData()
         } catch (err: any) {
-            alert(`Lỗi khi tạo phòng: ${err.message}`)
+            toast.error(`Lỗi khi tạo phòng: ${err.message}`)
         } finally {
             setSubmitting(false)
         }
@@ -173,14 +177,21 @@ export default function RoomsHubPage() {
     const handleDeleteRoom = async (room: Room) => {
         const roomId = room._id || room.id
         if (!roomId) return
-        if (!confirm(`Xóa phòng "${room.name}"? Hành động này không hoàn tác được.`)) return
+        const isConfirmed = await confirm({
+            title: 'Xóa phòng',
+            description: `Bạn có chắc muốn xóa phòng "${room.name}"? Hành động này không thể hoàn tác.`,
+            confirmText: 'Xóa phòng',
+            variant: 'danger',
+        })
+        if (!isConfirmed) return
 
         try {
             setDeletingId(roomId)
             await roomsApi.remove(roomId)
+            toast.success(`Đã xóa phòng "${room.name}"`)
             await loadData()
         } catch (err: any) {
-            alert(err.message || 'Xóa phòng thất bại')
+            toast.error(err.message || 'Xóa phòng thất bại')
         } finally {
             setDeletingId(null)
         }

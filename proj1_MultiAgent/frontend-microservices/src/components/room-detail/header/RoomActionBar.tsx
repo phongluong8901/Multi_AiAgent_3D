@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { Room, roomsApi } from '@/lib/api'
 import { IconShare2, IconCheck, IconLogOut, IconLink } from '@/components/ui/icons' // Hoặc icon tương ứng trong dự án
+import { toast } from 'sonner'
 
 interface RoomActionBarProps {
     room: Room | null
@@ -27,9 +28,10 @@ export function RoomActionBar({
             const shareUrl = window.location.href // Lấy URL hiện tại của phòng
             await navigator.clipboard.writeText(shareUrl)
             setCopied(true)
+            toast.success('Đã sao chép liên kết phòng vào bộ nhớ tạm!')
             setTimeout(() => setCopied(false), 2000) // Ẩn trạng thái 'Đã copy' sau 2 giây
         } catch (err) {
-            alert('Không thể sao chép liên kết.')
+            toast.error('Không thể sao chép liên kết.')
         }
     }
 

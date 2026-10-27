@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { Agent, UserAgentBinding, roomsApi, Room, UserPresence } from '@/lib/api'
 import { getUser } from '@/lib/auth'
 import { IconUsers, IconUser, IconX, IconSparkles, IconBot, IconGlobe, IconCpu, IconFileText } from './icons'
+import { toast } from 'sonner'
 
 type Props = {
     roomId: string
@@ -88,8 +89,9 @@ export default function UserAgentAssignmentModal({
                 })
             }
             onUpdate(updatedRoom)
+            toast.success('Đã cập nhật phân bổ agent')
         } catch (err: any) {
-            alert(`Lỗi phân bổ agent: ${err.message}`)
+            toast.error(`Lỗi phân bổ agent: ${err.message}`)
         } finally {
             setSubmitting(false)
         }
@@ -105,8 +107,9 @@ export default function UserAgentAssignmentModal({
                 updatedRoom = await roomsApi.addAgent(roomId, agentId)
             }
             onUpdate(updatedRoom)
+            toast.success(isInRoom ? 'Đã gỡ agent khỏi phòng' : 'Đã thêm agent vào phòng')
         } catch (err: any) {
-            alert(`Lỗi: ${err.message}`)
+            toast.error(`Lỗi: ${err.message}`)
         } finally {
             setSubmitting(false)
         }

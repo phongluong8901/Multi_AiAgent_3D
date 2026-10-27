@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation'
 import { useState } from 'react'
 
 const SIDEBAR_EXTRA_NAV = [
+    { href: '/lab', label: 'Agent Lab 3D', badge: 'AI Gen', icon: LabIcon },
     { href: '/store', label: 'Agent Store', badge: 'Shop', icon: StoreIcon },
     { href: '/firmware', label: 'ESP32 Robot 3D', badge: 'AI Sim', icon: RobotIcon },
     { href: '/node-checker', label: 'Kiểm tra Node AI', badge: 'Hot', icon: NodeIcon },
@@ -105,4 +106,16 @@ function StoreIcon(props: any) {
 
 function AdminIcon(props: any) {
     return <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>
+}
+
+function LabIcon(props: any) {
+    return (
+        <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M10 2v7.31" />
+            <path d="M14 9.3V2" />
+            <path d="M8.5 2h7" />
+            <path d="M14 9.3a6.5 6.5 0 1 1-4 0" />
+            <path d="M5.52 16h12.96" />
+        </svg>
+    )
 }

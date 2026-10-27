@@ -153,6 +153,22 @@ export function Workspace3DPanel({
                         </div>
                     </div>
 
+                    {/* Hội thoại / Lời nói gần nhất của Agent */}
+                    {selectedAgent?.speech && (
+                        <div className="rounded-xl border border-zinc-800 bg-zinc-950/80 p-2.5 text-xs text-zinc-200">
+                            <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-zinc-800/80 text-[10px] text-zinc-400">
+                                <span className="flex items-center gap-1 font-semibold text-emerald-400">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                                    Hội thoại / Kết quả gần nhất:
+                                </span>
+                                <span className="text-[10px] text-zinc-500 font-mono">@{selected3dAgentId}</span>
+                            </div>
+                            <div className="max-h-24 overflow-y-auto leading-relaxed break-words whitespace-pre-line text-zinc-200 scrollbar-thin scrollbar-thumb-zinc-700">
+                                {selectedAgent.speech}
+                            </div>
+                        </div>
+                    )}
+
                     <div className="flex items-center gap-1.5 overflow-x-auto text-xs scrollbar-none">
                         <span className="shrink-0 text-[10px] font-bold uppercase text-zinc-500">
                             Hành động:

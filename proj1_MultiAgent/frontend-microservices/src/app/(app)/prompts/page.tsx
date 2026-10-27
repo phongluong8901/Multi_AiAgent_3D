@@ -2,8 +2,11 @@
 
 import { useEffect, useState } from 'react'
 import { promptsApi, Prompt } from '@/lib/api'
+import { toast } from 'sonner'
+import { useConfirm } from '@/context/ConfirmContext'
 
 export default function PromptsPage() {
+    const { confirm } = useConfirm()
     const [prompts, setPrompts] = useState<Prompt[]>([])
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState('')
@@ -43,21 +46,29 @@ export default function PromptsPage() {
             setId('')
             setTitle('')
             setContent('')
+            toast.success('Đã tạo Prompt thành công!')
             await load()
         } catch (err) {
-            alert(err instanceof Error ? err.message : 'Create failed')
+            toast.error(err instanceof Error ? err.message : 'Tạo prompt thất bại')
         } finally {
             setSaving(false)
         }
     }
 
     async function handleDelete(promptId: string) {
-        if (!confirm(`Xóa prompt ${promptId}?`)) return
+        const isConfirmed = await confirm({
+            title: 'Xóa Prompt',
+            description: `Bạn có chắc muốn xóa prompt "${promptId}"?`,
+            confirmText: 'Xóa Prompt',
+            variant: 'danger',
+        })
+        if (!isConfirmed) return
         try {
             await promptsApi.remove(promptId)
+            toast.success(`Đã xóa prompt "${promptId}"`)
             await load()
         } catch (err) {
-            alert(err instanceof Error ? err.message : 'Delete failed')
+            toast.error(err instanceof Error ? err.message : 'Xóa prompt thất bại')
         }
     }
 

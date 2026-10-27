@@ -134,10 +134,41 @@ export const DEFAULT_CLOUD_MODELS: AIModel[] = [
         description: 'Mô hình chuỗi suy luận (Chain-of-Thought) sánh ngang o1, chuyên giải toán và lập trình',
         contextWindow: '64K tokens',
     },
+    {
+        id: 'deepseek-coder',
+        name: 'DeepSeek Coder V2',
+        provider: 'DeepSeek',
+        providerId: 'deepseek',
+        type: 'cloud',
+        description: 'Chuyên biệt cho sinh mã nguồn Python, tối ưu thuật toán và giải quyết bài toán kỹ thuật',
+        contextWindow: '128K tokens',
+    },
 ]
 
 // Danh sách mô hình Ollama Local khuyên dùng (Phương án A)
 export const RECOMMENDED_OLLAMA_MODELS: AIModel[] = [
+    {
+        id: 'qwen2.5-coder:7b',
+        name: 'Qwen 2.5 Coder (7B)',
+        provider: 'Alibaba (Ollama)',
+        providerId: 'ollama',
+        type: 'local_ollama',
+        description: 'Chuyên gia sinh mã nguồn Python, tự động fix lỗi và viết unit test chuẩn mực',
+        contextWindow: '128K tokens',
+        sizeBytes: 4.7 * 1024 * 1024 * 1024,
+        quantization: 'Q4_K_M',
+    },
+    {
+        id: 'llama3.2-vision:11b',
+        name: 'Llama 3.2 Vision (11B)',
+        provider: 'Meta (Ollama)',
+        providerId: 'ollama',
+        type: 'local_ollama',
+        description: 'Mô hình Multimodal cục bộ: nhận diện ảnh, đọc chữ OCR và phân loại vật thể ngoại tuyến',
+        contextWindow: '128K tokens',
+        sizeBytes: 7.9 * 1024 * 1024 * 1024,
+        quantization: 'Q4_K_M',
+    },
     {
         id: 'llama3.2:1b',
         name: 'Llama 3.2 (1B)',

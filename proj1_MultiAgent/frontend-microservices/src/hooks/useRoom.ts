@@ -4,6 +4,7 @@ import { useState, useCallback, useRef, useEffect } from 'react'
 import { roomsApi, Room } from '@/lib/api/rooms'
 import { getUser } from '@/lib/auth'
 import { io } from 'socket.io-client'
+import { toast } from 'sonner'
 
 export function useRoom(roomId: string, currentUserId?: string, currentUserName?: string) {
     const [room, setRoom] = useState<Room | null>(null)
@@ -33,7 +34,7 @@ export function useRoom(roomId: string, currentUserId?: string, currentUserName?
                             await roomsApi.join(roomId, { password: pwd })
                             roomData = await roomsApi.get(roomId)
                         } catch (joinErr: any) {
-                            alert(joinErr.message || 'Mật khẩu không chính xác!')
+                            toast.error(joinErr.message || 'Mật khẩu không chính xác!')
                             window.location.href = '/rooms'
                             return null
                         }

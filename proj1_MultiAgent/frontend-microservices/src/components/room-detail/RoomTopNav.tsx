@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { Room, UserPresence } from '@/lib/api'
+import { toast } from 'sonner'
 import {
     IconArrowLeft,
     IconUsers,
@@ -68,9 +69,10 @@ export function RoomTopNav({
         try {
             await navigator.clipboard.writeText(window.location.href)
             setCopied(true)
+            toast.success('Đã sao chép liên kết phòng vào bộ nhớ tạm!')
             setTimeout(() => setCopied(false), 2000)
         } catch {
-            alert('Không thể sao chép liên kết.')
+            toast.error('Không thể sao chép liên kết.')
         }
     }
 
@@ -266,13 +268,23 @@ export function RoomTopNav({
                 {onOpenStore && (
                     <button
                         onClick={onOpenStore}
-                        className="text-xs px-3 py-1.5 rounded-xl border border-amber-500/40 bg-gradient-to-r from-amber-500/20 to-purple-500/20 hover:from-amber-500/30 hover:to-purple-500/30 text-amber-300 transition font-bold flex items-center gap-1.5 shadow-sm active:scale-95 animate-pulse"
+                        className="text-xs px-3 py-1.5 rounded-xl border border-amber-500/40 bg-gradient-to-r from-amber-500/20 to-purple-500/20 hover:from-amber-500/30 hover:to-purple-500/30 text-amber-300 transition font-bold flex items-center gap-1.5 shadow-sm active:scale-95"
                         title="Mở Cửa Hàng Mua Bán & Thuê Agent AI (Product Microservice)"
                     >
                         <IconShoppingBag className="w-3.5 h-3.5 text-amber-400" />
                         <span className="hidden sm:inline">Agent Store</span>
                     </button>
                 )}
+
+                {/* Nút Phòng Thí Nghiệm Chế Tạo Agent (Agent Lab 3D) */}
+                <Link
+                    href="/lab"
+                    className="text-xs px-3 py-1.5 rounded-xl border border-cyan-500/40 bg-gradient-to-r from-cyan-500/20 to-blue-500/20 hover:from-cyan-500/30 hover:to-blue-500/30 text-cyan-300 transition font-bold flex items-center gap-1.5 shadow-sm active:scale-95"
+                    title="Mở Phòng Thí Nghiệm Chế Tạo Agent Tự Động (Agent Lab 3D Foundry)"
+                >
+                    <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
+                    <span className="hidden sm:inline">Agent Lab 3D</span>
+                </Link>
 
                 {/* Nút Cấu hình Workflow Agent */}
                 {onOpenWorkflow && (

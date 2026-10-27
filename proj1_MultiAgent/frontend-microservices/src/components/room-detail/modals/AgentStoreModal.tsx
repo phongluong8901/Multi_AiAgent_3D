@@ -7,6 +7,8 @@ import {
     UserWallet,
     UserInventoryItem,
 } from '@/lib/api/marketplace'
+import { toast } from 'sonner'
+import { useConfirm } from '@/context/ConfirmContext'
 import {
     IconBot,
     IconSearch,
@@ -58,6 +60,7 @@ export function AgentStoreModal({
     roomId,
     onAgentSummoned,
 }: AgentStoreModalProps) {
+    const { confirm } = useConfirm()
     const [activeTab, setActiveTab] = useState<'store' | 'inventory'>('store')
     const [products, setProducts] = useState<AgentProduct[]>([])
     const [wallet, setWallet] = useState<UserWallet | null>(null)
@@ -102,23 +105,26 @@ export function AgentStoreModal({
             const res = await marketplaceApi.faucetCoin({ userId: currentUserId, amount: 500 })
             if (res.success) {
                 setWallet(res.data)
-                alert('Đã nạp thành công +500 Coin vào ví của bạn!')
+                toast.success('Đã nạp thành công +500 Coin vào ví của bạn!')
             }
         } catch (err: any) {
-            alert('Lỗi nạp coin: ' + err.message)
+            toast.error('Lỗi nạp coin: ' + err.message)
         }
     }
 
     const handleBuyNow = async (prod: AgentProduct) => {
         if (!currentUserId) {
-            alert('Vui lòng đăng nhập để mua Agent!')
+            toast.error('Vui lòng đăng nhập để mua Agent!')
             return
         }
 
-        const confirm = window.confirm(
-            `Xác nhận mua đứt vĩnh viễn Agent '${prod.name}' với giá ${prod.pricing.buyPrice} Coin?`
-        )
-        if (!confirm) return
+        const isConfirmed = await confirm({
+            title: 'Mua Agent',
+            description: `Xác nhận mua đứt vĩnh viễn Agent '${prod.name}' với giá ${prod.pricing.buyPrice} Coin?`,
+            confirmText: 'Xác nhận mua',
+            variant: 'info',
+        })
+        if (!isConfirmed) return
 
         try {
             setProcessing(true)
@@ -129,11 +135,11 @@ export function AgentStoreModal({
             })
 
             if (res.success) {
-                alert(res.message)
+                toast.success(res.message || 'Mua Agent thành công!')
                 await loadData()
             }
         } catch (err: any) {
-            alert(`Mua thất bại: ${err.message}`)
+            toast.error(`Mua thất bại: ${err.message}`)
         } finally {
             setProcessing(false)
         }
@@ -153,12 +159,12 @@ export function AgentStoreModal({
             })
 
             if (res.success) {
-                alert(res.message)
+                toast.success(res.message || 'Thuê Agent thành công!')
                 setRentModalProduct(null)
                 await loadData()
             }
         } catch (err: any) {
-            alert(`Thuê thất bại: ${err.message}`)
+            toast.error(`Thuê thất bại: ${err.message}`)
         } finally {
             setProcessing(false)
         }
@@ -513,7 +519,7 @@ export function AgentStoreModal({
                                                     type="button"
                                                     onClick={() => {
                                                         if (onAgentSummoned) onAgentSummoned(item.agentId)
-                                                        alert(`Đã kích hoạt Agent @${item.agentId} vào phòng 3D!`)
+                                                        toast.success(`Đã kích hoạt Agent @${item.agentId} vào phòng 3D!`)
                                                     }}
                                                     className="mt-4 w-full rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 py-2 text-xs font-bold text-white hover:opacity-90 flex items-center justify-center gap-1.5"
                                                 >

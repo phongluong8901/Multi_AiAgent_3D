@@ -1,0 +1,12 @@
+{
+  "id": "agent_pdf_analyzer",
+  "name": "Chuyên gia Phân tích PDF",
+  "role": "Trích xuất văn bản, đọc bảng số liệu, bóc tách hóa đơn và tóm tắt nội dung tài liệu PDF",
+  "model": "gemini-2.5-flash-lite",
+  "prompt_id": "prompt_pdf_analyzer",
+  "tool_id": "pdf_analyzer_tool",
+  "color": "#6366f1",
+  "status": "idle",
+  "capabilities": ["pdf_extraction", "multimodal_vision", "table_summarization"],
+  "generated_at": "2026-10-26T17:00:00"
+}

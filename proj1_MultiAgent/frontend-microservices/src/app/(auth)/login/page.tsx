@@ -25,7 +25,7 @@ export default function LoginPage() {
     return (
         <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-8 shadow-xl max-w-md w-full mx-auto">
             <h1 className="text-2xl font-semibold text-white mb-1">Đăng nhập</h1>
-            <p className="text-zinc-400 text-sm mb-6">Claw Office — AI Agent Workspace</p>
+            <p className="text-zinc-400 text-sm mb-6">Microservice Multi — AI Agent Workspace</p>
 
             <form onSubmit={handleSubmit} className="space-y-4">
                 <div>

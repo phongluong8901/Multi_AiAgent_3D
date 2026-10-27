@@ -83,6 +83,10 @@ export async function startChatConsumers(io: SocketIOServer) {
                 const typeChat: ChatType = ctx.typeChat || (depth > 0 ? "workflow" : "agent");
                 const rootTypeChat: ChatType = ctx.rootTypeChat || typeChat;
 
+                const initiatorAgentId = ctx.initiatorAgentId;
+                const userGoal = ctx.userGoal;
+                const visitedAgents = Array.isArray(ctx.visitedAgents) ? ctx.visitedAgents : [];
+
                 console.log(`[chat-service MQ] Received reply for agent '${agentId}' in room '${roomId}' (depth ${depth})`);
 
                 await agentDispatcher.handleAgentReply({
@@ -98,6 +102,9 @@ export async function startChatConsumers(io: SocketIOServer) {
                     senderId: ctx.senderId,
                     model: data.model,
                     usage: data.usage,
+                    initiatorAgentId,
+                    userGoal,
+                    visitedAgents,
                 });
 
                 channel.ack(msg);

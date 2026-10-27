@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense, useEffect, useState } from 'react'
+import { Suspense, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { useAuth } from '@/hooks/useAuth'
@@ -9,7 +9,7 @@ function HuggingfaceCallbackInner() {
     const searchParams = useSearchParams()
     const { huggingfaceLogin, loading, error } = useAuth()
     const [localError, setLocalError] = useState<string | null>(null)
-    const [done, setDone] = useState(false)
+    const processedCodeRef = useRef<string | null>(null)
 
     useEffect(() => {
         const code = searchParams.get('code')
@@ -23,13 +23,17 @@ function HuggingfaceCallbackInner() {
             setLocalError('Không nhận được mã xác thực Hugging Face (code)')
             return
         }
-        if (done) return
+        
+        // Tránh gọi 2 lần do React StrictMode hoặc re-render
+        if (processedCodeRef.current === code) {
+            return
+        }
+        processedCodeRef.current = code
 
-        setDone(true)
         huggingfaceLogin({ code }).catch(() => {
             // error đã được quản lý trong hook useAuth
         })
-    }, [searchParams, huggingfaceLogin, done])
+    }, [searchParams])
 
     return (
         <div className="min-h-screen bg-zinc-950 flex items-center justify-center p-4">

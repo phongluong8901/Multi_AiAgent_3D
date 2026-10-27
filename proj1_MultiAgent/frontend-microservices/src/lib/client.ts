@@ -29,7 +29,18 @@ export async function request<T>(path: string, options?: RequestInit): Promise<T
 
     if (!res.ok) {
         const text = await res.text()
-        throw new Error(text || `HTTP ${res.status}`)
+        let errorMsg = text
+        try {
+            const parsed = JSON.parse(text)
+            errorMsg = parsed.message || parsed.error || text
+        } catch (_) {
+            const preMatch = text.match(/<pre>([\s\S]*?)<\/pre>/i)
+            if (preMatch && preMatch[1]) {
+                const clean = preMatch[1].replace(/<br\s*[\/]?>/gi, ' ').replace(/&nbsp;/gi, ' ').trim()
+                errorMsg = clean.split('\n')[0]
+            }
+        }
+        throw new Error(errorMsg || `HTTP ${res.status}`)
     }
 
     if (res.status === 204) return undefined as T

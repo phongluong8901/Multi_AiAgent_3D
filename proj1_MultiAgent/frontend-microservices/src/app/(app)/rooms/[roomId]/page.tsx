@@ -16,6 +16,8 @@ import { AgentStoreModal } from '@/components/room-detail/modals/AgentStoreModal
 import { MapType, resolveTargetPositionForAction } from '@/lib/maps/mapRegistry'
 import { useRoom } from '@/hooks/useRoom'
 import { useChat } from '@/hooks/useChat'
+import { toast } from 'sonner'
+import { useConfirm } from '@/context/ConfirmContext'
 
 type ViewMode = 'split' | '3d' | 'chat'
 
@@ -28,6 +30,7 @@ const DEFAULT_AGENTS = [
 ]
 
 export default function CollaborativeRoomPage() {
+    const { confirm } = useConfirm()
     const params = useParams()
     const router = useRouter()
     const roomId = String(params.roomId || '')
@@ -126,7 +129,7 @@ export default function CollaborativeRoomPage() {
         const members = room.members ?? []
         const inMembers = members.some((m) => m.memberId === currentUserId)
         if (!isOwner && members.length > 0 && !inMembers) {
-            alert('Bạn đã bị mời ra khỏi phòng')
+            toast.warning('Bạn đã bị mời ra khỏi phòng')
             router.replace('/rooms')
         }
     }, [room, currentUserId, router])
@@ -302,23 +305,31 @@ export default function CollaborativeRoomPage() {
                     setRoom(updated)
                 }
                 setAddAgentModalOpen(false)
+                toast.success('Đã thêm agent vào phòng')
             } catch (err: any) {
-                alert(`Lỗi thêm agent: ${err.message}`)
+                toast.error(`Lỗi thêm agent: ${err.message}`)
             }
         }
     }
 
     const handleLeaveRoom = async () => {
-        if (!confirm('Bạn có chắc chắn muốn rời khỏi phòng này không?')) return
+        const isConfirmed = await confirm({
+            title: 'Rời phòng',
+            description: 'Bạn có chắc chắn muốn rời khỏi phòng này không?',
+            confirmText: 'Rời phòng',
+            cancelText: 'Ở lại',
+            variant: 'warning',
+        })
+        if (!isConfirmed) return
 
         try {
             isLeavingRef.current = true
             await roomsApi.leave(roomId)
-            alert('Đã rời khỏi phòng thành công.')
+            toast.success('Đã rời khỏi phòng thành công.')
             router.replace('/rooms')
         } catch (err: any) {
             isLeavingRef.current = false
-            alert(err.message || 'Không thể rời khỏi phòng')
+            toast.error(err.message || 'Không thể rời khỏi phòng')
         }
     }
 

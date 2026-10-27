@@ -26,7 +26,7 @@ export default function RegisterPage() {
     return (
         <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-8 shadow-xl max-w-md w-full mx-auto">
             <h1 className="text-2xl font-semibold text-white mb-1">Đăng ký</h1>
-            <p className="text-zinc-400 text-sm mb-6">Tạo tài khoản Claw Office</p>
+            <p className="text-zinc-400 text-sm mb-6">Tạo tài khoản Microservice Multi</p>
 
             <form onSubmit={handleSubmit} className="space-y-4">
                 <div>

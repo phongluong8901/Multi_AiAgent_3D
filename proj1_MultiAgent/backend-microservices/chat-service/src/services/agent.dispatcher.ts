@@ -57,6 +57,9 @@ export interface DispatchParams {
     originalTypeChat?: ChatType;
     // Kênh chat gốc nơi người dùng đặt câu hỏi (giữ nguyên qua các bước bàn giao)
     rootTypeChat?: ChatType;
+    initiatorAgentId?: string;
+    userGoal?: string;
+    visitedAgents?: string[];
 }
 
 export interface AgentReplyPayload {
@@ -72,6 +75,9 @@ export interface AgentReplyPayload {
     senderId?: string;
     model?: string;
     usage?: any;
+    initiatorAgentId?: string;
+    userGoal?: string;
+    visitedAgents?: string[];
 }
 
 export class AgentDispatcher {
@@ -82,6 +88,8 @@ export class AgentDispatcher {
         "agent_analyst",
         "agent_search",
         "agent_summarizer",
+        "agent_vision",
+        "agent_coder",
     ];
     // Cache danh sách active agents của từng phòng: roomId -> { agents, expiresAt }
     private roomAgentsCache = new Map<string, { agents: string[]; expiresAt: number }>();
@@ -305,6 +313,9 @@ export class AgentDispatcher {
         const { agentId, roomId, prompt, senderName, senderId, depth = 0, originalTypeChat = "agent" } = params;
         const rootTypeChat = params.rootTypeChat || originalTypeChat;
         const typeChat: ChatType = depth > 0 ? "workflow" : originalTypeChat;
+        const initiatorAgentId = params.initiatorAgentId || agentId;
+        const userGoal = params.userGoal || prompt;
+        const visitedAgents = Array.isArray(params.visitedAgents) ? [...params.visitedAgents] : [agentId];
 
         if (depth > MAX_HANDOFF_DEPTH) {
             console.log(`[AgentDispatcher] Handoff depth limit reached (${depth}) for room ${roomId}`);
@@ -331,7 +342,18 @@ export class AgentDispatcher {
                 userName: senderName,
                 userId: senderId,
                 depth,
-                context: { depth, typeChat, rootTypeChat, senderId, senderName, activeAgents: roomAgents, workflow },
+                context: {
+                    depth,
+                    typeChat,
+                    rootTypeChat,
+                    senderId,
+                    senderName,
+                    activeAgents: roomAgents,
+                    workflow,
+                    initiatorAgentId,
+                    userGoal,
+                    visitedAgents,
+                },
             });
             sentViaMQ = true;
             this.startPendingTimer(roomId, agentId);
@@ -340,7 +362,15 @@ export class AgentDispatcher {
         }
 
         if (!sentViaMQ) {
-            this.executeDirectAgentCall({ ...params, depth, originalTypeChat: typeChat, rootTypeChat }).catch((err) => {
+            this.executeDirectAgentCall({
+                ...params,
+                depth,
+                originalTypeChat: typeChat,
+                rootTypeChat,
+                initiatorAgentId,
+                userGoal,
+                visitedAgents,
+            }).catch((err) => {
                 console.error(`[AgentDispatcher] Direct execution error:`, err);
                 this.setIdle(roomId, agentId);
             });
@@ -393,9 +423,9 @@ export class AgentDispatcher {
             roomId,
             agentId,
             status: "speaking",
-            speech: answer.slice(0, 100),
+            speech: answer.slice(0, 150),
         });
-        setTimeout(() => this.setIdle(roomId, agentId), 4000);
+        setTimeout(() => this.setIdle(roomId, agentId, answer.slice(0, 150)), 6000);
 
         // Lấy danh sách agent thực tế và cấu hình workflow của phòng
         const roomAgents = await this.getRoomActiveAgents(roomId);
@@ -550,20 +580,72 @@ export class AgentDispatcher {
             }
         }
 
-        // 4. CHẾ ĐỘ TỰ DO (AUTONOMOUS / DEFAULT): Dựa trên @mention trong nội dung trả lời
-        const nextAgents = this.extractMentionedAgents(answer, roomAgents).filter((a) => a !== agentId);
-        for (const nextAgent of nextAgents) {
-            console.log(`[AgentDispatcher] Autonomous team handoff: ${agentId} -> ${nextAgent} (depth ${depth + 1})`);
+        // 4. CHẾ ĐỘ TỰ DO (AUTONOMOUS / DEFAULT): Dựa trên @mention và nguyên tắc 'Ai nhận người ấy trả'
+        const initiatorAgentId = reply.initiatorAgentId || agentId;
+        const userGoal = reply.userGoal || "";
+        const visitedAgents: string[] = Array.isArray(reply.visitedAgents) ? [...reply.visitedAgents] : [];
+        if (!visitedAgents.includes(agentId)) {
+            visitedAgents.push(agentId);
+        }
 
+        // A. NẾU AGENT VỪA PHẢN HỒI LÀ INITIATOR (VÍ DỤ MANAGER) VÀ DEPTH > 0:
+        // ĐÂY LÀ BƯỚC ĐÚC KẾT CUỐI CÙNG ("AI NHẬN NGƯỜI ẤY TRẢ") -> KẾT THÚC TOÀN BỘ CHU TRÌNH!
+        if (agentId === initiatorAgentId && depth > 0) {
+            console.log(`[AgentDispatcher] Initiator agent '${agentId}' has finalized and delivered the answer to the user in room ${roomId}. Workflow completed.`);
+            return;
+        }
+
+        // B. LẤY CÁC AGENT ĐƯỢC MENTION TRONG CÂU TRẢ LỜI
+        const mentionedAgents = this.extractMentionedAgents(answer, roomAgents).filter((a) => a !== agentId);
+
+        // B1. NẾU INITIATOR LÀ MANAGER VÀ AGENT HIỆN TẠI LÀ MANAGER (DEPTH === 0):
+        // Manager đang phân công nhiệm vụ cho chuyên viên bước 1
+        if (agentId === initiatorAgentId && depth === 0) {
+            // Chỉ chọn duy nhất 1 chuyên viên chưa thực thi
+            const targetWorker = mentionedAgents.find((a) => a !== initiatorAgentId && !visitedAgents.includes(a)) || mentionedAgents[0];
+            if (targetWorker) {
+                console.log(`[AgentDispatcher] Manager '${agentId}' delegated step 1 to worker '${targetWorker}' in room ${roomId}`);
+                broadcastToRoom(this.io, roomId, "agent_status", {
+                    roomId,
+                    agentId,
+                    status: "speaking",
+                    speech: `Đã phân công nhiệm vụ cho ${this.getAgentDisplayName(targetWorker)}...`,
+                });
+
+                await this.dispatchToAgent({
+                    agentId: targetWorker,
+                    roomId,
+                    prompt: `[Nhiệm vụ được giao từ Trưởng nhóm ${agentName}]:\n${answer}`,
+                    senderName: agentName,
+                    senderId: agentId,
+                    depth: depth + 1,
+                    originalTypeChat: "workflow",
+                    rootTypeChat,
+                    initiatorAgentId,
+                    userGoal,
+                    visitedAgents: [...visitedAgents, targetWorker],
+                });
+            }
+            return;
+        }
+
+        // B2. NẾU ĐÂY LÀ CHUYÊN VIÊN (WORKER, DEPTH >= 1):
+        // Chuyên viên đã làm xong phần việc của mình (ví dụ Search, Calc, Analyst...)
+        // Kiểm tra xem chuyên viên có tag tiếp 1 chuyên viên MỚI CHƯA TỪNG CHẠY hay không (ví dụ: Visualize để vẽ biểu đồ)
+        const nextWorker = mentionedAgents.find((a) => a !== agentId && a !== initiatorAgentId && !visitedAgents.includes(a));
+
+        if (nextWorker) {
+            // Chuyển tiếp sang chuyên viên tiếp theo chưa chạy
+            console.log(`[AgentDispatcher] Worker handoff: ${agentId} -> ${nextWorker} (depth ${depth + 1}) in room ${roomId}`);
             broadcastToRoom(this.io, roomId, "agent_status", {
                 roomId,
                 agentId,
                 status: "speaking",
-                speech: `Đã bàn giao tiếp cho ${this.getAgentDisplayName(nextAgent)}...`,
+                speech: `Đã bàn giao tiếp cho ${this.getAgentDisplayName(nextWorker)}...`,
             });
 
             await this.dispatchToAgent({
-                agentId: nextAgent,
+                agentId: nextWorker,
                 roomId,
                 prompt: `[Bàn giao nhiệm vụ từ ${agentName}]:\n${answer}`,
                 senderName: agentName,
@@ -571,12 +653,58 @@ export class AgentDispatcher {
                 depth: depth + 1,
                 originalTypeChat: "workflow",
                 rootTypeChat,
+                initiatorAgentId,
+                userGoal,
+                visitedAgents: [...visitedAgents, nextWorker],
             });
+            return;
         }
+
+        // B3. NẾU KHÔNG CÒN CHUYÊN VIÊN MỚI NÀO CẦN CHẠY:
+        // NGUYÊN TẮC VÀNG: "AI NHẬN NGƯỜI ẤY TRẢ"
+        // Bàn giao kết quả về cho Initiator (Trưởng nhóm Manager) để chốt và trả lời trực tiếp cho người dùng!
+        if (initiatorAgentId && initiatorAgentId !== agentId) {
+            console.log(`[AgentDispatcher] Final handoff: worker '${agentId}' reporting back to initiator '${initiatorAgentId}' in room ${roomId}`);
+
+            broadcastToRoom(this.io, roomId, "agent_status", {
+                roomId,
+                agentId,
+                status: "speaking",
+                speech: `Đã báo cáo kết quả hoàn thành lại cho ${this.getAgentDisplayName(initiatorAgentId)}...`,
+            });
+
+            const closingPrompt = 
+                `[BÁO CÁO KẾT QUẢ TỪ ĐỒNG NGHIỆP ${agentName} GỬI TRƯỞNG NHÓM]:\n` +
+                `Mục tiêu / Yêu cầu ban đầu của người dùng: "${userGoal || 'Tra cứu và xử lý thông tin'}"\n\n` +
+                `Kết quả dữ liệu chuyên gia (${agentName}) vừa hoàn thành:\n${answer}\n\n` +
+                `-> CHỈ THỊ CHO TRƯỞNG NHÓM (${this.getAgentDisplayName(initiatorAgentId)}):\n` +
+                `Bạn là người trực tiếp nhận yêu cầu từ người dùng và là người chốt hạ ("ai nhận người ấy trả").\n` +
+                `1. Đối chiếu kết quả trên với yêu cầu ban đầu của người dùng.\n` +
+                `2. ĐẶC BIỆT: Nếu người dùng có yêu cầu 'ngắn gọn', 'ngắn gọn thôi', 'súc tích', 'vắn tắt' thì bạn BẮT BUỘC chỉ đúc kết trong 1 - 3 câu trọng tâm nhất hoặc tối đa 3 gạch đầu dòng ngắn, KHÔNG chia 3 phần dài dòng.\n` +
+                `3. Trả lời trực tiếp dứt điểm cho người dùng và TUYỆT ĐỐI KHÔNG gắn thẻ @agent nào khác nữa.`;
+
+            await this.dispatchToAgent({
+                agentId: initiatorAgentId,
+                roomId,
+                prompt: closingPrompt,
+                senderName: agentName,
+                senderId: agentId,
+                depth: depth + 1,
+                originalTypeChat: "workflow",
+                rootTypeChat,
+                initiatorAgentId,
+                userGoal,
+                visitedAgents: [...visitedAgents, initiatorAgentId],
+            });
+            return;
+        }
+
+        // B4. Nếu không có initiator khác mình (ví dụ user hỏi trực tiếp worker đó): Kết thúc
+        console.log(`[AgentDispatcher] Autonomous task completed by '${agentId}' in room ${roomId}.`);
     }
 
     private async executeDirectAgentCall(params: DispatchParams & { depth: number; rootTypeChat: ChatType }) {
-        const { agentId, roomId, prompt, senderId, depth, originalTypeChat, rootTypeChat } = params;
+        const { agentId, roomId, prompt, senderId, depth, originalTypeChat, rootTypeChat, initiatorAgentId, userGoal, visitedAgents } = params;
 
         try {
             broadcastToRoom(this.io, roomId, "agent_status", {
@@ -603,6 +731,9 @@ export class AgentDispatcher {
                 typeChat: originalTypeChat,
                 rootTypeChat,
                 senderId,
+                initiatorAgentId,
+                userGoal,
+                visitedAgents,
             });
         } catch (error: any) {
             console.error(`[AgentDispatcher] Failed direct call to ${agentId}:`, error.message);
@@ -627,12 +758,12 @@ export class AgentDispatcher {
         this.setIdle(roomId, agentId);
     }
 
-    private setIdle(roomId: string, agentId: string) {
+    private setIdle(roomId: string, agentId: string, lastSpeech?: string | null) {
         broadcastToRoom(this.io, roomId, "agent_status", {
             roomId,
             agentId,
             status: "idle",
-            speech: null,
+            speech: lastSpeech !== undefined ? lastSpeech : null,
         });
     }
 
@@ -667,6 +798,8 @@ export class AgentDispatcher {
             agent_analyst: "Data Analyst",
             agent_search: "Search Expert",
             agent_summarizer: "Summarizer Agent",
+            agent_vision: "Vision Expert",
+            agent_coder: "Python Coder",
         };
         return names[agentId] || agentId;
     }

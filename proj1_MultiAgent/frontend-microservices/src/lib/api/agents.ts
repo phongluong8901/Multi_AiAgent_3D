@@ -1,6 +1,6 @@
 import { request } from '../client'
 
-export type AgentStatus = 'idle' | 'working' | 'meeting' | 'blocked'
+export type AgentStatus = 'idle' | 'working' | 'meeting' | 'blocked' | 'speaking' | 'thinking'
 
 export type Agent = {
     id: string

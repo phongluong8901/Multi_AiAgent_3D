@@ -32,6 +32,7 @@ import {
     IconShield,
 } from '@/components/ui/icons'
 import PlanTasksModal from '@/components/coins/PlanTasksModal'
+import { useConfirm } from '@/context/ConfirmContext'
 
 // Danh mục Robot & Agent theo chuẩn NVIDIA Robotics
 const ROBOT_CATEGORIES = [
@@ -237,6 +238,7 @@ const DEFAULT_ROBOT_PRODUCTS: AgentProduct[] = [
 ]
 
 export default function AgentStorePage() {
+    const { confirm } = useConfirm()
     const [activeTab, setActiveTab] = useState<'store' | 'inventory'>('store')
     const [products, setProducts] = useState<AgentProduct[]>(DEFAULT_ROBOT_PRODUCTS)
     const [wallet, setWallet] = useState<UserWallet | null>(null)
@@ -321,10 +323,13 @@ export default function AgentStorePage() {
             return
         }
 
-        const confirm = window.confirm(
-            `Xác nhận mua đứt bản quyền vĩnh viễn Robot '${prod.name}' với giá ${prod.pricing.buyPrice} Coin?`
-        )
-        if (!confirm) return
+        const isConfirmed = await confirm({
+            title: 'Xác nhận mua Robot',
+            description: `Xác nhận mua đứt bản quyền vĩnh viễn Robot '${prod.name}' với giá ${prod.pricing.buyPrice} Coin?`,
+            confirmText: 'Xác nhận mua',
+            variant: 'info',
+        })
+        if (!isConfirmed) return
 
         try {
             setProcessing(true)

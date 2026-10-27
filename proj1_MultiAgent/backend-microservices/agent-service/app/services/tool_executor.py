@@ -75,6 +75,32 @@ class ToolExecutor:
                         return output
                     return json.dumps(output, ensure_ascii=False)
 
+            # Trường hợp 3: Hàm tùy biến bắt đầu bằng 'execute', 'run', 'parse' (như execute_pdf, execute_t_o_ra_...)
+            for fname, fval in list(scope.items()):
+                if callable(fval) and not fname.startswith("_") and fname not in ["os", "json", "re", "math", "urllib", "requests", "datetime", "Dict", "Any"]:
+                    if fname.startswith("execute") or fname.startswith("run") or fname.startswith("parse"):
+                        try:
+                            import inspect
+                            sig = inspect.signature(fval)
+                            if len(sig.parameters) == 1:
+                                output = fval(arguments)
+                                if isinstance(output, str):
+                                    return output
+                                return json.dumps(output, ensure_ascii=False)
+                            else:
+                                kwargs = {}
+                                for p_name in sig.parameters:
+                                    if p_name in arguments:
+                                        kwargs[p_name] = arguments[p_name]
+                                    elif p_name in ["input_text", "text", "file_url", "url", "pdf_url"]:
+                                        kwargs[p_name] = arguments.get("url") or arguments.get("file_url") or arguments.get("pdf_url") or arguments.get("input_text") or str(arguments)
+                                output = fval(**kwargs)
+                                if isinstance(output, str):
+                                    return output
+                                return json.dumps(output, ensure_ascii=False)
+                        except Exception as fn_err:
+                            print(f"[ToolExecutor] Error invoking {fname}: {fn_err}")
+
             return json.dumps({
                 "success": False,
                 "error": "Mã nguồn cần định nghĩa hàm 'def execute(arguments):' hoặc class kế thừa BaseTool có phương thức execute."
@@ -94,25 +120,52 @@ class ToolExecutor:
         print(f"[ToolExecutor] Executing tool '{tool_id}' with args: {arguments}")
 
         try:
-            # 1. Nếu tool có custom code lưu trong database, chạy code tuỳ chỉnh kèm API Keys / env_vars
+            # 1. Tự động truy vấn Tool từ Database nếu tool_obj chưa được truyền
+            if not tool_obj:
+                try:
+                    from app.core.database import SessionLocal
+                    from app.models.tool import ToolModel
+                    db = SessionLocal()
+                    try:
+                        tool_obj = db.query(ToolModel).filter(ToolModel.id == tool_id).first()
+                    finally:
+                        db.close()
+                except Exception as db_err:
+                    print(f"⚠️ [ToolExecutor] Lỗi đọc Tool từ DB: {db_err}")
+
+            # 2. Nếu tool có custom code lưu trong database, chạy code tuỳ chỉnh kèm API Keys / env_vars
             if tool_obj and getattr(tool_obj, "code", None):
                 env_data = getattr(tool_obj, "env_vars", None)
-                return cls.execute_custom_code(tool_obj.code, arguments, env_vars=env_data)
+                custom_res = cls.execute_custom_code(tool_obj.code, arguments, env_vars=env_data)
+                # Kiểm tra nếu custom code chạy tốt thì trả về ngay
+                try:
+                    parsed = json.loads(custom_res) if isinstance(custom_res, str) else custom_res
+                    if not isinstance(parsed, dict) or not parsed.get("error"):
+                        return custom_res
+                except Exception:
+                    return custom_res
 
-            # 2. Xử lý đồng bộ alias cho summarizer
+            # 3. Xử lý đồng bộ alias cho summarizer
             if tool_id in ["summarizer_tool", "text_summarizer"]:
-                # Nếu tool_registry có đăng ký summarizer
                 res = tool_registry.execute("text_summarizer", arguments)
                 if "not found" not in res:
                     return res
-                # Fallback bộ tóm tắt thông minh tích hợp sẵn
                 from app.core.tools.text_summarizer import summarize_text_smart
                 text_input = arguments.get("text", "") or arguments.get("input", "")
                 max_len = arguments.get("max_length", 150)
                 return summarize_text_smart(text_input, max_len)
 
-            # 3. Gọi các tool hệ thống đã đăng ký (Calculator, Web Search, Web Crawler,...)
+            # 4. Gọi các tool hệ thống đã đăng ký (Calculator, Web Search, Web Crawler, PDF Analyzer,...)
             result_json_str = tool_registry.execute(tool_id, arguments)
+            if "not found in registry" not in result_json_str:
+                return result_json_str
+
+            # 5. Fallback thông minh: nếu tool_id chứa từ khóa liên quan đến PDF/tài liệu
+            tid_lower = str(tool_id).lower()
+            if "pdf" in tid_lower or "ph_n_t" in tid_lower or "document" in tid_lower or "tailieu" in tid_lower:
+                print(f"🔄 [ToolExecutor] Fallback tool '{tool_id}' sang 'pdf_analyzer_tool'")
+                return tool_registry.execute("pdf_analyzer_tool", arguments)
+
             return result_json_str
         except Exception as e:
             return json.dumps({"success": False, "error": str(e)})

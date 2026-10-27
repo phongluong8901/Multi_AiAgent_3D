@@ -2,6 +2,7 @@
 
 import { Room, roomsApi } from '@/lib/api'
 import { getUser } from '@/lib/auth'
+import { toast } from 'sonner'
 
 interface RoomInvitesListProps {
     invites: Room[]
@@ -39,9 +40,10 @@ export function RoomInvitesList({ invites, setInvites }: RoomInvitesListProps) {
                                         setInvites((prev) =>
                                             prev.filter((r) => (r._id || r.id) !== id)
                                         )
+                                        toast.success('Đã chấp nhận lời mời vào phòng!')
                                         window.location.href = `/rooms/${id}`
                                     } catch (e: any) {
-                                        alert(e.message || 'Accept thất bại')
+                                        toast.error(e.message || 'Chấp nhận lời mời thất bại')
                                     }
                                 }}
                             >
@@ -56,8 +58,9 @@ export function RoomInvitesList({ invites, setInvites }: RoomInvitesListProps) {
                                         setInvites((prev) =>
                                             prev.filter((r) => (r._id || r.id) !== id)
                                         )
+                                        toast.info('Đã từ chối lời mời vào phòng')
                                     } catch (e: any) {
-                                        alert(e.message || 'Decline thất bại')
+                                        toast.error(e.message || 'Từ chối lời mời thất bại')
                                     }
                                 }}
                             >

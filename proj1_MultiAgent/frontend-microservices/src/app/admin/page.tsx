@@ -3,8 +3,10 @@
 
 import { useEffect } from 'react'
 import { useAdmin } from '@/hooks/useAdmin'
+import { useConfirm } from '@/context/ConfirmContext'
 
 export default function AdminPage() {
+    const { confirm } = useConfirm()
     const { users, hardwareNodes, fetchUsers, fetchHardwareNodes, updateUserRole, deleteUser, loading, actionLoading } = useAdmin()
 
     useEffect(() => {
@@ -21,7 +23,13 @@ export default function AdminPage() {
     }
 
     const handleDelete = async (userId: string) => {
-        if (confirm('Bạn có chắc chắn muốn xóa người dùng này không?')) {
+        const isConfirmed = await confirm({
+            title: 'Xóa người dùng',
+            description: 'Bạn có chắc chắn muốn xóa người dùng này không? Hành động này không thể hoàn tác.',
+            confirmText: 'Xóa người dùng',
+            variant: 'danger',
+        })
+        if (isConfirmed) {
             await deleteUser(userId)
         }
     }

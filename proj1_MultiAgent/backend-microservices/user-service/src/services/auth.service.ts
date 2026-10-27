@@ -45,7 +45,7 @@ export class AuthService {
 
                 await sendToQueue({
                     email: data.email,
-                    subject: "Mã OTP xác thực tài khoản Claw Office",
+                    subject: "Mã OTP xác thực tài khoản Microservice Multi",
                     htmlContent: `<p>Mã OTP xác thực mới của bạn là: <b>${otpCode}</b> (Hiệu lực 5 phút)</p>`
                 });
 
@@ -68,7 +68,7 @@ export class AuthService {
 
         await sendToQueue({
             email: data.email,
-            subject: "Mã OTP xác thực tài khoản Claw Office",
+            subject: "Mã OTP xác thực tài khoản Microservice Multi",
             htmlContent: `<p>Mã OTP xác thực của bạn là: <b>${otpCode}</b></p>`
         });
 
@@ -116,7 +116,7 @@ export class AuthService {
 
         await sendToQueue({
             email: user.email,
-            subject: "Mã OTP mới cho Claw Office",
+            subject: "Mã OTP mới cho Microservice Multi",
             htmlContent: `<p>Mã OTP mới của bạn là: <b>${otpCode}</b></p>`
         });
 
@@ -323,7 +323,7 @@ export class AuthService {
 
         await sendToQueue({
             email: user.email,
-            subject: "Mã OTP đặt lại mật khẩu Claw Office",
+            subject: "Mã OTP đặt lại mật khẩu Microservice Multi",
             htmlContent: `<p>Mã OTP của bạn là: <b>${resetPasswordOtp}</b></p>`
         });
 

@@ -5,6 +5,7 @@ import { usersApi, roomsApi, Room } from '@/lib/api'
 import type { InviteUser } from '@/lib/api/users'
 import { getUser } from '@/lib/auth'
 import { IconX, IconUsers, IconPlus } from '@/components/ui/icons'
+import { toast } from 'sonner'
 
 type Props = {
     roomId: string
@@ -74,10 +75,10 @@ export function InviteMemberModal({
                 inviteeEmail: u.email,
             })
             onInvited(updated)
-            alert(`Đã gửi lời mời tới ${u.username}. Họ cần Accept trên trang Phòng.`)
+            toast.success(`Đã gửi lời mời tới ${u.username}. Họ cần Accept trên trang Phòng.`)
             onClose()
         } catch (e: any) {
-            alert(e.message || 'Gửi lời mời thất bại')
+            toast.error(e.message || 'Gửi lời mời thất bại')
         } finally {
             setInviting(null)
         }

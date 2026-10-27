@@ -20,6 +20,8 @@ import {
     pullOllamaModel,
     deleteOllamaModel,
 } from '@/lib/api/models'
+import { toast } from 'sonner'
+import { useConfirm } from '@/context/ConfirmContext'
 import {
     IconCpu,
     IconCloud,
@@ -93,6 +95,7 @@ const PROVIDER_INFO: Record<
 }
 
 export default function ModelsManagementPage() {
+    const { confirm } = useConfirm()
     // Tab chính: 'cloud' | 'local_ollama' | 'local_webgpu'
     const [activeTab, setActiveTab] = useState<'cloud' | 'local_ollama' | 'local_webgpu'>('cloud')
 
@@ -261,10 +264,17 @@ export default function ModelsManagementPage() {
     }
 
     // Reset thống kê token của 1 model
-    const handleResetTokens = (modelId: string) => {
-        if (!confirm(`Đặt lại thống kê token cho mô hình ${modelId}?`)) return
+    const handleResetTokens = async (modelId: string) => {
+        const isConfirmed = await confirm({
+            title: 'Đặt lại thống kê token',
+            description: `Bạn có chắc muốn đặt lại thống kê token cho mô hình ${modelId}?`,
+            confirmText: 'Đặt lại',
+            variant: 'warning',
+        })
+        if (!isConfirmed) return
         const reset = resetTokenUsage(modelId)
         setTokenStatsMap((prev) => ({ ...prev, [modelId]: reset }))
+        toast.success(`Đã đặt lại thống kê token cho mô hình ${modelId}`)
     }
 
     // Mô phỏng chạy thử test token prompt
@@ -277,7 +287,7 @@ export default function ModelsManagementPage() {
     // Tải model Ollama về máy (Phương án A)
     const handlePullOllama = async (modelName: string) => {
         if (!ollamaConnected) {
-            alert('Vui lòng khởi động máy chủ Ollama trên máy tính (ollama serve) trước khi tải.')
+            toast.warning('Vui lòng khởi động máy chủ Ollama trên máy tính (ollama serve) trước khi tải.')
             return
         }
 
@@ -304,9 +314,9 @@ export default function ModelsManagementPage() {
             // Tải xong -> làm mới danh sách model
             const updated = await listInstalledOllamaModels(ollamaHostInput)
             setInstalledOllamaModels(updated)
-            alert(`Đã tải thành công model ${modelName} về máy tính của bạn!`)
+            toast.success(`Đã tải thành công model ${modelName} về máy tính của bạn!`)
         } catch (err: any) {
-            alert(`Lỗi khi tải model: ${err.message}`)
+            toast.error(`Lỗi khi tải model: ${err.message}`)
         } finally {
             setPullingModelName(null)
         }
@@ -314,14 +324,21 @@ export default function ModelsManagementPage() {
 
     // Xóa model Ollama
     const handleDeleteOllamaModel = async (name: string) => {
-        if (!confirm(`Xác nhận xóa model ${name} khỏi máy tính?`)) return
+        const isConfirmed = await confirm({
+            title: 'Xóa model Ollama',
+            description: `Xác nhận xóa model ${name} khỏi máy tính? Hành động này sẽ giải phóng dung lượng bộ nhớ.`,
+            confirmText: 'Xóa model',
+            variant: 'danger',
+        })
+        if (!isConfirmed) return
         setDeletingModelName(name)
         try {
             const ok = await deleteOllamaModel(name, ollamaHostInput)
             if (ok) {
                 setInstalledOllamaModels((prev) => prev.filter((m) => m.id !== name))
+                toast.success(`Đã xóa model ${name} khỏi máy tính`)
             } else {
-                alert('Không thể xóa model')
+                toast.error('Không thể xóa model')
             }
         } finally {
             setDeletingModelName(null)

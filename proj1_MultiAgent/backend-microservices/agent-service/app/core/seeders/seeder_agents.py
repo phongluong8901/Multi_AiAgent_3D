@@ -77,20 +77,20 @@ def seed_agents(db: Session):
                 "pos_z": 0.0,
                 "model": "gemini-2.5-flash",
                 "prompt_id": "chuyen_gia_phan_tich",
-                "tool_ids": ["data_analysis_tool", "data_visualization_tool", "db_query_tool"]
+                "tool_ids": ["data_analysis_tool", "csv_analyzer_tool", "data_visualization_tool", "db_query_tool"]
             },
             {
                 "id": "agent_analyst",
                 "name": "Data Analyst",
                 "color": "#f97316",
                 "status": "idle",
-                "speech": "Chuyên gia phân tích dữ liệu và cấu trúc thông tin.",
+                "speech": "Chuyên gia phân tích dữ liệu, cấu trúc file CSV và trực quan hóa số liệu.",
                 "pos_x": -3.0,
                 "pos_y": 1.0,
                 "pos_z": 0.0,
                 "model": "gemini-2.5-flash",
                 "prompt_id": "chuyen_gia_phan_tich",
-                "tool_ids": ["data_analysis_tool", "data_visualization_tool", "db_query_tool"]
+                "tool_ids": ["data_analysis_tool", "csv_analyzer_tool", "data_visualization_tool", "db_query_tool"]
             },
 
             # 6. MACHINE LEARNING
@@ -105,7 +105,7 @@ def seed_agents(db: Session):
                 "pos_z": 0.0,
                 "model": "gemini-2.5-flash",
                 "prompt_id": "chuyen_gia_ml",
-                "tool_ids": ["ml_evaluator_tool", "calculator_tool"]
+                "tool_ids": ["ml_evaluator_tool", "calculator_tool", "python_sandbox_tool"]
             },
 
             # 7. DATA VISUALIZATION
@@ -121,6 +121,36 @@ def seed_agents(db: Session):
                 "model": "gemini-2.5-flash",
                 "prompt_id": "chuyen_gia_truc_quan",
                 "tool_ids": ["data_visualization_tool", "data_analysis_tool"]
+            },
+
+            # 8. COMPUTER VISION & OCR
+            {
+                "id": "agent_vision",
+                "name": "Vision Expert",
+                "color": "#06b6d4",
+                "status": "idle",
+                "speech": "Chuyên gia thị giác máy tính: nhận diện đối tượng, phân loại ảnh và trích xuất chữ OCR chuẩn xác.",
+                "pos_x": 4.0,
+                "pos_y": 1.0,
+                "pos_z": -3.0,
+                "model": "gemini-2.5-flash",
+                "prompt_id": "chuyen_gia_thi_giac",
+                "tool_ids": ["image_analyzer_tool", "web_search_tool"]
+            },
+
+            # 9. PYTHON CODER & SANDBOX RUNNER
+            {
+                "id": "agent_coder",
+                "name": "Python Coder",
+                "color": "#14b8a6",
+                "status": "idle",
+                "speech": "Kỹ sư phần mềm: sinh mã Python chuẩn mực và thực thi an toàn trong Container Sandbox cô lập.",
+                "pos_x": -5.0,
+                "pos_y": 1.0,
+                "pos_z": -2.0,
+                "model": "gemini-2.5-flash",
+                "prompt_id": "chuyen_gia_lap_trinh",
+                "tool_ids": ["python_code_generator_tool", "python_sandbox_tool", "calculator_tool"]
             }
         ]
 

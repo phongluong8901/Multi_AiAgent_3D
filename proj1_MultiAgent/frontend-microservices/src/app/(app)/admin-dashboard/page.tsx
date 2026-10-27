@@ -2,8 +2,10 @@
 
 import { useEffect, useState } from 'react'
 import { useAdmin } from '@/hooks/useAdmin'
+import { useConfirm } from '@/context/ConfirmContext'
 
 export default function AdminDashboardPage() {
+    const { confirm } = useConfirm()
     const {
         users,
         hardwareNodes,
@@ -176,8 +178,14 @@ export default function AdminDashboardPage() {
                                                 <button
                                                     type="button"
                                                     disabled={actionLoading}
-                                                    onClick={() => {
-                                                        if (confirm(`Bạn có chắc chắn muốn xóa user ${u.email}?`)) {
+                                                    onClick={async () => {
+                                                        const isConfirmed = await confirm({
+                                                            title: 'Xóa người dùng',
+                                                            description: `Bạn có chắc chắn muốn xóa user "${u.email}"? Hành động này không thể hoàn tác.`,
+                                                            confirmText: 'Xóa user',
+                                                            variant: 'danger',
+                                                        })
+                                                        if (isConfirmed) {
                                                             deleteUser(userId)
                                                         }
                                                     }}

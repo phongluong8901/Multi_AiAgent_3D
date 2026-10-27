@@ -61,7 +61,11 @@ const FORM_SIGNATURE_COLORS: Record<AgentFormType, string> = {
     drone: '#06b6d4',
 }
 
+import { toast } from 'sonner'
+import { useConfirm } from '@/context/ConfirmContext'
+
 export default function AgentDetailPage() {
+    const { confirm } = useConfirm()
     const params = useParams()
     const router = useRouter()
     const id = String(params.id)
@@ -229,15 +233,22 @@ export default function AgentDetailPage() {
 
     // Xóa Agent
     async function handleDelete() {
-        if (!confirm(`Bạn có chắc muốn xóa vĩnh viễn Agent "${name}" (${id}) không?`)) return
+        const isConfirmed = await confirm({
+            title: 'Xóa vĩnh viễn Agent',
+            description: `Bạn có chắc muốn xóa vĩnh viễn Agent "${name}" (${id}) không? Hành động này không thể hoàn tác.`,
+            confirmText: 'Xóa vĩnh viễn',
+            variant: 'danger',
+        })
+        if (!isConfirmed) return
         try {
             await agentsApi.remove(id)
             if (typeof window !== 'undefined') {
                 localStorage.removeItem(`agent_model:${id}`)
             }
+            toast.success(`Đã xóa vĩnh viễn Agent "${name}"`)
             router.push('/agents')
         } catch (err) {
-            alert(err instanceof Error ? err.message : 'Xóa thất bại')
+            toast.error(err instanceof Error ? err.message : 'Xóa thất bại')
         }
     }
 

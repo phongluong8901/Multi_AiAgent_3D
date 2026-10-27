@@ -161,6 +161,9 @@ export const configureSocketChat = (io: SocketIOServer) => {
                             depth: 0,
                             originalTypeChat: chatType,
                             rootTypeChat: chatType,
+                            initiatorAgentId: agentId,
+                            userGoal: data.message,
+                            visitedAgents: [agentId],
                         }).catch((err) => {
                             console.error(`[chat-service] Error dispatching to ${agentId}:`, err);
                         });

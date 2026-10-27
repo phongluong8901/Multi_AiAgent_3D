@@ -54,4 +54,5 @@ export {
 } from './auth'
 
 export { mapsApi, type CloudMapDesign } from './maps'
+export { labApi, type LabStage, type LabTemplate, type LabSynthesisResponse, type GeneratedFileList, type GeneratedFileInfo } from './lab'
 

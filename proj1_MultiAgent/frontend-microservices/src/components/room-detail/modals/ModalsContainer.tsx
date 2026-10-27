@@ -7,6 +7,8 @@ import UserAgentAssignmentModal from '@/components/ui/UserAgentAssignmentModal'
 import { AgentWorkflowPanel } from './AgentWorkflowPanel'
 import { IconX, IconPlus, IconUsers, IconUser, IconBot, IconWorkflow } from '@/components/ui/icons'
 import { getUser } from '@/lib/auth'
+import { toast } from 'sonner'
+import { useConfirm } from '@/context/ConfirmContext'
 
 interface ModalsContainerProps {
     roomId: string
@@ -47,6 +49,7 @@ export function ModalsContainer({
     currentTab = 'members',
     setCurrentTab,
 }: ModalsContainerProps) {
+    const { confirm } = useConfirm()
     const me = getUser()
     const myId = String(me?.id || '').trim()
 
@@ -98,9 +101,9 @@ export function ModalsContainer({
                 userName: u.username,
             })
             setRoom(updated)
-            alert(`✅ Đã gửi lời mời tới ${u.username}. Khi họ đồng ý sẽ tự động vào phòng.`)
+            toast.success(`Đã gửi lời mời tới ${u.username}. Khi họ đồng ý sẽ tự động vào phòng.`)
         } catch (e: any) {
-            alert(e.message || 'Gửi lời mời thất bại')
+            toast.error(e.message || 'Gửi lời mời thất bại')
         } finally {
             setInvitingId(null)
         }
@@ -108,12 +111,19 @@ export function ModalsContainer({
 
     // Hàm đá/xóa thành viên ra khỏi phòng
     const handleRemoveMember = async (memberId: string) => {
-        if (!confirm(`Xóa thành viên ${memberId} khỏi phòng này?`)) return
+        const isConfirmed = await confirm({
+            title: 'Xóa thành viên',
+            description: `Xóa thành viên ${memberId} khỏi phòng này?`,
+            confirmText: 'Xóa thành viên',
+            variant: 'danger',
+        })
+        if (!isConfirmed) return
         try {
             const updated = await roomsApi.removeMember(roomId, memberId)
             setRoom(updated)
+            toast.success(`Đã xóa thành viên khỏi phòng`)
         } catch (err: any) {
-            alert(`Lỗi khi xóa thành viên: ${err.message}`)
+            toast.error(`Lỗi khi xóa thành viên: ${err.message}`)
         }
     }
 

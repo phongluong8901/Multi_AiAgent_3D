@@ -1,0 +1,9 @@
+{
+  "agent_id": "agent_pdf_analyzer",
+  "model_name": "gemini-2.5-flash-lite",
+  "provider": "google",
+  "temperature": 0.2,
+  "max_tokens": 4096,
+  "top_p": 0.95,
+  "capabilities": ["vision", "document_understanding", "tool_calling"]
+}
