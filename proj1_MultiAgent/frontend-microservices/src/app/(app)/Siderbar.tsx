@@ -5,7 +5,9 @@ import { usePathname } from 'next/navigation'
 import { useState } from 'react'
 
 const SIDEBAR_EXTRA_NAV = [
+    { href: '/games', label: 'Agent Games 3D', badge: 'Play', icon: GameIcon },
     { href: '/lab', label: 'Agent Lab 3D', badge: 'AI Gen', icon: LabIcon },
+    { href: '/training', label: 'RL Training 3D', badge: 'RL Sim', icon: TrainingIcon },
     { href: '/store', label: 'Agent Store', badge: 'Shop', icon: StoreIcon },
     { href: '/firmware', label: 'ESP32 Robot 3D', badge: 'AI Sim', icon: RobotIcon },
     { href: '/node-checker', label: 'Kiểm tra Node AI', badge: 'Hot', icon: NodeIcon },
@@ -116,6 +118,28 @@ function LabIcon(props: any) {
             <path d="M8.5 2h7" />
             <path d="M14 9.3a6.5 6.5 0 1 1-4 0" />
             <path d="M5.52 16h12.96" />
+        </svg>
+    )
+}
+
+function TrainingIcon(props: any) {
+    return (
+        <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2z" />
+            <path d="m9 12 2 2 4-4" />
+            <circle cx="12" cy="12" r="3" />
+        </svg>
+    )
+}
+
+function GameIcon(props: any) {
+    return (
+        <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="6" y1="12" x2="10" y2="12" />
+            <line x1="8" y1="10" x2="8" y2="14" />
+            <line x1="15" y1="13" x2="15.01" y2="13" />
+            <line x1="18" y1="11" x2="18.01" y2="11" />
+            <rect x="2" y="6" width="20" height="12" rx="2" />
         </svg>
     )
 }

@@ -55,4 +55,5 @@ export {
 
 export { mapsApi, type CloudMapDesign } from './maps'
 export { labApi, type LabStage, type LabTemplate, type LabSynthesisResponse, type GeneratedFileList, type GeneratedFileInfo } from './lab'
+export { rlApi, type RLTrainingStatus, type EpisodeMetric, type TrajectoryStep, type Obstacle } from './rltrain'
 

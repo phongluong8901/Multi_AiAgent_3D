@@ -12,6 +12,8 @@ const NAV = [
     { href: '/rooms', label: 'Team Rooms' },
     { href: '/office', label: '3D Office' },
     { href: '/lab', label: 'Agent Lab 3D' },
+    { href: '/training', label: 'RL Training 3D' },
+    { href: '/games', label: 'Agent Games 3D' },
     { href: '/maps/setup', label: 'Map Studio 3D' },
     { href: '/store', label: 'Agent Store' },
     { href: '/agents', label: 'Agents' },

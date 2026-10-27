@@ -8,6 +8,7 @@ import { Html } from '@react-three/drei'
 import AgentSpeechBubble from './AgentSpeechBubble'
 import AgentNameTag from './AgentNameTag'
 import AgentBody from './AgentBody'
+import { computeRLNavigationVelocity, getOfficeWaypoints } from '@/lib/rl/rlNavigator'
 
 export type AgentAction =
     | 'desk'
@@ -48,6 +49,7 @@ type Props = {
     onSelect?: () => void
     ownerName?: string
     form?: 'humanoid' | 'duck' | 'amr' | 'drone'
+    useRL?: boolean
 }
 
 // Vector pool dùng chung cho useFrame nhằm triệt tiêu hoàn toàn rác bộ nhớ (Zero Garbage Collection)
@@ -72,6 +74,7 @@ export default function Agent({
     onSelect,
     ownerName,
     form,
+    useRL = true,
 }: Props) {
     const body = useRef<RapierRigidBody>(null)
     const currentIndex = useRef(0)
@@ -81,6 +84,11 @@ export default function Agent({
     const [isWalking, setIsWalking] = useState(false)
     const isWalkingRef = useRef(false)
     const keysDown = useRef<{ [key: string]: boolean }>({})
+
+    // Lưu vết điều hướng xuyên phòng và làm mượt góc xoay (Smooth Heading)
+    const currentHeadingRef = useRef<number>(0)
+    const officeWaypointsRef = useRef<[number, number, number][]>([])
+    const prevTargetKeyRef = useRef<string>('')
 
     // Cập nhật trạng thái bước đi an toàn, không gây re-render dư thừa
     const setWalkingSafe = (val: boolean) => {
@@ -153,10 +161,14 @@ export default function Agent({
             if (k['KeyD'] || k['ArrowRight']) vx += 1
 
             if (vx !== 0 || vz !== 0) {
+                officeWaypointsRef.current = []
+                prevTargetKeyRef.current = ''
+
                 _vMove.set(vx, 0, vz).normalize().multiplyScalar(speed * 1.5)
                 body.current.setLinvel({ x: _vMove.x, y: 0, z: _vMove.z }, true)
 
                 const angle = Math.atan2(_vMove.x, _vMove.z)
+                currentHeadingRef.current = angle
                 body.current.setRotation(
                     { x: 0, y: Math.sin(angle / 2), z: 0, w: Math.cos(angle / 2) },
                     true
@@ -166,62 +178,127 @@ export default function Agent({
             }
         }
 
-        // 2. Di chuyển đến Điểm Mục Tiêu (Target Position / Action Destination)
+        // 2. Di chuyển đến Điểm Mục Tiêu (Target Position / Action Destination) bằng RL Navigation xuyên phòng
         if (targetPosition) {
             const currentPos = body.current.translation()
-            _vCurrent.set(currentPos.x, 0, currentPos.z)
-            _vTarget.set(targetPosition[0], 0, targetPosition[2])
-            const dist = _vTarget.distanceTo(_vCurrent)
+            const targetKey = `${targetPosition[0].toFixed(2)}_${targetPosition[2].toFixed(2)}`
 
-            if (dist > 0.18) {
-                _vDir.subVectors(_vTarget, _vCurrent).normalize()
+            // Nếu đổi mục tiêu mới hoặc chưa lập lộ trình, tính toán chuỗi trạm Waypoints xuyên phòng
+            if (prevTargetKeyRef.current !== targetKey) {
+                prevTargetKeyRef.current = targetKey
+                officeWaypointsRef.current = getOfficeWaypoints(
+                    [currentPos.x, 0, currentPos.z],
+                    targetPosition
+                )
+            }
+
+            if (officeWaypointsRef.current.length > 0) {
+                const nextWp = officeWaypointsRef.current[0]
+                const isFinal = officeWaypointsRef.current.length === 1
+                const arriveDist = isFinal ? 0.35 : 0.85
+
+                const dx = nextWp[0] - currentPos.x
+                const dz = nextWp[2] - currentPos.z
+                const distToWp = Math.sqrt(dx * dx + dz * dz)
+
+                if (distToWp < arriveDist) {
+                    officeWaypointsRef.current.shift()
+                    if (officeWaypointsRef.current.length === 0) {
+                        body.current.setLinvel({ x: 0, y: 0, z: 0 }, true)
+                        setWalkingSafe(false)
+                        return
+                    }
+                }
+
+                const currentWp = officeWaypointsRef.current[0] || nextWp
+                const rlNav = computeRLNavigationVelocity(
+                    { x: currentPos.x, z: currentPos.z },
+                    { x: currentWp[0], z: currentWp[2] },
+                    currentHeadingRef.current,
+                    speed
+                )
+
                 body.current.setLinvel(
-                    { x: _vDir.x * speed * 1.4, y: 0, z: _vDir.z * speed * 1.4 },
+                    { x: rlNav.velocity.x, y: 0, z: rlNav.velocity.z },
                     true
                 )
-                const angle = Math.atan2(_vDir.x, _vDir.z)
+
+                // Làm mượt góc quay thân người (Smooth Heading), khử hoàn toàn hiện tượng rung lắc
+                const targetAngle = rlNav.rotationY
+                let diff = targetAngle - currentHeadingRef.current
+                while (diff > Math.PI) diff -= 2 * Math.PI
+                while (diff < -Math.PI) diff += 2 * Math.PI
+                currentHeadingRef.current += diff * Math.min(1.0, delta * 12)
+
+                const h = currentHeadingRef.current
                 body.current.setRotation(
-                    { x: 0, y: Math.sin(angle / 2), z: 0, w: Math.cos(angle / 2) },
+                    { x: 0, y: Math.sin(h / 2), z: 0, w: Math.cos(h / 2) },
                     true
                 )
                 setWalkingSafe(true)
                 return
-            } else {
-                // Đã đến đích điểm chọn
-                body.current.setLinvel({ x: 0, y: 0, z: 0 }, true)
-                body.current.setTranslation(
-                    { x: targetPosition[0], y: targetPosition[1] || 0, z: targetPosition[2] },
-                    true
-                )
-                setWalkingSafe(false)
-                return
             }
         }
 
-        // 3. Nếu hành động là làm việc mặc định tại bàn
+        // 3. Nếu hành động là làm việc mặc định tại bàn (Về bàn với cơ chế né bàn ghế xuyên phòng)
         if (!targetAction && (status === 'working' || status === 'blocked')) {
             const desk = deskPosition ?? position
             const currentPos = body.current.translation()
-            _vCurrent.set(currentPos.x, 0, currentPos.z)
-            _vTarget.set(desk[0], 0, desk[2])
-            const dist = _vTarget.distanceTo(_vCurrent)
+            const targetKey = `desk_${desk[0].toFixed(2)}_${desk[2].toFixed(2)}`
 
-            if (dist > 0.15) {
-                _vDir.subVectors(_vTarget, _vCurrent).normalize()
-                body.current.setLinvel({ x: _vDir.x * speed, y: 0, z: _vDir.z * speed }, true)
-                const angle = Math.atan2(_vDir.x, _vDir.z)
+            if (prevTargetKeyRef.current !== targetKey) {
+                prevTargetKeyRef.current = targetKey
+                officeWaypointsRef.current = getOfficeWaypoints(
+                    [currentPos.x, 0, currentPos.z],
+                    desk
+                )
+            }
+
+            if (officeWaypointsRef.current.length > 0) {
+                const nextWp = officeWaypointsRef.current[0]
+                const isFinal = officeWaypointsRef.current.length === 1
+                const arriveDist = isFinal ? 0.35 : 0.85
+
+                const dx = nextWp[0] - currentPos.x
+                const dz = nextWp[2] - currentPos.z
+                const distToWp = Math.sqrt(dx * dx + dz * dz)
+
+                if (distToWp < arriveDist) {
+                    officeWaypointsRef.current.shift()
+                    if (officeWaypointsRef.current.length === 0) {
+                        body.current.setLinvel({ x: 0, y: 0, z: 0 }, true)
+                        setWalkingSafe(false)
+                        return
+                    }
+                }
+
+                const currentWp = officeWaypointsRef.current[0] || nextWp
+                const rlNav = computeRLNavigationVelocity(
+                    { x: currentPos.x, z: currentPos.z },
+                    { x: currentWp[0], z: currentWp[2] },
+                    currentHeadingRef.current,
+                    speed * 0.95
+                )
+
+                body.current.setLinvel(
+                    { x: rlNav.velocity.x, y: 0, z: rlNav.velocity.z },
+                    true
+                )
+
+                const targetAngle = rlNav.rotationY
+                let diff = targetAngle - currentHeadingRef.current
+                while (diff > Math.PI) diff -= 2 * Math.PI
+                while (diff < -Math.PI) diff += 2 * Math.PI
+                currentHeadingRef.current += diff * Math.min(1.0, delta * 12)
+
+                const h = currentHeadingRef.current
                 body.current.setRotation(
-                    { x: 0, y: Math.sin(angle / 2), z: 0, w: Math.cos(angle / 2) },
+                    { x: 0, y: Math.sin(h / 2), z: 0, w: Math.cos(h / 2) },
                     true
                 )
                 setWalkingSafe(true)
-            } else {
-                body.current.setLinvel({ x: 0, y: 0, z: 0 }, true)
-                body.current.setTranslation({ x: desk[0], y: 0, z: desk[2] }, true)
-                body.current.setRotation({ x: 0, y: 1, z: 0, w: 0 }, true)
-                setWalkingSafe(false)
+                return
             }
-            return
         }
 
         // 4. Đi dạo tự do theo Waypoints (Patrol / Roam)
@@ -236,29 +313,41 @@ export default function Agent({
             }
 
             const currentPos = body.current.translation()
-            _vCurrent.set(currentPos.x, 0, currentPos.z)
             const wp = waypoints[currentIndex.current]
-            _vTarget.set(wp[0], 0, wp[2])
-            _vDir.subVectors(_vTarget, _vCurrent)
-            const distance = _vDir.length()
+            const dx = wp[0] - currentPos.x
+            const dz = wp[2] - currentPos.z
+            const distance = Math.sqrt(dx * dx + dz * dz)
 
-            if (distance < 0.25) {
-                isWaiting.current = true
-                waitUntil.current = state.clock.elapsedTime + 1.8 + Math.random()
+            if (distance < 0.6) {
                 currentIndex.current = (currentIndex.current + 1) % waypoints.length
+                isWaiting.current = true
+                waitUntil.current = state.clock.elapsedTime + 2.0
                 body.current.setLinvel({ x: 0, y: 0, z: 0 }, true)
                 setWalkingSafe(false)
                 return
             }
 
-            _vDir.normalize()
+            const rlNav = computeRLNavigationVelocity(
+                { x: currentPos.x, z: currentPos.z },
+                { x: wp[0], z: wp[2] },
+                currentHeadingRef.current,
+                speed
+            )
+
             body.current.setLinvel(
-                { x: _vDir.x * speed, y: 0, z: _vDir.z * speed },
+                { x: rlNav.velocity.x, y: 0, z: rlNav.velocity.z },
                 true
             )
-            const angle = Math.atan2(_vDir.x, _vDir.z)
+
+            const targetAngle = rlNav.rotationY
+            let diff = targetAngle - currentHeadingRef.current
+            while (diff > Math.PI) diff -= 2 * Math.PI
+            while (diff < -Math.PI) diff += 2 * Math.PI
+            currentHeadingRef.current += diff * Math.min(1.0, delta * 12)
+
+            const h = currentHeadingRef.current
             body.current.setRotation(
-                { x: 0, y: Math.sin(angle / 2), z: 0, w: Math.cos(angle / 2) },
+                { x: 0, y: Math.sin(h / 2), z: 0, w: Math.cos(h / 2) },
                 true
             )
             setWalkingSafe(true)

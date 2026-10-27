@@ -6,6 +6,11 @@ cd backend-microservices
 python -m venv .venv
 .venv\Scripts\activate
 
+--- rltrain-service (Reinforcement Learning 3D Navigation)
+cd rltrain-service
+pip install -r requirements.txt
+uvicorn main:app --port 5009 --reload
+
 --- user-service
 npm init -y
 npm install express mongoose dotenv cors bcrypt jsonwebtoken
@@ -153,6 +158,7 @@ docker compose up --build -d agent-service
 docker compose up --build -d product-service
 docker compose up --build -d mapdraw-service
 docker compose up --build -d api-gateway
+docker compose up --build -d rltrain-service
 
 
 - xoa

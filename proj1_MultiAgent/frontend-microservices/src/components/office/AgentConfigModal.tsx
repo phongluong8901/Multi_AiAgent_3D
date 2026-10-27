@@ -202,36 +202,105 @@ export default function AgentConfigModal({
                     </div>
 
                     {/* AI Model & Brain Config */}
-                    <div className="p-4 rounded-xl bg-zinc-900/60 border border-zinc-800/90">
-                        <div className="flex items-center justify-between mb-2.5">
+                    <div className="p-4 rounded-xl bg-zinc-900/60 border border-zinc-800/90 space-y-3">
+                        <div className="flex items-center justify-between">
                             <span className="font-semibold text-zinc-200 flex items-center gap-1.5 text-xs">
-                                <IconBrain className="w-4 h-4 text-cyan-400" />
-                                <span>Cấu hình Mô hình & Trí tuệ AI</span>
+                                <IconBrain className="w-4 h-4 text-purple-400" />
+                                <span>Mô hình Trí tuệ (LLM Model Nạp Vào)</span>
                             </span>
-                            <span className="text-[10px] font-mono text-cyan-400 bg-cyan-500/10 border border-cyan-500/30 px-2 py-0.5 rounded">
-                                {agent.model || 'gpt-4o-mini'}
+                            <span className="text-[11px] font-mono text-purple-300 bg-purple-500/10 border border-purple-500/30 px-2.5 py-0.5 rounded-lg font-bold">
+                                {agent.model || 'gemini-2.5-flash-lite'}
                             </span>
                         </div>
 
                         <div className="space-y-2 text-zinc-300">
                             <div className="bg-zinc-950/60 p-2.5 rounded-lg border border-zinc-800/60">
-                                <span className="text-zinc-500 block text-[10px]">System Prompt / Chỉ dẫn cốt lõi:</span>
-                                <p className="text-xs text-zinc-300 mt-1 line-clamp-3 italic">
+                                <span className="text-zinc-500 block text-[10px]">Chỉ thị Cốt lõi (System Prompt ID):</span>
+                                <p className="text-xs text-zinc-300 mt-1 line-clamp-2 italic">
                                     {agent.prompt_id
-                                        ? `Đang áp dụng prompt mẫu [${agent.prompt_id}]. Đảm bảo thực thi nhiệm vụ theo phòng ban ${deptInfo.title}.`
-                                        : `Chuyên gia trí tuệ nhân tạo thuộc ${deptInfo.title}. Phối hợp cùng các Agent khác trong văn phòng.`}
+                                        ? `Prompt ID: [${agent.prompt_id}] • Đảm bảo chỉ đạo chuyên môn cho ${deptInfo.title}`
+                                        : `Chuyên gia trí tuệ nhân tạo phối hợp phân tích và điều phối nghiệp vụ`}
                                 </p>
                             </div>
 
-                            <div className="bg-zinc-950/60 p-2.5 rounded-lg border border-zinc-800/60 flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                    <IconWrench className="w-3.5 h-3.5 text-zinc-400" />
-                                    <span className="text-zinc-400">Công cụ (Tools & Skills) tích hợp:</span>
+                            {/* Danh sách Tools đã nạp */}
+                            <div className="bg-zinc-950/60 p-2.5 rounded-lg border border-zinc-800/60 space-y-1.5">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-zinc-400 flex items-center gap-1.5 text-[11px]">
+                                        <IconWrench className="w-3.5 h-3.5 text-amber-400" />
+                                        <span>Bộ Công cụ đã nạp (Tools & Plugins):</span>
+                                    </span>
                                 </div>
-                                <span className="text-zinc-200 font-mono">
-                                    {agent.tools && Array.isArray(agent.tools) ? `${agent.tools.length} tools` : 'Mặc định (Search, Python, Data)'}
-                                </span>
+                                <div className="flex flex-wrap gap-1.5 pt-1">
+                                    {(() => {
+                                        const rawTools = (agent as any).tools || (agent as any).tool_ids || []
+                                        const tools = Array.isArray(rawTools) && rawTools.length > 0
+                                            ? rawTools
+                                            : dept === 'management'
+                                            ? ['workflow_planner_tool', 'system_control_tool']
+                                            : dept === 'research'
+                                            ? ['web_search_tool', 'google_search_tool', 'text_summarizer', 'pdf_analyzer_tool']
+                                            : ['data_analysis_tool', 'csv_analyzer_tool', 'ml_evaluator_tool', 'python_sandbox_tool']
+
+                                        return tools.map((t: any, idx: number) => {
+                                            const name = typeof t === 'string' ? t : t.name || t.id || 'tool'
+                                            return (
+                                                <span
+                                                    key={idx}
+                                                    className="px-2 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/25 text-amber-300 font-mono text-[10px]"
+                                                >
+                                                    ⚙️ {name}
+                                                </span>
+                                            )
+                                        })
+                                    })()}
+                                </div>
                             </div>
+                        </div>
+                    </div>
+
+                    {/* RL Navigation & Obstacle Avoidance Policy */}
+                    <div className="p-4 rounded-xl bg-gradient-to-r from-blue-950/40 via-indigo-950/30 to-zinc-900/60 border border-blue-500/40 space-y-3">
+                        <div className="flex items-center justify-between">
+                            <span className="font-semibold text-blue-200 flex items-center gap-1.5 text-xs">
+                                <IconCompass className="w-4 h-4 text-blue-400" />
+                                <span>Bộ não RL Điều hướng (Reinforcement Learning)</span>
+                            </span>
+                            <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 rounded-full flex items-center gap-1">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                                ACTIVE STEERING
+                            </span>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2 text-zinc-300 text-[11px]">
+                            <div className="bg-zinc-950/70 p-2 rounded-lg border border-zinc-800">
+                                <span className="text-zinc-500 block text-[10px]">Thuật toán Nạp</span>
+                                <strong className="text-white">Q-Learning + 3D LIDAR</strong>
+                            </div>
+                            <div className="bg-zinc-950/70 p-2 rounded-lg border border-zinc-800">
+                                <span className="text-zinc-500 block text-[10px]">Cảm biến Không gian</span>
+                                <strong className="text-cyan-400">8 Tia LIDAR (Quét 2.4m)</strong>
+                            </div>
+                            <div className="bg-zinc-950/70 p-2 rounded-lg border border-zinc-800">
+                                <span className="text-zinc-500 block text-[10px]">Khả năng Né tránh</span>
+                                <strong className="text-emerald-400">Né Bàn Ghế, Sofa, Vách Kính</strong>
+                            </div>
+                            <div className="bg-zinc-950/70 p-2 rounded-lg border border-zinc-800">
+                                <span className="text-zinc-500 block text-[10px]">Môi trường Map</span>
+                                <strong className="text-indigo-400">Office 3D Room Layout</strong>
+                            </div>
+                        </div>
+
+                        <div className="flex items-center justify-between pt-1">
+                            <p className="text-[10px] text-zinc-400 italic">
+                                ✓ Tự động né vật cản tiếp tuyến khi bạn click chọn điểm đến trên sàn.
+                            </p>
+                            <Link
+                                href="/training"
+                                className="text-[10px] text-blue-400 hover:text-blue-300 underline flex items-center gap-1 shrink-0 ml-2"
+                            >
+                                <span>Mở phòng Huấn luyện RL →</span>
+                            </Link>
                         </div>
                     </div>
 

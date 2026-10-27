@@ -13,6 +13,7 @@ import { AgentTeamStrip } from '@/components/room-detail/AgentTeamStrip'
 import { RoomWorkspaceLayout } from '@/components/room-detail/screen-split/RoomWorkspaceLayout'
 import { ModalsContainer } from '@/components/room-detail/modals/ModalsContainer'
 import { AgentStoreModal } from '@/components/room-detail/modals/AgentStoreModal'
+import AgentInspectorModal from '@/components/agents/AgentInspectorModal'
 import { MapType, resolveTargetPositionForAction } from '@/lib/maps/mapRegistry'
 import { useRoom } from '@/hooks/useRoom'
 import { useChat } from '@/hooks/useChat'
@@ -57,6 +58,8 @@ export default function CollaborativeRoomPage() {
     const [storeModalOpen, setStoreModalOpen] = useState(false)
     const [managementTab, setManagementTab] = useState<'members' | 'agents' | 'workflow' | 'invite'>('members')
     const [isWaitingReply, setIsWaitingReply] = useState(false)
+    const [inspectorAgent, setInspectorAgent] = useState<Agent | null>(null)
+    const [inspectorOpen, setInspectorOpen] = useState(false)
 
     const isLeavingRef = useRef(false)
     const chatEndRef = useRef<HTMLDivElement | null>(null)
@@ -223,6 +226,11 @@ export default function CollaborativeRoomPage() {
     const handleSelectAgent = (agentId: string) => {
         setSelected3dAgentId(agentId)
         setTargetAgentId(agentId)
+        const found = roomAgents.find((a) => a.id === agentId) || allAgents.find((a) => a.id === agentId)
+        if (found) {
+            setInspectorAgent(found)
+            setInspectorOpen(true)
+        }
     }
 
     const handleFloorClick = (point: [number, number, number]) => {
@@ -433,6 +441,16 @@ export default function CollaborativeRoomPage() {
                 currentUserName={currentUserName}
                 roomId={roomId}
                 onAgentSummoned={handleAddAgentToRoom}
+            />
+
+            <AgentInspectorModal
+                isOpen={inspectorOpen}
+                onClose={() => setInspectorOpen(false)}
+                agent={inspectorAgent}
+                onOpenChat={(agId) => {
+                    setTargetAgentId(agId)
+                    setViewMode('split')
+                }}
             />
         </div>
     )

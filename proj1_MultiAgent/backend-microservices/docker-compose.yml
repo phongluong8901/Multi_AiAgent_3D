@@ -224,6 +224,20 @@ services:
     networks:
       - multi-agent-network
 
+  # --- Reinforcement Learning Training Service (3D Navigation Agent) ---
+  rltrain-service:
+    build: ./rltrain-service
+    container_name: rltrain_service
+    env_file:
+      - ./rltrain-service/.env
+    ports:
+      - "5009:5009"
+    volumes:
+      - ./rltrain-service:/app
+    restart: always
+    networks:
+      - multi-agent-network
+
   # --- API Gateway (Cổng giao tiếp duy nhất cho Client) ---
   api-gateway:
     build: ./gateway-service
@@ -239,6 +253,7 @@ services:
       - PRODUCT_SERVICE_URL=http://product-service:5004
       - MAPDRAW_SERVICE_URL=http://mapdraw-service:5005
       - SAVECOIN_SERVICE_URL=http://savecoin-service:5006
+      - RL_SERVICE_URL=http://rltrain-service:5009
       - JWT_SECRET=super_secret_key_2026
     depends_on:
       - user-service
@@ -248,6 +263,7 @@ services:
       - product-service
       - mapdraw-service
       - savecoin-service
+      - rltrain-service
     restart: always
     networks:
       - multi-agent-network
