@@ -1,0 +1,30 @@
+{
+  "name": "proj3_client_electron",
+  "version": "1.0.0",
+  "description": "Go-Python Desktop Worker Client",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build:react": "cd frontend && npm run build",
+    "build:win": "npm run build:react && electron-builder --win"
+  },
+  "devDependencies": {
+    "electron": "^30.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.worker.desktop",
+    "productName": "Go-Python Worker Monitor",
+    "files": [
+        "main.js",
+        "worker",
+        "frontend/dist/**/*"
+    ],
+    "extraResources": [
+        "worker"
+    ],
+    "linux": {
+        "target": ["AppImage", "deb"]
+        }
+    }
+}
