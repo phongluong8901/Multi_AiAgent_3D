@@ -150,7 +150,34 @@ class GeminiProvider(BaseLLMProvider):
 
         return contents, config, preferred_model, candidate_models, tool_result_count, req_temperature
 
+    @staticmethod
+    def _is_local_or_rented_model(model_name: str | None) -> bool:
+        if not model_name:
+            return False
+        m = str(model_name).lower()
+        return (
+            m.startswith("rental:")
+            or m.startswith("local:")
+            or m.startswith("ollama:")
+            or "qwen" in m
+            or "deepseek" in m
+            or "llama" in m
+            or "phi" in m
+            or "mistral" in m
+        )
+
     def chat_completion(self, messages, tools=None, agent_id=None, model=None, temperature=None):
+        if self._is_local_or_rented_model(model):
+            from .ollama_provider import OllamaProvider
+            logger.info(f"[GeminiProvider -> OllamaProvider] Định tuyến model '{model}' của agent '{agent_id}' sang Local LLM / Seller Node...")
+            return OllamaProvider().chat_completion(
+                messages=messages,
+                tools=tools,
+                agent_id=agent_id,
+                model=model,
+                temperature=temperature,
+            )
+
         contents, config, preferred_model, candidate_models, tool_result_count, req_temperature = self._prepare_request(
             messages, tools=tools, agent_id=agent_id, model=model, temperature=temperature
         )
@@ -229,6 +256,18 @@ class GeminiProvider(BaseLLMProvider):
         """
         Stream tokens và tool calls từ Gemini API theo thời gian thực.
         """
+        if self._is_local_or_rented_model(model):
+            from .ollama_provider import OllamaProvider
+            logger.info(f"[GeminiProvider -> OllamaProvider] Stream model '{model}' của agent '{agent_id}' qua Local LLM / Seller Node...")
+            yield from OllamaProvider().stream_chat_completion(
+                messages=messages,
+                tools=tools,
+                agent_id=agent_id,
+                model=model,
+                temperature=temperature,
+            )
+            return
+
         contents, config, preferred_model, candidate_models, tool_result_count, req_temperature = self._prepare_request(
             messages, tools=tools, agent_id=agent_id, model=model, temperature=temperature
         )

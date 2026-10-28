@@ -18,7 +18,12 @@ export class OwnerController {
     async startRental(req: Request, res: Response) {
         try {
             const session = await ownerRentalService.startRental(req.body);
-            res.status(201).json({ success: true, message: "Kích hoạt phiên thuê máy thành công!", session });
+            res.status(201).json({
+                success: true,
+                message: "Kích hoạt phiên thuê máy thành công!",
+                rental: session,
+                session,
+            });
         } catch (error: any) {
             res.status(400).json({ success: false, message: error.message });
         }
@@ -31,7 +36,12 @@ export class OwnerController {
             if (!stopped) {
                 return res.status(404).json({ success: false, message: "Không tìm thấy phiên thuê" });
             }
-            res.status(200).json({ success: true, message: "Đã dừng phiên thuê thành công!", session: stopped });
+            res.status(200).json({
+                success: true,
+                message: "Đã dừng phiên thuê thành công!",
+                rental: stopped,
+                session: stopped,
+            });
         } catch (error: any) {
             res.status(500).json({ success: false, message: error.message });
         }
@@ -39,7 +49,7 @@ export class OwnerController {
 
     async getMyRentals(req: Request, res: Response) {
         try {
-            const renterId = (req.query.renterId as string) || "usr_owner_01";
+            const renterId = (req.query.renterId as string) || (req.query.ownerId as string) || "usr_owner_01";
             const rentals = await ownerRentalService.getMyRentals(renterId);
             res.status(200).json({ success: true, count: rentals.length, rentals });
         } catch (error: any) {
@@ -58,9 +68,10 @@ export class OwnerController {
 
     async runAgentInference(req: Request, res: Response) {
         try {
-            const { rentalSessionId, agentId, prompt, systemPrompt, temperature, maxTokens } = req.body;
-            if (!rentalSessionId || !prompt) {
-                return res.status(400).json({ success: false, message: "Thiếu rentalSessionId hoặc prompt" });
+            const rentalSessionId = req.body.rentalSessionId || req.body.rentalId || req.body.sessionId || "";
+            const { agentId, prompt, systemPrompt, temperature, maxTokens } = req.body;
+            if (!prompt) {
+                return res.status(400).json({ success: false, message: "Prompt không được để trống" });
             }
 
             const result = await agentInferenceService.runInferenceForAgent({
@@ -80,9 +91,18 @@ export class OwnerController {
 
     async getDashboard(req: Request, res: Response) {
         try {
-            const ownerId = (req.query.ownerId as string) || "usr_owner_01";
+            const ownerId = (req.query.ownerId as string) || (req.query.renterId as string) || "usr_owner_01";
             const data = await ownerRentalService.getDashboard(ownerId);
             res.status(200).json({ success: true, ...data });
+        } catch (error: any) {
+            res.status(500).json({ success: false, message: error.message });
+        }
+    }
+
+    async getAllActiveConnections(req: Request, res: Response) {
+        try {
+            const sessions = await ownerRentalService.getAllActiveConnections();
+            res.status(200).json({ success: true, count: sessions.length, sessions });
         } catch (error: any) {
             res.status(500).json({ success: false, message: error.message });
         }

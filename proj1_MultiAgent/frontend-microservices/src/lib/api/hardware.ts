@@ -25,4 +25,11 @@ export const hardwareApi = {
         })
         return res.hardwareNode ?? res
     },
+
+    // Hủy kích hoạt và xóa thông tin phần cứng node
+    deleteNode: async () => {
+        return await request<{ success: boolean; message: string }>('/users/me/hardware-node', {
+            method: 'DELETE',
+        })
+    },
 }

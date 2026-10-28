@@ -6,31 +6,24 @@ import numpy as np
 
 class SACAgent:
     """
-    Discrete Soft Actor-Critic (SAC) - Improved Version
-    
-    Cải tiến chính:
-    - Learnable temperature α (tự động điều chỉnh entropy)
-    - Target entropy tự động theo số action
-    - Twin Critics + Soft Polyak update (τ = 0.005)
-    - Network size tăng nhẹ (64)
-    - Gradient clipping mạnh hơn
-    - Buffer lớn hơn (8000)
-    
-    Input: Continuous 13-dim state
-    Output: 6 discrete actions
+    Discrete Soft Actor-Critic v2 (SAC v2) - Auto-Alpha & Twin Critics:
+    - Learnable temperature alpha in log-space with correct Dual Gradient & safe clamping
+    - Target entropy = 0.45 * log(|A|) for balanced exploration/exploitation
+    - Normalized Q-Advantage in Actor objective (prevents softmax saturation)
+    - Stratified Priority Experience Replay Buffer
     """
     def __init__(
         self,
         state_dim: int = 13,
         num_actions: int = 6,
         hidden_dim: int = 64,
-        lr_actor: float = 0.001,
-        lr_critic: float = 0.002,
+        lr_actor: float = 0.0015,
+        lr_critic: float = 0.0025,
         lr_alpha: float = 0.001,
-        gamma: float = 0.99,
-        tau: float = 0.005,
-        alpha: float = 0.2,          # initial alpha
-        auto_alpha: bool = True,    # bật học α
+        gamma: float = 0.985,
+        tau: float = 0.01,
+        alpha: float = 0.18,
+        auto_alpha: bool = True,
         buffer_size: int = 8000,
         batch_size: int = 64
     ):
@@ -46,32 +39,46 @@ class SACAgent:
         self.buffer_size = buffer_size
         self.auto_alpha = auto_alpha
 
-        # Target entropy cho Discrete SAC (khuyến nghị)
-        # target_entropy ≈ -0.98 * log(1 / num_actions)
-        self.target_entropy = -0.98 * np.log(1.0 / num_actions)
+        # Target entropy chuẩn cho Discrete SAC (~0.45 * log(num_actions) ≈ 0.806)
+        self.target_entropy = 0.45 * float(np.log(num_actions))
 
-        # Log-alpha (học ở log-space để alpha luôn > 0)
-        self.log_alpha = np.array([np.log(alpha)], dtype=np.float32)
-        self.alpha = float(alpha)
+        self.log_alpha = np.array([np.log(max(0.02, alpha))], dtype=np.float32)
+        self.alpha = float(np.exp(self.log_alpha[0]))
 
-        # ==================== Networks ====================
+        self.t = 0
+        self.training_steps = 0
+        self.replay_buffer: List[Tuple[np.ndarray, int, float, np.ndarray, bool]] = []
+        self.priority_buffer: List[Tuple[np.ndarray, int, float, np.ndarray, bool]] = []
+
+        self._init_networks(hidden_dim)
+
+    def _xavier(self, fan_in: int, fan_out: int) -> np.ndarray:
+        limit = np.sqrt(6.0 / (fan_in + fan_out))
+        return np.random.uniform(-limit, limit, (fan_in, fan_out)).astype(np.float32)
+
+    def _he(self, fan_in: int, fan_out: int) -> np.ndarray:
+        std = np.sqrt(2.0 / fan_in)
+        return (np.random.randn(fan_in, fan_out) * std).astype(np.float32)
+
+    def _init_networks(self, hidden_dim: int):
+        self.hidden_dim = hidden_dim
         # Actor (Policy)
-        self.w1_pi = self._xavier(state_dim, hidden_dim)
+        self.w1_pi = self._xavier(self.state_dim, hidden_dim)
         self.b1_pi = np.zeros(hidden_dim, dtype=np.float32)
-        self.w2_pi = self._xavier(hidden_dim, num_actions)
-        self.b2_pi = np.zeros(num_actions, dtype=np.float32)
+        self.w2_pi = (self._xavier(hidden_dim, self.num_actions) * 0.3).astype(np.float32)
+        self.b2_pi = np.zeros(self.num_actions, dtype=np.float32)
 
         # Critic 1
-        self.w1_q1 = self._he(state_dim, hidden_dim)
+        self.w1_q1 = self._he(self.state_dim, hidden_dim)
         self.b1_q1 = np.zeros(hidden_dim, dtype=np.float32)
-        self.w2_q1 = self._xavier(hidden_dim, num_actions)
-        self.b2_q1 = np.zeros(num_actions, dtype=np.float32)
+        self.w2_q1 = self._xavier(hidden_dim, self.num_actions)
+        self.b2_q1 = np.zeros(self.num_actions, dtype=np.float32)
 
         # Critic 2
-        self.w1_q2 = self._he(state_dim, hidden_dim)
+        self.w1_q2 = self._he(self.state_dim, hidden_dim)
         self.b1_q2 = np.zeros(hidden_dim, dtype=np.float32)
-        self.w2_q2 = self._xavier(hidden_dim, num_actions)
-        self.b2_q2 = np.zeros(num_actions, dtype=np.float32)
+        self.w2_q2 = self._xavier(hidden_dim, self.num_actions)
+        self.b2_q2 = np.zeros(self.num_actions, dtype=np.float32)
 
         # Target Critics
         self.w1_q1_tgt = np.copy(self.w1_q1)
@@ -84,21 +91,7 @@ class SACAgent:
         self.w2_q2_tgt = np.copy(self.w2_q2)
         self.b2_q2_tgt = np.copy(self.b2_q2)
 
-        # Adam moments
         self._init_adam_moments()
-
-        self.t = 0
-        self.replay_buffer: List[Tuple[np.ndarray, int, float, np.ndarray, bool]] = []
-        self.training_steps = 0
-
-    # ==================== Helpers ====================
-    def _xavier(self, fan_in: int, fan_out: int) -> np.ndarray:
-        limit = np.sqrt(6.0 / (fan_in + fan_out))
-        return np.random.uniform(-limit, limit, (fan_in, fan_out)).astype(np.float32)
-
-    def _he(self, fan_in: int, fan_out: int) -> np.ndarray:
-        std = np.sqrt(2.0 / fan_in)
-        return (np.random.randn(fan_in, fan_out) * std).astype(np.float32)
 
     def _init_adam_moments(self):
         params = [
@@ -134,14 +127,42 @@ class SACAgent:
 
         return np.array([norm_dist, cos_ang, sin_ang, cos_hd, sin_hd] + norm_lidar, dtype=np.float32)
 
+    def _navigation_prior(self, s: np.ndarray) -> np.ndarray:
+        single = (s.ndim == 1)
+        if single:
+            s = s[None, :]
+
+        cos_ang = s[:, 1]
+        sin_ang = s[:, 2]
+        front_l = s[:, 5]
+        fl_l = s[:, 6]
+        l_l = s[:, 7]
+        r_l = s[:, 11]
+        fr_l = s[:, 12]
+
+        left_clear = 0.65 * fl_l + 0.35 * l_l
+        right_clear = 0.65 * fr_l + 0.35 * r_l
+        front_blocked = np.maximum(0.0, 0.30 - front_l) * 4.0
+
+        prior = np.zeros((s.shape[0], self.num_actions), dtype=np.float32)
+        prior[:, 0] = 1.0 * cos_ang * (front_l > 0.24) - 1.8 * front_blocked
+        prior[:, 1] = -0.8 + 1.5 * (front_l < 0.16)
+        prior[:, 2] = 0.8 * np.maximum(0.0, sin_ang) + 0.7 * front_blocked * (left_clear >= right_clear)
+        prior[:, 3] = 0.8 * np.maximum(0.0, -sin_ang) + 0.7 * front_blocked * (right_clear > left_clear)
+        prior[:, 4] = 0.7 * cos_ang + 0.7 * np.maximum(0.0, sin_ang) + 0.45 * (left_clear - right_clear) - front_blocked * 0.5
+        prior[:, 5] = 0.7 * cos_ang + 0.7 * np.maximum(0.0, -sin_ang) + 0.45 * (right_clear - left_clear) - front_blocked * 0.5
+
+        decay = max(0.22, 1.0 / (1.0 + 0.0005 * self.training_steps))
+        prior *= decay
+        return prior[0] if single else prior
+
     def _softmax(self, x: np.ndarray) -> np.ndarray:
         e_x = np.exp(x - np.max(x, axis=-1, keepdims=True))
         return e_x / (np.sum(e_x, axis=-1, keepdims=True) + 1e-8)
 
-    # ==================== Forward ====================
     def forward_actor(self, s: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         h1 = np.tanh(np.dot(s, self.w1_pi) + self.b1_pi)
-        logits = np.dot(h1, self.w2_pi) + self.b2_pi
+        logits = np.dot(h1, self.w2_pi) + self.b2_pi + self._navigation_prior(s)
         probs = self._softmax(logits)
         return probs, h1
 
@@ -153,7 +174,7 @@ class SACAgent:
             w1_1, b1_1, w2_1, b2_1 = self.w1_q1, self.b1_q1, self.w2_q1, self.b2_q1
             w1_2, b1_2, w2_2, b2_2 = self.w1_q2, self.b1_q2, self.w2_q2, self.b2_q2
 
-        h1_q1 = np.maximum(0.0, np.dot(s, w1_1) + b1_1)  # ReLU
+        h1_q1 = np.maximum(0.0, np.dot(s, w1_1) + b1_1)
         q1 = np.dot(h1_q1, w2_1) + b2_1
 
         h1_q2 = np.maximum(0.0, np.dot(s, w1_2) + b1_2)
@@ -161,7 +182,6 @@ class SACAgent:
 
         return q1, h1_q1, q2, h1_q2
 
-    # ==================== Action Selection ====================
     def choose_action(self, obs: Dict[str, Any], greedy: bool = False) -> int:
         s = self.extract_state_vector(obs)
         probs, _ = self.forward_actor(s)
@@ -173,18 +193,31 @@ class SACAgent:
     def record_step(self, obs: Dict[str, Any], action: int, reward: float, next_obs: Dict[str, Any], done: bool):
         s = self.extract_state_vector(obs)
         s_next = self.extract_state_vector(next_obs)
-        self.replay_buffer.append((s, action, reward, s_next, done))
+        transition = (s, action, reward, s_next, done)
+        self.replay_buffer.append(transition)
         if len(self.replay_buffer) > self.buffer_size:
             self.replay_buffer.pop(0)
 
-    # ==================== Learn ====================
+        if done or abs(reward) >= 4.0:
+            self.priority_buffer.append(transition)
+            if len(self.priority_buffer) > self.buffer_size // 3:
+                self.priority_buffer.pop(0)
+
+    def _sample_batch(self) -> List[Tuple[np.ndarray, int, float, np.ndarray, bool]]:
+        if len(self.priority_buffer) >= 8:
+            n_prio = min(len(self.priority_buffer), self.batch_size // 4)
+            n_reg = self.batch_size - n_prio
+            return random.sample(self.priority_buffer, n_prio) + random.sample(self.replay_buffer, n_reg)
+        return random.sample(self.replay_buffer, self.batch_size)
+
     def learn_step(self) -> float:
         if len(self.replay_buffer) < self.batch_size:
             return 0.0
 
         self.t += 1
         self.training_steps += 1
-        batch = random.sample(self.replay_buffer, self.batch_size)
+        batch = self._sample_batch()
+        bs = len(batch)
 
         s_batch = np.array([b[0] for b in batch], dtype=np.float32)
         a_batch = np.array([b[1] for b in batch], dtype=np.int32)
@@ -201,15 +234,16 @@ class SACAgent:
         next_v = np.sum(next_probs * (next_min_q - self.alpha * next_log_probs), axis=1)
         targets = r_batch + (1.0 - done_batch) * self.gamma * next_v
 
-        # ---------- 2. Update Critics ----------
+        # ---------- 2. Update Critics (Huber-Clipped TD Error) ----------
         q1, h1_q1, q2, h1_q2 = self.forward_critic(s_batch, target=False)
 
         grad_out_q1 = np.zeros_like(q1)
         grad_out_q2 = np.zeros_like(q2)
-        for i in range(self.batch_size):
-            a = a_batch[i]
-            grad_out_q1[i, a] = (q1[i, a] - targets[i]) / self.batch_size
-            grad_out_q2[i, a] = (q2[i, a] - targets[i]) / self.batch_size
+        idx = np.arange(bs)
+        td_err1 = q1[idx, a_batch] - targets
+        td_err2 = q2[idx, a_batch] - targets
+        grad_out_q1[idx, a_batch] = np.clip(td_err1, -15.0, 15.0) / bs
+        grad_out_q2[idx, a_batch] = np.clip(td_err2, -15.0, 15.0) / bs
 
         # Backprop Q1
         dw2_q1 = np.dot(h1_q1.T, grad_out_q1)
@@ -225,33 +259,38 @@ class SACAgent:
         dw1_q2 = np.dot(s_batch.T, dh1_q2)
         db1_q2 = np.sum(dh1_q2, axis=0)
 
-        # ---------- 3. Update Actor ----------
+        # ---------- 3. Update Actor (Normalized Q-Advantage) ----------
         probs, h1_pi = self.forward_actor(s_batch)
-        min_q = np.minimum(q1, q2)          # dùng current Q
-        log_probs = np.log(np.maximum(probs, 1e-8))
+        min_q = np.minimum(q1, q2)
+        v_baseline = np.sum(probs * min_q, axis=1, keepdims=True)
+        q_adv = min_q - v_baseline
+        q_scale = np.maximum(1.0, np.std(q_adv, axis=1, keepdims=True) + 1e-5)
+        norm_q_adv = q_adv / q_scale
 
-        # Actor loss: E[ α * logπ - Q ]
-        actor_obj = self.alpha * log_probs - min_q
-        # Gradient của softmax
-        grad_logits = probs * (actor_obj - np.sum(probs * actor_obj, axis=1, keepdims=True))
-        grad_logits /= self.batch_size
+        log_probs = np.log(np.maximum(probs, 1e-8))
+        actor_obj = self.alpha * log_probs - norm_q_adv
+        grad_logits = probs * (actor_obj - np.sum(probs * actor_obj, axis=1, keepdims=True)) / bs
 
         dw2_pi = np.dot(h1_pi.T, grad_logits)
         db2_pi = np.sum(grad_logits, axis=0)
-        dh1_pi = np.dot(grad_logits, self.w2_pi.T) * (1.0 - h1_pi ** 2)  # tanh'
+        dh1_pi = np.dot(grad_logits, self.w2_pi.T) * (1.0 - h1_pi ** 2)
         dw1_pi = np.dot(s_batch.T, dh1_pi)
         db1_pi = np.sum(dh1_pi, axis=0)
 
-        # ---------- 4. Update Alpha (nếu bật) ----------
+        # ---------- 4. Update Alpha (Dual Gradient chuẩn + Giới hạn an toàn) ----------
         if self.auto_alpha:
-            # Loss_alpha = -α * (logπ + target_entropy)
-            # Gradient w.r.t log_alpha
+            # Khi entropy > target_entropy (quá ngẫu nhiên) -> giảm alpha (grad > 0)
+            # Khi entropy < target_entropy (quá cứng nhắc) -> tăng alpha (grad < 0)
             entropy = -np.sum(probs * log_probs, axis=1)
-            alpha_loss_grad = np.mean(self.log_alpha * (entropy - self.target_entropy))
-            # Thực tế ta minimize: E[-α * (logπ + H_target)] → grad = -(entropy - target)
-            d_log_alpha = -np.mean(entropy - self.target_entropy)
-            self._adam_step(self.log_alpha, np.array([d_log_alpha]), 
-                            self.m_log_alpha, self.v_log_alpha, self.lr_alpha)
+            d_log_alpha = float(np.mean(entropy - self.target_entropy))
+            self._adam_step(
+                self.log_alpha,
+                np.array([d_log_alpha], dtype=np.float32),
+                self.m_log_alpha,
+                self.v_log_alpha,
+                self.lr_alpha
+            )
+            self.log_alpha[:] = np.clip(self.log_alpha, -3.8, 0.0)
             self.alpha = float(np.exp(self.log_alpha[0]))
 
         # ---------- 5. Adam updates ----------
@@ -273,8 +312,7 @@ class SACAgent:
         # ---------- 6. Soft update targets ----------
         self._soft_update()
 
-        # Trả về MSE loss của Q1 để monitor
-        return float(np.mean((q1[np.arange(self.batch_size), a_batch] - targets) ** 2))
+        return float(np.mean(td_err1 ** 2))
 
     def _soft_update(self):
         tau = self.tau
@@ -290,15 +328,13 @@ class SACAgent:
 
     def _adam_step(self, param: np.ndarray, grad: np.ndarray, m: np.ndarray, v: np.ndarray, lr: float):
         beta1, beta2, eps = 0.9, 0.999, 1e-8
-        # Gradient clipping
-        grad = np.clip(grad, -5.0, 5.0)
+        grad = np.clip(grad, -2.5, 2.5)
         m[:] = beta1 * m + (1 - beta1) * grad
         v[:] = beta2 * v + (1 - beta2) * (grad ** 2)
         m_hat = m / (1 - beta1 ** self.t)
         v_hat = v / (1 - beta2 ** self.t)
         param -= lr * m_hat / (np.sqrt(v_hat) + eps)
 
-    # ==================== Save / Load ====================
     def export_policy(self) -> Dict[str, Any]:
         return {
             "algorithm": "sac",
@@ -317,13 +353,21 @@ class SACAgent:
     def load_policy(self, data: Dict[str, Any]):
         w = data.get("weights", {})
         if "w1_pi" in w:
-            self.w1_pi = np.array(w["w1_pi"], dtype=np.float32)
+            w1_arr = np.array(w["w1_pi"], dtype=np.float32)
+            if w1_arr.shape[1] != self.hidden_dim:
+                self._init_networks(int(w1_arr.shape[1]))
+            self.w1_pi = w1_arr
             self.b1_pi = np.array(w["b1_pi"], dtype=np.float32)
             self.w2_pi = np.array(w["w2_pi"], dtype=np.float32)
             self.b2_pi = np.array(w["b2_pi"], dtype=np.float32)
-        if "alpha" in data:
-            self.alpha = float(data["alpha"])
-            self.log_alpha = np.array([np.log(self.alpha)], dtype=np.float32)
         if "log_alpha" in data:
-            self.log_alpha = np.array([float(data["log_alpha"])], dtype=np.float32)
+            la = float(data["log_alpha"])
+            # Khôi phục an toàn nếu file cũ bị lỗi underflow log_alpha (-230)
+            la = float(np.clip(la, -3.5, 0.0)) if la > -10.0 else float(np.log(0.12))
+            self.log_alpha = np.array([la], dtype=np.float32)
             self.alpha = float(np.exp(self.log_alpha[0]))
+        elif "alpha" in data:
+            a = float(data["alpha"])
+            a = a if 0.02 <= a <= 1.0 else 0.12
+            self.alpha = a
+            self.log_alpha = np.array([np.log(a)], dtype=np.float32)

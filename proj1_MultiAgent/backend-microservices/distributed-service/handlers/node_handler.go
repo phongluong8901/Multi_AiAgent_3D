@@ -146,3 +146,43 @@ func (h *NodeHandler) HandleListNodes(w http.ResponseWriter, r *http.Request) {
 		"nodes":   nodes,
 	})
 }
+
+// HandleToggleNodeStatus cho phép người dùng bật/tắt chia sẻ tài nguyên trực tiếp trên Web hoặc Desktop
+func (h *NodeHandler) HandleToggleNodeStatus(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != http.MethodPost {
+		http.Error(w, `{"error":"Method not allowed, use POST"}`, http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		NodeID string `json:"nodeId"`
+		Status string `json:"status"` // "IDLE", "ONLINE", "OFFLINE", "PAUSED"
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, `{"error":"Invalid request payload"}`, http.StatusBadRequest)
+		return
+	}
+
+	if req.NodeID == "" {
+		http.Error(w, `{"error":"nodeId is required"}`, http.StatusBadRequest)
+		return
+	}
+
+	if req.Status == "OFFLINE" || req.Status == "PAUSED" {
+		h.registry.MarkNodeOffline(req.NodeID)
+	} else {
+		h.registry.MarkNodeOnline(req.NodeID)
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"nodeId":  req.NodeID,
+		"status":  req.Status,
+		"message": "Đã cập nhật trạng thái kết nối thành công.",
+	})
+}
+

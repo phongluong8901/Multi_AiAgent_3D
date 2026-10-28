@@ -77,6 +77,7 @@ export function useHardwareNode() {
         try {
             const res = await hardwareApi.registerNode(report)
             setIsRegistered(true) // Cập nhật lại cờ sau khi đăng ký thành công
+            setReport(prev => prev ? { ...prev, status: 'IDLE' } : null)
             setSubmitting(false)
             return { success: true, data: res }
         } catch (err: any) {
@@ -85,5 +86,19 @@ export function useHardwareNode() {
         }
     }
 
-    return { loading, submitting, report, isRegistered, registerNode }
+    const unregisterNode = async () => {
+        setSubmitting(true)
+        try {
+            await hardwareApi.deleteNode()
+            setIsRegistered(false)
+            setReport(prev => prev ? { ...prev, status: 'OFFLINE' } : null)
+            setSubmitting(false)
+            return { success: true }
+        } catch (err: any) {
+            setSubmitting(false)
+            return { success: false, error: err.message || 'Lỗi hủy kích hoạt nút' }
+        }
+    }
+
+    return { loading, submitting, report, isRegistered, registerNode, unregisterNode }
 }

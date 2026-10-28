@@ -133,6 +133,17 @@ export class UserController {
     });
 
     /**
+     * Hủy kích hoạt và xóa cấu hình node phần cứng của người dùng hiện tại.
+     */
+    deleteHardwareNode = asyncHandler(async (req: Request, res: Response) => {
+        const userId = req.headers["x-user-id"] as string;
+        if (!userId) throw new UnauthorizedError("Unauthorized");
+
+        const result = await userService.deleteHardwareNode(userId);
+        return res.json({ success: true, ...result });
+    });
+
+    /**
      * Lấy danh sách tất cả các node phần cứng có trong hệ thống (thường dành cho Admin).
      */
     getHardwareNodes = asyncHandler(async (req: Request, res: Response) => {

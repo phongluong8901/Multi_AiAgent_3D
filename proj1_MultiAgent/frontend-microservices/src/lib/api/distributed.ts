@@ -25,10 +25,21 @@ export type ModelRecommendation = {
     modelId: string
     modelName: string
     category: string
+    role?: string
+    hardwareTier?: string
+    tierLabel?: string
     isEligible: boolean
     matchPercent: number
     estimatedTokensPerS: number
     coinsPerHour: number
+    downloadUrl?: string
+    downloadSizeGB?: number
+    downloadFormat?: string
+    ollamaModel?: string
+    runCommand?: string
+    setupInstructions?: string
+    setupScriptUrl?: string
+    contextLength?: number
     missingRequirements?: string[]
     recommendedRentAlloc: {
         cores: number
@@ -36,6 +47,7 @@ export type ModelRecommendation = {
         gpu: boolean
     }
 }
+
 
 export type BenchmarkResult = {
     hardware: HardwareReport
@@ -138,6 +150,19 @@ export const distributedApi = {
             count: number
             nodes: PartnerNodeData[]
         }>('/distributed/nodes')
+    },
+
+    // 5b. Bật hoặc tắt trạng thái chia sẻ tài nguyên Node (ONLINE / OFFLINE)
+    toggleNodeStatus: async (nodeId: string, status: 'IDLE' | 'OFFLINE' | 'PAUSED') => {
+        return await request<{
+            success: boolean
+            nodeId: string
+            status: string
+            message: string
+        }>('/distributed/nodes/toggle-status', {
+            method: 'POST',
+            body: JSON.stringify({ nodeId, status }),
+        })
     },
 
     // 6. Lấy thông tin gói phần mềm Electron Client

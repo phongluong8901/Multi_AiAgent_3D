@@ -18,6 +18,10 @@ export class RentalSessionRepository {
         return await RentalSessionModel.find({ renterId, status: "ACTIVE" }).sort({ createdAt: -1 });
     }
 
+    async findAllActive(): Promise<IRentalSession[]> {
+        return await RentalSessionModel.find({ status: "ACTIVE" }).sort({ createdAt: -1 });
+    }
+
     async stopSession(sessionId: string): Promise<IRentalSession | null> {
         return await RentalSessionModel.findOneAndUpdate(
             { sessionId },

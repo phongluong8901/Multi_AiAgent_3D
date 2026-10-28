@@ -182,6 +182,25 @@ export class UserService {
     }
 
     /**
+     * Hủy kích hoạt và xóa cấu hình phần cứng (Hardware Node) của người dùng.
+     */
+    async deleteHardwareNode(userId: string) {
+        if (!userId) throw new AppError("ID người dùng không hợp lệ.", 400);
+
+        const updated = await UserModel.findByIdAndUpdate(
+            userId,
+            { $unset: { hardwareNode: 1 } },
+            { new: true }
+        ).select("-passwordHash");
+
+        if (!updated) throw new AppError("Không tìm thấy người dùng.", 404);
+
+        return {
+            message: "Đã hủy kích hoạt và xóa thông số Node AI thành công!",
+        };
+    }
+
+    /**
      * Lấy danh sách tất cả các node phần cứng trong hệ thống có khả năng chạy AI (`canRunAI: true`),
      * chỉ chọn lọc một số trường cần thiết để tối ưu hiệu năng truy vấn (`lean()`).
      */

@@ -78,6 +78,7 @@ func main() {
 	// Partner Node Management Endpoints
 	mux.HandleFunc("/api/v1/distributed/nodes/register", nodeHandler.HandleRegisterNode)
 	mux.HandleFunc("/api/v1/distributed/nodes/me", nodeHandler.HandleGetMyNode)
+	mux.HandleFunc("/api/v1/distributed/nodes/toggle-status", nodeHandler.HandleToggleNodeStatus)
 	mux.HandleFunc("/api/v1/distributed/nodes", nodeHandler.HandleListNodes)
 
 	// Electron Client App Distribution Endpoints
@@ -88,6 +89,7 @@ func main() {
 	// Real-time WebSocket Endpoints (hỗ trợ cả đường dẫn chuẩn lẫn alias tương thích proj3_clientElectron)
 	mux.HandleFunc("/api/v1/distributed/ws", wsHandler.HandleWebSocket)
 	mux.HandleFunc("/ws", wsHandler.HandleWebSocket)
+	mux.HandleFunc("/api/v1/distributed/inference", wsHandler.HandleInferenceRelay)
 
 	wrappedHandler := corsMiddleware(mux)
 

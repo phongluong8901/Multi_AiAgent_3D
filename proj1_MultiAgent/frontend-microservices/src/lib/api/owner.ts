@@ -53,7 +53,9 @@ export interface OwnerDashboardData {
         totalRentalsCount: number
         totalCoinsSpent: number
         totalTokensConsumed: number
+        totalTokensUsed?: number
         totalRequests: number
+        availableCoinsBalance?: number
     }
     activeRentals: RentalSessionData[]
     recentInferences: AgentInferenceRecordData[]
@@ -130,16 +132,21 @@ export const ownerApi = {
     // 6. THỰC THI AI: Agent gửi prompt qua máy tính Seller
     runInference: async (payload: {
         rentalId?: string
+        rentalSessionId?: string
+        agentId?: string
         prompt: string
         systemPrompt?: string
     }) => {
+        const rentalSessionId = payload.rentalSessionId || payload.rentalId || ''
         return await request<{
             success: boolean
             output: string
             tokens: number
             latencyMs: number
             coinsBilled: number
-            rentalSession: {
+            nodeName?: string
+            modelName?: string
+            rentalSession?: {
                 id: string
                 nodeName: string
                 modelName: string
@@ -148,15 +155,28 @@ export const ownerApi = {
             }
         }>('/owner/agents/inference', {
             method: 'POST',
-            body: JSON.stringify(payload),
+            body: JSON.stringify({
+                ...payload,
+                rentalId: rentalSessionId,
+                rentalSessionId,
+            }),
         })
     },
 
     // 7. Lấy dashboard tổng quan của Owner
     getOwnerDashboard: async (renterId?: string) => {
-        const query = renterId ? `?renterId=${encodeURIComponent(renterId)}` : ''
+        const query = renterId
+            ? `?ownerId=${encodeURIComponent(renterId)}&renterId=${encodeURIComponent(renterId)}`
+            : ''
         return await request<{ success: boolean } & OwnerDashboardData>(
             `/owner/dashboard${query}`
+        )
+    },
+
+    // 8. Lấy toàn bộ các phiên kết nối Seller ⇄ Owner đang truyền tải LLM
+    getActiveConnections: async () => {
+        return await request<{ success: boolean; count: number; sessions: RentalSessionData[] }>(
+            '/owner/connections/active'
         )
     },
 }

@@ -6,6 +6,8 @@ import platform
 import socket
 import argparse
 import os
+import subprocess
+import threading
 import urllib.request
 
 try:
@@ -25,6 +27,7 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="repla
 sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
 DEFAULT_SERVER_WS = "ws://localhost:4000/api/v1/distributed/ws"
+DEFAULT_OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Multi-Agent Distributed Hardware Worker")
@@ -103,13 +106,20 @@ def resolve_connection_info(args):
 
     return final_ws_url, token, node_id, cfg
 
+_cached_location = None
+_last_location_fetch = 0.0
+
 def get_location():
-    """Lấy vị trí địa lý dựa trên IP công khai"""
+    """Lấy vị trí địa lý dựa trên IP công khai (có cache 5 phút để tránh spam API)"""
+    global _cached_location, _last_location_fetch
+    now = time.time()
+    if _cached_location and (now - _last_location_fetch) < 300:
+        return _cached_location
     try:
-        with urllib.request.urlopen("http://ip-api.com/json/", timeout=4) as response:
+        with urllib.request.urlopen("http://ip-api.com/json/", timeout=3) as response:
             data = json.loads(response.read().decode())
             if data.get("status") == "success":
-                return {
+                _cached_location = {
                     "lat": data.get("lat"),
                     "lon": data.get("lon"),
                     "city": data.get("city"),
@@ -119,12 +129,114 @@ def get_location():
                     "isp": data.get("isp"),
                     "source": "ip-api",
                 }
+                _last_location_fetch = now
+                return _cached_location
+    except Exception:
+        pass
+    return _cached_location
+
+def get_gpu_info():
+    """Quét GPU NVIDIA qua nvidia-smi nếu có"""
+    try:
+        cmd = [
+            "nvidia-smi",
+            "--query-gpu=name,memory.total,utilization.gpu,temperature.gpu",
+            "--format=csv,noheader,nounits",
+        ]
+        creationflags = subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0
+        out = subprocess.check_output(cmd, stderr=subprocess.DEVNULL, timeout=2, creationflags=creationflags)
+        line = out.decode("utf-8", errors="ignore").strip().splitlines()[0]
+        parts = [p.strip() for p in line.split(",")]
+        if len(parts) >= 4:
+            return {
+                "name": parts[0],
+                "vram_gb": round(float(parts[1]) / 1024.0, 1),
+                "load_percent": float(parts[2]),
+                "temperature": float(parts[3]),
+            }
     except Exception:
         pass
     return None
 
-def collect_telemetry():
-    """Thu thập thông số hiệu năng phần cứng thực tế qua psutil"""
+def get_ollama_models(ollama_url=DEFAULT_OLLAMA_URL):
+    """Kiểm tra danh sách model đang có trên Ollama cục bộ"""
+    try:
+        with urllib.request.urlopen(f"{ollama_url}/api/tags", timeout=1.5) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            models = data.get("models", [])
+            return [m.get("name") for m in models if m.get("name")]
+    except Exception:
+        return []
+
+def handle_inference_request(ws, ws_lock, req_data, ollama_url=DEFAULT_OLLAMA_URL):
+    """Thực thi lệnh suy luận từ Distributed Service gửi xuống qua WebSocket và trả kết quả về"""
+    request_id = req_data.get("requestId", "")
+    node_id = req_data.get("nodeId", "")
+    model = req_data.get("model") or "qwen2.5-coder:1.5b"
+    prompt = req_data.get("prompt", "")
+    system_prompt = req_data.get("systemPrompt", "Bạn là AI Agent thực thi chuyên nghiệp.")
+    temperature = req_data.get("temperature") or 0.7
+    max_tokens = req_data.get("maxTokens") or 1024
+
+    print(f"🤖 [INFERENCE] Nhận yêu cầu #{request_id} cho model '{model}'...")
+
+    # Nếu máy có cài model khác tên một chút, tự động khớp model sẵn có trong Ollama
+    available_models = get_ollama_models(ollama_url)
+    target_model = model
+    if available_models and model not in available_models:
+        base_name = model.split(":")[0].replace("-coder", "").replace("-r1", "")
+        matched = [m for m in available_models if base_name in m]
+        target_model = matched[0] if matched else available_models[0]
+
+    payload = {
+        "model": target_model,
+        "prompt": prompt,
+        "system": system_prompt,
+        "stream": False,
+        "options": {
+            "temperature": float(temperature),
+            "num_predict": int(max_tokens),
+        },
+    }
+
+    try:
+        req = urllib.request.Request(
+            f"{ollama_url}/api/generate",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=22) as resp:
+            res_json = json.loads(resp.read().decode("utf-8"))
+            output_text = res_json.get("response", "")
+
+        reply = {
+            "type": "INFERENCE_RESPONSE",
+            "requestId": request_id,
+            "nodeId": node_id,
+            "model": target_model,
+            "output": output_text,
+            "success": True,
+        }
+        print(f"✅ [INFERENCE] Hoàn thành #{request_id} ({len(output_text)} chars)")
+    except Exception as ex:
+        reply = {
+            "type": "INFERENCE_RESPONSE",
+            "requestId": request_id,
+            "nodeId": node_id,
+            "error": f"Lỗi gọi Ollama trên máy Worker ({ollama_url}): {ex}",
+            "success": False,
+        }
+        print(f"❌ [INFERENCE] Thất bại #{request_id}: {ex}")
+
+    with ws_lock:
+        try:
+            ws.send(json.dumps(reply))
+        except Exception:
+            pass
+
+def collect_telemetry(node_id="", ollama_url=DEFAULT_OLLAMA_URL):
+    """Thu thập thông số hiệu năng phần cứng thực tế qua psutil + GPU + Ollama"""
     cpu_freq = psutil.cpu_freq()
     cpu_info = {
         "percent": psutil.cpu_percent(interval=0.2),
@@ -186,10 +298,13 @@ def collect_telemetry():
         "boot_time": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(boot_time)),
     }
 
+    gpu_info = get_gpu_info()
+    ollama_models = get_ollama_models(ollama_url)
     location = get_location()
 
     return {
         "type": "SYSTEM_INFO",
+        "nodeId": node_id,
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "hardware": {
             "cpu": cpu_info,
@@ -197,20 +312,24 @@ def collect_telemetry():
             "disk": disks,
             "network": network_info,
             "battery": battery_info,
+            "gpu": gpu_info,
         },
+        "ollama_models": ollama_models,
         "os": os_info,
         "location": location,
         # Các chỉ số rút gọn trực tiếp
         "cpu_percent": cpu_info["percent"],
         "ram_percent": memory_info["percent"],
         "disk_percent": disks[0]["percent"] if len(disks) > 0 else 0.0,
+        "gpu_percent": gpu_info["load_percent"] if gpu_info else 0.0,
+        "gpu_temp": gpu_info["temperature"] if gpu_info else 0.0,
     }
 
 def run():
     args = parse_args()
     print("=" * 60)
     print("🚀 Multi-Agent Distributed Hardware Worker Daemon")
-    print("   Dịch vụ gửi thông số phần cứng & tích lũy SaveCoin")
+    print("   Dịch vụ gửi thông số phần cứng, P2P LLM Relay & tích lũy SaveCoin")
     print("=" * 60)
 
     retry_count = 0
@@ -221,6 +340,7 @@ def run():
 
     while True:
         target_ws_url, token, node_id, cfg = resolve_connection_info(args)
+        ollama_url = cfg.get("localEndpoint") or cfg.get("ollamaUrl") or DEFAULT_OLLAMA_URL
         
         # Danh sách URL để thử nếu URL chính chưa sẵn sàng
         urls_to_try = [target_ws_url]
@@ -241,7 +361,7 @@ def run():
                 print(f"✅ [CONNECTED] Đã kết nối thành công tới: {active_url}")
                 retry_count = 0
                 break
-            except Exception as conn_err:
+            except Exception:
                 pass
 
         if not ws:
@@ -252,22 +372,52 @@ def run():
             time.sleep(wait_sec)
             continue
 
+        ws_lock = threading.Lock()
+        stop_event = threading.Event()
+
+        def ws_reader_loop():
+            while not stop_event.is_set():
+                try:
+                    raw_msg = ws.recv()
+                    if not raw_msg:
+                        break
+                    msg_data = json.loads(raw_msg)
+                    if isinstance(msg_data, dict) and msg_data.get("type") == "INFERENCE_REQUEST":
+                        threading.Thread(
+                            target=handle_inference_request,
+                            args=(ws, ws_lock, msg_data, ollama_url),
+                            daemon=True,
+                        ).start()
+                except websocket.WebSocketTimeoutException:
+                    continue
+                except Exception:
+                    stop_event.set()
+                    break
+
+        ws.settimeout(1.0)
+        reader_thread = threading.Thread(target=ws_reader_loop, daemon=True)
+        reader_thread.start()
+
         try:
-            print("📊 [MONITORING] Bắt đầu thu thập và truyền phát hiệu năng máy...")
-            while True:
-                payload = collect_telemetry()
-                ws.send(json.dumps(payload))
+            print("📊 [MONITORING] Bắt đầu thu thập hiệu năng & lắng nghe lệnh AI P2P...")
+            while not stop_event.is_set():
+                payload = collect_telemetry(node_id=node_id, ollama_url=ollama_url)
+                with ws_lock:
+                    ws.send(json.dumps(payload))
 
                 cpu_p = payload["cpu_percent"]
                 ram_p = payload["ram_percent"]
                 loc = payload.get("location")
                 loc_txt = f"{loc['city']}, {loc['country']}" if loc else "Local"
+                models_cnt = len(payload.get("ollama_models") or [])
 
-                print(f"⚡ [TRANSMIT] CPU: {cpu_p:5.1f}% | RAM: {ram_p:5.1f}% | Máy: {payload['os']['hostname']} | Vị trí: {loc_txt}")
+                print(f"⚡ [TRANSMIT] CPU: {cpu_p:5.1f}% | RAM: {ram_p:5.1f}% | Ollama: {models_cnt} models | Máy: {payload['os']['hostname']} | Vị trí: {loc_txt}")
                 time.sleep(args.interval)
 
         except Exception as run_err:
             print(f"⚠️ [DISCONNECT] Mất kết nối tới {active_url}: {run_err}")
+        finally:
+            stop_event.set()
             try:
                 ws.close()
             except Exception:

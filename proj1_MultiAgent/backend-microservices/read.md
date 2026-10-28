@@ -217,6 +217,9 @@ npm run build
 - electron
 npm run build:win
 
+--- chay trên terminal ngon hơn UI ollama
+ollama run qwen2.5:1.5b
+
 # --- link port
 - swagger agent
 http://localhost:8000/docs

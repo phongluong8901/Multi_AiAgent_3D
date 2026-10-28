@@ -21,7 +21,7 @@ class Navigation3DEnv:
         arena_size: float = 20.0,
         max_steps: int = 150,
         agent_radius: float = 0.5,
-        goal_radius: float = 0.8,
+        goal_radius: float = 0.85,
         lidar_range: float = 8.0,
         lidar_beams: int = 8
     ):
@@ -36,7 +36,7 @@ class Navigation3DEnv:
         # Vị trí Agent
         self.agent_x: float = 0.0
         self.agent_z: float = 0.0
-        self.agent_heading: float = 0.0  # Radian (0 = hướng trục +Z hoặc +X)
+        self.agent_heading: float = 0.0  # Radian (0 = hướng trục +X)
 
         # Đích đến
         self.goal_x: float = 0.0
@@ -47,6 +47,11 @@ class Navigation3DEnv:
 
         self.current_step: int = 0
         self.prev_distance: float = 0.0
+        self.min_distance: float = 0.0
+        self.prev_angle_diff: float = 0.0
+        self.prev_front_dist: Optional[float] = None
+        self.episode_collisions: int = 0
+        self.stall_steps: int = 0
         self.current_map: str = "office"
         self.set_map("office")
 
@@ -119,7 +124,7 @@ class Navigation3DEnv:
             self.half_x = 13.6
             self.half_z = 10.6
             self.half_size = 13.6
-            self.max_steps = 220
+            self.max_steps = 200
             self.obstacles = [dict(o) for o in self.OFFICE_OBSTACLES]
         else:
             self.arena_size = 20.0
@@ -210,7 +215,7 @@ class Navigation3DEnv:
         # Thử lấy từ các điểm POI thông thoáng kèm nhiễu nhẹ
         for _ in range(30):
             p = random.choice(pois)
-            noise_r = 0.4 if is_goal else 0.3
+            noise_r = 0.45 if is_goal else 0.3
             x = p["x"] + random.uniform(-noise_r, noise_r)
             z = p["z"] + random.uniform(-noise_r, noise_r)
             if self._is_position_safe(x, z, clearance):
@@ -252,12 +257,15 @@ class Navigation3DEnv:
         goal_pos: Optional[Tuple[float, float]] = None,
         episode_num: int = 1
     ) -> Dict[str, Any]:
-        """Reset môi trường về trạng thái bắt đầu episode mới với vị trí Goal phong phú khắp các phòng"""
+        """Reset môi trường về trạng thái bắt đầu episode mới với Curriculum Learning mượt mà"""
         self.current_step = 0
         self.episode_collisions = 0
+        self.stall_steps = 0
+
+        # Curriculum factor [0.0 -> 1.0] tăng dần theo episode_num để Agent dễ học từ gần đến xa
+        curriculum = min(1.0, max(0.0, (episode_num - 1) / 180.0))
 
         if self.current_map == "office":
-            # 1. Chọn phân khu: 85% nằm trong 4 phòng ban (nw, ne, se, sw), 15% là hành lang
             room_keys = ["nw", "ne", "se", "sw"]
             selected_zone = random.choice(room_keys) if random.random() < 0.85 else "corridor"
 
@@ -268,28 +276,40 @@ class Navigation3DEnv:
                 self.agent_x, self.agent_z = self._sample_office_pos(selected_zone, is_goal=False)
                 agent_zone = selected_zone
 
-            self.agent_heading = random.uniform(0, 2 * math.pi)
-
-            # 2. Đặt vị trí Goal:
-            # 80% trong cùng phòng để Agent không bị tường kín chặn đứng, học né bàn ghế tới đích
-            # 20% ở hành lang hoặc cửa phòng
             if goal_pos is not None:
                 self.goal_x, self.goal_z = goal_pos
             else:
-                if agent_zone in room_keys and random.random() < 0.80:
+                # Ở giai đoạn đầu (curriculum < 0.35), ưu tiên 95% cùng phòng để hội tụ nhanh
+                same_room_prob = 0.95 - 0.15 * curriculum
+                if agent_zone in room_keys and random.random() < same_room_prob:
                     target_zone = agent_zone
                 else:
                     target_zone = "corridor"
 
+                min_goal_dist = 2.2 + 0.6 * curriculum
+                max_goal_dist = 5.2 + 6.5 * curriculum
                 chosen = False
-                for _ in range(30):
+                for _ in range(40):
                     gx, gz = self._sample_office_pos(target_zone, is_goal=True)
-                    if math.hypot(gx - self.agent_x, gz - self.agent_z) >= 2.8:
+                    d = math.hypot(gx - self.agent_x, gz - self.agent_z)
+                    if min_goal_dist <= d <= max_goal_dist:
                         self.goal_x, self.goal_z = gx, gz
                         chosen = True
                         break
                 if not chosen:
+                    for _ in range(30):
+                        gx, gz = self._sample_office_pos(target_zone, is_goal=True)
+                        if math.hypot(gx - self.agent_x, gz - self.agent_z) >= 2.2:
+                            self.goal_x, self.goal_z = gx, gz
+                            chosen = True
+                            break
+                if not chosen:
                     self.goal_x, self.goal_z = self._sample_office_pos(target_zone, is_goal=True)
+
+            # Hướng đầu ban đầu: các episode đầu hướng tương đối về phía Goal (+/- 90 độ), sau đó ngẫu nhiên 360 độ
+            ideal_heading = math.atan2(self.goal_z - self.agent_z, self.goal_x - self.agent_x)
+            spread = math.pi * (0.45 + 0.55 * curriculum)
+            self.agent_heading = (ideal_heading + random.uniform(-spread, spread)) % (2 * math.pi)
 
         else:
             # Chế độ sa bàn cơ bản Cyber Grid
@@ -315,11 +335,11 @@ class Navigation3DEnv:
             if goal_pos is not None:
                 self.goal_x, self.goal_z = goal_pos
             else:
-                max_r = min(9.5, 3.8 + (min(episode_num, 1000) / 1000.0) * 5.7)
+                max_r = min(9.5, 3.5 + curriculum * 6.0)
                 placed = False
                 for _ in range(60):
-                    ang = self.agent_heading + random.uniform(-2.2, 2.2)
-                    r = random.uniform(3.2, max_r)
+                    ang = self.agent_heading + random.uniform(-2.0, 2.0)
+                    r = random.uniform(2.8, max_r)
                     gx = self.agent_x + r * math.cos(ang)
                     gz = self.agent_z + r * math.sin(ang)
 
@@ -340,6 +360,8 @@ class Navigation3DEnv:
                     self.goal_x, self.goal_z = self._find_safe_pos(z_min=z_target_min, z_max=z_target_max, min_clearance=1.0)
 
         self.prev_distance = self._calc_distance_to_goal()
+        self.min_distance = self.prev_distance
+        self.prev_angle_diff = abs(self._calc_angle_to_goal())
         self.prev_front_dist = None
         return self.get_observation()
 
@@ -440,7 +462,7 @@ class Navigation3DEnv:
         """
         self.current_step += 1
         speed = 0.65
-        turn_speed = 0.55  # Radian (~32 độ, đủ lớn để lách góc bàn)
+        turn_speed = 0.52  # Radian (~30 độ)
 
         new_x = self.agent_x
         new_z = self.agent_z
@@ -450,20 +472,20 @@ class Navigation3DEnv:
             new_x += speed * math.cos(self.agent_heading)
             new_z += speed * math.sin(self.agent_heading)
         elif action == 1:  # Lùi
-            new_x -= (speed * 0.5) * math.cos(self.agent_heading)
-            new_z -= (speed * 0.5) * math.sin(self.agent_heading)
+            new_x -= (speed * 0.45) * math.cos(self.agent_heading)
+            new_z -= (speed * 0.45) * math.sin(self.agent_heading)
         elif action == 2:  # Xoay trái
             new_heading += turn_speed
         elif action == 3:  # Xoay phải
             new_heading -= turn_speed
         elif action == 4:  # Vừa tiến vừa rẽ trái
-            new_heading += turn_speed * 0.8
-            new_x += (speed * 0.8) * math.cos(new_heading)
-            new_z += (speed * 0.8) * math.sin(new_heading)
+            new_heading += turn_speed * 0.75
+            new_x += (speed * 0.82) * math.cos(new_heading)
+            new_z += (speed * 0.82) * math.sin(new_heading)
         elif action == 5:  # Vừa tiến vừa rẽ phải
-            new_heading -= turn_speed * 0.8
-            new_x += (speed * 0.8) * math.cos(new_heading)
-            new_z += (speed * 0.8) * math.sin(new_heading)
+            new_heading -= turn_speed * 0.75
+            new_x += (speed * 0.82) * math.cos(new_heading)
+            new_z += (speed * 0.82) * math.sin(new_heading)
 
         # Giữ góc heading trong [0, 2*pi]
         new_heading = new_heading % (2 * math.pi)
@@ -481,30 +503,62 @@ class Navigation3DEnv:
                 self.agent_z = new_z
 
         curr_distance = self._calc_distance_to_goal()
-        angle_diff = abs(self._calc_angle_to_goal())
-
-        # Tính toán phần thưởng (Reward Shaping tối ưu để hội tụ bền vững)
-        reward = -0.05  # Step penalty cực nhẹ để khuyến khích đi nhanh nhưng không phạt việc lượn vòng né bàn
-
-        # Điểm thưởng tiến gần đích:
-        # Cắt phạt dưới ở mức -0.25 để khi Agent uốn lượn né mép bàn ghế không bị trừ điểm oan
-        progress = self.prev_distance - curr_distance
-        reward += max(-0.25, progress * 14.0)
-
-        # Thưởng khi hướng đầu về phía mục tiêu
-        heading_alignment = math.cos(angle_diff)
-        reward += heading_alignment * 0.25
-
-        # Cảnh báo sớm va chạm & Thưởng né góc bàn:
+        signed_angle = self._calc_angle_to_goal()
+        angle_diff = abs(signed_angle)
         lidar_readings = self._get_lidar_readings()
-        front_dist = min(lidar_readings[0], lidar_readings[1], lidar_readings[7])
-        if front_dist < 1.6:
-            reward -= (1.6 - front_dist) * 1.5
-            # Thưởng khi bẻ lái giúp khoảng sáng phía trước tăng lên
+        front_dist = min(lidar_readings[0], lidar_readings[1] * 1.05, lidar_readings[7] * 1.05)
+
+        # ==================== REWARD SHAPING CHỐNG GIAN LẬN (POTENTIAL-BASED + MILESTONE) ====================
+        reward = -0.06  # Step penalty nhẹ để tối ưu đường đi ngắn nhất
+
+        # 1. Potential-based distance shaping (cân bằng tiến/lùi, không cho phép lặp tiến-lùi cày điểm)
+        progress = self.prev_distance - curr_distance
+        if front_dist < 1.8:
+            # Khi trước mặt vướng bàn ghế, nới nhẹ mức phạt lùi/vòng để Agent bẻ lái lách qua
+            reward += max(-1.2, progress * 7.5)
+        else:
+            # Khi đường thoáng, phạt đối xứng nếu đi ngược ra xa mục tiêu
+            reward += progress * 8.5
+
+        # 2. Thưởng cột mốc kỷ lục mới (Monotonic Best-Distance Bonus: chỉ nhận 1 lần cho mỗi mốc tiến gần Goal)
+        if curr_distance < self.min_distance:
+            new_best_gain = self.min_distance - curr_distance
+            reward += new_best_gain * 6.5
+            self.min_distance = curr_distance
+            self.stall_steps = 0
+        else:
+            self.stall_steps += 1
+
+        # 3. Phạt hành vi đi lùi vô lý khi phía trước hoàn toàn thông thoáng
+        if action == 1 and front_dist > 1.8:
+            reward -= 0.65
+
+        # 4. Thưởng xoay mũi hướng về phía Goal & định hướng né vật cản
+        angle_improvement = self.prev_angle_diff - angle_diff
+        if front_dist >= 1.5:
+            reward += angle_improvement * 1.5
+            reward += math.cos(angle_diff) * 0.22
+        else:
+            # Khi sát vật cản phía trước, thưởng nếu xoay về phía bên thoáng hơn (trái vs phải)
+            left_space = lidar_readings[1] + 0.7 * lidar_readings[2]
+            right_space = lidar_readings[7] + 0.7 * lidar_readings[6]
+            if action in [2, 4] and left_space >= right_space:
+                reward += 0.35
+            elif action in [3, 5] and right_space > left_space:
+                reward += 0.35
+
+        # 5. Cảnh báo sớm khoảng cách an toàn LIDAR
+        if front_dist < 1.5:
+            reward -= (1.5 - front_dist) * 1.4
             if self.prev_front_dist is not None and front_dist > self.prev_front_dist:
-                reward += (front_dist - self.prev_front_dist) * 4.0
+                reward += (front_dist - self.prev_front_dist) * 3.5
+
+        # Phạt nhẹ nếu đứng xoay vòng tại chỗ quá lâu không tiến thêm
+        if self.stall_steps > 18:
+            reward -= 0.25
 
         self.prev_front_dist = front_dist
+        self.prev_angle_diff = angle_diff
 
         done = False
         info = {
@@ -520,7 +574,7 @@ class Navigation3DEnv:
         if is_collision:
             self.episode_collisions += 1
             info["collision"] = True
-            # Nảy lùi nhẹ 0.15m để không bị kẹt cứng sát mép vật cản, giúp Agent có thể bẻ lái quay đầu thoát hiểm
+            # Nảy lùi nhẹ 0.15m để không bị kẹt cứng sát mép vật cản
             rebound_x = self.agent_x - 0.15 * math.cos(new_heading)
             rebound_z = self.agent_z - 0.15 * math.sin(new_heading)
             if not self.check_collision(rebound_x, rebound_z):
@@ -528,19 +582,21 @@ class Navigation3DEnv:
                 self.agent_z = rebound_z
 
             if self.episode_collisions < 4:
-                reward = -2.5 * self.episode_collisions
+                reward = -3.0 * self.episode_collisions
                 info["reason"] = f"bump_{self.episode_collisions}"
             else:
-                reward = -15.0
+                reward = -18.0
                 done = True
                 info["reason"] = "collision"
         elif curr_distance <= self.goal_radius:
-            reward = 150.0  # Thưởng lớn khi về đích
+            # Thưởng lớn khi về đích + thưởng cộng thêm nếu về đích tốn ít bước
+            efficiency_bonus = max(0.0, (self.max_steps - self.current_step) / self.max_steps) * 30.0
+            reward = 150.0 + efficiency_bonus
             done = True
             info["goal_reached"] = True
             info["reason"] = "goal_reached"
         elif self.current_step >= self.max_steps:
-            reward = -5.0
+            reward = -6.0
             done = True
             info["reason"] = "timeout"
 

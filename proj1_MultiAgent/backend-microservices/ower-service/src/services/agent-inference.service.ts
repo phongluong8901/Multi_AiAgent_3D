@@ -3,9 +3,10 @@ import { agentBindingRepository } from "../repositories/agent-binding.repository
 import { logger } from "../config/logger";
 
 const SELLER_SERVICE_URL = process.env.SELLER_SERVICE_URL || "http://seller-service:5011";
+const SAVECOIN_SERVICE_URL = process.env.SAVECOIN_SERVICE_URL || "http://savecoin-service:5006";
 
 export interface AgentInferenceParams {
-    rentalSessionId: string;
+    rentalSessionId?: string;
     agentId?: string;
     prompt: string;
     systemPrompt?: string;
@@ -17,44 +18,71 @@ export class AgentInferenceService {
     async runInferenceForAgent(params: AgentInferenceParams) {
         const { rentalSessionId, agentId, prompt, systemPrompt, temperature, maxTokens } = params;
 
-        const session = await rentalSessionRepository.findBySessionId(rentalSessionId);
+        let session = rentalSessionId
+            ? await rentalSessionRepository.findBySessionId(rentalSessionId)
+            : null;
+
+        // Nếu không truyền rentalSessionId hoặc truyền modelId/agentId, tự động tìm phiên ACTIVE tương ứng
+        if (!session && agentId) {
+            const binding = await agentBindingRepository.findByAgentId(agentId);
+            if (binding?.rentalSessionId) {
+                session = await rentalSessionRepository.findBySessionId(binding.rentalSessionId);
+            }
+        }
         if (!session) {
-            throw new Error(`Phiên thuê không tồn tại: ${rentalSessionId}`);
+            const activeSessions = await rentalSessionRepository.findAllActive();
+            if (activeSessions.length > 0) {
+                session = activeSessions[0];
+            }
+        }
+
+        if (!session) {
+            throw new Error(
+                `Chưa có phiên thuê máy (RentalSession) nào đang ACTIVE. Vui lòng thuê ít nhất 1 máy trên trang /owner trước.`
+            );
         }
 
         if (session.status !== "ACTIVE") {
-            throw new Error(`Phiên thuê ${rentalSessionId} không còn hiệu lực (trạng thái: ${session.status})`);
+            throw new Error(`Phiên thuê ${session.sessionId} không còn hiệu lực (trạng thái: ${session.status})`);
         }
 
-        // Chuyển tiếp yêu cầu suy luận sang seller-service
+        // Chuyển tiếp yêu cầu suy luận sang seller-service (thử cả Docker DNS và localhost)
         let sellerResult: any = null;
-        try {
-            const res = await fetch(`${SELLER_SERVICE_URL}/api/v1/seller/nodes/${session.nodeId}/inference`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    renterId: session.renterId,
-                    prompt,
-                    systemPrompt,
-                    temperature,
-                    maxTokens,
-                }),
-                signal: AbortSignal.timeout(15000),
-            });
+        let lastErr: any = null;
+        const sellerBaseUrls = [SELLER_SERVICE_URL, "http://localhost:5011"];
 
-            if (res.ok) {
-                sellerResult = await res.json();
-            } else {
-                const errData = await res.json().catch(() => ({}));
-                throw new Error(errData.message || `Lỗi từ Seller Service (HTTP ${res.status})`);
+        for (const baseUrl of sellerBaseUrls) {
+            try {
+                const res = await fetch(`${baseUrl}/api/v1/seller/nodes/${session.nodeId}/inference`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        renterId: session.renterId,
+                        prompt,
+                        systemPrompt,
+                        temperature,
+                        maxTokens,
+                    }),
+                    signal: AbortSignal.timeout(22000),
+                });
+
+                if (res.ok) {
+                    sellerResult = await res.json();
+                    break;
+                } else {
+                    const errData: any = await res.json().catch(() => ({}));
+                    lastErr = new Error(errData.message || `Lỗi từ Seller Service (HTTP ${res.status})`);
+                }
+            } catch (err: any) {
+                lastErr = err;
             }
-        } catch (err: any) {
-            logger.error("Lỗi kết nối tới seller-service:", err.message);
-            throw new Error(`Không thể thực thi lệnh trên Node của Seller: ${err.message}`);
         }
 
         if (!sellerResult || !sellerResult.output) {
-            throw new Error(sellerResult?.message || `Node của Seller không phản hồi kết quả suy luận hợp lệ.`);
+            logger.error("Lỗi kết nối tới seller-service:", lastErr?.message);
+            throw new Error(
+                lastErr?.message || `Node của Seller không phản hồi kết quả suy luận hợp lệ.`
+            );
         }
 
         const latencyMs = sellerResult.latencyMs || 0;
@@ -63,7 +91,32 @@ export class AgentInferenceService {
         const output = sellerResult.output;
 
         // Cập nhật thống kê phiên thuê vào MongoDB
-        await rentalSessionRepository.incrementUsage(rentalSessionId, tokens, coinsBilled);
+        const updatedSession = await rentalSessionRepository.incrementUsage(
+            session.sessionId,
+            tokens,
+            coinsBilled
+        );
+
+        // Khấu trừ SaveCoin thực tế từ ví của Owner trên savecoin-service
+        const coinUrls = [SAVECOIN_SERVICE_URL, "http://localhost:5006"];
+        for (const cUrl of coinUrls) {
+            try {
+                const spendRes = await fetch(`${cUrl}/api/v1/coins/spend`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        userId: session.renterId,
+                        amount: coinsBilled,
+                        reason: `Thuê Local LLM (${session.modelDisplayName} trên máy ${session.nodeName}) - ${tokens} tokens`,
+                        metadata: { sessionId: session.sessionId, nodeId: session.nodeId, tokens },
+                    }),
+                    signal: AbortSignal.timeout(2500),
+                });
+                if (spendRes.ok) break;
+            } catch {
+                // Ignore nếu savecoin-service đang khởi động
+            }
+        }
 
         if (agentId) {
             const binding = await agentBindingRepository.findByAgentId(agentId);
@@ -74,7 +127,7 @@ export class AgentInferenceService {
 
         return {
             success: true,
-            sessionId: rentalSessionId,
+            sessionId: session.sessionId,
             nodeId: session.nodeId,
             nodeName: session.nodeName,
             modelName: session.modelDisplayName,
@@ -82,6 +135,13 @@ export class AgentInferenceService {
             tokens,
             latencyMs,
             coinsBilled,
+            rentalSession: {
+                id: session.sessionId,
+                nodeName: session.nodeName,
+                modelName: session.modelDisplayName,
+                boundAgentName: session.assignedAgentId || "Multi-Agent",
+                totalCoinsSpent: updatedSession?.totalCoinsSpent ?? session.totalCoinsSpent + coinsBilled,
+            },
         };
     }
 }

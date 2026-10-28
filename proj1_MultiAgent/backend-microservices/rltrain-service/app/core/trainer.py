@@ -12,17 +12,18 @@ from .sac2 import SACAgent as SAC2Agent
 from .dreamer import DreamerAgent
 from .muzero import MuZeroAgent
 
+
 class RLTrainer:
     """
     Manages RL Training lifecycle, background threads, and metric streaming
     for 3D navigation agents with support for 7 Modern RL Algorithms:
-    - PPO (Proximal Policy Optimization - Actor Critic) [Recommended]
+    - PPO (Proximal Policy Optimization - GAE Actor-Critic) [Recommended]
     - SAC (Soft Actor-Critic - Maximum Entropy RL)
-    - SAC v2 (SAC with Auto-Alpha & Larger Capacity)
+    - SAC v2 (SAC with Auto-Alpha & Twin Critics)
     - Dreamer (World Models + Latent Imagination Planning)
     - MuZero (DeepMind's Model-based MCTS Lookahead Planning)
-    - DQN (Deep Q-Network with Replay Buffer)
-    - Q-Learning (Tabular Baseline)
+    - DQN (Double Deep Q-Network with Prioritized Replay)
+    - Q-Learning (Tabular Q(lambda) with Eligibility Traces)
     """
     def __init__(self, saved_dir: str = "./saved_policies"):
         self.saved_dir = saved_dir
@@ -30,7 +31,6 @@ class RLTrainer:
 
         self.env = Navigation3DEnv()
 
-        # Thuật toán được chọn: 'ppo' (mặc định), 'sac', 'sac2', 'dreamer', 'muzero', 'dqn', 'q_learning'
         self.algorithm: str = "ppo"
         self.ppo_agent = PPOAgent()
         self.sac_agent = SACAgent()
@@ -62,15 +62,15 @@ class RLTrainer:
     def get_algorithm_name(self, algo: Optional[str] = None) -> str:
         a = (algo or self.algorithm).lower()
         names = {
-            "ppo": "PPO (Proximal Policy Optimization)",
+            "ppo": "PPO (Proximal Policy Optimization + GAE)",
             "sac": "SAC (Soft Actor-Critic - Max Entropy)",
             "sac2": "SAC v2 (Auto-Alpha + Twin Critics)",
             "dreamer": "Dreamer (World Model - Imagination)",
             "muzero": "MuZero (DeepMind MCTS Planning)",
-            "dqn": "DQN (Deep Q-Network)",
-            "q_learning": "Q-Learning (Tabular Baseline)"
+            "dqn": "Double DQN (Prioritized Replay)",
+            "q_learning": "Q-Learning (Q-Lambda Eligibility Traces)"
         }
-        return names.get(a, "PPO (Proximal Policy Optimization)")
+        return names.get(a, "PPO (Proximal Policy Optimization + GAE)")
 
     def set_algorithm(self, algo: str) -> Dict[str, Any]:
         """Chuyển đổi thuật toán huấn luyện"""
@@ -78,7 +78,7 @@ class RLTrainer:
         valid = ["ppo", "sac", "sac2", "dreamer", "muzero", "dqn", "q_learning"]
         if a not in valid:
             return {"success": False, "message": f"Thuật toán '{algo}' không hỗ trợ. Hãy chọn: {', '.join(valid)}."}
-        
+
         self.pause_training()
         self.algorithm = a
         return {
@@ -92,10 +92,10 @@ class RLTrainer:
         self,
         agent_id: str = "agent_default",
         episodes: int = 500,
-        learning_rate: float = 0.15,
-        discount_factor: float = 0.95,
-        epsilon_decay: float = 0.995,
-        epsilon_min: float = 0.05,
+        learning_rate: float = 0.003,
+        discount_factor: float = 0.98,
+        epsilon_decay: float = 0.992,
+        epsilon_min: float = 0.04,
         obstacles: Optional[List[Dict[str, float]]] = None,
         speed: float = 0.0,
         map_name: str = "office",
@@ -113,7 +113,7 @@ class RLTrainer:
         if self.current_episode >= self.total_episodes:
             self.total_episodes = self.current_episode + episodes
         else:
-            self.total_episodes = max(self.total_episodes, episodes)
+            self.total_episodes = max(self.total_episodes, self.current_episode + episodes)
 
         self.training_speed = speed
         self.should_stop = False
@@ -122,36 +122,37 @@ class RLTrainer:
         if obstacles is not None:
             self.env.set_custom_obstacles(obstacles)
 
-        # Cập nhật siêu tham số tương ứng cho thuật toán đang chạy
+        # Cập nhật siêu tham số tương ứng cho thuật toán đang chạy (kèm bảo vệ ngưỡng an toàn)
+        eff_gamma = max(0.95, min(0.995, discount_factor))
         if self.algorithm == "ppo":
-            self.ppo_agent.lr_actor = learning_rate if learning_rate <= 0.02 else 0.003
-            self.ppo_agent.lr_critic = self.ppo_agent.lr_actor * 1.5
-            self.ppo_agent.gamma = discount_factor
+            self.ppo_agent.lr_actor = learning_rate if learning_rate <= 0.01 else 0.0025
+            self.ppo_agent.lr_critic = self.ppo_agent.lr_actor * 1.6
+            self.ppo_agent.gamma = eff_gamma
         elif self.algorithm == "sac":
-            self.sac_agent.lr_actor = learning_rate if learning_rate <= 0.02 else 0.003
+            self.sac_agent.lr_actor = learning_rate if learning_rate <= 0.01 else 0.002
             self.sac_agent.lr_critic = self.sac_agent.lr_actor * 1.5
-            self.sac_agent.gamma = discount_factor
+            self.sac_agent.gamma = eff_gamma
         elif self.algorithm == "sac2":
-            self.sac2_agent.lr_actor = learning_rate if learning_rate <= 0.02 else 0.001
-            self.sac2_agent.lr_critic = self.sac2_agent.lr_actor * 2.0
-            self.sac2_agent.gamma = discount_factor
+            self.sac2_agent.lr_actor = learning_rate if learning_rate <= 0.01 else 0.0015
+            self.sac2_agent.lr_critic = self.sac2_agent.lr_actor * 1.7
+            self.sac2_agent.gamma = eff_gamma
         elif self.algorithm == "dreamer":
-            self.dreamer_agent.lr_world = learning_rate if learning_rate <= 0.02 else 0.005
-            self.dreamer_agent.lr_actor = self.dreamer_agent.lr_world * 0.6
+            self.dreamer_agent.lr_world = learning_rate if learning_rate <= 0.01 else 0.003
+            self.dreamer_agent.lr_actor = self.dreamer_agent.lr_world * 0.65
             self.dreamer_agent.lr_critic = self.dreamer_agent.lr_world
-            self.dreamer_agent.gamma = discount_factor
+            self.dreamer_agent.gamma = eff_gamma
         elif self.algorithm == "muzero":
-            self.muzero_agent.lr = learning_rate if learning_rate <= 0.02 else 0.003
-            self.muzero_agent.gamma = discount_factor
+            self.muzero_agent.lr = learning_rate if learning_rate <= 0.01 else 0.0025
+            self.muzero_agent.gamma = eff_gamma
         elif self.algorithm == "dqn":
-            self.dqn_agent.lr = learning_rate if learning_rate <= 0.02 else 0.005
-            self.dqn_agent.gamma = discount_factor
-            self.dqn_agent.epsilon_decay = epsilon_decay
+            self.dqn_agent.lr = learning_rate if learning_rate <= 0.01 else 0.003
+            self.dqn_agent.gamma = eff_gamma
+            self.dqn_agent.epsilon_decay = min(0.995, epsilon_decay)
             self.dqn_agent.epsilon_min = epsilon_min
         else:
-            self.q_agent.alpha = learning_rate
-            self.q_agent.gamma = discount_factor
-            self.q_agent.epsilon_decay = epsilon_decay
+            self.q_agent.alpha = learning_rate if learning_rate >= 0.05 else 0.22
+            self.q_agent.gamma = eff_gamma
+            self.q_agent.epsilon_decay = min(0.992, epsilon_decay)
             self.q_agent.epsilon_min = epsilon_min
 
         self.training_thread = threading.Thread(target=self._run_training_loop, daemon=True)
@@ -179,6 +180,7 @@ class RLTrainer:
             self.training_thread.join(timeout=1.0)
 
         self.current_episode = 0
+        self.total_episodes = 300
         self.ppo_agent = PPOAgent()
         self.sac_agent = SACAgent()
         self.sac2_agent = SAC2Agent()
@@ -226,37 +228,42 @@ class RLTrainer:
             while not done and not self.should_stop:
                 steps += 1
 
-                # 1. Chọn hành động theo thuật toán được chọn
+                # 1. Chọn hành động và học theo thuật toán được chọn
                 if self.algorithm == "ppo":
                     action, log_prob = self.ppo_agent.choose_action(obs, greedy=False)
                     next_obs, reward, done, info = self.env.step(action)
-                    self.ppo_agent.record_step(obs, action, reward, done, log_prob)
+                    self.ppo_agent.record_step(obs, action, reward, done, log_prob, next_obs=next_obs)
                 elif self.algorithm == "sac":
                     action = self.sac_agent.choose_action(obs, greedy=False)
                     next_obs, reward, done, info = self.env.step(action)
                     self.sac_agent.record_step(obs, action, reward, next_obs, done)
-                    self.sac_agent.learn_step()
+                    if steps % 2 == 0 or done:
+                        self.sac_agent.learn_step()
                 elif self.algorithm == "sac2":
                     action = self.sac2_agent.choose_action(obs, greedy=False)
                     next_obs, reward, done, info = self.env.step(action)
                     self.sac2_agent.record_step(obs, action, reward, next_obs, done)
-                    self.sac2_agent.learn_step()
+                    if steps % 2 == 0 or done:
+                        self.sac2_agent.learn_step()
                 elif self.algorithm == "dreamer":
                     action = self.dreamer_agent.choose_action(obs, greedy=False)
                     next_obs, reward, done, info = self.env.step(action)
                     self.dreamer_agent.record_step(obs, action, reward, next_obs, done)
-                    self.dreamer_agent.learn_step()
+                    if steps % 2 == 0 or done:
+                        self.dreamer_agent.learn_step()
                 elif self.algorithm == "muzero":
                     action = self.muzero_agent.choose_action(obs, greedy=False)
                     next_obs, reward, done, info = self.env.step(action)
                     self.muzero_agent.record_step(obs, action, reward, next_obs, done)
-                    self.muzero_agent.learn_step()
+                    if steps % 2 == 0 or done:
+                        self.muzero_agent.learn_step()
                 elif self.algorithm == "dqn":
                     action = self.dqn_agent.choose_action(obs, greedy=False)
                     next_obs, reward, done, info = self.env.step(action)
                     self.dqn_agent.record_step(obs, action, reward, next_obs, done)
-                    self.dqn_agent.learn_step()
-                else: # q_learning
+                    if steps % 2 == 0 or done:
+                        self.dqn_agent.learn_step()
+                else:  # q_learning
                     state_key = self.q_agent.get_state_key(obs)
                     action = self.q_agent.choose_action(state_key, greedy=False)
                     next_obs, reward, done, info = self.env.step(action)
@@ -281,18 +288,17 @@ class RLTrainer:
                 if self.training_speed > 0:
                     self.live_state = obs
                     time.sleep(self.training_speed)
-                elif steps % 2 == 0:
+                elif steps % 4 == 0:
                     self.live_state = obs
-                    time.sleep(0.006)  # ~160 FPS nhịp bước giúp người dùng quan sát Agent chuyển động trực quan trên sàn 3D
+                    time.sleep(0.002)
 
             # Cập nhật cuối mỗi episode
-            loss = 0.0
             if self.algorithm == "ppo":
-                loss = self.ppo_agent.learn_episode()
-                epsilon_val = 0.0  # PPO dùng stochastic policy gradient
+                self.ppo_agent.learn_episode()
+                epsilon_val = round(max(0.003, self.ppo_agent.entropy_coef * (0.996 ** self.ppo_agent.training_steps)), 4)
                 states_val = self.ppo_agent.training_steps
             elif self.algorithm == "sac":
-                epsilon_val = self.sac_agent.alpha
+                epsilon_val = round(float(self.sac_agent.alpha), 4)
                 states_val = len(self.sac_agent.replay_buffer)
             elif self.algorithm == "sac2":
                 epsilon_val = round(float(self.sac2_agent.alpha), 4)
@@ -322,7 +328,6 @@ class RLTrainer:
             self.latest_trajectory = trajectory
             self.live_state = obs
 
-            # Lưu vào lịch sử
             ep_metric = {
                 "episode": self.current_episode,
                 "reward": round(episode_reward, 2),
@@ -348,10 +353,13 @@ class RLTrainer:
 
         if self.algorithm == "ppo":
             states_learned = self.ppo_agent.training_steps
-            eps = 0.0
+            eps = round(max(0.003, self.ppo_agent.entropy_coef * (0.996 ** self.ppo_agent.training_steps)), 4)
         elif self.algorithm == "sac":
             states_learned = len(self.sac_agent.replay_buffer)
-            eps = self.sac_agent.alpha
+            eps = round(float(self.sac_agent.alpha), 4)
+        elif self.algorithm == "sac2":
+            states_learned = len(self.sac2_agent.replay_buffer)
+            eps = round(float(self.sac2_agent.alpha), 4)
         elif self.algorithm == "dreamer":
             states_learned = self.dreamer_agent.imagined_steps_count
             eps = float(self.dreamer_agent.horizon)
@@ -390,7 +398,6 @@ class RLTrainer:
         obs = self.live_state
 
         if action is None:
-            # Chọn action theo mô hình đã học
             if self.algorithm == "ppo":
                 action, _ = self.ppo_agent.choose_action(obs, greedy=True)
             elif self.algorithm == "sac":
@@ -411,7 +418,7 @@ class RLTrainer:
         self.live_state = next_obs
 
         if done:
-            self.live_state = self.env.reset()
+            self.live_state = self.env.reset(episode_num=max(1, self.current_episode))
 
         return {
             "observation": next_obs,
@@ -466,28 +473,25 @@ class RLTrainer:
         with open(filepath, "r", encoding="utf-8") as f:
             data = json.load(f)
 
-        algo = data.get("algorithm", "q_learning").lower()
-        self.algorithm = algo
         pol = data.get("policy", {})
+        raw_algo = (data.get("algorithm") or pol.get("algorithm") or "q_learning").lower().replace("-", "_")
+        if raw_algo not in ["ppo", "sac", "sac2", "dreamer", "muzero", "dqn", "q_learning"]:
+            raw_algo = "q_learning"
 
-        if algo == "ppo":
+        self.algorithm = raw_algo
+
+        if raw_algo == "ppo":
             self.ppo_agent.import_policy(pol)
-        elif algo == "sac":
+        elif raw_algo == "sac":
             self.sac_agent.load_policy(pol)
-        elif algo == "sac2":
+        elif raw_algo == "sac2":
             self.sac2_agent.load_policy(pol)
-        elif algo == "dreamer":
+        elif raw_algo == "dreamer":
             self.dreamer_agent.load_policy(pol)
-        elif algo == "muzero":
+        elif raw_algo == "muzero":
             self.muzero_agent.load_policy(pol)
-        elif algo == "dqn":
-            w = pol.get("weights", {})
-            if "w1" in w:
-                import numpy as np
-                self.dqn_agent.w1 = np.array(w["w1"], dtype=np.float32)
-                self.dqn_agent.b1 = np.array(w["b1"], dtype=np.float32)
-                self.dqn_agent.w2 = np.array(w["w2"], dtype=np.float32)
-                self.dqn_agent.b2 = np.array(w["b2"], dtype=np.float32)
+        elif raw_algo == "dqn":
+            self.dqn_agent.load_policy(pol)
         else:
             self.q_agent.load_policy(pol)
 
@@ -509,16 +513,25 @@ class RLTrainer:
                     try:
                         with open(fpath, "r", encoding="utf-8") as f:
                             d = json.load(f)
+                            pol = d.get("policy", {})
+                            states_count = (
+                                pol.get("states_learned")
+                                or pol.get("training_steps")
+                                or len(pol.get("q_table", {}))
+                                or d.get("episodes_trained", 0)
+                            )
                             policies.append({
                                 "name": fname[:-5],
-                                "algorithm": d.get("algorithm", "q_learning"),
-                                "algorithm_name": d.get("algorithm_name", "Q-Learning"),
+                                "algorithm": d.get("algorithm") or pol.get("algorithm", "q_learning"),
+                                "algorithm_name": d.get("algorithm_name") or pol.get("algorithm_name", "Q-Learning"),
                                 "agent_id": d.get("agent_id", "unknown"),
-                                "episodes": d.get("episodes_trained", 0)
+                                "episodes": d.get("episodes_trained", 0),
+                                "states": states_count
                             })
                     except Exception:
                         pass
         return policies
+
 
 # Singleton instance
 trainer = RLTrainer()

@@ -9,6 +9,7 @@ import {
     PartnerNodeData,
     AppPackageInfo,
 } from '@/lib/api/distributed'
+import { sellerApi } from '@/lib/api/seller'
 
 interface PartnerOnboardingModalProps {
     isOpen: boolean
@@ -160,11 +161,20 @@ export default function PartnerOnboardingModal({
             ws.onmessage = (event) => {
                 try {
                     const data = JSON.parse(event.data)
-                    if (data.type === 'HARDWARE_STATS' || data.cpu_percent !== undefined) {
+                    // Chỉ nhận telemetry của đúng node này hoặc worker trên cùng máy
+                    if (
+                        data.nodeId &&
+                        registeredNode?.id &&
+                        data.nodeId !== registeredNode.id &&
+                        !String(data.nodeId).startsWith('guest_worker_')
+                    ) {
+                        return
+                    }
+                    if (data.type === 'HARDWARE_STATS' || data.type === 'SYSTEM_INFO' || data.cpu_percent !== undefined) {
                         setLiveTelemetry({
-                            cpu: data.cpu_percent || 0,
-                            ram: data.ram_percent || 0,
-                            disk: data.disk_percent || 0,
+                            cpu: data.cpu_percent ?? data.hardware?.cpu?.percent ?? 0,
+                            ram: data.ram_percent ?? data.hardware?.memory?.percent ?? 0,
+                            disk: data.disk_percent ?? data.hardware?.disk?.[0]?.percent ?? 0,
                             connected: true,
                         })
                     }
@@ -204,6 +214,31 @@ export default function PartnerOnboardingModal({
                 setRegisteredNode(res.node)
                 setAppPackage(res.clientApp)
                 if (res.benchmark) setBenchmark(res.benchmark)
+
+                // Đồng bộ luôn sang Seller Service Marketplace để máy hiện ngay bên trang /owner và /seller
+                const firstEligibleModel =
+                    res.node.compatibleModels?.[0] ||
+                    res.benchmark?.eligibleModels?.find((m) => m.isEligible)?.modelId ||
+                    'qwen-2.5-coder-1.5b'
+                sellerApi
+                    .registerNode({
+                        nodeId: res.node.id,
+                        sellerId: payload.userId,
+                        sellerName: payload.username,
+                        nodeName: `${payload.username} (${hardware.gpuName || 'AI Worker'})`,
+                        cpuCores: rentConfig.allocatedCores || hardware.cpuCores,
+                        ramGB: rentConfig.allocatedRAMGB || hardware.deviceMemoryGB,
+                        gpuName: hardware.gpuName || 'CPU / WebGPU',
+                        vramGB: hardware.vramGB || 8,
+                        hostedModel: firstEligibleModel,
+                        modelDisplayName: firstEligibleModel,
+                        localEndpoint: 'http://localhost:11434',
+                        coinsPerHour: rentConfig.minPricePerHourCoin || 35,
+                        coinsPer1kTokens: 0.5,
+                        locationName: 'Hà Nội, Việt Nam',
+                    })
+                    .catch(() => null)
+
                 onPartnerRegistered?.(res.node)
                 setStep('download_client')
             }
@@ -690,12 +725,35 @@ export default function PartnerOnboardingModal({
                                         </div>
                                     </div>
 
-                                    <div className="bg-zinc-950/80 p-3 rounded-lg border border-zinc-800/80 text-[11px] text-zinc-400 space-y-1">
-                                        <strong className="text-zinc-300 block">Khởi chạy nhanh qua mã nguồn:</strong>
+                                    <div className="bg-zinc-950/80 p-3 rounded-lg border border-zinc-800/80 text-[11px] text-zinc-400 space-y-1.5">
+                                        <div className="flex items-center justify-between pb-1 border-b border-zinc-800/60">
+                                            <strong className="text-zinc-300 block">Cài đặt Local LLM Engine:</strong>
+                                            <div className="flex items-center gap-2">
+                                                <a
+                                                    href="https://ollama.com"
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="text-blue-400 hover:underline font-semibold"
+                                                >
+                                                    Ollama ↗
+                                                </a>
+                                                <span className="text-zinc-600">|</span>
+                                                <a
+                                                    href="https://lmstudio.ai"
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="text-purple-400 hover:underline font-semibold"
+                                                >
+                                                    LM Studio ↗
+                                                </a>
+                                            </div>
+                                        </div>
+                                        <strong className="text-zinc-300 block pt-0.5">Khởi chạy nhanh qua mã nguồn:</strong>
                                         <div>1. Mở thư mục <code className="text-zinc-200">proj3_clientElectron</code></div>
                                         <div>2. Chạy Python daemon: <code className="text-blue-300">python backend/worker.py</code></div>
                                         <div>3. Chạy Desktop App: <code className="text-emerald-300">npm start</code></div>
                                     </div>
+
                                 </div>
                             </div>
                         </div>

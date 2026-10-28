@@ -2,7 +2,9 @@
 
 import React, { useState, useEffect } from 'react'
 import { sellerApi, SellerNodeData, SellerDashboardData } from '@/lib/api/seller'
+import { distributedApi } from '@/lib/api/distributed'
 import { useConfirm } from '@/context/ConfirmContext'
+import { useUser } from '@/hooks/useUser'
 import { notify } from '@/lib/toast'
 import {
     Server,
@@ -25,12 +27,16 @@ import {
 } from 'lucide-react'
 
 export default function SellerComputePage() {
+    const { profile } = useUser()
     const { alert: alertModal } = useConfirm()
     const [dashboard, setDashboard] = useState<SellerDashboardData | null>(null)
     const [loading, setLoading] = useState(true)
     const [isRegisterOpen, setIsRegisterOpen] = useState(false)
     const [submitting, setSubmitting] = useState(false)
     const [gettingLocation, setGettingLocation] = useState(false)
+
+    const currentSellerId = profile?.id || 'usr_seller_01'
+    const currentSellerName = profile?.name || 'Minh Tuấn (AI Developer)'
 
     // Form đăng ký máy mới
     const [newNode, setNewNode] = useState({
@@ -51,7 +57,7 @@ export default function SellerComputePage() {
 
     const loadDashboard = async () => {
         try {
-            const res = await sellerApi.getSellerDashboard('usr_seller_01')
+            const res = await sellerApi.getSellerDashboard(currentSellerId)
             if (res.success) {
                 setDashboard(res)
             }
@@ -66,7 +72,7 @@ export default function SellerComputePage() {
         loadDashboard()
         const interval = setInterval(loadDashboard, 8000)
         return () => clearInterval(interval)
-    }, [])
+    }, [currentSellerId])
 
     const handleToggleStatus = async (nodeId: string, currentStatus: string) => {
         const nextStatus = currentStatus === 'ONLINE' ? 'OFFLINE' : 'ONLINE'
@@ -117,8 +123,8 @@ export default function SellerComputePage() {
         try {
             await sellerApi.registerNode({
                 ...newNode,
-                sellerId: 'usr_seller_01',
-                sellerName: 'Minh Tuấn (AI Developer)',
+                sellerId: currentSellerId,
+                sellerName: currentSellerName,
             })
             setIsRegisterOpen(false)
             await loadDashboard()
@@ -155,7 +161,7 @@ export default function SellerComputePage() {
 
                 <div className="flex items-center gap-3">
                     <a
-                        href="http://localhost:5010/api/v1/distributed/client/download"
+                        href={distributedApi.getDownloadAppUrl()}
                         download
                         className="px-4 py-2 bg-zinc-900 hover:bg-zinc-800 text-zinc-200 hover:text-white text-xs font-semibold rounded-xl border border-zinc-700/80 transition flex items-center gap-2 shadow-sm"
                     >

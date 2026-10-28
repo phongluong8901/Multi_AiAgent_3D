@@ -29,7 +29,7 @@ def load_ws_url():
                         return cfg.get("serverWsUrl")
             except Exception:
                 pass
-    return "ws://localhost:8082/ws"
+    return os.environ.get("GATEWAY_WS_URL", "ws://localhost:5010/api/v1/distributed/ws")
 
 WS_URL = load_ws_url()
 

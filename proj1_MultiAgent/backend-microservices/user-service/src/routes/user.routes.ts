@@ -19,6 +19,7 @@ router.put("/me/avatar", upload.single("avatar"), userController.updateAvatar);
 
 router.post("/me/hardware-node", userController.updateHardwareNode);
 router.get("/me/hardware-node", userController.getHardwareNode);
+router.delete("/me/hardware-node", userController.deleteHardwareNode);
 
 router.get("/me/agents", userController.getMyAgents);
 router.post("/me/agents/:agentId", userController.addMyAgent);

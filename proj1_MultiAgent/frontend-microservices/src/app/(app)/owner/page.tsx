@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react'
 import { ownerApi, OwnerDashboardData } from '@/lib/api/owner'
 import { SellerNodeData } from '@/lib/api/seller'
 import { useConfirm } from '@/context/ConfirmContext'
+import { useUser } from '@/hooks/useUser'
 import { notify } from '@/lib/toast'
 import {
     Server,
@@ -27,6 +28,7 @@ import {
 } from 'lucide-react'
 
 export default function OwnerAgentRentalPage() {
+    const { profile } = useUser()
     const { confirm: confirmModal, alert: alertModal } = useConfirm()
     const [dashboard, setDashboard] = useState<OwnerDashboardData | null>(null)
     const [marketNodes, setMarketNodes] = useState<SellerNodeData[]>([])
@@ -61,10 +63,13 @@ export default function OwnerAgentRentalPage() {
         modelName: string
     } | null>(null)
 
+    const currentOwnerId = profile?.id || 'usr_owner_01'
+    const currentOwnerName = profile?.name || 'Đức Huy (Project Leader)'
+
     const loadData = async () => {
         try {
             const [dashRes, marketRes] = await Promise.all([
-                ownerApi.getOwnerDashboard('usr_owner_01'),
+                ownerApi.getOwnerDashboard(currentOwnerId),
                 ownerApi.getMarketplace({
                     lat: userLocation.lat,
                     lng: userLocation.lng,
@@ -121,9 +126,9 @@ export default function OwnerAgentRentalPage() {
     const handleRentNode = async (node: SellerNodeData) => {
         try {
             const res = await ownerApi.startRental({
-                renterId: 'usr_owner_01',
-                renterName: 'Đức Huy (Project Leader)',
-                nodeId: node.id || node.nodeId || '',
+                renterId: currentOwnerId,
+                renterName: currentOwnerName,
+                nodeId: node.nodeId || node.id || '',
                 nodeName: node.nodeName,
                 sellerId: node.sellerId,
                 sellerName: node.sellerName,
@@ -132,11 +137,13 @@ export default function OwnerAgentRentalPage() {
                 pricingMode: 'pay_per_token',
                 hourlyRate: node.coinsPerHour ?? node.pricing?.coinsPerHour ?? 30,
                 tokenRate: node.coinsPer1kTokens ?? node.pricing?.coinsPer1kTokens ?? 0.5,
-                agentId: 'agent_main_project',
+                agentId: 'agent_manager',
                 agentName: 'Multi-Agent Project Lead Bot',
             })
             notify.success(`Thuê thành công máy "${node.nodeName}"! Đã nạp mô hình ${node.modelDisplayName} vào Agent.`)
-            if (res.rental?.id) setSelectedRentalId(res.rental.id)
+            const sessObj = res.rental || (res as any).session
+            const newId = sessObj?.sessionId || sessObj?.id || ''
+            if (newId) setSelectedRentalId(newId)
             await loadData()
         } catch (err: any) {
             alertModal({

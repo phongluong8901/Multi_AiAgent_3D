@@ -1,9 +1,11 @@
 'use client'
 
 import React, { useState, useEffect, useMemo } from 'react'
+import Link from 'next/link'
 import { request } from '@/lib/client'
 import Globe3DView, { GeoNode, GeoLink } from '@/components/network/Globe3DView'
 import WorldMap2DView from '@/components/network/WorldMap2DView'
+import ClusterTopology3DView, { ClusterNode3D } from '@/components/network/ClusterTopology3DView'
 import {
     IconGlobe,
     IconMap,
@@ -19,7 +21,21 @@ import {
 } from '@/components/ui/icons'
 import PartnerOnboardingModal from '@/components/distributed/PartnerOnboardingModal'
 import { useUser } from '@/hooks/useUser'
-import { PartnerNodeData } from '@/lib/api/distributed'
+import { distributedApi, PartnerNodeData } from '@/lib/api/distributed'
+import { ownerApi, RentalSessionData } from '@/lib/api/owner'
+import {
+    Server,
+    Bot,
+    Cpu,
+    Zap,
+    Activity,
+    Radio,
+    ArrowRight,
+    ShieldCheck,
+    CheckCircle2,
+    Clock,
+    Coins,
+} from 'lucide-react'
 
 type UserNode = {
     _id: string
@@ -47,7 +63,7 @@ type UserNode = {
     }
 }
 
-// Danh sách các trung tâm tính toán AI phân tán mẫu trên thế giới
+// Danh sách các trung tâm tính toán AI phân tán mẫu trên thế giới để phân bổ không gian
 const GEO_HUBS = [
     { city: 'Hà Nội', country: 'Việt Nam', lat: 21.0285, lng: 105.8542 },
     { city: 'TP. Hồ Chí Minh', country: 'Việt Nam', lat: 10.8231, lng: 106.6297 },
@@ -64,16 +80,17 @@ const GEO_HUBS = [
 export default function UserModelsPage() {
     const { profile } = useUser()
     const [nodes, setNodes] = useState<UserNode[]>([])
+    const [activeConnections, setActiveConnections] = useState<RentalSessionData[]>([])
     const [loading, setLoading] = useState(true)
     const [selectedModelFilter, setSelectedModelFilter] = useState<string | null>(null)
     const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
     const [isPartnerModalOpen, setIsPartnerModalOpen] = useState(false)
 
-    // View mode: 'globe' (3D Earth) | 'map2d' (2D Geospatial) | 'topology' (Cluster Graph)
-    const [viewMode, setViewMode] = useState<'globe' | 'map2d' | 'topology'>('globe')
+    // View mode: 'topology' (3D Cluster Graph) | 'connections' (Seller ⇄ Owner P2P Streams) | 'globe' (3D Earth) | 'map2d' (2D Geospatial)
+    const [viewMode, setViewMode] = useState<'topology' | 'connections' | 'globe' | 'map2d'>('topology')
 
     const handlePartnerRegistered = (newNode: PartnerNodeData) => {
-        // Tự động bổ sung node vừa đăng ký vào danh sách hiển thị
+        // Bổ sung node vừa đăng ký vào danh sách hiển thị
         const enriched: UserNode = {
             _id: newNode.id,
             username: newNode.username || profile?.name || 'My_Partner_Node',
@@ -85,7 +102,7 @@ export default function UserModelsPage() {
                 deviceMemoryGB: newNode.hardware.deviceMemoryGB,
                 hasWebGPU: newNode.hardware.hasWebGPU,
                 gpuName: newNode.hardware.gpuName,
-                recommendedModels: newNode.compatibleModels,
+                recommendedModels: newNode.compatibleModels || ['qwen2.5-coder:1.5b'],
                 canRunAI: true,
                 status: 'IDLE',
                 bandwidthMbps: 1200,
@@ -96,198 +113,84 @@ export default function UserModelsPage() {
         setSelectedNodeId(newNode.id)
     }
 
-    useEffect(() => {
-        async function fetchUserNodes() {
-            setLoading(true)
-            try {
-                const res = await request<any>('/users/hardware-nodes')
-                const list: UserNode[] = Array.isArray(res) ? res : res?.data || res?.nodes || []
-                
-                // Nếu chưa có nodes nào trong DB, tạo danh sách mẫu phong phú để trực quan hóa
-                if (!list || list.length === 0) {
-                    const fallbackNodes: UserNode[] = [
-                        {
-                            _id: 'node-hanoi-1',
-                            username: 'Hanoi_DeepSeek_Cluster',
-                            email: 'hanoi.cluster@ai.vn',
-                            status: 'online',
-                            location: GEO_HUBS[0],
-                            hardwareNode: {
-                                cpuCores: 32,
-                                deviceMemoryGB: 64,
-                                hasWebGPU: true,
-                                gpuName: 'NVIDIA RTX 4090 24GB',
-                                recommendedModels: ['deepseek-r1:7b', 'llama3:8b', 'qwen2.5:7b'],
-                                canRunAI: true,
-                                status: 'IDLE',
-                                bandwidthMbps: 1200,
-                                latencyMs: 12,
-                            },
-                        },
-                        {
-                            _id: 'node-hcm-2',
-                            username: 'Saigon_Neural_Worker',
-                            email: 'worker.sg@ai.vn',
-                            status: 'busy',
-                            location: GEO_HUBS[1],
-                            hardwareNode: {
-                                cpuCores: 16,
-                                deviceMemoryGB: 32,
-                                hasWebGPU: true,
-                                gpuName: 'NVIDIA RTX 3080 Ti',
-                                recommendedModels: ['deepseek-r1:7b', 'mistral:7b'],
-                                canRunAI: true,
-                                status: 'BUSY',
-                                bandwidthMbps: 850,
-                                latencyMs: 18,
-                            },
-                        },
-                        {
-                            _id: 'node-danang-3',
-                            username: 'Danang_Edge_Gateway',
-                            email: 'gateway.dn@ai.vn',
-                            status: 'online',
-                            location: GEO_HUBS[2],
-                            hardwareNode: {
-                                cpuCores: 12,
-                                deviceMemoryGB: 24,
-                                hasWebGPU: true,
-                                gpuName: 'Apple M3 Pro GPU',
-                                recommendedModels: ['phi3:mini', 'qwen2.5:7b'],
-                                canRunAI: true,
-                                status: 'IDLE',
-                                bandwidthMbps: 600,
-                                latencyMs: 15,
-                            },
-                        },
-                        {
-                            _id: 'node-singapore-4',
-                            username: 'SG_Asia_Hub_Orchestrator',
-                            email: 'sg.hub@cloud.io',
-                            status: 'online',
-                            location: GEO_HUBS[3],
-                            hardwareNode: {
-                                cpuCores: 64,
-                                deviceMemoryGB: 128,
-                                hasWebGPU: true,
-                                gpuName: 'Dual NVIDIA A100 SXM4 80GB',
-                                recommendedModels: ['deepseek-r1:7b', 'llama3:8b', 'mistral:7b', 'qwen2.5:7b'],
-                                canRunAI: true,
-                                status: 'IDLE',
-                                bandwidthMbps: 2500,
-                                latencyMs: 32,
-                            },
-                        },
-                        {
-                            _id: 'node-tokyo-5',
-                            username: 'Tokyo_Robotics_Host',
-                            email: 'tokyo.node@ai.jp',
-                            status: 'online',
-                            location: GEO_HUBS[4],
-                            hardwareNode: {
-                                cpuCores: 24,
-                                deviceMemoryGB: 48,
-                                hasWebGPU: true,
-                                gpuName: 'NVIDIA RTX 4080 Super',
-                                recommendedModels: ['deepseek-r1:7b', 'llama3:8b'],
-                                canRunAI: true,
-                                status: 'IDLE',
-                                bandwidthMbps: 1500,
-                                latencyMs: 65,
-                            },
-                        },
-                        {
-                            _id: 'node-seoul-6',
-                            username: 'Seoul_Inference_Rig',
-                            email: 'seoul.rig@kr.ai',
-                            status: 'busy',
-                            location: GEO_HUBS[5],
-                            hardwareNode: {
-                                cpuCores: 16,
-                                deviceMemoryGB: 32,
-                                hasWebGPU: true,
-                                gpuName: 'NVIDIA RTX 3090 24GB',
-                                recommendedModels: ['qwen2.5:7b', 'mistral:7b'],
-                                canRunAI: true,
-                                status: 'BUSY',
-                                bandwidthMbps: 900,
-                                latencyMs: 72,
-                            },
-                        },
-                        {
-                            _id: 'node-sf-7',
-                            username: 'SiliconValley_Compute_Peer',
-                            email: 'sv.peer@ai.us',
-                            status: 'online',
-                            location: GEO_HUBS[6],
-                            hardwareNode: {
-                                cpuCores: 32,
-                                deviceMemoryGB: 64,
-                                hasWebGPU: true,
-                                gpuName: 'NVIDIA H100 PCIe 80GB',
-                                recommendedModels: ['deepseek-r1:7b', 'llama3:8b', 'phi3:mini'],
-                                canRunAI: true,
-                                status: 'IDLE',
-                                bandwidthMbps: 3000,
-                                latencyMs: 140,
-                            },
-                        },
-                        {
-                            _id: 'node-frankfurt-8',
-                            username: 'EU_Frankfurt_Node',
-                            email: 'fra.node@eu.de',
-                            status: 'online',
-                            location: GEO_HUBS[7],
-                            hardwareNode: {
-                                cpuCores: 20,
-                                deviceMemoryGB: 40,
-                                hasWebGPU: true,
-                                gpuName: 'NVIDIA RTX 4070 Ti Super',
-                                recommendedModels: ['mistral:7b', 'llama3:8b'],
-                                canRunAI: true,
-                                status: 'IDLE',
-                                bandwidthMbps: 1100,
-                                latencyMs: 180,
-                            },
-                        },
-                    ]
-                    setNodes(fallbackNodes)
-                } else {
-                    // Gán tọa độ địa lý ngẫu nhiên nhưng ổn định cho các Node thực từ backend
-                    const enriched = list.map((n, idx) => {
-                        const hub = GEO_HUBS[idx % GEO_HUBS.length]
-                        return {
-                            ...n,
-                            location: n.location || hub,
-                            hardwareNode: {
-                                ...n.hardwareNode,
-                                bandwidthMbps: n.hardwareNode.bandwidthMbps || 800 + (idx * 150) % 1500,
-                                latencyMs: n.hardwareNode.latencyMs || 15 + (idx * 25) % 180,
-                            },
-                        }
-                    })
-                    setNodes(enriched)
-                }
-            } catch (err) {
-                console.error('Lỗi lấy danh sách User Node:', err)
-            } finally {
-                setLoading(false)
-            }
-        }
+    const fetchUserNodes = async () => {
+        setLoading(true)
+        try {
+            // Lấy danh sách Partner Nodes từ Distributed Service, User Service và các phiên kết nối Seller ⇄ Owner
+            const [distRes, usersRes, connRes] = await Promise.all([
+                distributedApi.listNodes().catch(() => null),
+                request<any>('/users/hardware-nodes').catch(() => null),
+                ownerApi.getActiveConnections().catch(() => null),
+            ])
 
+            if (connRes?.sessions) {
+                setActiveConnections(connRes.sessions)
+            } else if ((connRes as any)?.data?.activeRentals) {
+                setActiveConnections((connRes as any).data.activeRentals)
+            }
+
+            const partnerList: PartnerNodeData[] = distRes?.nodes || []
+            const userList: UserNode[] = Array.isArray(usersRes) ? usersRes : usersRes?.data || usersRes?.nodes || []
+
+            const combined: UserNode[] = []
+
+            // Thêm các Partner Nodes từ Distributed Service (kết nối qua Electron Worker)
+            partnerList.forEach((pn, idx) => {
+                const hub = GEO_HUBS[idx % GEO_HUBS.length]
+                combined.push({
+                    _id: pn.id,
+                    username: pn.username || `Partner_${pn.id.slice(-6)}`,
+                    email: pn.email || '',
+                    status: pn.status === 'IDLE' ? 'online' : pn.status === 'BUSY' ? 'busy' : 'offline',
+                    location: hub,
+                    hardwareNode: {
+                        cpuCores: pn.hardware.cpuCores,
+                        deviceMemoryGB: pn.hardware.deviceMemoryGB,
+                        hasWebGPU: pn.hardware.hasWebGPU,
+                        gpuName: pn.hardware.gpuName,
+                        recommendedModels: pn.compatibleModels || ['qwen2.5-coder:1.5b'],
+                        canRunAI: true,
+                        status: pn.status === 'IDLE' ? 'IDLE' : pn.status === 'BUSY' ? 'BUSY' : 'OFFLINE',
+                        bandwidthMbps: 800 + ((idx * 150) % 1500),
+                        latencyMs: 12 + ((idx * 18) % 120),
+                        lastSeen: pn.updatedAt,
+                    },
+                })
+            })
+
+            // Thêm các Node trình duyệt nếu có
+            userList.forEach((un, idx) => {
+                if (!combined.some((c) => c._id === un._id)) {
+                    const hub = GEO_HUBS[(partnerList.length + idx) % GEO_HUBS.length]
+                    combined.push({
+                        ...un,
+                        location: un.location || hub,
+                        hardwareNode: {
+                            ...un.hardwareNode,
+                            bandwidthMbps: un.hardwareNode.bandwidthMbps || 600,
+                            latencyMs: un.hardwareNode.latencyMs || 25,
+                        },
+                    })
+                }
+            })
+
+            // Dữ liệu thực tế: Không dùng mock fallback nodes
+            setNodes(combined)
+        } catch (err) {
+            console.error('Lỗi lấy danh sách User Node:', err)
+            setNodes([])
+        } finally {
+            setLoading(false)
+        }
+    }
+
+    useEffect(() => {
         fetchUserNodes()
+        const interval = setInterval(fetchUserNodes, 8000)
+        return () => clearInterval(interval)
     }, [])
 
-    // Danh sách tất cả các models đang có
-    const allModels = useMemo(() => {
-        const modelSet = new Set<string>()
-        nodes.forEach((n) => {
-            n.hardwareNode?.recommendedModels?.forEach((m) => modelSet.add(m))
-        })
-        return Array.from(modelSet)
-    }, [nodes])
-
-    // Lọc các Node theo Model
+    // Lọc theo Model
     const filteredNodes = useMemo(() => {
         if (!selectedModelFilter) return nodes
         return nodes.filter((n) =>
@@ -295,14 +198,23 @@ export default function UserModelsPage() {
         )
     }, [nodes, selectedModelFilter])
 
-    // Chuyển đổi định dạng sang GeoNode để hiển thị trên bản đồ 3D và 2D
+    // Danh sách toàn bộ model độc nhất
+    const allModels = useMemo(() => {
+        const set = new Set<string>()
+        nodes.forEach((n) => {
+            n.hardwareNode?.recommendedModels?.forEach((m) => set.add(m))
+        })
+        return Array.from(set)
+    }, [nodes])
+
+    // Chuyển đổi UserNode sang GeoNode
     const geoNodes: GeoNode[] = useMemo(() => {
         return filteredNodes.map((n, idx) => {
             const loc = n.location || GEO_HUBS[idx % GEO_HUBS.length]
             return {
                 id: n._id,
-                name: n.username || `Node-${idx + 1}`,
-                email: n.email || '',
+                name: n.username,
+                email: n.email,
                 city: loc.city,
                 country: loc.country,
                 lat: loc.lat,
@@ -310,13 +222,13 @@ export default function UserModelsPage() {
                 status: n.hardwareNode?.status || 'IDLE',
                 gpuName: n.hardwareNode?.gpuName,
                 models: n.hardwareNode?.recommendedModels || [],
-                latencyMs: n.hardwareNode?.latencyMs || 25,
-                bandwidthMbps: n.hardwareNode?.bandwidthMbps || 1000,
+                latencyMs: n.hardwareNode?.latencyMs || 15,
+                bandwidthMbps: n.hardwareNode?.bandwidthMbps || 800,
             }
         })
     }, [filteredNodes])
 
-    // Tạo các liên kết mạng lưới (GeoLinks) giữa các Node đang chia sẻ chung Model AI
+    // Tạo các đường liên kết (Links) giữa các Node cùng Model
     const geoLinks: GeoLink[] = useMemo(() => {
         const links: GeoLink[] = []
         for (let i = 0; i < geoNodes.length; i++) {
@@ -324,12 +236,9 @@ export default function UserModelsPage() {
                 const nodeA = geoNodes[i]
                 const nodeB = geoNodes[j]
 
-                // Tìm các model chung
                 const shared = nodeA.models.filter((m) => nodeB.models.includes(m))
                 if (shared.length > 0) {
-                    const activeModel = selectedModelFilter
-                        ? selectedModelFilter
-                        : shared[0]
+                    const activeModel = selectedModelFilter ? selectedModelFilter : shared[0]
 
                     if (!selectedModelFilter || shared.includes(selectedModelFilter)) {
                         links.push({
@@ -345,6 +254,22 @@ export default function UserModelsPage() {
         return links
     }, [geoNodes, selectedModelFilter])
 
+    // Chuyển đổi sang định dạng Node 3D cho Đồ thị Topo 3D
+    const cluster3DNodes: ClusterNode3D[] = useMemo(() => {
+        return geoNodes.map((n) => ({
+            id: n.id,
+            name: n.name,
+            model: n.models?.[0] || 'Qwen 2.5 Coder',
+            status: n.status,
+            gpuName: n.gpuName,
+            cpuCores: filteredNodes.find((f) => f._id === n.id)?.hardwareNode?.cpuCores,
+            ramGB: filteredNodes.find((f) => f._id === n.id)?.hardwareNode?.deviceMemoryGB,
+            latencyMs: n.latencyMs,
+            bandwidthMbps: n.bandwidthMbps,
+            city: n.city,
+        }))
+    }, [geoNodes, filteredNodes])
+
     // Thống kê tổng quan
     const totalBandwidthGbps = useMemo(() => {
         const mbps = geoNodes.reduce((sum, n) => sum + (n.bandwidthMbps || 0), 0)
@@ -357,47 +282,142 @@ export default function UserModelsPage() {
         return Math.round(total / geoNodes.length)
     }, [geoNodes])
 
-    // Tìm node đang được chọn
-    const activeSelectedNode = useMemo(() => {
-        return geoNodes.find((n) => n.id === selectedNodeId) || null
-    }, [geoNodes, selectedNodeId])
-
     if (loading) {
         return (
             <div className="flex items-center justify-center p-16 text-xs text-zinc-500">
-                Đang nạp dữ liệu và đồng bộ bản đồ mạng lưới đối tác...
+                Đang nạp dữ liệu và đồng bộ mạng lưới đối tác thời gian thực...
             </div>
         )
     }
 
     return (
         <div className="space-y-6">
-            {/* 1. HEADER TRANG & CHUYỂN GÓC NHÌN BẢN ĐỒ */}
+            {/* 1. HEADER TRANG & NÚT GIA NHẬP ĐỐI TÁC */}
             <div className="border-b border-zinc-800 pb-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
                     <h1 className="text-base font-bold text-white flex items-center gap-2">
                         <IconGlobe className="w-5 h-5 text-blue-400" />
                         <span>Mạng Lưới Đối Tác & Bản Đồ Vị Trí Tính Toán AI (Global AI Nodes)</span>
                     </h1>
-                    <p className="text-xs text-zinc-400 mt-1">
-                        Theo dõi trực quan vị trí địa lý, lưu lượng truyền tải và liên kết tính toán phân tán giữa các máy trạm đối tác trên toàn cầu.
+                    <p className="text-xs text-zinc-400 mt-0.5">
+                        Theo dõi các máy trạm AI đang kết nối qua Electron Worker và các phiên kết nối Seller ⇄ Owner truyền tải LLM.
                     </p>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-3">
-                    {/* Nút Kích Hoạt Đối Tác Mô Hình & Tải App */}
-                    <button
-                        onClick={() => setIsPartnerModalOpen(true)}
-                        className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white font-bold text-xs shadow-lg shadow-blue-500/25 transition cursor-pointer"
-                    >
-                        <svg className="w-4 h-4 text-white animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
-                        </svg>
-                        <span>Gia Nhập Đối Tác & Nhận App Desktop</span>
-                    </button>
+                {/* Nút Đăng ký làm đối tác & Tải App */}
+                <button
+                    onClick={() => setIsPartnerModalOpen(true)}
+                    className="px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs shadow-lg shadow-blue-500/20 transition flex items-center gap-2 shrink-0 self-start md:self-auto"
+                >
+                    <IconZap className="w-4 h-4 fill-current" />
+                    <span>Đăng Ký Đối Tác & Tải Client App (.exe)</span>
+                </button>
+            </div>
 
-                    {/* Các nút chuyển đổi Chế Độ Hiển Thị Bản Đồ (3D Globe / 2D Map / Topology) */}
-                    <div className="flex items-center gap-1.5 bg-zinc-900 border border-zinc-800 p-1 rounded-xl">
+            {/* 2. CHỈ SỐ TỔNG QUAN HỆ THỐNG */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="p-4 rounded-2xl bg-zinc-900/40 border border-zinc-800 space-y-1">
+                    <span className="text-[11px] text-zinc-400">Node Đang Trực Tuyến</span>
+                    <div className="flex items-baseline gap-1">
+                        <strong className="text-2xl font-black text-emerald-400 font-mono">
+                            {geoNodes.filter((n) => n.status === 'IDLE' || n.status === 'BUSY').length}
+                        </strong>
+                        <span className="text-xs text-zinc-500">/ {nodes.length} máy</span>
+                    </div>
+                    <span className="text-[10px] text-zinc-500">Đã kết nối qua Electron Worker</span>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-zinc-900/40 border border-zinc-800 space-y-1">
+                    <span className="text-[11px] text-zinc-400">Luồng Streaming LLM Local</span>
+                    <div className="flex items-baseline gap-1">
+                        <strong className="text-2xl font-black text-cyan-400 font-mono">
+                            {activeConnections.length}
+                        </strong>
+                        <span className="text-xs text-cyan-400/80 font-mono">kênh P2P</span>
+                    </div>
+                    <span className="text-[10px] text-emerald-400">Seller ⇄ Owner đang kết nối</span>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-zinc-900/40 border border-zinc-800 space-y-1">
+                    <span className="text-[11px] text-zinc-400">Tổng Băng Thông Mạng</span>
+                    <div className="flex items-baseline gap-1">
+                        <strong className="text-2xl font-black text-blue-400 font-mono">
+                            {totalBandwidthGbps}
+                        </strong>
+                        <span className="text-xs text-blue-400/80 font-mono">Gbps</span>
+                    </div>
+                    <span className="text-[10px] text-zinc-500">Kênh truyền tải P2P</span>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-zinc-900/40 border border-zinc-800 space-y-1">
+                    <span className="text-[11px] text-zinc-400">Độ Trễ Trung Bình (Ping)</span>
+                    <div className="flex items-baseline gap-1">
+                        <strong className="text-2xl font-black text-amber-400 font-mono">
+                            {avgLatency}
+                        </strong>
+                        <span className="text-xs text-amber-400/80 font-mono">ms</span>
+                    </div>
+                    <span className="text-[10px] text-emerald-400">Cực thấp trong cụm nội vùng</span>
+                </div>
+            </div>
+
+            {/* 3. KHÔNG GIAN BẢN ĐỒ, TOPO 3D & TAB KẾT NỐI SELLER ⇄ OWNER */}
+            <div className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-4 space-y-4">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 border-b border-zinc-800/80">
+                    {/* Bộ lọc Mô hình */}
+                    <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0 scrollbar-none">
+                        <span className="text-xs font-semibold text-zinc-400 mr-1 shrink-0">Cụm Model:</span>
+                        <button
+                            onClick={() => setSelectedModelFilter(null)}
+                            className={`px-3 py-1 rounded-lg text-xs font-semibold transition shrink-0 ${
+                                selectedModelFilter === null
+                                    ? 'bg-blue-600 text-white'
+                                    : 'bg-zinc-800 text-zinc-400 hover:text-white'
+                            }`}
+                        >
+                            Tất cả ({nodes.length})
+                        </button>
+                        {allModels.map((m) => (
+                            <button
+                                key={m}
+                                onClick={() => setSelectedModelFilter(m)}
+                                className={`px-3 py-1 rounded-lg text-xs font-semibold transition shrink-0 ${
+                                    selectedModelFilter === m
+                                        ? 'bg-blue-600 text-white'
+                                        : 'bg-zinc-800 text-zinc-400 hover:text-white'
+                                }`}
+                            >
+                                {m}
+                            </button>
+                        ))}
+                    </div>
+
+                    {/* Bộ 4 Chế Độ Hiển Thị: Topo 3D, Kết Nối P2P, Địa Cầu 3D, Bản Đồ 2D */}
+                    <div className="flex items-center gap-1 bg-zinc-950 p-1 rounded-xl border border-zinc-800 flex-wrap shrink-0">
+                        <button
+                            onClick={() => setViewMode('topology')}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                                viewMode === 'topology'
+                                    ? 'bg-blue-600 text-white shadow-sm'
+                                    : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
+                            }`}
+                        >
+                            <IconWorkflow className="w-3.5 h-3.5" />
+                            <span>Đồ Thị Topo 3D</span>
+                        </button>
+
+                        <button
+                            onClick={() => setViewMode('connections')}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                                viewMode === 'connections'
+                                    ? 'bg-cyan-600 text-white shadow-sm'
+                                    : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
+                            }`}
+                        >
+                            <Zap className="w-3.5 h-3.5 text-cyan-300" />
+                            <span>Kết Nối Seller ⇄ Owner ({activeConnections.length})</span>
+                        </button>
+
                         <button
                             onClick={() => setViewMode('globe')}
                             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
@@ -407,7 +427,7 @@ export default function UserModelsPage() {
                             }`}
                         >
                             <IconGlobe className="w-3.5 h-3.5" />
-                            <span>Quả địa cầu 3D</span>
+                            <span>Địa Cầu 3D</span>
                         </button>
 
                         <button
@@ -419,168 +439,182 @@ export default function UserModelsPage() {
                             }`}
                         >
                             <IconMap className="w-3.5 h-3.5" />
-                            <span>Bản đồ 2D</span>
-                        </button>
-
-                        <button
-                            onClick={() => setViewMode('topology')}
-                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
-                                viewMode === 'topology'
-                                    ? 'bg-blue-600 text-white shadow-sm'
-                                    : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
-                            }`}
-                        >
-                            <IconWorkflow className="w-3.5 h-3.5" />
-                            <span>Đồ thị Topo Cụm</span>
+                            <span>Bản Đồ 2D</span>
                         </button>
                     </div>
                 </div>
-            </div>
 
-            {/* BANNER GIA NHẬP ĐỐI TÁC MÔ HÌNH VÀ TẢI CLIENT ELECTRON */}
-            <div className="relative overflow-hidden rounded-2xl border border-blue-500/30 bg-gradient-to-r from-blue-950/40 via-zinc-900/60 to-indigo-950/40 p-5 shadow-xl">
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 relative z-10">
-                    <div className="space-y-1.5 max-w-2xl">
-                        <div className="inline-flex items-center gap-2 px-2.5 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-400/30 text-[10px] font-bold uppercase tracking-wider">
-                            <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-ping" />
-                            <span>Golang Distributed Service Core</span>
-                        </div>
-                        <h2 className="text-sm font-bold text-white">
-                            Kiếm SaveCoins từ phần cứng nhàn rỗi — Trở thành Đối Tác Mô Hình AI
-                        </h2>
-                        <p className="text-xs text-zinc-300 leading-relaxed">
-                            Hệ thống tự động kiểm tra RAM, CPU, GPU của bạn, gợi ý các mô hình AI phù hợp (DeepSeek-R1, Llama 3.3, Mistral, SDXL) và cho phép bạn cấu hình Core/RAM cho thuê. Khi đồng ý, bạn sẽ nhận được ứng dụng Desktop (Python + React + Electron) để kết nối trực tiếp vào mạng lưới.
-                        </p>
-                    </div>
-
-                    <button
-                        onClick={() => setIsPartnerModalOpen(true)}
-                        className="shrink-0 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-lg shadow-blue-600/30 flex items-center justify-center gap-2 transition cursor-pointer"
-                    >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                        </svg>
-                        <span>Kiểm Tra Phần Cứng & Đăng Ký Đối Tác</span>
-                    </button>
-                </div>
-            </div>
-
-            {/* 2. CHỈ SỐ NHANH TOÀN CẦU (GLOBAL TELEMETRY METRICS) */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-                <div className="p-3.5 rounded-xl bg-zinc-900/50 border border-zinc-800 flex items-center justify-between">
-                    <div>
-                        <span className="text-zinc-500 text-[11px] block">Nodes Hoạt Động</span>
-                        <strong className="text-base text-white font-bold">{geoNodes.length} Máy trạm</strong>
-                    </div>
-                    <div className="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
-                        <IconServer className="w-4 h-4" />
-                    </div>
-                </div>
-
-                <div className="p-3.5 rounded-xl bg-zinc-900/50 border border-zinc-800 flex items-center justify-between">
-                    <div>
-                        <span className="text-zinc-500 text-[11px] block">Đường Liên Kết Mạng</span>
-                        <strong className="text-base text-cyan-400 font-bold">{geoLinks.length} Kênh truyền</strong>
-                    </div>
-                    <div className="w-8 h-8 rounded-lg bg-cyan-500/10 text-cyan-400 flex items-center justify-center">
-                        <IconLink className="w-4 h-4" />
-                    </div>
-                </div>
-
-                <div className="p-3.5 rounded-xl bg-zinc-900/50 border border-zinc-800 flex items-center justify-between">
-                    <div>
-                        <span className="text-zinc-500 text-[11px] block">Băng Thông Toàn Cầu</span>
-                        <strong className="text-base text-amber-400 font-bold">{totalBandwidthGbps} Gbps</strong>
-                    </div>
-                    <div className="w-8 h-8 rounded-lg bg-amber-500/10 text-amber-400 flex items-center justify-center">
-                        <IconZap className="w-4 h-4" />
-                    </div>
-                </div>
-
-                <div className="p-3.5 rounded-xl bg-zinc-900/50 border border-zinc-800 flex items-center justify-between">
-                    <div>
-                        <span className="text-zinc-500 text-[11px] block">Độ Trễ Trung Bình</span>
-                        <strong className="text-base text-blue-400 font-bold font-mono">{avgLatency} ms</strong>
-                    </div>
-                    <div className="w-8 h-8 rounded-lg bg-blue-500/10 text-blue-400 flex items-center justify-center">
-                        <IconActivity className="w-4 h-4" />
-                    </div>
-                </div>
-            </div>
-
-            {/* 3. KHU VỰC BẢN ĐỒ KHÔNG GIAN (SPATIAL & TOPOLOGY VISUALIZER) */}
-            <div className="p-5 rounded-2xl border border-zinc-800 bg-zinc-900/40 space-y-4">
-                {/* Header thanh lọc Model và thông báo liên kết */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                    <div>
-                        <h2 className="text-xs font-bold text-zinc-200 uppercase tracking-wider flex items-center gap-2">
-                            <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
-                            <span>
-                                {viewMode === 'globe'
-                                    ? 'Quả Địa Cầu Không Gian 3D (Interactive Earth Mesh)'
-                                    : viewMode === 'map2d'
-                                    ? 'Bản Đồ Phẳng Tọa Độ Địa Lý 2D'
-                                    : 'Sơ Đồ Đồ Thị Cụm Phân Tán (Cluster Graph)'}
-                            </span>
-                        </h2>
-                        <p className="text-[11px] text-zinc-500 mt-0.5">
-                            Các đường cong ánh sáng biểu thị luồng dữ liệu suy luận và đồng bộ hóa trọng số giữa các node.
-                        </p>
-                    </div>
-
-                    {/* Bộ lọc theo Model */}
-                    <div className="flex items-center gap-1.5 overflow-x-auto max-w-full pb-1 sm:pb-0">
-                        <button
-                            onClick={() => setSelectedModelFilter(null)}
-                            className={`px-2.5 py-1 rounded-lg text-[10px] font-semibold transition whitespace-nowrap ${
-                                selectedModelFilter === null
-                                    ? 'bg-blue-600 text-white shadow-sm'
-                                    : 'bg-zinc-800 text-zinc-400 hover:text-white'
-                            }`}
-                        >
-                            Tất cả Models ({allModels.length})
-                        </button>
-                        {allModels.map((m) => (
-                            <button
-                                key={m}
-                                onClick={() => setSelectedModelFilter(m)}
-                                className={`px-2.5 py-1 rounded-lg text-[10px] font-semibold transition whitespace-nowrap ${
-                                    selectedModelFilter === m
-                                        ? 'bg-blue-600 text-white shadow-sm'
-                                        : 'bg-zinc-800 text-zinc-400 hover:text-white'
-                                }`}
-                            >
-                                {m}
-                            </button>
-                        ))}
-                    </div>
-                </div>
-
-                {/* Khung Render Bản Đồ Chi Tiết */}
-                <div className="relative w-full h-[460px] bg-zinc-950 rounded-xl border border-zinc-800 overflow-hidden">
-                    {viewMode === 'globe' && (
-                        <Globe3DView
-                            nodes={geoNodes}
-                            links={geoLinks}
-                            selectedNodeId={selectedNodeId}
-                            onSelectNode={setSelectedNodeId}
-                        />
-                    )}
-
-                    {viewMode === 'map2d' && (
-                        <WorldMap2DView
-                            nodes={geoNodes}
-                            links={geoLinks}
-                            selectedNodeId={selectedNodeId}
-                            onSelectNode={setSelectedNodeId}
-                        />
-                    )}
-
+                {/* KHUNG HIỂN THỊ CHÍNH */}
+                <div className="w-full min-h-[480px] rounded-xl overflow-hidden bg-zinc-950 border border-zinc-800 relative">
+                    {/* TAB 1: TOPO 3D CHIỀU SÂU */}
                     {viewMode === 'topology' && (
-                        <div className="w-full h-full flex items-center justify-center p-4">
-                            <NetworkTopologyGraph
-                                nodes={nodes}
+                        <div className="w-full h-[480px]">
+                            <ClusterTopology3DView
+                                nodes={cluster3DNodes}
                                 activeModelFilter={selectedModelFilter}
+                                selectedNodeId={selectedNodeId}
+                                onSelectNode={setSelectedNodeId}
+                            />
+                        </div>
+                    )}
+
+                    {/* TAB 2: CÁC SELLER VÀ OWNER KẾT NỐI VỚI NHAU ĐỂ TRUYỀN TẢI LLM LOCAL */}
+                    {viewMode === 'connections' && (
+                        <div className="w-full p-5 space-y-4 bg-zinc-950/90 text-white">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800 pb-3">
+                                <div className="flex items-center gap-2">
+                                    <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse" />
+                                    <h3 className="text-xs font-bold text-white uppercase tracking-wider">
+                                        Luồng Truyền Tải Mô Hình LLM Local Đang Hoạt Động (P2P WebSocket Bridge)
+                                    </h3>
+                                </div>
+                                <span className="text-[11px] text-zinc-400">
+                                    {activeConnections.length} phiên kết nối trực tiếp
+                                </span>
+                            </div>
+
+                            {activeConnections.length === 0 ? (
+                                <div className="py-16 text-center space-y-3">
+                                    <Radio className="w-10 h-10 text-zinc-600 mx-auto animate-pulse" />
+                                    <div className="space-y-1">
+                                        <h4 className="text-sm font-bold text-zinc-300">
+                                            Chưa có phiên kết nối Seller ⇄ Owner nào đang truyền tải LLM
+                                        </h4>
+                                        <p className="text-xs text-zinc-500 max-w-md mx-auto">
+                                            Khi một Owner vào trang <strong>Thuê AI Cho Agent</strong> và chọn thuê một máy trạm của Seller, kênh truyền tải dữ liệu P2P sẽ được thiết lập và hiển thị trực quan tại đây.
+                                        </p>
+                                    </div>
+                                    <Link
+                                        href="/owner"
+                                        className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-xl shadow-md transition"
+                                    >
+                                        <span>Đến Sàn Thuê Máy & Kết Nối Ngay</span>
+                                        <ArrowRight className="w-4 h-4" />
+                                    </Link>
+                                </div>
+                            ) : (
+                                <div className="space-y-3 max-h-[460px] overflow-y-auto pr-1">
+                                    {activeConnections.map((conn: any, idx: number) => {
+                                        const sId = conn.sessionId || conn.id || conn._id || `sess_${idx}`
+                                        const displayId = String(sId).length > 8 ? String(sId).slice(-8) : String(sId)
+
+                                        return (
+                                            <div
+                                                key={sId}
+                                                className="bg-zinc-900/60 border border-zinc-800 hover:border-cyan-500/40 rounded-2xl p-4 transition shadow-lg space-y-3"
+                                            >
+                                                {/* Header phiên */}
+                                                <div className="flex items-center justify-between border-b border-zinc-800/60 pb-2.5">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                                                        <span className="text-[11px] font-mono text-zinc-400">
+                                                            Mã phiên: <strong className="text-zinc-200">{displayId}</strong>
+                                                        </span>
+                                                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                                                            STREAMING REAL-TIME
+                                                        </span>
+                                                    </div>
+                                                    <div className="text-[11px] text-zinc-500 font-mono">
+                                                        Bắt đầu: {conn.startTime ? new Date(conn.startTime).toLocaleTimeString() : 'Vừa xong'}
+                                                    </div>
+                                                </div>
+
+                                                {/* Visual P2P Stream Bridge */}
+                                                <div className="grid grid-cols-1 md:grid-cols-7 gap-3 items-center">
+                                                    {/* Cột 1, 2, 3: SELLER (HOST MÁY CHỦ) */}
+                                                    <div className="md:col-span-3 bg-zinc-950/80 p-3.5 rounded-xl border border-blue-500/30 space-y-1.5">
+                                                        <div className="flex items-center justify-between">
+                                                            <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider flex items-center gap-1.5">
+                                                                <Server className="w-3.5 h-3.5 text-blue-400" />
+                                                                <span>SELLER (HOST CUNG CẤP GPU)</span>
+                                                            </span>
+                                                            <span className="text-[9px] text-zinc-500 font-mono">
+                                                                {conn.sellerId ? String(conn.sellerId).slice(-6) : 'seller_01'}
+                                                            </span>
+                                                        </div>
+                                                        <h4 className="text-xs font-bold text-white truncate">
+                                                            {conn.nodeName || 'PC Gaming RTX Node'}
+                                                        </h4>
+                                                        <p className="text-[11px] text-blue-300 font-semibold flex items-center gap-1.5">
+                                                            <Bot className="w-3.5 h-3.5 text-blue-400" />
+                                                            <span>{conn.modelDisplayName || conn.modelKey || 'Qwen 2.5 Coder'}</span>
+                                                        </p>
+                                                        <div className="text-[10px] text-zinc-400 flex items-center justify-between pt-1 border-t border-zinc-800/60 font-sans">
+                                                            <span>Chủ máy: <strong className="text-zinc-200">{conn.sellerName || 'Anonymous Host'}</strong></span>
+                                                            <span className="text-amber-400 font-mono font-bold">
+                                                                {conn.coinsPerHour || 35} coins/h
+                                                            </span>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Cột 4: KÊNH TRUYỀN DỮ LIỆU Ở GIỮA (WEBSOCKET BRIDGE) */}
+                                                    <div className="md:col-span-1 flex flex-col items-center justify-center py-2 space-y-1 text-center">
+                                                        <span className="text-[9px] font-bold text-cyan-400 uppercase tracking-wider font-mono">
+                                                            P2P STREAM
+                                                        </span>
+                                                        <div className="w-8 h-8 rounded-full bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
+                                                            <Zap className="w-4 h-4 animate-bounce text-cyan-400" />
+                                                        </div>
+                                                        <span className="text-[9px] text-emerald-400 font-mono font-bold">
+                                                            Ping ~8ms
+                                                        </span>
+                                                        <span className="text-[8px] text-zinc-500 font-mono">
+                                                            WS Port 5010
+                                                        </span>
+                                                    </div>
+
+                                                    {/* Cột 5, 6, 7: OWNER (NGƯỜI THUÊ & NẠP AGENT) */}
+                                                    <div className="md:col-span-3 bg-zinc-950/80 p-3.5 rounded-xl border border-emerald-500/30 space-y-1.5">
+                                                        <div className="flex items-center justify-between">
+                                                            <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
+                                                                <Bot className="w-3.5 h-3.5 text-emerald-400" />
+                                                                <span>OWNER (NGƯỜI THUÊ & NẠP AGENT)</span>
+                                                            </span>
+                                                            <span className="text-[9px] text-zinc-500 font-mono">
+                                                                {conn.renterId ? String(conn.renterId).slice(-6) : 'owner_01'}
+                                                            </span>
+                                                        </div>
+                                                        <h4 className="text-xs font-bold text-white truncate">
+                                                            {conn.renterName || 'Đức Huy (Project Leader)'}
+                                                        </h4>
+                                                        <p className="text-[11px] text-emerald-400 font-semibold flex items-center gap-1.5">
+                                                            <Cpu className="w-3.5 h-3.5 text-emerald-400" />
+                                                            <span>Agent: {conn.boundAgentName || conn.assignedAgentId || 'Multi-Agent Project Lead'}</span>
+                                                        </p>
+                                                        <div className="text-[10px] text-zinc-400 flex items-center justify-between pt-1 border-t border-zinc-800/60 font-sans">
+                                                            <span>Tokens nạp: <strong className="text-indigo-400 font-mono font-bold">{conn.totalTokensUsed?.toLocaleString() || 0}</strong></span>
+                                                            <span className="text-amber-400 font-mono font-bold">
+                                                                -{conn.totalCoinsSpent || 0} coins
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )
+                                    })}
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {/* TAB 3: ĐỊA CẦU 3D */}
+                    {viewMode === 'globe' && (
+                        <div className="w-full h-[480px]">
+                            <Globe3DView
+                                nodes={geoNodes}
+                                links={geoLinks}
+                                selectedNodeId={selectedNodeId}
+                                onSelectNode={setSelectedNodeId}
+                            />
+                        </div>
+                    )}
+
+                    {/* TAB 4: BẢN ĐỒ 2D */}
+                    {viewMode === 'map2d' && (
+                        <div className="w-full h-[480px]">
+                            <WorldMap2DView
+                                nodes={geoNodes}
+                                links={geoLinks}
                                 selectedNodeId={selectedNodeId}
                                 onSelectNode={setSelectedNodeId}
                             />
@@ -588,7 +622,7 @@ export default function UserModelsPage() {
                     )}
                 </div>
 
-                {/* 4. THANH TRẠNG THÁI LIÊN KẾT ĐANG KẾT NỐI (ACTIVE LINK INSPECTOR) */}
+                {/* 4. THANH TRẠNG THÁI LIÊN KẾT ĐANG KẾT NỐI */}
                 <div className="p-3.5 rounded-xl bg-zinc-950/80 border border-zinc-800 text-xs space-y-2">
                     <div className="flex items-center justify-between text-[11px] text-zinc-400 font-semibold border-b border-zinc-800/80 pb-1.5">
                         <span className="flex items-center gap-1.5 text-cyan-400">
@@ -608,7 +642,7 @@ export default function UserModelsPage() {
                     <div className="max-h-28 overflow-y-auto space-y-1.5 pr-1">
                         {geoLinks.length === 0 ? (
                             <div className="text-zinc-500 text-[11px] py-2 text-center">
-                                Không có kênh liên kết nào thỏa mãn bộ lọc hiện tại.
+                                Chưa có liên kết cụm nào. Khi các máy Seller chạy Worker (.exe) cùng model, kênh P2P sẽ tự động thiết lập.
                             </div>
                         ) : (
                             geoLinks.slice(0, 6).map((link, idx) => {
@@ -655,102 +689,123 @@ export default function UserModelsPage() {
             <div className="space-y-3">
                 <div className="flex items-center justify-between">
                     <h3 className="text-xs font-bold text-zinc-300 uppercase tracking-wider">
-                        Danh Sách Máy Trạm Đối Tác ({filteredNodes.length})
+                        Danh Sách Máy Trạm Đối Tác Đang Kết Nối ({filteredNodes.length})
                     </h3>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {filteredNodes.map((user, idx) => {
-                        const node = user.hardwareNode
-                        const isSelected = selectedNodeId === user._id
-                        const loc = user.location || GEO_HUBS[idx % GEO_HUBS.length]
+                {filteredNodes.length === 0 ? (
+                    <div className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-12 text-center space-y-3">
+                        <IconServer className="w-10 h-10 text-zinc-600 mx-auto" />
+                        <h4 className="text-sm font-bold text-zinc-300">
+                            Chưa có máy trạm nào kết nối qua Electron Worker
+                        </h4>
+                        <p className="text-xs text-zinc-500 max-w-md mx-auto">
+                            Chỉ khi người dùng khởi chạy ứng dụng <strong>Go-Python Worker (.exe)</strong> trên máy tính của họ, kết nối WebSocket mới được thiết lập và hiển thị trực tiếp lên Cụm 3D.
+                        </p>
+                        <button
+                            onClick={() => setIsPartnerModalOpen(true)}
+                            className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-lg shadow-blue-600/25 transition inline-flex items-center gap-1.5"
+                        >
+                            <IconZap className="w-4 h-4 fill-current" />
+                            <span>Tải App & Đăng Ký Đối Tác Ngay</span>
+                        </button>
+                    </div>
+                ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {filteredNodes.map((user, idx) => {
+                            const node = user.hardwareNode
+                            const isSelected = selectedNodeId === user._id
+                            const loc = user.location || GEO_HUBS[idx % GEO_HUBS.length]
 
-                        return (
-                            <div
-                                key={user._id}
-                                onClick={() => setSelectedNodeId(user._id)}
-                                className={`p-4 rounded-2xl border transition space-y-3.5 flex flex-col justify-between cursor-pointer ${
-                                    isSelected
-                                        ? 'bg-blue-950/20 border-blue-500/60 shadow-lg shadow-blue-500/5'
-                                        : 'bg-zinc-900/40 border-zinc-800 hover:border-zinc-700'
-                                }`}
-                            >
-                                <div className="space-y-3">
-                                    <div className="flex items-center justify-between">
-                                        <div className="flex items-center gap-2.5">
-                                            <div className="w-8 h-8 rounded-full bg-zinc-800 border border-zinc-700 flex items-center justify-center text-xs font-bold text-blue-400">
-                                                {user.username ? user.username.charAt(0).toUpperCase() : 'U'}
+                            return (
+                                <div
+                                    key={user._id}
+                                    onClick={() => setSelectedNodeId(user._id)}
+                                    className={`p-4 rounded-2xl border transition space-y-3.5 flex flex-col justify-between cursor-pointer ${
+                                        isSelected
+                                            ? 'bg-blue-950/20 border-blue-500/60 shadow-lg shadow-blue-500/5'
+                                            : 'bg-zinc-900/40 border-zinc-800 hover:border-zinc-700'
+                                    }`}
+                                >
+                                    <div className="space-y-3">
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-2.5">
+                                                <div className="w-8 h-8 rounded-full bg-zinc-800 border border-zinc-700 flex items-center justify-center text-xs font-bold text-blue-400">
+                                                    {user.username ? user.username.charAt(0).toUpperCase() : 'U'}
+                                                </div>
+                                                <div>
+                                                    <h4 className="font-semibold text-xs text-white flex items-center gap-1.5">
+                                                        <span>{user.username || 'Node'}</span>
+                                                    </h4>
+                                                    <p className="text-[10px] text-zinc-400 flex items-center gap-1">
+                                                        <IconMapPin className="w-3 h-3 text-cyan-400 shrink-0" />
+                                                        <span>
+                                                            {loc.city}, {loc.country}
+                                                        </span>
+                                                    </p>
+                                                </div>
                                             </div>
-                                            <div>
-                                                <h4 className="font-semibold text-xs text-white flex items-center gap-1.5">
-                                                    <span>{user.username || 'Node'}</span>
-                                                </h4>
-                                                <p className="text-[10px] text-zinc-400 flex items-center gap-1">
-                                                    <IconMapPin className="w-3 h-3 text-cyan-400 shrink-0" />
-                                                    <span>{loc.city}, {loc.country}</span>
-                                                </p>
-                                            </div>
-                                        </div>
 
-                                        <span
-                                            className={`px-2 py-0.5 text-[10px] font-bold rounded-full border ${
-                                                node?.status === 'BUSY'
-                                                    ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
-                                                    : node?.status === 'IDLE'
-                                                    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
-                                                    : 'bg-zinc-800 text-zinc-500 border-zinc-700'
-                                            }`}
-                                        >
-                                            ● {node?.status || 'IDLE'}
-                                        </span>
-                                    </div>
-
-                                    {/* Cấu hình phần cứng */}
-                                    <div className="grid grid-cols-2 gap-2 bg-zinc-950/60 p-2.5 rounded-xl text-[11px]">
-                                        <div>
-                                            <span className="text-zinc-500 text-[10px] block">CPU / RAM:</span>
-                                            <span className="font-semibold text-zinc-200">
-                                                {node?.cpuCores || 0}C / {node?.deviceMemoryGB || 0}GB
-                                            </span>
-                                        </div>
-                                        <div>
-                                            <span className="text-zinc-500 text-[10px] block">Băng thông:</span>
-                                            <span className="font-semibold text-amber-400 font-mono">
-                                                {node?.bandwidthMbps || 1000} Mbps
-                                            </span>
-                                        </div>
-                                        <div className="col-span-2 pt-1 border-t border-zinc-800/60 flex items-center justify-between">
-                                            <span className="text-zinc-400 truncate max-w-[180px]">
-                                                {node?.hasWebGPU ? node.gpuName || 'WebGPU Enabled' : 'CPU Mode'}
-                                            </span>
-                                            <span className="text-emerald-400 font-mono text-[10px]">
-                                                Ping: {node?.latencyMs || 20}ms
-                                            </span>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Models hỗ trợ */}
-                                <div className="pt-2 border-t border-zinc-800/60 space-y-1">
-                                    <div className="flex flex-wrap gap-1">
-                                        {node?.recommendedModels?.map((m) => (
                                             <span
-                                                key={m}
-                                                className={`text-[9px] px-2 py-0.5 rounded-md border font-medium transition ${
-                                                    selectedModelFilter === m
-                                                        ? 'bg-blue-600 text-white border-blue-400'
-                                                        : 'bg-blue-500/10 text-blue-300 border-blue-500/20'
+                                                className={`px-2 py-0.5 text-[10px] font-bold rounded-full border ${
+                                                    node?.status === 'BUSY'
+                                                        ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                                                        : node?.status === 'IDLE'
+                                                        ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                                                        : 'bg-zinc-800 text-zinc-500 border-zinc-700'
                                                 }`}
                                             >
-                                                {m}
+                                                ● {node?.status || 'IDLE'}
                                             </span>
-                                        ))}
+                                        </div>
+
+                                        {/* Cấu hình phần cứng */}
+                                        <div className="grid grid-cols-2 gap-2 bg-zinc-950/60 p-2.5 rounded-xl text-[11px]">
+                                            <div>
+                                                <span className="text-zinc-500 text-[10px] block">CPU / RAM:</span>
+                                                <span className="font-semibold text-zinc-200">
+                                                    {node?.cpuCores || 0}C / {node?.deviceMemoryGB || 0}GB
+                                                </span>
+                                            </div>
+                                            <div>
+                                                <span className="text-zinc-500 text-[10px] block">Băng thông:</span>
+                                                <span className="font-semibold text-amber-400 font-mono">
+                                                    {node?.bandwidthMbps || 1000} Mbps
+                                                </span>
+                                            </div>
+                                            <div className="col-span-2 pt-1 border-t border-zinc-800/60 flex items-center justify-between">
+                                                <span className="text-zinc-400 truncate max-w-[180px]">
+                                                    {node?.hasWebGPU ? node.gpuName || 'WebGPU Enabled' : 'CPU Mode'}
+                                                </span>
+                                                <span className="text-emerald-400 font-mono text-[10px]">
+                                                    Ping: {node?.latencyMs || 20}ms
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Models hỗ trợ */}
+                                    <div className="pt-2 border-t border-zinc-800/60 space-y-1">
+                                        <div className="flex flex-wrap gap-1">
+                                            {node?.recommendedModels?.map((m) => (
+                                                <span
+                                                    key={m}
+                                                    className={`text-[9px] px-2 py-0.5 rounded-md border font-medium transition ${
+                                                        selectedModelFilter === m
+                                                            ? 'bg-blue-600 text-white border-blue-400'
+                                                            : 'bg-blue-500/10 text-blue-300 border-blue-500/20'
+                                                    }`}
+                                                >
+                                                    {m}
+                                                </span>
+                                            ))}
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
-                        )
-                    })}
-                </div>
+                            )
+                        })}
+                    </div>
+                )}
             </div>
 
             {/* Modal Onboarding Đối Tác Mô Hình & Tải Desktop Client */}
@@ -765,148 +820,5 @@ export default function UserModelsPage() {
                 onPartnerRegistered={handlePartnerRegistered}
             />
         </div>
-    )
-}
-
-// ─── COMPONENT VẼ ĐỒ THỊ MẠNG LƯỚI TOPO VÒNG TRÒN ────────────────────────────
-function NetworkTopologyGraph({
-    nodes,
-    activeModelFilter,
-    selectedNodeId,
-    onSelectNode,
-}: {
-    nodes: UserNode[]
-    activeModelFilter: string | null
-    selectedNodeId: string | null
-    onSelectNode: (id: string | null) => void
-}) {
-    const width = 800
-    const height = 360
-    const centerX = width / 2
-    const centerY = height / 2
-
-    const nodeCoords = useMemo(() => {
-        const total = nodes.length
-        if (total === 0) return []
-
-        const radius = Math.min(width, height) / 2.7
-        return nodes.map((n, i) => {
-            const angle = (i / total) * 2 * Math.PI - Math.PI / 2
-            return {
-                ...n,
-                x: centerX + radius * Math.cos(angle),
-                y: centerY + radius * Math.sin(angle),
-            }
-        })
-    }, [nodes, width, height, centerX, centerY])
-
-    const links = useMemo(() => {
-        const result: { x1: number; y1: number; x2: number; y2: number; fromId: string; toId: string; model: string }[] = []
-
-        for (let i = 0; i < nodeCoords.length; i++) {
-            for (let j = i + 1; j < nodeCoords.length; j++) {
-                const nodeA = nodeCoords[i]
-                const nodeB = nodeCoords[j]
-
-                const sharedModels = nodeA.hardwareNode?.recommendedModels?.filter((m) =>
-                    nodeB.hardwareNode?.recommendedModels?.includes(m)
-                )
-
-                if (sharedModels && sharedModels.length > 0) {
-                    sharedModels.forEach((m) => {
-                        if (!activeModelFilter || activeModelFilter === m) {
-                            result.push({
-                                x1: nodeA.x,
-                                y1: nodeA.y,
-                                x2: nodeB.x,
-                                y2: nodeB.y,
-                                fromId: nodeA._id,
-                                toId: nodeB._id,
-                                model: m,
-                            })
-                        }
-                    })
-                }
-            }
-        }
-        return result
-    }, [nodeCoords, activeModelFilter])
-
-    return (
-        <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full select-none">
-            <defs>
-                <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
-                    <path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(255,255,255,0.03)" strokeWidth="1" />
-                </pattern>
-            </defs>
-            <rect width="100%" height="100%" fill="url(#grid)" />
-
-            {/* Các đường liên kết */}
-            {links.map((link, idx) => {
-                const isSelected = selectedNodeId === link.fromId || selectedNodeId === link.toId
-                return (
-                    <line
-                        key={idx}
-                        x1={link.x1}
-                        y1={link.y1}
-                        x2={link.x2}
-                        y2={link.y2}
-                        stroke={isSelected ? '#38bdf8' : '#3b82f6'}
-                        strokeWidth={isSelected ? '2' : '0.9'}
-                        strokeOpacity={isSelected ? '0.9' : '0.25'}
-                        strokeDasharray={isSelected ? '6 3' : undefined}
-                    />
-                )
-            })}
-
-            {/* Các điểm nút */}
-            {nodeCoords.map((node) => {
-                const isFilteredOut =
-                    activeModelFilter &&
-                    !node.hardwareNode?.recommendedModels?.includes(activeModelFilter)
-                const isSelected = selectedNodeId === node._id
-
-                return (
-                    <g
-                        key={node._id}
-                        transform={`translate(${node.x}, ${node.y})`}
-                        onClick={() => onSelectNode(node._id)}
-                        className="transition-all duration-300 cursor-pointer"
-                        style={{ opacity: isFilteredOut ? 0.2 : 1 }}
-                    >
-                        <circle
-                            r={isSelected ? '20' : '15'}
-                            fill="none"
-                            stroke={node.hardwareNode?.status === 'BUSY' ? '#f59e0b' : '#3b82f6'}
-                            strokeWidth="1.5"
-                            strokeOpacity={isSelected ? '0.8' : '0.35'}
-                            className="animate-ping"
-                            style={{ animationDuration: '3s' }}
-                        />
-
-                        <circle
-                            r="13"
-                            fill="#18181b"
-                            stroke={
-                                isSelected
-                                    ? '#38bdf8'
-                                    : node.hardwareNode?.status === 'BUSY'
-                                    ? '#f59e0b'
-                                    : '#10b981'
-                            }
-                            strokeWidth={isSelected ? '2.5' : '1.5'}
-                        />
-
-                        <text textAnchor="middle" dy="4" fontSize="10" fontWeight="bold" fill="#ffffff">
-                            {(node.username || 'U').charAt(0).toUpperCase()}
-                        </text>
-
-                        <text textAnchor="middle" y="26" fontSize="9" fill={isSelected ? '#38bdf8' : '#a1a1aa'} className="font-mono">
-                            {node.username || 'Node'}
-                        </text>
-                    </g>
-                )
-            })}
-        </svg>
     )
 }

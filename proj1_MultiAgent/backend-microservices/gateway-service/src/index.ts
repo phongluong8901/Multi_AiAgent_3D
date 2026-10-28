@@ -45,15 +45,45 @@ app.get("/", (req, res) => {
     res.status(200).json({ message: "API Gateway is running smoothly!" });
 });
 
-// Models Endpoint (Public - Danh sách LLM Models khả dụng cho hệ thống Multi-Agent)
-app.get("/api/v1/models", (req, res) => {
-    res.status(200).json([
+// Models Endpoint (Public - Danh sách LLM Models khả dụng cho hệ thống Multi-Agent, bao gồm cả Cloud Gemini & Gói Thuê Local LLM)
+app.get("/api/v1/models", async (req, res) => {
+    const baseModels = [
         { id: "gemini-2.5-flash-lite", name: "Gemini 2.5 Flash Lite", provider: "Google AI", description: "Mặc định - Cực nhanh, tiết kiệm token, phản hồi tức thì" },
         { id: "gemini-2.5-flash", name: "Gemini 2.5 Flash", provider: "Google AI", description: "Thông minh, hỗ trợ đa nhiệm, tool calling sâu và phân tích logic" },
         { id: "gemini-2.0-flash", name: "Gemini 2.0 Flash", provider: "Google AI", description: "Bản Flash thế hệ 2 cân bằng giữa tốc độ và độ chuẩn xác" },
         { id: "gemini-1.5-flash", name: "Gemini 1.5 Flash", provider: "Google AI", description: "Độ ổn định cao, dự phòng tin cậy cho các tác vụ nhóm" },
-        { id: "gemini-1.5-pro", name: "Gemini 1.5 Pro", provider: "Google AI", description: "Mô hình suy luận lớn 1M tokens, tổng hợp báo cáo chuyên sâu" }
-    ]);
+        { id: "gemini-1.5-pro", name: "Gemini 1.5 Pro", provider: "Google AI", description: "Mô hình suy luận lớn 1M tokens, tổng hợp báo cáo chuyên sâu" },
+        { id: "qwen2.5-coder:1.5b", name: "Qwen 2.5 Coder (1.5B Local)", provider: "Local Ollama / Seller P2P", description: "Mô hình Local AI chuyên lập trình, định tuyến qua máy Seller đang thuê" },
+        { id: "deepseek-r1:7b", name: "DeepSeek-R1 Distill (7B Local)", provider: "Local Ollama / Seller P2P", description: "Mô hình suy luận chuỗi tư duy (CoT) chạy trên GPU của đối tác Seller" },
+    ];
+
+    const ownerUrls = [
+        process.env.OWER_SERVICE_URL || "http://ower-service:5012",
+        "http://localhost:5012",
+    ];
+
+    for (const oUrl of ownerUrls) {
+        try {
+            const activeRes = await fetch(`${oUrl}/api/v1/owner/connections/active`, {
+                signal: AbortSignal.timeout(1500),
+            });
+            if (activeRes.ok) {
+                const data: any = await activeRes.json();
+                const sessions: any[] = data?.sessions || [];
+                const rentalModels = sessions.map((s) => ({
+                    id: `rental:${s.sessionId}`,
+                    name: `⚡ [Đang Thuê] ${s.modelDisplayName} (${s.nodeName})`,
+                    provider: `Seller Node (${s.sessionId.slice(-6)})`,
+                    description: `Phiên thuê P2P đang ACTIVE • Giá: ${s.coinsPer1kTokens || 0.5} Coins/1k tokens`,
+                }));
+                return res.status(200).json([...rentalModels, ...baseModels]);
+            }
+        } catch {
+            // Bỏ qua nếu ower-service chưa khởi động
+        }
+    }
+
+    res.status(200).json(baseModels);
 });
 
 // Gắn toàn bộ các modules route proxy vào app

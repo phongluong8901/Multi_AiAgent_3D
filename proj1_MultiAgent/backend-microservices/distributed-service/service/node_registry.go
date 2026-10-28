@@ -264,3 +264,29 @@ func (nr *NodeRegistry) MarkNodeOffline(nodeID string) {
 		}
 	}
 }
+
+// MarkNodeOnline chuyển trạng thái node sang IDLE / ONLINE
+func (nr *NodeRegistry) MarkNodeOnline(nodeID string) {
+	nr.mu.Lock()
+	defer nr.mu.Unlock()
+
+	if node, exists := nr.nodes[nodeID]; exists {
+		node.Status = "IDLE"
+		node.UpdatedAt = time.Now()
+
+		if nr.redis != nil {
+			go func(nid string) {
+				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+				defer cancel()
+				_ = nr.redis.SetNodeOnline(ctx, nid, 60*time.Second)
+			}(nodeID)
+		}
+
+		if nr.postgres != nil {
+			go func(nid string) {
+				_ = nr.postgres.UpdateStatus(nid, "IDLE")
+			}(nodeID)
+		}
+	}
+}
+

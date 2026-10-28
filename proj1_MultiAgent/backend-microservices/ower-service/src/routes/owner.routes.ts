@@ -24,4 +24,7 @@ router.post("/agents/inference", ownerController.runAgentInference);
 // Báo cáo Dashboard quản lý thuê của Owner
 router.get("/dashboard", ownerController.getDashboard);
 
+// Danh sách toàn bộ các phiên kết nối Seller ⇄ Owner đang truyền tải LLM
+router.get("/connections/active", ownerController.getAllActiveConnections);
+
 export default router;
