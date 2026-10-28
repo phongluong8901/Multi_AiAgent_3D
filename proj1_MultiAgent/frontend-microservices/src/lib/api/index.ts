@@ -9,7 +9,6 @@ export type { AgentStatus, AgentCreate, AgentUpdate, AgentStreamEvent } from './
 export { agentsApi } from './agents'
 
 export type { UserProfile, InviteUser } from './users'
-
 export { usersApi } from './users'
 
 export type {
@@ -17,6 +16,11 @@ export type {
     RoomMember,
     RoomSettings,
     UserAgentBinding,
+    RoomPresenceSummary,
+    RoomPresenceUser,
+    AgentWorkflow,
+    AgentWorkflowMode,
+    WorkflowTransition,
 } from './rooms'
 export { roomsApi } from './rooms'
 
@@ -27,8 +31,13 @@ export interface UserSearchItem {
     avatarUrl?: string
 }
 
-
-export type { ChatMessage, UserPresence, ChatAttachment, ChatType } from './chats'
+export type {
+    ChatMessage,
+    UserPresence,
+    ChatAttachment,
+    ChatType,
+    BubbleRoomSummary,
+} from './chats'
 export { chatsApi } from './chats'
 
 export type { Prompt } from './prompts'
@@ -54,6 +63,19 @@ export {
 } from './auth'
 
 export { mapsApi, type CloudMapDesign } from './maps'
-export { labApi, type LabStage, type LabTemplate, type LabSynthesisResponse, type GeneratedFileList, type GeneratedFileInfo } from './lab'
-export { rlApi, type RLTrainingStatus, type EpisodeMetric, type TrajectoryStep, type Obstacle } from './rltrain'
-
+export {
+    labApi,
+    type LabStage,
+    type LabTemplate,
+    type LabSynthesisResponse,
+    type GeneratedFileList,
+    type GeneratedFileInfo,
+} from './lab'
+export {
+    rlApi,
+    type RLAlgorithmType,
+    type RLTrainingStatus,
+    type EpisodeMetric,
+    type TrajectoryStep,
+    type Obstacle,
+} from './rltrain'

@@ -9,10 +9,10 @@ class ObstacleModel(BaseModel):
 class StartTrainRequest(BaseModel):
     agent_id: str = "agent_default"
     episodes: int = Field(default=300, ge=10, le=5000)
-    learning_rate: float = Field(default=0.15, ge=0.001, le=1.0)
-    discount_factor: float = Field(default=0.95, ge=0.5, le=0.999)
-    epsilon_decay: float = Field(default=0.995, ge=0.9, le=0.9999)
-    epsilon_min: float = Field(default=0.05, ge=0.01, le=0.5)
+    learning_rate: float = Field(default=0.003, ge=0.0001, le=1.0)
+    discount_factor: float = Field(default=0.98, ge=0.5, le=0.999)
+    epsilon_decay: float = Field(default=0.992, ge=0.9, le=0.9999)
+    epsilon_min: float = Field(default=0.04, ge=0.01, le=0.5)
     speed: float = Field(default=0.0, ge=0.0, le=0.1, description="Delay per step in seconds for live observation")
     map_name: str = Field(default="office", description="Tên map: 'office' (Văn phòng thật) hoặc 'grid' (Sa bàn cơ bản)")
     algorithm: str = Field(default="ppo", description="Thuật toán RL: 'ppo', 'sac', 'sac2', 'dreamer', 'muzero', 'dqn', 'q_learning'")

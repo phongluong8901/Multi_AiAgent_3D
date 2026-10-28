@@ -16,8 +16,8 @@ class DQNAgent:
         hidden_dim: int = 64,
         learning_rate: float = 0.003,
         discount_factor: float = 0.98,
-        epsilon: float = 1.0,
-        epsilon_decay: float = 0.992,
+        epsilon: float = 0.35,
+        epsilon_decay: float = 0.99,
         epsilon_min: float = 0.04,
         buffer_size: int = 6000,
         batch_size: int = 48,
@@ -101,17 +101,18 @@ class DQNAgent:
 
         left_clear = 0.65 * fl_l + 0.35 * l_l
         right_clear = 0.65 * fr_l + 0.35 * r_l
-        front_blocked = np.maximum(0.0, 0.30 - front_l) * 4.0
+        front_min = np.minimum(front_l, np.minimum(fl_l * 1.15, fr_l * 1.15))
+        front_blocked = np.maximum(0.0, 0.22 - front_min) * 8.0
 
         prior = np.zeros((s.shape[0], self.num_actions), dtype=np.float32)
-        prior[:, 0] = 2.0 * cos_ang * (front_l > 0.24) - 3.5 * front_blocked
-        prior[:, 1] = -1.5 + 2.5 * (front_l < 0.16)
-        prior[:, 2] = 1.5 * np.maximum(0.0, sin_ang) + 1.4 * front_blocked * (left_clear >= right_clear)
-        prior[:, 3] = 1.5 * np.maximum(0.0, -sin_ang) + 1.4 * front_blocked * (right_clear > left_clear)
-        prior[:, 4] = 1.4 * cos_ang + 1.4 * np.maximum(0.0, sin_ang) + 0.8 * (left_clear - right_clear) - front_blocked
-        prior[:, 5] = 1.4 * cos_ang + 1.4 * np.maximum(0.0, -sin_ang) + 0.8 * (right_clear - left_clear) - front_blocked
+        prior[:, 0] = 3.2 * cos_ang * (front_min > 0.15) - 6.0 * (front_min <= 0.15) - front_blocked
+        prior[:, 1] = -2.5 + 4.0 * (front_l < 0.10)
+        prior[:, 2] = 2.4 * np.maximum(0.0, sin_ang) + 2.8 * (front_min <= 0.18) * (left_clear >= right_clear)
+        prior[:, 3] = 2.4 * np.maximum(0.0, -sin_ang) + 2.8 * (front_min <= 0.18) * (right_clear > left_clear)
+        prior[:, 4] = 2.5 * cos_ang + 2.5 * np.maximum(0.0, sin_ang) + 1.8 * (left_clear - right_clear) - 2.5 * (fl_l < 0.12)
+        prior[:, 5] = 2.5 * cos_ang + 2.5 * np.maximum(0.0, -sin_ang) + 1.8 * (right_clear - left_clear) - 2.5 * (fr_l < 0.12)
 
-        decay = max(0.25, 1.0 / (1.0 + 0.0005 * self.training_steps))
+        decay = max(0.45, 1.0 / (1.0 + 0.0003 * self.training_steps))
         prior *= decay
         return prior[0] if single else prior
 

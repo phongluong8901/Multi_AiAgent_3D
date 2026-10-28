@@ -16,6 +16,156 @@ class AgentRunner:
         # Khởi tạo và biên dịch sẵn LangGraph Workflow
         self.workflow = AgentWorkflow(self.llm_client, tool_executor).compile()
 
+    def _build_tool_definitions(self, agent_tools: list) -> list:
+        """Xây dựng OpenAI/Gemini/Local-compatible Function Calling Schema cho tất cả công cụ."""
+        tool_definitions = []
+        for tool in agent_tools:
+            tool_id = tool.id if hasattr(tool, "id") else tool.get("id", "")
+            tool_name_val = tool.name if hasattr(tool, "name") else tool.get("name", "")
+            tool_desc = tool.description if hasattr(tool, "description") else tool.get("description", "")
+            tool_id_lower = str(tool_id).lower()
+
+            if "search" in tool_id_lower or "wiki" in tool_id_lower:
+                properties = {
+                    "query": {"type": "string", "description": "Từ khóa tìm kiếm trên Internet hoặc Wikipedia"},
+                    "lang": {"type": "string", "description": "Ngôn ngữ tra cứu ('vi' hoặc 'en', mặc định 'vi')"},
+                    "input": {"type": "string", "description": "Từ khóa tìm kiếm dự phòng"},
+                }
+                required = ["query"]
+            elif "financial" in tool_id_lower or "market" in tool_id_lower:
+                properties = {
+                    "action": {
+                        "type": "string",
+                        "description": "Loại phân tích tài chính: 'compound_interest' (lãi kép/ROI/CAGR), 'npv' (định giá dòng tiền), 'loan' (trả góp vay), hoặc 'fx' (quy đổi ngoại tệ/Crypto/Vàng)",
+                    },
+                    "principal": {"type": "number", "description": "Số vốn gốc / khoản vay / số tiền cần quy đổi"},
+                    "rate": {"type": "number", "description": "Lãi suất năm (%) hoặc tỷ suất chiết khấu (%)"},
+                    "years": {"type": "number", "description": "Số năm đầu tư hoặc vay"},
+                    "monthly_contribution": {"type": "number", "description": "Số tiền gửi/đầu tư thêm hàng tháng (nếu có)"},
+                    "cash_flows": {"type": "array", "items": {"type": "number"}, "description": "Dòng tiền dự kiến qua các năm (dùng cho NPV)"},
+                    "from_currency": {"type": "string", "description": "Mã tiền tệ gốc (USD, VND, EUR, JPY, BTC, ETH, GOLD_OZ, SJC_TAEL)"},
+                    "to_currency": {"type": "string", "description": "Mã tiền tệ đích (VND, USD, EUR...)"},
+                }
+                required = []
+            elif "calc" in tool_id_lower:
+                properties = {
+                    "expression": {
+                        "type": "string",
+                        "description": "Biểu thức toán học/thống kê cần tính (hỗ trợ +, -, *, /, **, sqrt, sin, cos, log, mean, stdev; ví dụ: 'sqrt(144) + 125 * 8')",
+                    },
+                    "input": {"type": "string", "description": "Biểu thức toán học dự phòng"},
+                }
+                required = ["expression"]
+            elif "sentiment" in tool_id_lower:
+                properties = {
+                    "text": {"type": "string", "description": "Đoạn văn bản, đánh giá khách hàng hoặc tin tức thị trường cần phân tích cảm xúc"},
+                    "input": {"type": "string", "description": "Văn bản dự phòng"},
+                }
+                required = ["text"]
+            elif "json" in tool_id_lower or "transformer" in tool_id_lower:
+                properties = {
+                    "data": {"type": "string", "description": "Chuỗi JSON cần chuyển đổi sang bảng Markdown/CSV, hoặc văn bản thô cần trích xuất Email/SĐT/URL bằng Regex"},
+                    "operation": {"type": "string", "description": "Tác vụ: 'auto', 'json_to_table', hoặc 'extract' (trích xuất Regex)"},
+                }
+                required = ["data"]
+            elif "sql" in tool_id_lower:
+                properties = {
+                    "task": {"type": "string", "description": "Yêu cầu thiết kế bảng Database (DDL) hoặc câu truy vấn SQL cần tối ưu"},
+                    "dialect": {"type": "string", "description": "Hệ quản trị CSDL ('postgresql', 'mysql', 'sqlite')"},
+                    "tables": {"type": "array", "items": {"type": "string"}, "description": "Danh sách tên bảng liên quan"},
+                }
+                required = ["task"]
+            elif "security" in tool_id_lower or "auditor" in tool_id_lower:
+                properties = {
+                    "code": {"type": "string", "description": "Đoạn mã nguồn cần kiểm toán lỗ hổng bảo mật OWASP và đánh giá chất lượng"},
+                    "language": {"type": "string", "description": "Ngôn ngữ lập trình ('python', 'javascript', 'sql', 'go')"},
+                }
+                required = ["code"]
+            elif "health" in tool_id_lower or "system_control" in tool_id_lower:
+                properties = {
+                    "target": {"type": "string", "description": "Thành phần cần kiểm tra ('all', 'cluster', 'ollama', 'rentals')"},
+                }
+                required = []
+            elif "summar" in tool_id_lower:
+                properties = {
+                    "text": {"type": "string", "description": "Văn bản, tài liệu hoặc kết quả tìm kiếm cần tóm tắt lại"},
+                    "max_length": {"type": "integer", "description": "Độ dài tóm tắt mong muốn (mặc định 150 ký tự)"},
+                    "input": {"type": "string", "description": "Văn bản cần tóm tắt dự phòng"},
+                }
+                required = ["text"]
+            elif "analysis" in tool_id_lower or "analyst" in tool_id_lower:
+                properties = {
+                    "data": {"type": "string", "description": "Dãy số hoặc mảng số liệu cần phân tích thống kê (ví dụ: '[12, 15, 20, 25, 30]')"},
+                    "input": {"type": "string", "description": "Dữ liệu phân tích dự phòng"},
+                }
+                required = ["data"]
+            elif "ml" in tool_id_lower or "evaluator" in tool_id_lower:
+                properties = {
+                    "task_type": {"type": "string", "description": "Loại bài toán: 'classification', 'regression', hoặc 'recommendation'"},
+                    "tp": {"type": "number", "description": "True Positives"},
+                    "fp": {"type": "number", "description": "False Positives"},
+                    "tn": {"type": "number", "description": "True Negatives"},
+                    "fn": {"type": "number", "description": "False Negatives"},
+                    "data_type": {"type": "string", "description": "Loại dữ liệu ('tabular', 'nlp', 'time_series')"},
+                }
+                required = ["task_type"]
+            elif "plan" in tool_id_lower or "workflow" in tool_id_lower:
+                properties = {
+                    "goal": {"type": "string", "description": "Mục tiêu bài toán phức tạp cần phân rã thành các bước và gán cho các agent chuyên trách"},
+                    "input": {"type": "string", "description": "Mục tiêu bài toán dự phòng"},
+                }
+                required = ["goal"]
+            elif "image" in tool_id_lower or "vision" in tool_id_lower or "ocr" in tool_id_lower:
+                properties = {
+                    "image_url": {"type": "string", "description": "Đường dẫn URL của hình ảnh cần phân tích"},
+                    "image_path": {"type": "string", "description": "Đường dẫn file ảnh trên hệ thống cục bộ"},
+                    "task": {"type": "string", "description": "Tác vụ: 'all', 'ocr', hoặc 'classification'"},
+                    "prompt": {"type": "string", "description": "Câu hỏi cụ thể về bức ảnh"},
+                }
+                required = []
+            elif "csv" in tool_id_lower:
+                properties = {
+                    "file_url": {"type": "string", "description": "Đường dẫn URL tải file CSV"},
+                    "file_path": {"type": "string", "description": "Đường dẫn file CSV trên ổ đĩa"},
+                    "csv_content": {"type": "string", "description": "Nội dung chuỗi dữ liệu bảng tính CSV thô"},
+                    "query": {"type": "string", "description": "Khía cạnh cần tập trung phân tích trong file CSV"},
+                }
+                required = []
+            elif "generator" in tool_id_lower or "code_gen" in tool_id_lower:
+                properties = {
+                    "task": {"type": "string", "description": "Mô tả bài toán hoặc chức năng cần viết mã nguồn Python"},
+                    "libraries": {"type": "array", "items": {"type": "string"}, "description": "Danh sách thư viện yêu cầu sử dụng"},
+                    "include_tests": {"type": "boolean", "description": "Tự động sinh khối kiểm thử mẫu (mặc định true)"},
+                }
+                required = ["task"]
+            elif "sandbox" in tool_id_lower or "runner" in tool_id_lower:
+                properties = {
+                    "code": {"type": "string", "description": "Mã nguồn Python hoàn chỉnh cần thực thi an toàn trong Sandbox"},
+                    "timeout_seconds": {"type": "integer", "description": "Thời gian thực thi tối đa (1 - 30 giây, mặc định 15)"},
+                }
+                required = ["code"]
+            else:
+                properties = {
+                    "input": {"type": "string", "description": "Nội dung đầu vào thực thi công cụ"},
+                }
+                required = ["input"]
+
+            tool_definitions.append(
+                {
+                    "type": "function",
+                    "function": {
+                        "name": tool_id,
+                        "description": tool_desc or f"Execute {tool_name_val}",
+                        "parameters": {
+                            "type": "object",
+                            "properties": properties,
+                            "required": required,
+                        },
+                    },
+                }
+            )
+        return tool_definitions
+
     @staticmethod
     def _publish_reply(
         agent_id: str,
@@ -309,138 +459,8 @@ class AgentRunner:
         # 4. Lấy Short Memory (conversation history) từ Redis
         short_memory = memory_service.get_short_memory(agent_id, room_id)
 
-        # 5. Xây dựng tool definitions
-        tool_definitions = []
-        for tool in agent_tools:
-            tool_id = tool.id if hasattr(tool, "id") else tool.get("id", "")
-            tool_name_val = tool.name if hasattr(tool, "name") else tool.get("name", "")
-            tool_desc = tool.description if hasattr(tool, "description") else tool.get("description", "")
-            
-            # Cung cấp properties schema chính xác theo loại tool
-            tool_id_lower = str(tool_id).lower()
-            if "search" in tool_id_lower:
-                properties = {
-                    "query": {"type": "string", "description": "Từ khóa tìm kiếm thông tin trên internet (ví dụ: 'thời tiết Hà Nội hôm nay')"},
-                    "input": {"type": "string", "description": "Từ khóa tìm kiếm dự phòng"}
-                }
-                required = ["query"]
-            elif "calc" in tool_id_lower:
-                properties = {
-                    "expression": {"type": "string", "description": "Biểu thức toán học cần tính toán (ví dụ: '125 * 8 + 50')"},
-                    "input": {"type": "string", "description": "Biểu thức toán học dự phòng"}
-                }
-                required = ["expression"]
-            elif "summar" in tool_id_lower:
-                properties = {
-                    "text": {"type": "string", "description": "Văn bản, tài liệu hoặc kết quả tìm kiếm cần tóm tắt lại"},
-                    "max_length": {"type": "integer", "description": "Độ dài tóm tắt mong muốn (mặc định 150 ký tự)"},
-                    "input": {"type": "string", "description": "Văn bản cần tóm tắt dự phòng"}
-                }
-                required = ["text"]
-            elif "visualiz" in tool_id_lower or "chart" in tool_id_lower:
-                properties = {
-                    "title": {"type": "string", "description": "Tiêu đề biểu đồ (ví dụ: 'Biến động Giá Vàng SJC Tháng 10/2026')"},
-                    "chart_type": {"type": "string", "description": "Loại biểu đồ: 'line' (đường), 'bar' (cột), 'pie' (tròn), 'area' (diện tích)"},
-                    "labels": {"type": "array", "items": {"type": "string"}, "description": "Danh sách các nhãn trục X / mốc thời gian (ví dụ: ['01/10', '05/10', '10/10', '15/10', '20/10', '25/10'])"},
-                    "datasets": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "label": {"type": "string", "description": "Tên chuỗi dữ liệu (ví dụ: 'Giá Vàng SJC (triệu VND/lượng)')"},
-                                "data": {"type": "array", "items": {"type": "number"}, "description": "Danh sách giá trị số tương ứng từng mốc nhãn"}
-                            },
-                            "required": ["label", "data"]
-                        },
-                        "description": "Các chuỗi dữ liệu cần vẽ biểu đồ"
-                    },
-                    "unit": {"type": "string", "description": "Đơn vị tính (ví dụ: 'triệu VNĐ/lượng', 'USD/oz', '%')"},
-                    "summary": {"type": "string", "description": "Tóm tắt ngắn gọn 1-2 câu về xu hướng của biểu đồ"}
-                }
-                required = ["title", "labels", "datasets"]
-            elif "analysis" in tool_id_lower or "analyst" in tool_id_lower or "db_query" in tool_id_lower:
-                properties = {
-                    "data": {"type": "string", "description": "Dãy số hoặc mảng số liệu cần phân tích thống kê (ví dụ: '[12, 15, 20, 25, 30]' hoặc '10, 20, 30')"},
-                    "input": {"type": "string", "description": "Dữ liệu phân tích dự phòng"}
-                }
-                required = ["data"]
-            elif "ml" in tool_id_lower or "evaluator" in tool_id_lower:
-                properties = {
-                    "task_type": {"type": "string", "description": "Loại bài toán: 'classification' (phân loại), 'regression' (hồi quy), hoặc 'recommendation' (gợi ý mô hình)"},
-                    "tp": {"type": "number", "description": "True Positives (nếu đánh giá phân loại)"},
-                    "fp": {"type": "number", "description": "False Positives"},
-                    "tn": {"type": "number", "description": "True Negatives"},
-                    "fn": {"type": "number", "description": "False Negatives"},
-                    "data_type": {"type": "string", "description": "Loại dữ liệu ('tabular', 'nlp', 'time_series') nếu cần gợi ý mô hình"}
-                }
-                required = ["task_type"]
-            elif "plan" in tool_id_lower or "workflow" in tool_id_lower or "control" in tool_id_lower:
-                properties = {
-                    "goal": {"type": "string", "description": "Mục tiêu bài toán phức tạp cần phân rã thành các bước và gán cho các agent chuyên trách"},
-                    "input": {"type": "string", "description": "Mục tiêu bài toán dự phòng"}
-                }
-                required = ["goal"]
-            elif "image" in tool_id_lower or "vision" in tool_id_lower or "ocr" in tool_id_lower:
-                properties = {
-                    "image_url": {"type": "string", "description": "Đường dẫn URL của hình ảnh cần phân tích (link Cloudinary, link web)"},
-                    "image_path": {"type": "string", "description": "Đường dẫn file ảnh trên hệ thống cục bộ"},
-                    "task": {"type": "string", "description": "Tác vụ: 'all' (OCR đọc chữ + phân loại ảnh), 'ocr' (chỉ trích xuất chữ), 'classification' (phân loại nhãn và mô tả đối tượng)"},
-                    "prompt": {"type": "string", "description": "Câu hỏi hoặc yêu cầu cụ thể về bức ảnh (ví dụ: 'Hóa đơn này có tổng tiền là bao nhiêu?')"}
-                }
-                required = []
-            elif "csv" in tool_id_lower:
-                properties = {
-                    "file_url": {"type": "string", "description": "Đường dẫn URL tải file CSV"},
-                    "file_path": {"type": "string", "description": "Đường dẫn file CSV trên ổ đĩa"},
-                    "csv_content": {"type": "string", "description": "Nội dung chuỗi dữ liệu bảng tính CSV thô"},
-                    "query": {"type": "string", "description": "Câu hỏi hoặc khía cạnh cần tập trung phân tích trong file CSV"}
-                }
-                required = []
-            elif "generator" in tool_id_lower or "code_gen" in tool_id_lower:
-                properties = {
-                    "task": {"type": "string", "description": "Mô tả bài toán hoặc chức năng cần viết mã nguồn Python"},
-                    "libraries": {"type": "array", "items": {"type": "string"}, "description": "Danh sách thư viện yêu cầu sử dụng (ví dụ: ['pandas', 'numpy', 'matplotlib'])"},
-                    "include_tests": {"type": "boolean", "description": "Tự động sinh khối kiểm thử mẫu chạy thử mã nguồn (mặc định true)"}
-                }
-                required = ["task"]
-            elif "sandbox" in tool_id_lower or "runner" in tool_id_lower:
-                properties = {
-                    "code": {"type": "string", "description": "Mã nguồn Python hoàn chỉnh cần thực thi an toàn trong Container Sandbox"},
-                    "timeout_seconds": {"type": "integer", "description": "Thời gian thực thi tối đa (1 - 30 giây, mặc định 15)"}
-                }
-                required = ["code"]
-            elif "crawl" in tool_id_lower:
-                properties = {
-                    "url": {"type": "string", "description": "Đường dẫn URL bài viết/website cần thu thập nội dung"},
-                    "input": {"type": "string", "description": "Đường dẫn URL dự phòng"}
-                }
-                required = ["url"]
-            elif "pdf" in tool_id_lower or "ph_n_t" in tool_id_lower or "document" in tool_id_lower:
-                properties = {
-                    "pdf_url": {"type": "string", "description": "Đường dẫn URL tải file PDF (link Cloudinary, link web trực tiếp hoặc đường dẫn file)"},
-                    "file_path": {"type": "string", "description": "Đường dẫn file PDF trên ổ đĩa"},
-                    "prompt": {"type": "string", "description": "Câu hỏi hoặc yêu cầu trích xuất bảng biểu / số liệu cụ thể"},
-                    "input": {"type": "string", "description": "Đường dẫn URL hoặc nội dung dự phòng"}
-                }
-                required = []
-            else:
-                properties = {
-                    "input": {"type": "string", "description": "Nội dung đầu vào thực thi công cụ"}
-                }
-                required = ["input"]
-
-            tool_definitions.append({
-                "type": "function",
-                "function": {
-                    "name": tool_id,
-                    "description": tool_desc or f"Execute {tool_name_val}",
-                    "parameters": {
-                        "type": "object",
-                        "properties": properties,
-                        "required": required,
-                    },
-                },
-            })
+        # 5. Xây dựng tool definitions (tự động nhận diện đầy đủ 18+ tools chuyên sâu)
+        tool_definitions = self._build_tool_definitions(agent_tools)
 
         # 6. Xây dựng danh sách messages ban đầu
         initial_messages = [SystemMessage(content=agent_system_prompt)]
@@ -756,99 +776,7 @@ class AgentRunner:
         short_memory = memory_service.get_short_memory(agent_id, room_id)
 
         # 3. Tool definitions
-        tool_definitions = []
-        for tool in agent_tools:
-            tool_id = tool.id if hasattr(tool, "id") else tool.get("id", "")
-            tool_name_val = tool.name if hasattr(tool, "name") else tool.get("name", "")
-            tool_desc = tool.description if hasattr(tool, "description") else tool.get("description", "")
-            
-            tool_id_lower = str(tool_id).lower()
-            if "search" in tool_id_lower:
-                properties = {
-                    "query": {"type": "string", "description": "Từ khóa tìm kiếm thông tin trên internet (ví dụ: 'thời tiết Hà Nội hôm nay')"},
-                    "input": {"type": "string", "description": "Từ khóa tìm kiếm dự phòng"}
-                }
-                required = ["query"]
-            elif "calc" in tool_id_lower:
-                properties = {
-                    "expression": {"type": "string", "description": "Biểu thức toán học cần tính toán (ví dụ: '125 * 8 + 50')"},
-                    "input": {"type": "string", "description": "Biểu thức toán học dự phòng"}
-                }
-                required = ["expression"]
-            elif "summar" in tool_id_lower:
-                properties = {
-                    "text": {"type": "string", "description": "Văn bản, tài liệu hoặc kết quả tìm kiếm cần tóm tắt lại"},
-                    "max_length": {"type": "integer", "description": "Độ dài tóm tắt mong muốn (mặc định 150 ký tự)"},
-                    "input": {"type": "string", "description": "Văn bản cần tóm tắt dự phòng"}
-                }
-                required = ["text"]
-            elif "visualiz" in tool_id_lower or "chart" in tool_id_lower:
-                properties = {
-                    "title": {"type": "string", "description": "Tiêu đề biểu đồ (ví dụ: 'Biến động Giá Vàng SJC Tháng 10/2026')"},
-                    "chart_type": {"type": "string", "description": "Loại biểu đồ: 'line' (đường), 'bar' (cột), 'pie' (tròn), 'area' (diện tích)"},
-                    "labels": {"type": "array", "items": {"type": "string"}, "description": "Danh sách các nhãn trục X / mốc thời gian (ví dụ: ['01/10', '05/10', '10/10', '15/10', '20/10', '25/10'])"},
-                    "datasets": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "label": {"type": "string", "description": "Tên chuỗi dữ liệu (ví dụ: 'Giá Vàng SJC (triệu VND/lượng)')"},
-                                "data": {"type": "array", "items": {"type": "number"}, "description": "Danh sách giá trị số tương ứng từng mốc nhãn"}
-                            },
-                            "required": ["label", "data"]
-                        },
-                        "description": "Các chuỗi dữ liệu cần vẽ biểu đồ"
-                    },
-                    "unit": {"type": "string", "description": "Đơn vị tính (ví dụ: 'triệu VNĐ/lượng', 'USD/oz', '%')"},
-                    "summary": {"type": "string", "description": "Tóm tắt ngắn gọn 1-2 câu về xu hướng của biểu đồ"}
-                }
-                required = ["title", "labels", "datasets"]
-            elif "analysis" in tool_id_lower or "analyst" in tool_id_lower or "db_query" in tool_id_lower:
-                properties = {
-                    "data": {"type": "string", "description": "Dãy số hoặc mảng số liệu cần phân tích thống kê (ví dụ: '[12, 15, 20, 25, 30]' hoặc '10, 20, 30')"},
-                    "input": {"type": "string", "description": "Dữ liệu phân tích dự phòng"}
-                }
-                required = ["data"]
-            elif "ml" in tool_id_lower or "evaluator" in tool_id_lower:
-                properties = {
-                    "task_type": {"type": "string", "description": "Loại bài toán: 'classification' (phân loại), 'regression' (hồi quy), hoặc 'recommendation' (gợi ý mô hình)"},
-                    "tp": {"type": "number", "description": "True Positives"},
-                    "fp": {"type": "number", "description": "False Positives"},
-                    "tn": {"type": "number", "description": "True Negatives"},
-                    "fn": {"type": "number", "description": "False Negatives"},
-                    "data_type": {"type": "string", "description": "Loại dữ liệu ('tabular', 'nlp', 'time_series') nếu cần gợi ý mô hình"}
-                }
-                required = ["task_type"]
-            elif "plan" in tool_id_lower or "workflow" in tool_id_lower or "control" in tool_id_lower:
-                properties = {
-                    "goal": {"type": "string", "description": "Mục tiêu bài toán phức tạp cần phân rã thành các bước và gán cho các agent chuyên trách"},
-                    "input": {"type": "string", "description": "Mục tiêu bài toán dự phòng"}
-                }
-                required = ["goal"]
-            elif "crawl" in tool_id_lower:
-                properties = {
-                    "url": {"type": "string", "description": "Đường dẫn URL bài viết/website cần thu thập nội dung"},
-                    "input": {"type": "string", "description": "Đường dẫn URL dự phòng"}
-                }
-                required = ["url"]
-            else:
-                properties = {
-                    "input": {"type": "string", "description": "Nội dung đầu vào thực thi công cụ"}
-                }
-                required = ["input"]
-
-            tool_definitions.append({
-                "type": "function",
-                "function": {
-                    "name": tool_id,
-                    "description": tool_desc or f"Execute {tool_name_val}",
-                    "parameters": {
-                        "type": "object",
-                        "properties": properties,
-                        "required": required,
-                    },
-                },
-            })
+        tool_definitions = self._build_tool_definitions(agent_tools)
 
         # 4. Messages
         initial_messages = [SystemMessage(content=agent_system_prompt)]

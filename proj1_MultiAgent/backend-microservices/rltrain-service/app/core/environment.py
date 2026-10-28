@@ -2,6 +2,7 @@ import math
 import random
 from typing import Dict, Any, List, Tuple, Optional
 
+
 class Navigation3DEnv:
     """
     Gym-like 3D Grid Arena Navigation Environment for Reinforcement Learning.
@@ -21,7 +22,7 @@ class Navigation3DEnv:
         arena_size: float = 20.0,
         max_steps: int = 150,
         agent_radius: float = 0.5,
-        goal_radius: float = 0.85,
+        goal_radius: float = 0.9,
         lidar_range: float = 8.0,
         lidar_beams: int = 8
     ):
@@ -212,7 +213,6 @@ class Navigation3DEnv:
         pois = self.OFFICE_ROOM_POIS.get(zone, self.OFFICE_ROOM_POIS["corridor"])
         clearance = 0.35 if is_goal else 0.55
 
-        # Thử lấy từ các điểm POI thông thoáng kèm nhiễu nhẹ
         for _ in range(30):
             p = random.choice(pois)
             noise_r = 0.45 if is_goal else 0.3
@@ -221,7 +221,6 @@ class Navigation3DEnv:
             if self._is_position_safe(x, z, clearance):
                 return round(x, 2), round(z, 2)
 
-        # Fallback lấy trực tiếp toạ độ POI gốc
         p = random.choice(pois)
         return p["x"], p["z"]
 
@@ -248,7 +247,6 @@ class Navigation3DEnv:
                     break
             if not blocked:
                 return x, z
-        # Điểm thông thoáng dự phòng trong hành lang
         return 0.0, max(min_z, min(max_z, 0.0))
 
     def reset(
@@ -262,7 +260,6 @@ class Navigation3DEnv:
         self.episode_collisions = 0
         self.stall_steps = 0
 
-        # Curriculum factor [0.0 -> 1.0] tăng dần theo episode_num để Agent dễ học từ gần đến xa
         curriculum = min(1.0, max(0.0, (episode_num - 1) / 180.0))
 
         if self.current_map == "office":
@@ -279,15 +276,14 @@ class Navigation3DEnv:
             if goal_pos is not None:
                 self.goal_x, self.goal_z = goal_pos
             else:
-                # Ở giai đoạn đầu (curriculum < 0.35), ưu tiên 95% cùng phòng để hội tụ nhanh
-                same_room_prob = 0.95 - 0.15 * curriculum
+                same_room_prob = 0.95 - 0.12 * curriculum
                 if agent_zone in room_keys and random.random() < same_room_prob:
                     target_zone = agent_zone
                 else:
                     target_zone = "corridor"
 
-                min_goal_dist = 2.2 + 0.6 * curriculum
-                max_goal_dist = 5.2 + 6.5 * curriculum
+                min_goal_dist = 2.0 + 0.6 * curriculum
+                max_goal_dist = 5.5 + 6.5 * curriculum
                 chosen = False
                 for _ in range(40):
                     gx, gz = self._sample_office_pos(target_zone, is_goal=True)
@@ -299,20 +295,18 @@ class Navigation3DEnv:
                 if not chosen:
                     for _ in range(30):
                         gx, gz = self._sample_office_pos(target_zone, is_goal=True)
-                        if math.hypot(gx - self.agent_x, gz - self.agent_z) >= 2.2:
+                        if math.hypot(gx - self.agent_x, gz - self.agent_z) >= 2.0:
                             self.goal_x, self.goal_z = gx, gz
                             chosen = True
                             break
                 if not chosen:
                     self.goal_x, self.goal_z = self._sample_office_pos(target_zone, is_goal=True)
 
-            # Hướng đầu ban đầu: các episode đầu hướng tương đối về phía Goal (+/- 90 độ), sau đó ngẫu nhiên 360 độ
             ideal_heading = math.atan2(self.goal_z - self.agent_z, self.goal_x - self.agent_x)
-            spread = math.pi * (0.45 + 0.55 * curriculum)
+            spread = math.pi * (0.4 + 0.6 * curriculum)
             self.agent_heading = (ideal_heading + random.uniform(-spread, spread)) % (2 * math.pi)
 
         else:
-            # Chế độ sa bàn cơ bản Cyber Grid
             if agent_start is not None:
                 self.agent_x, self.agent_z = agent_start
             else:
@@ -376,7 +370,6 @@ class Navigation3DEnv:
         dz = self.goal_z - self.agent_z
         target_angle = math.atan2(dz, dx)
         diff = target_angle - self.agent_heading
-        # Chuẩn hóa về [-pi, pi]
         while diff > math.pi:
             diff -= 2 * math.pi
         while diff < -math.pi:
@@ -384,9 +377,14 @@ class Navigation3DEnv:
         return diff
 
     def _get_lidar_readings(self) -> List[float]:
-        """Bắn tia LIDAR theo 8 hướng để đo khoảng cách tới chướng ngại vật hoặc tường"""
+        """
+        Bắn tia LIDAR C-Space theo 8 hướng đo khoảng cách thực tế từ mép cơ thể Agent
+        tới mép chướng ngại vật (tính cả agent_radius để cảm biến không bị mù góc vai).
+        """
         readings = []
         angle_step = (2 * math.pi) / self.lidar_beams
+        eff_wall_x = self.half_x - self.agent_radius
+        eff_wall_z = self.half_z - self.agent_radius
 
         for i in range(self.lidar_beams):
             beam_angle = self.agent_heading + (i * angle_step)
@@ -395,39 +393,38 @@ class Navigation3DEnv:
 
             min_dist = self.lidar_range
 
-            # 1. Đo khoảng cách tới tường biên (Arena Boundary 28x22m)
-            if cos_b > 0:
-                dist_wall = (self.half_x - self.agent_x) / cos_b
-                if 0 <= dist_wall < min_dist:
+            # 1. Khoảng cách tới tường biên
+            if cos_b > 1e-6:
+                dist_wall = max(0.0, (eff_wall_x - self.agent_x) / cos_b)
+                if dist_wall < min_dist:
                     min_dist = dist_wall
-            elif cos_b < 0:
-                dist_wall = (-self.half_x - self.agent_x) / cos_b
-                if 0 <= dist_wall < min_dist:
-                    min_dist = dist_wall
-
-            if sin_b > 0:
-                dist_wall = (self.half_z - self.agent_z) / sin_b
-                if 0 <= dist_wall < min_dist:
-                    min_dist = dist_wall
-            elif sin_b < 0:
-                dist_wall = (-self.half_z - self.agent_z) / sin_b
-                if 0 <= dist_wall < min_dist:
+            elif cos_b < -1e-6:
+                dist_wall = max(0.0, (-eff_wall_x - self.agent_x) / cos_b)
+                if dist_wall < min_dist:
                     min_dist = dist_wall
 
-            # 2. Đo khoảng cách tới từng chướng ngại vật tròn
+            if sin_b > 1e-6:
+                dist_wall = max(0.0, (eff_wall_z - self.agent_z) / sin_b)
+                if dist_wall < min_dist:
+                    min_dist = dist_wall
+            elif sin_b < -1e-6:
+                dist_wall = max(0.0, (-eff_wall_z - self.agent_z) / sin_b)
+                if dist_wall < min_dist:
+                    min_dist = dist_wall
+
+            # 2. Khoảng cách C-Space tới từng chướng ngại vật tròn (cộng bán kính Agent)
             for obs in self.obstacles:
-                ox, oz, orad = obs["x"], obs["z"], obs.get("radius", 1.0)
-                # Chiếu toạ độ chướng ngại vật lên tia LIDAR
+                ox, oz = obs["x"], obs["z"]
+                eff_rad = obs.get("radius", 1.0) + self.agent_radius
                 dx = ox - self.agent_x
                 dz = oz - self.agent_z
                 proj = dx * cos_b + dz * sin_b
                 if proj > 0:
                     perp_sq = (dx * dx + dz * dz) - (proj * proj)
-                    if perp_sq < (orad * orad):
-                        # Giao cắt với hình tròn
-                        chord = math.sqrt(max(0.0, (orad * orad) - perp_sq))
-                        hit_dist = proj - chord
-                        if 0 <= hit_dist < min_dist:
+                    if perp_sq < (eff_rad * eff_rad):
+                        chord = math.sqrt(max(0.0, (eff_rad * eff_rad) - perp_sq))
+                        hit_dist = max(0.0, proj - chord)
+                        if hit_dist < min_dist:
                             min_dist = hit_dist
 
             readings.append(round(min_dist, 3))
@@ -436,11 +433,9 @@ class Navigation3DEnv:
 
     def check_collision(self, x: float, z: float) -> bool:
         """Kiểm tra xem vị trí (x, z) có đâm vào chướng ngại vật hoặc tường không"""
-        # Kiểm tra tường ngoài hình chữ nhật 28x22m
         if abs(x) >= (self.half_x - self.agent_radius) or abs(z) >= (self.half_z - self.agent_radius):
             return True
 
-        # Kiểm tra chướng ngại vật
         for obs in self.obstacles:
             dx = x - obs["x"]
             dz = z - obs["z"]
@@ -448,6 +443,20 @@ class Navigation3DEnv:
             if dist <= (obs.get("radius", 1.0) + self.agent_radius):
                 return True
         return False
+
+    def _try_tangential_slide(self, desired_heading: float, step_dist: float) -> Tuple[bool, float, float, float]:
+        """
+        Cơ chế trượt tiếp tuyến vật lý (Collider Sliding):
+        Khi bước đi thẳng bị vướng mép bàn ghế, thử trượt sang hướng tiếp tuyến thông thoáng
+        để Agent lách qua mượt mà thay vì bị kẹt cứng tại chỗ.
+        """
+        for angle_offset in [0.45, -0.45, 0.85, -0.85, 1.25, -1.25]:
+            cand_heading = (desired_heading + angle_offset) % (2 * math.pi)
+            cand_x = self.agent_x + (step_dist * 0.65) * math.cos(cand_heading)
+            cand_z = self.agent_z + (step_dist * 0.65) * math.sin(cand_heading)
+            if not self.check_collision(cand_x, cand_z):
+                return True, cand_x, cand_z, cand_heading
+        return False, self.agent_x, self.agent_z, desired_heading
 
     def step(self, action: int) -> Tuple[Dict[str, Any], float, bool, Dict[str, Any]]:
         """
@@ -462,98 +471,117 @@ class Navigation3DEnv:
         """
         self.current_step += 1
         speed = 0.65
-        turn_speed = 0.52  # Radian (~30 độ)
+        turn_speed = 0.55
 
         new_x = self.agent_x
         new_z = self.agent_z
         new_heading = self.agent_heading
+        move_dist = 0.0
 
         if action == 0:  # Tiến
-            new_x += speed * math.cos(self.agent_heading)
-            new_z += speed * math.sin(self.agent_heading)
+            move_dist = speed
+            new_x += move_dist * math.cos(self.agent_heading)
+            new_z += move_dist * math.sin(self.agent_heading)
         elif action == 1:  # Lùi
-            new_x -= (speed * 0.45) * math.cos(self.agent_heading)
-            new_z -= (speed * 0.45) * math.sin(self.agent_heading)
+            move_dist = speed * 0.45
+            new_x -= move_dist * math.cos(self.agent_heading)
+            new_z -= move_dist * math.sin(self.agent_heading)
         elif action == 2:  # Xoay trái
             new_heading += turn_speed
         elif action == 3:  # Xoay phải
             new_heading -= turn_speed
         elif action == 4:  # Vừa tiến vừa rẽ trái
-            new_heading += turn_speed * 0.75
-            new_x += (speed * 0.82) * math.cos(new_heading)
-            new_z += (speed * 0.82) * math.sin(new_heading)
+            new_heading += turn_speed * 0.8
+            move_dist = speed * 0.8
+            new_x += move_dist * math.cos(new_heading)
+            new_z += move_dist * math.sin(new_heading)
         elif action == 5:  # Vừa tiến vừa rẽ phải
-            new_heading -= turn_speed * 0.75
-            new_x += (speed * 0.82) * math.cos(new_heading)
-            new_z += (speed * 0.82) * math.sin(new_heading)
+            new_heading -= turn_speed * 0.8
+            move_dist = speed * 0.8
+            new_x += move_dist * math.cos(new_heading)
+            new_z += move_dist * math.sin(new_heading)
 
-        # Giữ góc heading trong [0, 2*pi]
         new_heading = new_heading % (2 * math.pi)
+        slid_past = False
 
-        # Xoay tại chỗ (Action 2, 3) không thay đổi toạ độ (x, z), luôn an toàn và được phép xoay
         if action in [2, 3]:
             is_collision = False
             self.agent_heading = new_heading
         else:
-            is_collision = self.check_collision(new_x, new_z)
-            # Ngay cả khi bị cản vị trí phía trước, hướng nhìn (heading) vẫn được xoay để Agent đổi hướng tìm lối thoát
-            self.agent_heading = new_heading
-            if not is_collision:
+            raw_collision = self.check_collision(new_x, new_z)
+            if not raw_collision:
+                is_collision = False
+                self.agent_heading = new_heading
                 self.agent_x = new_x
                 self.agent_z = new_z
+            else:
+                # Nếu đang rẽ (action 4, 5) mà quệt mép bàn ghế -> trượt tiếp tuyến quanh mép bàn
+                if action in [4, 5]:
+                    ok, sx, sz, sh = self._try_tangential_slide(new_heading, move_dist)
+                    if ok:
+                        is_collision = False
+                        slid_past = True
+                        self.agent_x = sx
+                        self.agent_z = sz
+                        self.agent_heading = sh
+                    else:
+                        is_collision = False
+                        self.agent_heading = new_heading
+                else:
+                    is_collision = True
+                    self.agent_heading = new_heading
 
         curr_distance = self._calc_distance_to_goal()
         signed_angle = self._calc_angle_to_goal()
         angle_diff = abs(signed_angle)
         lidar_readings = self._get_lidar_readings()
-        front_dist = min(lidar_readings[0], lidar_readings[1] * 1.05, lidar_readings[7] * 1.05)
+        front_dist = min(lidar_readings[0], lidar_readings[1] * 1.1, lidar_readings[7] * 1.1)
 
         # ==================== REWARD SHAPING CHỐNG GIAN LẬN (POTENTIAL-BASED + MILESTONE) ====================
-        reward = -0.06  # Step penalty nhẹ để tối ưu đường đi ngắn nhất
+        reward = -0.05
 
-        # 1. Potential-based distance shaping (cân bằng tiến/lùi, không cho phép lặp tiến-lùi cày điểm)
+        # 1. Potential-based distance shaping
         progress = self.prev_distance - curr_distance
-        if front_dist < 1.8:
-            # Khi trước mặt vướng bàn ghế, nới nhẹ mức phạt lùi/vòng để Agent bẻ lái lách qua
-            reward += max(-1.2, progress * 7.5)
+        if front_dist < 1.4:
+            reward += max(-1.0, progress * 7.5)
         else:
-            # Khi đường thoáng, phạt đối xứng nếu đi ngược ra xa mục tiêu
             reward += progress * 8.5
 
-        # 2. Thưởng cột mốc kỷ lục mới (Monotonic Best-Distance Bonus: chỉ nhận 1 lần cho mỗi mốc tiến gần Goal)
+        # 2. Thưởng cột mốc kỷ lục mới (Monotonic Best-Distance Bonus)
         if curr_distance < self.min_distance:
             new_best_gain = self.min_distance - curr_distance
-            reward += new_best_gain * 6.5
+            reward += new_best_gain * 7.0
             self.min_distance = curr_distance
             self.stall_steps = 0
         else:
             self.stall_steps += 1
 
-        # 3. Phạt hành vi đi lùi vô lý khi phía trước hoàn toàn thông thoáng
-        if action == 1 and front_dist > 1.8:
-            reward -= 0.65
+        # 3. Phạt hành vi đi lùi vô lý khi phía trước thông thoáng
+        if action == 1 and front_dist > 1.4:
+            reward -= 0.7
+
+        if slid_past:
+            reward -= 0.25  # Phạt nhẹ khi quệt vai vào mép bàn
 
         # 4. Thưởng xoay mũi hướng về phía Goal & định hướng né vật cản
         angle_improvement = self.prev_angle_diff - angle_diff
-        if front_dist >= 1.5:
-            reward += angle_improvement * 1.5
-            reward += math.cos(angle_diff) * 0.22
+        if front_dist >= 1.2:
+            reward += angle_improvement * 1.6
+            reward += math.cos(angle_diff) * 0.25
         else:
-            # Khi sát vật cản phía trước, thưởng nếu xoay về phía bên thoáng hơn (trái vs phải)
             left_space = lidar_readings[1] + 0.7 * lidar_readings[2]
             right_space = lidar_readings[7] + 0.7 * lidar_readings[6]
             if action in [2, 4] and left_space >= right_space:
-                reward += 0.35
+                reward += 0.4
             elif action in [3, 5] and right_space > left_space:
-                reward += 0.35
+                reward += 0.4
 
-        # 5. Cảnh báo sớm khoảng cách an toàn LIDAR
-        if front_dist < 1.5:
-            reward -= (1.5 - front_dist) * 1.4
+        # 5. Cảnh báo sớm khoảng cách an toàn LIDAR C-Space
+        if front_dist < 1.2:
+            reward -= (1.2 - front_dist) * 1.5
             if self.prev_front_dist is not None and front_dist > self.prev_front_dist:
                 reward += (front_dist - self.prev_front_dist) * 3.5
 
-        # Phạt nhẹ nếu đứng xoay vòng tại chỗ quá lâu không tiến thêm
         if self.stall_steps > 18:
             reward -= 0.25
 
@@ -570,26 +598,30 @@ class Navigation3DEnv:
             "reason": "running"
         }
 
-        # Kiểm tra điều kiện kết thúc
         if is_collision:
             self.episode_collisions += 1
             info["collision"] = True
-            # Nảy lùi nhẹ 0.15m để không bị kẹt cứng sát mép vật cản
-            rebound_x = self.agent_x - 0.15 * math.cos(new_heading)
-            rebound_z = self.agent_z - 0.15 * math.sin(new_heading)
+            # Nảy lùi theo hướng ngược lại với hướng vừa di chuyển và xoay nhẹ về hướng thoáng
+            rebound_dir = -1.0 if action != 1 else 1.0
+            rebound_x = self.agent_x + rebound_dir * 0.18 * math.cos(new_heading)
+            rebound_z = self.agent_z + rebound_dir * 0.18 * math.sin(new_heading)
             if not self.check_collision(rebound_x, rebound_z):
                 self.agent_x = rebound_x
                 self.agent_z = rebound_z
 
-            if self.episode_collisions < 4:
-                reward = -3.0 * self.episode_collisions
+            left_space = lidar_readings[1] + lidar_readings[2]
+            right_space = lidar_readings[7] + lidar_readings[6]
+            deflect = 0.45 if left_space >= right_space else -0.45
+            self.agent_heading = (self.agent_heading + deflect) % (2 * math.pi)
+
+            if self.episode_collisions < 6:
+                reward = -2.5 * self.episode_collisions
                 info["reason"] = f"bump_{self.episode_collisions}"
             else:
                 reward = -18.0
                 done = True
                 info["reason"] = "collision"
         elif curr_distance <= self.goal_radius:
-            # Thưởng lớn khi về đích + thưởng cộng thêm nếu về đích tốn ít bước
             efficiency_bonus = max(0.0, (self.max_steps - self.current_step) / self.max_steps) * 30.0
             reward = 150.0 + efficiency_bonus
             done = True

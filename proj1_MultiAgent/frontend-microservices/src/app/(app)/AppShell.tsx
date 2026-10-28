@@ -5,7 +5,8 @@ import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { clearSession, getUser, isLoggedIn, User } from '@/lib/auth'
 import { notify } from '@/lib/toast'
-import Sidebar from './Siderbar' // Đường dẫn trỏ tới file Sidebar vừa tạo
+import Sidebar from './Siderbar'
+import FloatingRoomChatBubble from '@/components/chat/FloatingRoomChatBubble'
 
 const NAV = [
     { href: '/dashboard', label: 'Dashboard' },
@@ -58,7 +59,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
     return (
         <div className="min-h-screen bg-zinc-950 text-white flex flex-col">
-            {/* Top Header Ngang Cũ */}
+            {/* Top Header Ngang */}
             <header className="h-14 border-b border-zinc-800 bg-zinc-900/80 backdrop-blur sticky top-0 z-50">
                 <div className="h-full max-w-7xl mx-auto px-4 flex items-center justify-between gap-4">
                     <div className="flex items-center gap-6">
@@ -118,6 +119,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                     {children}
                 </main>
             </div>
+
+            {/* Nút Bubble Float Chat toàn cục giúp chat trực tiếp với mọi Room ngay từ bên ngoài */}
+            <FloatingRoomChatBubble />
         </div>
     )
 }

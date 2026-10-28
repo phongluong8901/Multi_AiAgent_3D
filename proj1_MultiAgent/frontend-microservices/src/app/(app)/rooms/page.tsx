@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { io } from 'socket.io-client'
-import { roomsApi, agentsApi, Room, Agent } from '@/lib/api'
+import { roomsApi, agentsApi, Room, Agent, RoomPresenceSummary } from '@/lib/api'
 import { getUser } from '@/lib/auth'
 import { RoomsHeader } from '@/components/room/RoomsHeader'
 import { RoomInvitesList } from '@/components/room/RoomInvitesList'
@@ -16,6 +16,7 @@ export default function RoomsHubPage() {
     const { confirm } = useConfirm()
 
     const [rooms, setRooms] = useState<Room[]>([])
+    const [presenceSummary, setPresenceSummary] = useState<RoomPresenceSummary | null>(null)
     const [availableAgents, setAvailableAgents] = useState<Agent[]>([])
     const [loading, setLoading] = useState(true)
     const [modalOpen, setModalOpen] = useState(false)
@@ -28,7 +29,6 @@ export default function RoomsHubPage() {
     const [tier, setTier] = useState<'standard' | 'premium' | 'enterprise'>('standard')
     const [ownedAgentsCount, setOwnedAgentsCount] = useState(3)
 
-    // --- BỔ SUNG 2 STATE QUẢN LÝ TRẠNG THÁI RIÊNG TƯ / MẬT KHẨU ---
     const [isPublic, setIsPublic] = useState(true)
     const [password, setPassword] = useState('')
 
@@ -53,12 +53,14 @@ export default function RoomsHubPage() {
     const loadData = async () => {
         try {
             setLoading(true)
-            const [roomsList, agentsList] = await Promise.all([
+            const [roomsList, agentsList, summary] = await Promise.all([
                 roomsApi.list().catch(() => []),
                 agentsApi.list().catch(() => []),
+                roomsApi.getPresenceSummary().catch(() => null),
             ])
             setRooms(roomsList)
             setAvailableAgents(agentsList)
+            if (summary) setPresenceSummary(summary)
         } catch (err) {
             console.error('Error loading rooms:', err)
         } finally {
@@ -66,7 +68,6 @@ export default function RoomsHubPage() {
         }
     }
 
-    // --- KẾT NỐI SOCKET.IO REALTIME (Đã thêm extraHeaders để qua cổng 4000) ---
     useEffect(() => {
         loadData()
         loadInvites()
@@ -79,32 +80,28 @@ export default function RoomsHubPage() {
         const socket = io(socketUrl, {
             path: '/api/v1/rooms/socket.io',
             transports: ['polling', 'websocket'],
-            auth: {
-                token: token, // Dành cho room-service xác thực bên trong
-            },
-            extraHeaders: token ? {
-                Authorization: `Bearer ${token}`, // Hỗ trợ qua API Gateway
-            } : {},
+            auth: { token },
+            extraHeaders: token ? { Authorization: `Bearer ${token}` } : {},
         })
 
         socket.on('connect', () => {
-            console.log('✅ Socket connected ID:', socket.id)
             socket.emit('identity', me.id)
-            socket.emit('join', me.id)
         })
 
-        socket.on('connect_error', (err) => {
-            console.error('❌ Socket connection error:', err.message)
-        })
-
-        socket.on('room_invited', (data) => {
-            console.log('🔔 Nhận được event room_invited:', data)
+        socket.on('room_invited', () => {
             loadInvites()
         })
 
-        socket.on('room-updated', (data) => {
-            console.log('🔄 Nhận được event room-updated:', data)
+        socket.on('room-updated', () => {
             loadData()
+        })
+
+        socket.on('room-presence-changed', () => {
+            loadData()
+        })
+
+        socket.on('global_presence_updated', () => {
+            roomsApi.getPresenceSummary().then(setPresenceSummary).catch(() => {})
         })
 
         return () => {
@@ -199,15 +196,70 @@ export default function RoomsHubPage() {
 
     const toggleAgentSelection = (agentId: string) => {
         setSelectedAgents((prev) =>
-            prev.includes(agentId)
-                ? prev.filter((id) => id !== agentId)
-                : [...prev, agentId]
+            prev.includes(agentId) ? prev.filter((id) => id !== agentId) : [...prev, agentId]
         )
     }
+
+    // Tính tổng Online / Offline từ danh sách phòng nếu summary chưa kịp về
+    const computedOnline =
+        presenceSummary?.totalOnline ??
+        rooms.reduce((sum, r) => sum + (r.onlineCount ?? r.onlineUsers?.length ?? 0), 0)
+    const computedOffline =
+        presenceSummary?.totalOffline ??
+        rooms.reduce((sum, r) => {
+            const total = r.totalMembers ?? r.members?.length ?? 0
+            const on = r.onlineCount ?? r.onlineUsers?.length ?? 0
+            return sum + Math.max(0, total - on)
+        }, 0)
 
     return (
         <div className="space-y-8 pb-12">
             <RoomsHeader onCreateClick={() => setModalOpen(true)} />
+
+            {/* Thanh Thống kê Số lượng Người Online & Offline Toàn Hệ Thống Phòng */}
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <div className="flex items-center justify-between rounded-2xl border border-zinc-800/80 bg-zinc-900/70 px-5 py-4">
+                    <div>
+                        <p className="text-xs font-medium uppercase tracking-wider text-zinc-400">
+                            Tổng Số Phòng
+                        </p>
+                        <p className="mt-1 text-2xl font-bold text-white">{rooms.length}</p>
+                    </div>
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                        🏢
+                    </div>
+                </div>
+
+                <div className="flex items-center justify-between rounded-2xl border border-emerald-500/30 bg-emerald-950/20 px-5 py-4">
+                    <div>
+                        <p className="text-xs font-medium uppercase tracking-wider text-emerald-400">
+                            Thành Viên Đang Online
+                        </p>
+                        <div className="mt-1 flex items-baseline gap-2">
+                            <span className="text-2xl font-bold text-emerald-300">
+                                {computedOnline}
+                            </span>
+                            <span className="text-xs text-emerald-400/80">người đang hoạt động</span>
+                        </div>
+                    </div>
+                    <span className="h-3.5 w-3.5 animate-pulse rounded-full bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.9)]" />
+                </div>
+
+                <div className="flex items-center justify-between rounded-2xl border border-zinc-800/80 bg-zinc-900/70 px-5 py-4">
+                    <div>
+                        <p className="text-xs font-medium uppercase tracking-wider text-zinc-400">
+                            Thành Viên Đang Offline
+                        </p>
+                        <div className="mt-1 flex items-baseline gap-2">
+                            <span className="text-2xl font-bold text-zinc-200">
+                                {computedOffline}
+                            </span>
+                            <span className="text-xs text-zinc-500">người ngoại tuyến</span>
+                        </div>
+                    </div>
+                    <span className="h-3.5 w-3.5 rounded-full bg-zinc-600" />
+                </div>
+            </div>
 
             <RoomInvitesList invites={invites} setInvites={setInvites} />
 
@@ -267,6 +319,7 @@ export default function RoomsHubPage() {
                 isOpen={modalOpen}
                 onClose={() => setModalOpen(false)}
                 onSubmit={handleCreateRoom}
+                submitting={submitting}
                 roomName={roomName}
                 setRoomName={setRoomName}
                 description={description}
@@ -275,14 +328,13 @@ export default function RoomsHubPage() {
                 setTier={setTier}
                 ownedAgentsCount={ownedAgentsCount}
                 setOwnedAgentsCount={setOwnedAgentsCount}
-                availableAgents={availableAgents}
-                selectedAgents={selectedAgents}
-                toggleAgentSelection={toggleAgentSelection}
-                submitting={submitting}
                 isPublic={isPublic}
                 setIsPublic={setIsPublic}
                 password={password}
                 setPassword={setPassword}
+                availableAgents={availableAgents}
+                selectedAgents={selectedAgents}
+                toggleAgentSelection={toggleAgentSelection}
             />
         </div>
     )

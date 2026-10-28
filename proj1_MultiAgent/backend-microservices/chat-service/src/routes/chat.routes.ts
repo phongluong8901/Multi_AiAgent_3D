@@ -1,17 +1,20 @@
 import { Router } from "express";
 import { chatController } from "../controllers/chat.controller";
-import { upload } from "../middlewares/upload.middleware"; // Import multer middleware
+import { upload } from "../middlewares/upload.middleware";
 
 const router = Router();
+
+// Floating Chat Bubble Quick Rooms Summary (kèm tin nhắn cuối + Online/Offline)
+router.get("/bubble/rooms", chatController.getBubbleRooms);
 
 // Chat History & REST Send (Dự phòng qua HTTP)
 router.get("/history/:roomId", chatController.getHistory);
 router.post("/send", chatController.sendMessage);
 
-// --- ROUTE MỚI: Upload file đính kèm (Ảnh, CSV, Excel, PDF) lên Cloudinary ---
+// Upload file đính kèm (Ảnh, CSV, Excel, PDF) lên Cloudinary
 router.post("/upload", upload.single("file"), chatController.uploadAttachment);
 
-// Room Presence (Quản lý trạng thái online qua REST API fallback)
+// Room Presence (Quản lý trạng thái online/offline qua REST API)
 router.get("/presence/:roomId", chatController.getPresence);
 router.post("/presence/:roomId", chatController.updatePresence);
 

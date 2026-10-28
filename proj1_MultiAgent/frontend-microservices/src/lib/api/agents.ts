@@ -1,6 +1,13 @@
-import { request } from '../client'
+import { request, API_BASE } from '../client'
 
-export type AgentStatus = 'idle' | 'working' | 'meeting' | 'blocked' | 'speaking' | 'thinking'
+export type AgentStatus =
+    | 'idle'
+    | 'working'
+    | 'meeting'
+    | 'blocked'
+    | 'speaking'
+    | 'thinking'
+    | 'error'
 
 export type Agent = {
     id: string

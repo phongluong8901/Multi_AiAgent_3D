@@ -224,25 +224,43 @@ export function RoomTopNav({
 
             {/* --- KHU VỰC BÊN PHẢI: ONLINE USERS, QUẢN LÝ, TRACES, RỜI PHÒNG --- */}
             <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-                {/* Online Users Pill */}
-                <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-zinc-300">
-                    <IconUsers className="w-3.5 h-3.5 text-zinc-400" />
-                    <span className="text-zinc-500 font-medium">Online ({onlineUsers.length}):</span>
-                    <div className="flex items-center -space-x-1.5">
-                        {onlineUsers.slice(0, 3).map((u: any, i) => {
-                            const displayName = u.userName || u.name || 'User'
-                            return (
-                                <div
-                                    key={i}
-                                    title={displayName}
-                                    className="w-5 h-5 rounded-full bg-blue-600 border border-zinc-900 text-[10px] flex items-center justify-center font-bold text-white shadow"
-                                >
-                                    {displayName.charAt(0).toUpperCase()}
-                                </div>
-                            )
-                        })}
-                    </div>
-                </div>
+                {/* Online & Offline Users Pill */}
+                {(() => {
+                    const userMembers = (room?.members || []).filter(
+                        (m) => m.memberType !== 'agent' && !String(m.memberId).startsWith('agent_')
+                    )
+                    const totalMembers = Math.max(userMembers.length, onlineUsers.length, room?.totalMembers ?? 0)
+                    const onCount = Math.max(onlineUsers.length, room?.onlineCount ?? 0)
+                    const offCount = Math.max(0, totalMembers - onCount)
+                    return (
+                        <div className="hidden lg:flex items-center gap-2 px-2.5 py-1 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-zinc-300">
+                            <IconUsers className="w-3.5 h-3.5 text-zinc-400" />
+                            <span className="inline-flex items-center gap-1 text-emerald-400 font-semibold">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                                {onCount} Online
+                            </span>
+                            <span className="text-zinc-700">•</span>
+                            <span className="inline-flex items-center gap-1 text-zinc-400 font-medium">
+                                <span className="w-1.5 h-1.5 rounded-full bg-zinc-600" />
+                                {offCount} Offline
+                            </span>
+                            <div className="flex items-center -space-x-1.5 ml-1">
+                                {onlineUsers.slice(0, 3).map((u: any, i) => {
+                                    const displayName = u.userName || u.name || 'User'
+                                    return (
+                                        <div
+                                            key={i}
+                                            title={`${displayName} (Online)`}
+                                            className="w-5 h-5 rounded-full bg-blue-600 border border-zinc-900 text-[10px] flex items-center justify-center font-bold text-white shadow"
+                                        >
+                                            {displayName.charAt(0).toUpperCase()}
+                                        </div>
+                                    )
+                                })}
+                            </div>
+                        </div>
+                    )
+                })()}
 
                 {/* Nút kiểm tra luồng Workflow Traces */}
                 <button

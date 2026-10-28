@@ -3,14 +3,19 @@ FROM golang:alpine AS builder
 
 WORKDIR /app
 
-# Cache dependencies
-COPY go.mod go.sum* ./
-RUN go mod download || true
+# Cấu hình GOPROXY đa máy chủ dự phòng (chỉ dùng nếu không có thư mục vendor)
+ENV GOPROXY=https://goproxy.cn,https://goproxy.io,https://proxy.golang.org,direct
+ENV GOSUMDB=off
 
-# Copy source code
+# Copy source code và thư mục vendor đã đóng gói sẵn trên máy host
 COPY . .
-RUN go mod tidy
-RUN CGO_ENABLED=0 GOOS=linux go build -o distributed-service main.go
+
+# Nếu đã có sẵn thư mục vendor thì build offline ngay lập tức (không cần tải mạng tránh lỗi TLS timeout)
+RUN if [ -d "vendor" ]; then \
+        CGO_ENABLED=0 GOOS=linux go build -mod=vendor -o distributed-service main.go; \
+    else \
+        go mod download && CGO_ENABLED=0 GOOS=linux go build -o distributed-service main.go; \
+    fi
 
 # Minimal runtime stage
 FROM alpine:latest
@@ -23,5 +28,6 @@ COPY --from=builder /app/distributed-service .
 COPY .env.example .env
 
 EXPOSE 5010
+EXPOSE 8083
 
 CMD ["./distributed-service"]

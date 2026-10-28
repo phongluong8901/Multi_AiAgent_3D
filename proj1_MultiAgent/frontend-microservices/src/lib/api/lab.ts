@@ -53,10 +53,14 @@ export type LabSynthesisResponse = {
     }
     generated_files?: {
         tool_py?: string
+        tool_path?: string
         prompt_md?: string
         prompt_json?: string
+        prompt_path?: string
         model_json?: string
+        model_path?: string
         agent_manifest?: string
+        agent_path?: string
     }
     database_records?: {
         agent?: any
@@ -66,11 +70,30 @@ export type LabSynthesisResponse = {
     }
 }
 
+export type GeneratedFileInfo = {
+    name: string
+    filename?: string
+    type: 'tool' | 'prompt' | 'model' | 'agent' | string
+    path?: string
+    relative_path: string
+    size_bytes: number
+    modified_at?: string
+    updated_at?: string
+}
+
 export type GeneratedFileList = {
-    tools: Array<{ filename: string; path: string; size_bytes: number; updated_at: string }>
-    prompts: Array<{ filename: string; path: string; size_bytes: number; updated_at: string }>
-    models: Array<{ filename: string; path: string; size_bytes: number; updated_at: string }>
-    agents: Array<{ filename: string; path: string; size_bytes: number; updated_at: string }>
+    total_files?: number
+    counts?: {
+        tools?: number
+        prompts?: number
+        models?: number
+        agents?: number
+    }
+    files?: GeneratedFileInfo[]
+    tools?: Array<{ filename: string; path: string; size_bytes: number; updated_at: string }>
+    prompts?: Array<{ filename: string; path: string; size_bytes: number; updated_at: string }>
+    models?: Array<{ filename: string; path: string; size_bytes: number; updated_at: string }>
+    agents?: Array<{ filename: string; path: string; size_bytes: number; updated_at: string }>
 }
 
 export const labApi = {

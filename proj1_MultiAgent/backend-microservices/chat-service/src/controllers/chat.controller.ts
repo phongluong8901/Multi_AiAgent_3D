@@ -1,26 +1,64 @@
 import { Request, Response } from "express";
+import http from "http";
 import { chatService } from "../services/chat.service";
 import { memoryService } from "../services/memory.service";
 import { publishChatMessage } from "../events/producers";
 import { asyncHandler } from "../middlewares/async.middleware";
 import { AppError } from "../utils/exceptions";
-import { getIO } from "../config/socket"; // Lấy Socket.IO instance để broadcast realtime
-import { uploadFileToCloudinary } from "../utils/cloudinary.util"; // Import hàm upload Cloudinary đã tách 2 thư mục
+import { getIO } from "../config/socket";
+import { uploadFileToCloudinary } from "../utils/cloudinary.util";
+import { syncPresenceToRoomService } from "../gateways/chat.gateway";
+
+function fetchRoomsFromRoomService(): Promise<any[]> {
+    return new Promise((resolve) => {
+        try {
+            const roomServiceUrl = (
+                process.env.ROOM_SERVICE_URL || "http://room-service:5002"
+            ).replace(/\/$/, "");
+            const parsed = new URL(`${roomServiceUrl}/api/v1/rooms/user-user`);
+            const req = http.get(
+                {
+                    hostname: parsed.hostname,
+                    port: parsed.port || 5002,
+                    path: parsed.pathname,
+                    timeout: 3000,
+                },
+                (res) => {
+                    let raw = "";
+                    res.on("data", (chunk) => (raw += chunk));
+                    res.on("end", () => {
+                        try {
+                            const json = JSON.parse(raw);
+                            resolve(Array.isArray(json?.data) ? json.data : []);
+                        } catch {
+                            resolve([]);
+                        }
+                    });
+                }
+            );
+            req.on("error", () => resolve([]));
+            req.on("timeout", () => {
+                req.destroy();
+                resolve([]);
+            });
+        } catch {
+            resolve([]);
+        }
+    });
+}
 
 export class ChatController {
     /**
-     * Lấy lịch sử chat của phòng (Có hỗ trợ lọc theo typeChat tùy chọn qua query params)
-     * Ví dụ: GET /api/v1/chats/history/:roomId?typeChat=team&limit=50
+     * Lấy lịch sử chat của phòng
      */
     getHistory = asyncHandler(async (req: Request, res: Response) => {
         const roomId = req.params.roomId as string;
-        const typeChat = req.query.typeChat as string | undefined; // Lấy thêm tham số lọc typeChat nếu có
+        const typeChat = req.query.typeChat as string | undefined;
         const targetUserId = req.query.targetUserId as string | undefined;
         const targetAgentId = req.query.targetAgentId as string | undefined;
         const userId = (req.headers["x-user-id"] as string) || (req.query.userId as string);
         const limit = req.query.limit ? parseInt(req.query.limit as string) : 60;
 
-        // Gọi service lấy lịch sử với tham số typeChat và filter truyền vào
         const history = await chatService.getRoomHistory(roomId, typeChat, limit, {
             userId,
             targetUserId,
@@ -30,15 +68,76 @@ export class ChatController {
     });
 
     /**
-     * Gửi tin nhắn qua REST API (Dự phòng cho HTTP client - Hỗ trợ cả attachments & typeChat: team, direct, agent, workflow)
+     * Danh sách phòng rút gọn dành cho Floating Chat Bubble (kèm tin nhắn cuối + số người Online/Offline)
+     * Endpoint: GET /api/v1/chats/bubble/rooms
+     */
+    getBubbleRooms = asyncHandler(async (_req: Request, res: Response) => {
+        const rooms = await fetchRoomsFromRoomService();
+        const { roomPresence } = await import("../services/agent.dispatcher");
+
+        const enriched = await Promise.all(
+            rooms.map(async (r: any) => {
+                const roomId = String(r._id || r.id || "");
+                const recent = await chatService.getRoomHistory(roomId, undefined, 1).catch(() => []);
+                const lastMessage = recent.length > 0 ? recent[recent.length - 1] : null;
+
+                const chatPresenceMap = roomPresence.get(roomId);
+                const chatOnlineUsers = chatPresenceMap ? Array.from(chatPresenceMap.values()) : [];
+
+                // Gộp danh sách online từ cả room-service lẫn chat-service
+                const mergedOnlineIds = new Set<string>();
+                for (const u of r.onlineUsers || []) {
+                    if (u.userId && !String(u.userId).startsWith("agent_")) {
+                        mergedOnlineIds.add(String(u.userId));
+                    }
+                }
+                for (const u of chatOnlineUsers) {
+                    if (u.userId && !String(u.userId).startsWith("agent_")) {
+                        mergedOnlineIds.add(String(u.userId));
+                    }
+                }
+
+                const humanMembers = (r.members || []).filter(
+                    (m: any) => m.memberType !== "agent" && !String(m.memberId).startsWith("agent_")
+                );
+                const totalMembers = Math.max(humanMembers.length, mergedOnlineIds.size);
+                const onlineCount = mergedOnlineIds.size;
+                const offlineCount = Math.max(0, totalMembers - onlineCount);
+
+                return {
+                    ...r,
+                    roomId,
+                    totalMembers,
+                    onlineCount,
+                    offlineCount,
+                    lastMessage,
+                };
+            })
+        );
+
+        return res.status(200).json({ success: true, data: enriched });
+    });
+
+    /**
+     * Gửi tin nhắn qua REST API (Hỗ trợ cả Room Page lẫn Floating Chat Bubble ở ngoài)
      */
     sendMessage = asyncHandler(async (req: Request, res: Response) => {
-        const { roomId, typeChat, senderId, senderType, senderName, message, targetUserId, targetAgentId, attachments, metadata } = req.body;
+        const {
+            roomId,
+            typeChat,
+            senderId,
+            senderType,
+            senderName,
+            message,
+            targetUserId,
+            targetAgentId,
+            attachments,
+            metadata,
+        } = req.body;
         if (!roomId || !senderId || !message) {
             throw new AppError("Missing required fields", 400);
         }
 
-        // Tự động nhận diện typeChat
         let resolvedTypeChat = typeChat;
         if (!resolvedTypeChat) {
             if (targetUserId) resolvedTypeChat = "direct";
@@ -46,7 +145,6 @@ export class ChatController {
             else resolvedTypeChat = "team";
         }
 
-        // 1. Lưu tin nhắn vào MongoDB
         const saved = await chatService.saveMessage({
             roomId,
             typeChat: resolvedTypeChat,
@@ -60,11 +158,11 @@ export class ChatController {
             metadata,
         });
 
-        // 2. Broadcast tin nhắn tới client trong phòng qua Socket.IO
         const { broadcastToRoom, agentDispatcher } = await import("../services/agent.dispatcher");
-        broadcastToRoom(getIO(), roomId, "receive_message", saved);
+        const io = getIO();
+        broadcastToRoom(io, roomId, "receive_message", saved);
+        io.emit("bubble_new_message", saved);
 
-        // 3. Publish event lên RabbitMQ
         await publishChatMessage({
             messageId: (saved as any)._id?.toString() || "",
             roomId,
@@ -78,7 +176,6 @@ export class ChatController {
             createdAt: (saved as any).createdAt,
         });
 
-        // 4. Phân tích đối tượng nhận tin và Dispatch tới Agent nếu có mention hoặc là chat agent
         const targetAgents = await agentDispatcher.resolveTargetAgents({
             roomId,
             message,
@@ -89,21 +186,23 @@ export class ChatController {
 
         if (targetAgents.length > 0) {
             for (const agentId of targetAgents) {
-                agentDispatcher.dispatchToAgent({
-                    agentId,
-                    roomId,
-                    prompt: message,
-                    senderName: senderName || "User",
-                    senderId,
-                    depth: 0,
-                    originalTypeChat: resolvedTypeChat,
-                    rootTypeChat: resolvedTypeChat,
-                    initiatorAgentId: agentId,
-                    userGoal: message,
-                    visitedAgents: [agentId],
-                }).catch((err) => {
-                    console.error(`[ChatController] Error dispatching to ${agentId}:`, err);
-                });
+                agentDispatcher
+                    .dispatchToAgent({
+                        agentId,
+                        roomId,
+                        prompt: message,
+                        senderName: senderName || "User",
+                        senderId,
+                        depth: 0,
+                        originalTypeChat: resolvedTypeChat,
+                        rootTypeChat: resolvedTypeChat,
+                        initiatorAgentId: agentId,
+                        userGoal: message,
+                        visitedAgents: [agentId],
+                    })
+                    .catch((err) => {
+                        console.error(`[ChatController] Error dispatching to ${agentId}:`, err);
+                    });
             }
         }
 
@@ -112,7 +211,6 @@ export class ChatController {
 
     /**
      * API upload file đính kèm (Ảnh, CSV, Excel, PDF) lên Cloudinary
-     * Endpoint: POST /api/v1/chats/upload
      */
     uploadAttachment = asyncHandler(async (req: Request, res: Response) => {
         const file = req.file;
@@ -120,12 +218,11 @@ export class ChatController {
             throw new AppError("Không tìm thấy file tải lên", 400);
         }
 
-        // Gọi utility đẩy buffer lên Cloudinary (tự phân loại vào MultiAgent3dChatImg hoặc MultiAgent3dChatDoc)
         const uploadResult = await uploadFileToCloudinary(file);
 
         return res.status(200).json({
             success: true,
-            data: uploadResult, // Trả về { fileUrl, fileName, fileSize, category, extension }
+            data: uploadResult,
         });
     });
 
@@ -137,15 +234,22 @@ export class ChatController {
         const { roomPresence } = await import("../services/agent.dispatcher");
         const map = roomPresence.get(roomId);
         const onlineUsers = map ? Array.from(map.values()) : [];
-        return res.status(200).json({ success: true, data: { roomId, onlineUsers } });
+        return res.status(200).json({
+            success: true,
+            data: {
+                roomId,
+                onlineUsers,
+                onlineCount: onlineUsers.length,
+            },
+        });
     });
 
     /**
-     * Cập nhật sự hiện diện của User qua REST API
+     * Cập nhật sự hiện diện của User qua REST API & đồng bộ sang room-service
      */
     updatePresence = asyncHandler(async (req: Request, res: Response) => {
         const roomId = req.params.roomId as string;
-        const { user } = req.body;
+        const { user, status } = req.body;
         if (!user || !user.id) {
             throw new AppError("user object with id is required", 400);
         }
@@ -155,24 +259,35 @@ export class ChatController {
             roomPresence.set(roomId, new Map());
         }
         const roomMap = roomPresence.get(roomId)!;
-        roomMap.set(user.id, {
-            userId: user.id,
-            userName: user.name || "User",
-            avatar: user.avatar || "",
-            color: user.color || "#3b82f6",
-            joinedAt: new Date(),
-            lastSeen: Date.now(),
-        });
+
+        if (status === "offline") {
+            roomMap.delete(user.id);
+            syncPresenceToRoomService(roomId, user, "offline");
+        } else {
+            roomMap.set(user.id, {
+                userId: user.id,
+                userName: user.name || "User",
+                avatar: user.avatar || "",
+                color: user.color || "#3b82f6",
+                joinedAt: new Date(),
+                lastSeen: Date.now(),
+            });
+            syncPresenceToRoomService(roomId, user, "online");
+        }
 
         const onlineUsers = Array.from(roomMap.values());
-        broadcastToRoom(getIO(), roomId, "room_presence", { roomId, onlineUsers });
+        broadcastToRoom(getIO(), roomId, "room_presence", {
+            roomId,
+            onlineUsers,
+            onlineCount: onlineUsers.length,
+        });
 
-        return res.status(200).json({ success: true, data: { roomId, onlineUsers } });
+        return res.status(200).json({
+            success: true,
+            data: { roomId, onlineUsers, onlineCount: onlineUsers.length },
+        });
     });
 
-    /**
-     * Lấy Short-term memory
-     */
     getShortMemory = asyncHandler(async (req: Request, res: Response) => {
         const roomId = req.params.roomId as string;
         const turns = req.query.turns ? parseInt(req.query.turns as string) : 10;
@@ -180,9 +295,6 @@ export class ChatController {
         return res.status(200).json({ success: true, data: memory });
     });
 
-    /**
-     * Lấy Long-term memory của agent
-     */
     getLongMemory = asyncHandler(async (req: Request, res: Response) => {
         const agentId = req.params.agentId as string;
         const roomId = req.query.room_id as string | undefined;
@@ -190,22 +302,20 @@ export class ChatController {
         return res.status(200).json({ success: true, data: memories });
     });
 
-    /**
-     * Lưu Long-term memory mới cho agent
-     */
     addLongMemory = asyncHandler(async (req: Request, res: Response) => {
         const agentId = req.params.agentId as string;
         const { content, memory_type, room_id } = req.body;
         if (!content) {
             throw new AppError("Content is required", 400);
         }
-        const saved = await memoryService.addLongTermMemory(agentId, { content, memory_type, room_id });
+        const saved = await memoryService.addLongTermMemory(agentId, {
+            content,
+            memory_type,
+            room_id,
+        });
         return res.status(201).json({ success: true, data: saved });
     });
 
-    /**
-     * Lấy tổng hợp context (Short + Long memory) để nạp cho Agent
-     */
     getAgentContext = asyncHandler(async (req: Request, res: Response) => {
         const agentId = req.params.agentId as string;
         const roomId = req.query.room_id as string;

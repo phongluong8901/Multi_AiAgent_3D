@@ -13,8 +13,8 @@ class QLearningAgent:
         num_actions: int = 6,
         learning_rate: float = 0.22,
         discount_factor: float = 0.97,
-        epsilon: float = 0.65,
-        epsilon_decay: float = 0.99,
+        epsilon: float = 0.30,
+        epsilon_decay: float = 0.988,
         epsilon_min: float = 0.03,
         trace_lambda: float = 0.72
     ):
@@ -58,18 +58,18 @@ class QLearningAgent:
         else:
             dist_bucket = 2  # Xa
 
-        # 3. Phân biệt rõ hướng chướng ngại vật
+        # 3. Phân biệt rõ hướng chướng ngại vật (theo LIDAR C-Space)
         c_dist = lidar[0] if len(lidar) > 0 else 8.0
         l_dist = min(lidar[1], lidar[2]) if len(lidar) > 2 else 8.0
         r_dist = min(lidar[7], lidar[6]) if len(lidar) > 7 else 8.0
 
-        front_danger = 0 if c_dist < 1.8 else (1 if c_dist < 3.2 else 2)
+        front_danger = 0 if c_dist < 1.25 else (1 if c_dist < 2.5 else 2)
 
-        if l_dist < 1.8 and r_dist < 1.8:
+        if l_dist < 1.25 and r_dist < 1.25:
             clear_side = 0  # Kẹp cả 2 bên
-        elif l_dist < 2.2:
+        elif l_dist < 1.6:
             clear_side = 1  # Bên trái vướng -> Nên né sang phải
-        elif r_dist < 2.2:
+        elif r_dist < 1.6:
             clear_side = 2  # Bên phải vướng -> Nên né sang trái
         else:
             clear_side = 3  # Cả 2 bên đều thoáng

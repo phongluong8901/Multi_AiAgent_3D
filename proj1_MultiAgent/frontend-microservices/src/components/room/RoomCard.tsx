@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { Room, roomsApi } from '@/lib/api'
 import { IconLock } from '@/components/ui/icons'
-import { RoomPasswordModal } from './private-room/RoomPasswordModal' // <--- Import modal vừa tách
+import { RoomPasswordModal } from './private-room/RoomPasswordModal'
 
 interface RoomCardProps {
     room: Room
@@ -15,7 +15,16 @@ interface RoomCardProps {
 export function RoomCard({ room, currentUserId, isDeleting, onDelete }: RoomCardProps) {
     const roomId = room._id || room.id || ''
     const agentsCount = room.activeAgents?.length || 0
-    const membersCount = room.members?.length || 0
+    const userMembers = (room.members || []).filter(
+        (m) => m.memberType !== 'agent' && !String(m.memberId).startsWith('agent_')
+    )
+    const membersCount = room.totalMembers ?? (userMembers.length || room.members?.length || 0)
+    const onlineCount =
+        room.onlineCount ??
+        (room.onlineUsers?.length ||
+            userMembers.filter((m) => m.isOnline || m.status === 'online').length)
+    const offlineCount = room.offlineCount ?? Math.max(0, membersCount - onlineCount)
+
     const tierBadge = room.policy?.tier || 'standard'
     const ownedCount = room.policy?.ownedAgentsCount ?? 3
     const isOwner = !!currentUserId && room.ownerId === currentUserId
@@ -29,8 +38,11 @@ export function RoomCard({ room, currentUserId, isDeleting, onDelete }: RoomCard
             agent_manager: 'bg-blue-500/20 text-blue-400 border-blue-500/40',
             agent_ml: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40',
             agent_analyst: 'bg-amber-500/20 text-amber-400 border-amber-500/40',
+            agent_analysis: 'bg-amber-500/20 text-amber-400 border-amber-500/40',
             agent_search: 'bg-purple-500/20 text-purple-400 border-purple-500/40',
             agent_summarizer: 'bg-rose-500/20 text-rose-400 border-rose-500/40',
+            agent_coder: 'bg-cyan-500/20 text-cyan-400 border-cyan-500/40',
+            agent_calculate: 'bg-indigo-500/20 text-indigo-400 border-indigo-500/40',
         }
         return colors[agentId] || 'bg-zinc-800 text-zinc-300 border-zinc-700'
     }
@@ -40,8 +52,11 @@ export function RoomCard({ room, currentUserId, isDeleting, onDelete }: RoomCard
             agent_manager: 'Manager',
             agent_ml: 'ML Expert',
             agent_analyst: 'Data Analyst',
+            agent_analysis: 'Data Analyst',
             agent_search: 'Search Expert',
             agent_summarizer: 'Summarizer',
+            agent_coder: 'Coder & SQL',
+            agent_calculate: 'Quant & Math',
         }
         return names[agentId] || agentId.replace('agent_', '')
     }
@@ -57,7 +72,6 @@ export function RoomCard({ room, currentUserId, isDeleting, onDelete }: RoomCard
     }
 
     const handleVerifyPassword = async (passwordInput: string) => {
-        // Gọi API join kèm password kiểm tra bcrypt
         await roomsApi.join(roomId, { password: passwordInput })
         window.location.href = `/rooms/${roomId}`
     }
@@ -97,6 +111,22 @@ export function RoomCard({ room, currentUserId, isDeleting, onDelete }: RoomCard
                         </span>
                     </div>
 
+                    {/* Thống kê Online & Offline trực quan */}
+                    <div className="flex flex-wrap items-center gap-2 rounded-xl border border-zinc-800/90 bg-zinc-950/60 px-3 py-2 text-xs">
+                        <div className="flex items-center gap-1.5 text-emerald-400 font-medium">
+                            <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]" />
+                            <span>{onlineCount} Online</span>
+                        </div>
+                        <span className="text-zinc-700">•</span>
+                        <div className="flex items-center gap-1.5 text-zinc-400">
+                            <span className="h-2 w-2 rounded-full bg-zinc-600" />
+                            <span>{offlineCount} Offline</span>
+                        </div>
+                        <span className="ml-auto text-[11px] text-zinc-500">
+                            Tổng: <strong className="text-zinc-300">{membersCount}</strong>/{room.maxCapacity}
+                        </span>
+                    </div>
+
                     <div className="space-y-1.5">
                         <div className="flex items-center justify-between text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
                             <span>Nhóm Agent ({agentsCount})</span>
@@ -120,12 +150,20 @@ export function RoomCard({ room, currentUserId, isDeleting, onDelete }: RoomCard
                     </div>
                 </div>
 
-                <div className="mt-4 flex items-center justify-between gap-2 border-t border-zinc-800/80 pt-5">
-                    <div className="text-xs text-zinc-400">
-                        Thành viên:{' '}
-                        <span className="font-medium text-zinc-200">
-                            {membersCount}/{room.maxCapacity}
-                        </span>
+                <div className="mt-4 flex items-center justify-between gap-2 border-t border-zinc-800/80 pt-4">
+                    <div className="flex items-center -space-x-1.5 overflow-hidden">
+                        {(room.onlineUsers || []).slice(0, 4).map((u) => (
+                            <div
+                                key={u.userId}
+                                title={`${u.userName} (Đang Online)`}
+                                className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-emerald-500/60 bg-emerald-950 text-[10px] font-bold text-emerald-300 ring-2 ring-zinc-900"
+                            >
+                                {(u.userName || 'U').slice(0, 1).toUpperCase()}
+                            </div>
+                        ))}
+                        {(room.onlineUsers?.length || 0) === 0 && (
+                            <span className="text-[11px] text-zinc-500">Chưa có ai đang trong phòng</span>
+                        )}
                     </div>
                     <div className="flex items-center gap-2">
                         {isOwner && (
@@ -149,7 +187,6 @@ export function RoomCard({ room, currentUserId, isDeleting, onDelete }: RoomCard
                 </div>
             </div>
 
-            {/* Gọi Component Dialog tách rời */}
             <RoomPasswordModal
                 isOpen={showPasswordModal}
                 roomName={room.name}

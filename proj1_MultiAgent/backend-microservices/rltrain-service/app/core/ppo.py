@@ -121,21 +121,22 @@ class PPOAgent:
 
         left_clear = 0.65 * fl_l + 0.35 * l_l
         right_clear = 0.65 * fr_l + 0.35 * r_l
-        front_blocked = np.maximum(0.0, 0.30 - front_l) * 4.0
+        front_min = np.minimum(front_l, np.minimum(fl_l * 1.15, fr_l * 1.15))
+        front_blocked = np.maximum(0.0, 0.22 - front_min) * 8.0
 
         prior = np.zeros((s.shape[0], self.num_actions), dtype=np.float32)
         # 0: FORWARD
-        prior[:, 0] = 1.1 * cos_ang * (front_l > 0.24) - 1.8 * front_blocked
-        # 1: BACKWARD (chỉ khuyến khích khi bị chặn sát phía trước)
-        prior[:, 1] = -0.8 + 1.6 * (front_l < 0.16)
+        prior[:, 0] = 2.4 * cos_ang * (front_min > 0.15) - 4.5 * (front_min <= 0.15) - front_blocked
+        # 1: BACKWARD (chỉ khuyến khích khi bị kẹp sát phía trước)
+        prior[:, 1] = -2.2 + 3.5 * (front_l < 0.10)
         # 2: TURN_LEFT, 3: TURN_RIGHT
-        prior[:, 2] = 0.85 * np.maximum(0.0, sin_ang) + 0.7 * front_blocked * (left_clear >= right_clear)
-        prior[:, 3] = 0.85 * np.maximum(0.0, -sin_ang) + 0.7 * front_blocked * (right_clear > left_clear)
+        prior[:, 2] = 1.8 * np.maximum(0.0, sin_ang) + 2.2 * (front_min <= 0.18) * (left_clear >= right_clear)
+        prior[:, 3] = 1.8 * np.maximum(0.0, -sin_ang) + 2.2 * (front_min <= 0.18) * (right_clear > left_clear)
         # 4: FORWARD_LEFT, 5: FORWARD_RIGHT
-        prior[:, 4] = 0.75 * cos_ang + 0.75 * np.maximum(0.0, sin_ang) + 0.5 * (left_clear - right_clear) - front_blocked * 0.6
-        prior[:, 5] = 0.75 * cos_ang + 0.75 * np.maximum(0.0, -sin_ang) + 0.5 * (right_clear - left_clear) - front_blocked * 0.6
+        prior[:, 4] = 1.9 * cos_ang + 1.9 * np.maximum(0.0, sin_ang) + 1.4 * (left_clear - right_clear) - 2.0 * (fl_l < 0.12)
+        prior[:, 5] = 1.9 * cos_ang + 1.9 * np.maximum(0.0, -sin_ang) + 1.4 * (right_clear - left_clear) - 2.0 * (fr_l < 0.12)
 
-        decay = max(0.25, 1.0 / (1.0 + 0.008 * self.training_steps))
+        decay = max(0.45, 1.0 / (1.0 + 0.004 * self.training_steps))
         prior *= decay
         return prior[0] if single else prior
 

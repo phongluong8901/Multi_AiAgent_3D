@@ -8,6 +8,7 @@ export type RoomMember = {
     color?: string
     avatar?: string
     status?: string
+    isOnline?: boolean
     joinedAt?: string
 }
 
@@ -46,11 +47,20 @@ export type WorkflowTransition = {
 export type AgentWorkflow = {
     mode: AgentWorkflowMode
     order?: string[]
-    stepTools?: Record<number, string> // Công cụ chỉ định cho từng bước tuần tự (0-indexed)
-    agentTools?: Record<string, string[]> // Danh sách công cụ được phép kích hoạt cho từng agent trong phòng
+    stepTools?: Record<number, string>
+    agentTools?: Record<string, string[]>
     transitions?: WorkflowTransition[]
     enabled?: boolean
     description?: string
+}
+
+export type RoomPresenceUser = {
+    userId: string
+    userName: string
+    avatar?: string
+    color?: string
+    joinedAt?: string
+    lastSeen?: number
 }
 
 export type Room = {
@@ -66,8 +76,29 @@ export type Room = {
     settings: RoomSettings
     members: RoomMember[]
     workflow?: AgentWorkflow
+    // Thống kê Online / Offline từ room-service
+    totalMembers?: number
+    onlineCount?: number
+    offlineCount?: number
+    onlineUsers?: RoomPresenceUser[]
+    offlineMembers?: RoomMember[]
     createdAt?: string
     updatedAt?: string
+}
+
+export type RoomPresenceSummary = {
+    totalRooms: number
+    totalUsers: number
+    totalOnline: number
+    totalOffline: number
+    rooms: Array<{
+        roomId: string
+        roomName: string
+        totalMembers: number
+        onlineCount: number
+        offlineCount: number
+        onlineUsers: RoomPresenceUser[]
+    }>
 }
 
 export type RoomCreate = {
@@ -80,7 +111,6 @@ export type RoomCreate = {
     settings?: Partial<RoomSettings>
 }
 
-// Bổ sung kiểu dữ liệu cho UserSearchItem và InvitePayload
 export type UserSearchItem = {
     id: string
     username: string
@@ -94,7 +124,6 @@ export type InvitePayload = {
     inviteeEmail?: string
 }
 
-// Prefix khớp room-service
 const UU = '/rooms/user-user'
 const AA = '/rooms/agent-agent'
 const UA = '/rooms/user-agent'
@@ -110,6 +139,49 @@ export const roomsApi = {
         return res.data
     },
 
+    getPresenceSummary: async (): Promise<RoomPresenceSummary> => {
+        const res = await request<{ success: boolean; data: RoomPresenceSummary }>(
+            `${UU}/presence/summary`
+        )
+        return (
+            res?.data ?? {
+                totalRooms: 0,
+                totalUsers: 0,
+                totalOnline: 0,
+                totalOffline: 0,
+                rooms: [],
+            }
+        )
+    },
+
+    getRoomPresence: async (
+        roomId: string
+    ): Promise<{
+        roomId: string
+        roomName: string
+        totalMembers: number
+        onlineCount: number
+        offlineCount: number
+        onlineUsers: RoomPresenceUser[]
+        offlineMembers: RoomMember[]
+        members: RoomMember[]
+    }> => {
+        const res = await request<{ success: boolean; data: any }>(`${UU}/${roomId}/presence`)
+        return res.data
+    },
+
+    updateRoomPresence: async (
+        roomId: string,
+        user: { id: string; name: string; avatar?: string; color?: string },
+        status: 'online' | 'offline' = 'online'
+    ): Promise<Room> => {
+        const res = await request<{ success: boolean; data: Room }>(`${UU}/${roomId}/presence`, {
+            method: 'POST',
+            body: JSON.stringify({ user, status }),
+        })
+        return res.data
+    },
+
     create: async (data: RoomCreate): Promise<Room> => {
         const res = await request<{ success: boolean; data: Room }>(UU, {
             method: 'POST',
@@ -122,10 +194,10 @@ export const roomsApi = {
         roomId: string,
         data?: { name?: string; avatar?: string; color?: string; password?: string }
     ): Promise<Room> => {
-        const res = await request<{ success: boolean; data: Room }>(
-            `${UU}/${roomId}/join`,
-            { method: 'POST', body: JSON.stringify(data || {}) }
-        )
+        const res = await request<{ success: boolean; data: Room }>(`${UU}/${roomId}/join`, {
+            method: 'POST',
+            body: JSON.stringify(data || {}),
+        })
         return res.data
     },
 
@@ -137,14 +209,11 @@ export const roomsApi = {
         return res.data
     },
 
-    addMember: async (
-        roomId: string,
-        member: Partial<RoomMember>
-    ): Promise<Room> => {
-        const res = await request<{ success: boolean; data: Room }>(
-            `${UU}/${roomId}/members`,
-            { method: 'POST', body: JSON.stringify(member) }
-        )
+    addMember: async (roomId: string, member: Partial<RoomMember>): Promise<Room> => {
+        const res = await request<{ success: boolean; data: Room }>(`${UU}/${roomId}/members`, {
+            method: 'POST',
+            body: JSON.stringify(member),
+        })
         return res.data
     },
 
@@ -157,10 +226,10 @@ export const roomsApi = {
     },
 
     syncAgents: async (roomId: string, activeAgents: string[]): Promise<Room> => {
-        const res = await request<{ success: boolean; data: Room }>(
-            `${AA}/${roomId}/agents`,
-            { method: 'POST', body: JSON.stringify({ activeAgents }) }
-        )
+        const res = await request<{ success: boolean; data: Room }>(`${AA}/${roomId}/agents`, {
+            method: 'POST',
+            body: JSON.stringify({ activeAgents }),
+        })
         return res.data
     },
 
@@ -209,19 +278,14 @@ export const roomsApi = {
         await request(`${UU}/${id}`, { method: 'DELETE' })
     },
 
-    // Cập nhật hàm invite nhận `InvitePayload`
-    invite: async (
-        roomId: string,
-        data: InvitePayload
-    ): Promise<Room> => {
-        const res = await request<{ success: boolean; data: Room }>(
-            `${UU}/${roomId}/invites`,
-            { method: 'POST', body: JSON.stringify(data) }
-        )
+    invite: async (roomId: string, data: InvitePayload): Promise<Room> => {
+        const res = await request<{ success: boolean; data: Room }>(`${UU}/${roomId}/invites`, {
+            method: 'POST',
+            body: JSON.stringify(data),
+        })
         return res.data
     },
 
-    // Bổ sung hàm searchUsers để phục vụ tính năng tìm kiếm thành viên
     searchUsers: async (query: string): Promise<{ users: UserSearchItem[] }> => {
         const res = await request<{ success: boolean; users: UserSearchItem[] }>(
             `/users/search?q=${encodeURIComponent(query)}`
@@ -246,25 +310,22 @@ export const roomsApi = {
     },
 
     myInvites: async (): Promise<Room[]> => {
-        const res = await request<{ success: boolean; data: Room[] }>(
-            `${UU}/invites/me`
-        )
+        const res = await request<{ success: boolean; data: Room[] }>(`${UU}/invites/me`)
         return res?.data ?? []
     },
 
     leave: async (roomId: string): Promise<Room> => {
-        const res = await request<{ success: boolean; data: Room }>(
-            `${UU}/${roomId}/leave`,
-            { method: 'POST' }
-        )
+        const res = await request<{ success: boolean; data: Room }>(`${UU}/${roomId}/leave`, {
+            method: 'POST',
+        })
         return res.data
     },
 
     updateWorkflow: async (roomId: string, workflow: AgentWorkflow): Promise<Room> => {
-        const res = await request<{ success: boolean; data: Room }>(
-            `${UU}/${roomId}/workflow`,
-            { method: 'PUT', body: JSON.stringify(workflow) }
-        )
+        const res = await request<{ success: boolean; data: Room }>(`${UU}/${roomId}/workflow`, {
+            method: 'PUT',
+            body: JSON.stringify(workflow),
+        })
         return res.data
     },
 }

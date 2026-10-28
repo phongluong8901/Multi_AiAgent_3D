@@ -1,8 +1,8 @@
 import { request, API_BASE } from '../client'
 import { getToken } from '../auth'
 import type { WorkflowTrace } from './types'
+import type { Room } from './rooms'
 
-// Kiểu dữ liệu file đính kèm (Ảnh và Tài liệu/CSV/Excel)
 export type ChatAttachment = {
     fileUrl: string
     fileName: string
@@ -17,14 +17,14 @@ export type ChatMessage = {
     _id?: string
     id?: string
     roomId: string
-    typeChat?: ChatType // Phân loại luồng chat: team, direct (1-1 user), agent (user-agent), workflow, system
+    typeChat?: ChatType
     senderId: string
     senderType: 'user' | 'agent' | 'system'
     senderName: string
     message: string
-    targetUserId?: string // Dành cho chat direct 1-1 người dùng
-    targetAgentId?: string // Dành cho chat hỏi đáp với agent
-    attachments?: ChatAttachment[] // Danh sách file đính kèm
+    targetUserId?: string
+    targetAgentId?: string
+    attachments?: ChatAttachment[]
     metadata?: {
         usedTools?: string[]
         depth?: number
@@ -45,7 +45,22 @@ export type UserPresence = {
     lastSeen?: number
 }
 
+export type BubbleRoomSummary = Room & {
+    roomId: string
+    totalMembers: number
+    onlineCount: number
+    offlineCount: number
+    lastMessage?: ChatMessage | null
+}
+
 export const chatsApi = {
+    getBubbleRooms: async (): Promise<BubbleRoomSummary[]> => {
+        const res = await request<{ success: boolean; data: BubbleRoomSummary[] }>(
+            '/chats/bubble/rooms'
+        )
+        return res?.data ?? []
+    },
+
     getHistory: async (
         roomId: string,
         typeChat?: string,
@@ -83,7 +98,6 @@ export const chatsApi = {
         return res.data
     },
 
-    // API upload file lên Cloudinary thông qua chat-service
     uploadFile: async (file: File): Promise<ChatAttachment> => {
         const formData = new FormData()
         formData.append('file', file)
@@ -110,21 +124,22 @@ export const chatsApi = {
 
     getPresence: async (
         roomId: string
-    ): Promise<{ roomId: string; onlineUsers: UserPresence[] }> => {
+    ): Promise<{ roomId: string; onlineUsers: UserPresence[]; onlineCount?: number }> => {
         const res = await request<{
             success: boolean
-            data: { roomId: string; onlineUsers: UserPresence[] }
+            data: { roomId: string; onlineUsers: UserPresence[]; onlineCount?: number }
         }>(`/chats/presence/${roomId}`)
         return res.data
     },
 
     updatePresence: async (
         roomId: string,
-        user: { id: string; name: string; avatar?: string; color?: string }
+        user: { id: string; name: string; avatar?: string; color?: string },
+        status: 'online' | 'offline' = 'online'
     ): Promise<void> => {
         await request(`/chats/presence/${roomId}`, {
             method: 'POST',
-            body: JSON.stringify({ user }),
+            body: JSON.stringify({ user, status }),
         })
     },
 }

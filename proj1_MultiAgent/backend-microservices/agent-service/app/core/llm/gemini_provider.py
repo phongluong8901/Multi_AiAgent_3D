@@ -1,349 +1,387 @@
-import os
 import json
+import os
 import time
-import logging
+import urllib.request
+from typing import List, Dict, Any, Generator
 from google import genai
 from google.genai import types
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, ToolMessage
+from app.core.config import settings
 from .base_provider import BaseLLMProvider
 
-logger = logging.getLogger(__name__)
 
-# Các class mock cấu trúc phản hồi để tương thích hoàn toàn với code AgentRunner hiện tại
-class OpenAIMessageMock:
-    def __init__(self, content="", tool_calls=None):
+# Các lớp Mock giúp đồng nhất đầu ra của Gemini/OpenAI giống với chuẩn OpenAI SDK
+class _FunctionMock:
+    def __init__(self, name: str, arguments: str):
+        self.name = name
+        self.arguments = arguments
+
+
+class _ToolCallMock:
+    def __init__(self, call_id: str, name: str, arguments: Dict[str, Any]):
+        self.id = call_id
+        self.type = "function"
+        self.function = _FunctionMock(
+            name=name,
+            arguments=json.dumps(arguments, ensure_ascii=False),
+        )
+
+
+class _MessageMock:
+    def __init__(self, content: str, tool_calls: List[_ToolCallMock] = None):
         self.content = content
         self.tool_calls = tool_calls or []
 
-class OpenAIChoiceMock:
-    def __init__(self, message):
+
+class _ChoiceMock:
+    def __init__(self, message: _MessageMock):
         self.message = message
 
-class OpenAIResponseMock:
-    def __init__(self, choices):
-        self.choices = choices
 
-class ToolCallMock:
-    def __init__(self, id, name, arguments):
-        self.id = id
-        self.function = ToolFunctionMock(name, arguments)
-
-class ToolFunctionMock:
-    def __init__(self, name, arguments):
-        self.name = name
-        self.arguments = json.dumps(arguments) if isinstance(arguments, dict) else arguments
+class _ResponseMock:
+    def __init__(self, content: str, tool_calls: List[_ToolCallMock] = None):
+        self.choices = [_ChoiceMock(_MessageMock(content, tool_calls))]
 
 
 class GeminiProvider(BaseLLMProvider):
-    # Danh sách các model Gemini dự phòng khi gặp lỗi 503 (Overloaded) hoặc 429 (Rate Limit)
+    """
+    Cloud LLM Provider đa năng:
+    - Hỗ trợ trực tiếp Google Gemini (`gemini-2.5-flash`, `gemini-2.5-pro`, `gemini-2.0-flash`, `gemini-2.5-flash-lite`) với cơ chế xoay vòng API Key & Fallback model tự động.
+    - Hỗ trợ OpenAI / DeepSeek REST API (`gpt-4o`, `gpt-4o-mini`, `deepseek-chat`, `deepseek-reasoner`) khi có `OPENAI_API_KEY` hoặc `DEEPSEEK_API_KEY`.
+    - Tự động ánh xạ mượt mà về `gemini-2.5-flash` nếu người dùng chọn model ngoại lai mà chưa cấu hình API key riêng.
+    """
+
     FALLBACK_MODELS = [
-        "gemini-2.5-flash-lite",
         "gemini-2.5-flash",
         "gemini-2.0-flash",
-        "gemini-1.5-flash",
+        "gemini-2.5-flash-lite",
     ]
 
-    def __init__(self):
-        # Đọc trực tiếp biến GOOGLE_API_KEY_MODEL
-        self.api_key = os.getenv("GOOGLE_API_KEY_MODEL", "")
-        
-        # Pass api_key trực tiếp vào Client để tránh SDK dùng nhầm GOOGLE_API_KEY env var
-        if self.api_key:
-            self.client = genai.Client(api_key=self.api_key)
-        else:
-            self.client = genai.Client()
-            logger.warning("[GeminiProvider] GOOGLE_API_KEY_MODEL không được set!")
-        
-        self.default_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
-        logger.info(f"[GeminiProvider] Khởi tạo thành công. Default Model: {self.default_model}")
+    def __init__(self, model_name: str = "gemini-2.5-flash"):
+        raw_keys = settings.GEMINI_API_KEY or ""
+        self.api_keys = [k.strip() for k in raw_keys.split(",") if k.strip()]
+        if not self.api_keys:
+            raise ValueError("Chưa cấu hình GEMINI_API_KEY trong file .env")
 
-    def _prepare_request(self, messages, tools=None, agent_id=None, model=None, temperature=None):
-        from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage
-        from app.core.agent_configs import get_agent_config
+        self.current_key_index = 0
+        self.client = genai.Client(api_key=self.api_keys[self.current_key_index])
+        self.model_name = model_name or "gemini-2.5-flash"
+        self.openai_api_key = os.getenv("OPENAI_API_KEY", "").strip()
+        self.deepseek_api_key = os.getenv("DEEPSEEK_API_KEY", "").strip()
 
-        agent_cfg = get_agent_config(agent_id) if agent_id else {}
-        preferred_model = model or agent_cfg.get("model") or self.default_model
-        req_temperature = temperature if temperature is not None else agent_cfg.get("temperature", 0.3)
+    def _rotate_key(self) -> bool:
+        """Xoay vòng sang API Key tiếp theo nếu có nhiều hơn 1 key."""
+        if len(self.api_keys) <= 1:
+            return False
+        self.current_key_index = (self.current_key_index + 1) % len(self.api_keys)
+        new_key = self.api_keys[self.current_key_index]
+        masked_key = f"...{new_key[-6:]}" if len(new_key) > 6 else "***"
+        print(
+            f"[GeminiProvider] Đổi sang API Key #{self.current_key_index + 1}/{len(self.api_keys)} ({masked_key})"
+        )
+        self.client = genai.Client(api_key=new_key)
+        return True
 
+    def _resolve_gemini_model_name(self, requested_model: str) -> str:
+        """Đảm bảo tên model gửi tới Google GenAI luôn hợp lệ."""
+        m = (requested_model or "gemini-2.5-flash").strip()
+        if m.startswith("gemini-"):
+            return m
+        return "gemini-2.5-flash"
+
+    def _get_model_candidates(self) -> List[str]:
+        """Trả về danh sách các model Gemini sẽ thử lần lượt."""
+        primary = self._resolve_gemini_model_name(self.model_name)
+        candidates = [primary]
+        for fb in self.FALLBACK_MODELS:
+            if fb not in candidates:
+                candidates.append(fb)
+        return candidates
+
+    def _try_openai_compatible_api(
+        self,
+        messages: List[Any],
+        temperature: float,
+        tools: List[Dict[str, Any]] = None,
+    ) -> _ResponseMock | None:
+        """Nếu model là gpt-* hoặc deepseek-* và có API Key tương ứng, gọi trực tiếp chuẩn OpenAI REST."""
+        m_lower = self.model_name.lower()
+        api_url = None
+        api_key = None
+
+        if m_lower.startswith("gpt-") and self.openai_api_key:
+            api_url = "https://api.openai.com/v1/chat/completions"
+            api_key = self.openai_api_key
+        elif m_lower.startswith("deepseek-") and self.deepseek_api_key:
+            api_url = "https://api.deepseek.com/chat/completions"
+            api_key = self.deepseek_api_key
+
+        if not api_url or not api_key:
+            return None
+
+        try:
+            formatted_msgs = []
+            for m in messages:
+                content = m.content if hasattr(m, "content") else (m.get("content", "") if isinstance(m, dict) else str(m))
+                role = getattr(m, "role", None) or (m.get("role") if isinstance(m, dict) else None) or ""
+                if isinstance(m, SystemMessage) or role == "system":
+                    formatted_msgs.append({"role": "system", "content": str(content)})
+                elif isinstance(m, AIMessage) or role == "assistant":
+                    formatted_msgs.append({"role": "assistant", "content": str(content)})
+                elif isinstance(m, ToolMessage) or role == "tool":
+                    formatted_msgs.append({"role": "user", "content": f"[Kết quả từ công cụ]: {content}"})
+                else:
+                    formatted_msgs.append({"role": "user", "content": str(content)})
+
+            payload: Dict[str, Any] = {
+                "model": self.model_name,
+                "messages": formatted_msgs,
+                "temperature": temperature,
+            }
+            if tools:
+                payload["tools"] = tools
+
+            req = urllib.request.Request(
+                api_url,
+                data=json.dumps(payload).encode("utf-8"),
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {api_key}",
+                },
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                choice = (data.get("choices") or [{}])[0]
+                msg = choice.get("message") or {}
+                text_out = msg.get("content") or ""
+                raw_tcs = msg.get("tool_calls") or []
+                mock_tcs = []
+                for idx, tc in enumerate(raw_tcs):
+                    fn = tc.get("function") or {}
+                    args_str = fn.get("arguments") or "{}"
+                    try:
+                        args_dict = json.loads(args_str) if isinstance(args_str, str) else args_str
+                    except Exception:
+                        args_dict = {"input": str(args_str)}
+                    mock_tcs.append(
+                        _ToolCallMock(
+                            call_id=tc.get("id") or f"call_{idx}",
+                            name=fn.get("name", ""),
+                            arguments=args_dict,
+                        )
+                    )
+                return _ResponseMock(content=text_out, tool_calls=mock_tcs)
+        except Exception as e:
+            print(f"[GeminiProvider] OpenAI/DeepSeek API lỗi ({e}), tự động chuyển sang Gemini fallback...")
+            return None
+
+    def _execute_with_retry(self, func, *args, **kwargs):
+        max_Model_rounds = 2
+        candidates = self._get_model_candidates()
+        last_error = None
+
+        for round_idx in range(max_Model_rounds):
+            for model in candidates:
+                keys_tried = 0
+                max_keys = len(self.api_keys)
+
+                while keys_tried < max_keys:
+                    try:
+                        return func(model, *args, **kwargs)
+                    except Exception as e:
+                        last_error = e
+                        error_str = str(e)
+                        is_quota_or_overload = any(
+                            code in error_str
+                            for code in [
+                                "429",
+                                "RESOURCE_EXHAUSTED",
+                                "503",
+                                "UNAVAILABLE",
+                                "quota",
+                                "rate",
+                                "overloaded",
+                                "403",
+                                "PERMISSION_DENIED",
+                            ]
+                        )
+
+                        if is_quota_or_overload:
+                            keys_tried += 1
+                            if keys_tried < max_keys and self._rotate_key():
+                                time.sleep(0.3)
+                                continue
+                            else:
+                                print(
+                                    f"[GeminiProvider] Model '{model}' chạm giới hạn trên tất cả {max_keys} key. Chuyển sang model dự phòng..."
+                                )
+                                self._rotate_key()
+                                break
+                        else:
+                            print(f"[GeminiProvider] Lỗi trên model '{model}': {error_str[:160]}")
+                            break
+
+            if round_idx < max_Model_rounds - 1:
+                wait_time = 2 * (round_idx + 1)
+                print(
+                    f"[GeminiProvider] Tạm nghỉ {wait_time}s trước khi thử lại vòng #{round_idx + 2}..."
+                )
+                time.sleep(wait_time)
+
+        raise last_error
+
+    def generate_text(
+        self, prompt: str, system_prompt: str = None, temperature: float = 0.7
+    ) -> str:
+        config = types.GenerateContentConfig(temperature=temperature)
+        if system_prompt:
+            config.system_instruction = system_prompt
+
+        def _call(model_to_use: str):
+            response = self.client.models.generate_content(
+                model=model_to_use,
+                contents=prompt,
+                config=config,
+            )
+            return response.text
+
+        return self._execute_with_retry(_call)
+
+    def _prepare_request(
+        self,
+        messages: List[Any],
+        temperature: float = 0.2,
+        tools: List[Dict[str, Any]] = None,
+    ):
         system_instruction = None
         contents = []
+        tool_result_count = 0
 
-        for msg in messages:
-            if isinstance(msg, dict):
-                role = msg.get("role", "user")
-                content = msg.get("content", "")
-            elif isinstance(msg, SystemMessage):
-                role = "system"
-                content = msg.content
-            elif isinstance(msg, HumanMessage):
-                role = "user"
-                content = msg.content
-            elif isinstance(msg, AIMessage):
-                role = "assistant"
-                content = msg.content or ""
-                if hasattr(msg, "tool_calls") and msg.tool_calls:
-                    tc_descs = []
-                    for tc in msg.tool_calls:
-                        tc_name = tc.get("name") if isinstance(tc, dict) else getattr(tc, "name", "tool")
-                        tc_args = tc.get("args") if isinstance(tc, dict) else getattr(tc, "args", {})
-                        tc_descs.append(f"{tc_name}({json.dumps(tc_args, ensure_ascii=False)})")
-                    content = f"[Đã gọi công cụ: {', '.join(tc_descs)}]"
-            elif isinstance(msg, ToolMessage):
-                role = "tool"
-                content = msg.content
-            else:
-                class_name = type(msg).__name__.lower()
-                if "system" in class_name:
-                    role = "system"
-                elif "tool" in class_name:
-                    role = "tool"
-                elif "ai" in class_name or "assistant" in class_name:
-                    role = "assistant"
+        for m in messages:
+            content = (
+                m.content
+                if hasattr(m, "content")
+                else (m.get("content", "") if isinstance(m, dict) else str(m))
+            )
+            role = (
+                getattr(m, "role", None)
+                or (m.get("role") if isinstance(m, dict) else None)
+                or ""
+            )
+            cls_name = m.__class__.__name__
+
+            if isinstance(m, SystemMessage) or role == "system" or cls_name == "SystemMessage":
+                if system_instruction is None:
+                    system_instruction = str(content)
                 else:
-                    role = "user"
-                content = getattr(msg, "content", "") or ""
-
-            if role == "system":
-                system_instruction = content
-            elif role in ["user", "human"]:
+                    system_instruction += f"\n{content}"
+            elif isinstance(m, ToolMessage) or role == "tool" or cls_name == "ToolMessage":
+                tool_result_count += 1
+                contents.append(f"[Kết quả thực thi từ Công cụ #{tool_result_count}]: {content}")
+            elif isinstance(m, AIMessage) or role == "assistant" or cls_name == "AIMessage":
                 if content:
-                    contents.append(content)
-            elif role in ["assistant", "ai"]:
+                    contents.append(f"[Phản hồi trước của Trợ lý]: {content}")
+            else:
                 if content:
-                    contents.append(f"Assistant: {content}")
-            elif role == "tool":
-                if content:
-                    contents.append(
-                        f"[Kết quả từ công cụ đã thực thi]:\n{content}\n"
-                        "Ghi chú cho AI: Bạn có thể tiếp tục gọi công cụ kế tiếp (ví dụ: công cụ trực quan hóa 'data_visualization_tool' nếu cần vẽ biểu đồ/đồ thị xu hướng giá cả hoặc số liệu, hoặc công cụ tóm tắt 'text_summarizer' nếu nội dung dài, hoặc công cụ phân tích/tính toán) nếu cần thiết. "
-                        "Nếu đã thu thập đủ dữ liệu và hoàn thành nhiệm vụ, hãy tổng hợp câu trả lời chi tiết, dễ hiểu, thẩm mỹ bằng tiếng Việt."
-                    )
+                    contents.append(str(content))
 
-        tool_result_count = sum(1 for m in messages if isinstance(m, ToolMessage) or getattr(m, "role", "") == "tool")
-        allow_more_tools = tool_result_count < 5
+        if not contents:
+            contents = ["Xin chào, hãy bắt đầu nhiệm vụ."]
 
-        config_kwargs = {}
+        # Ngăn vòng lặp vô tận sau 3 lần gọi tool liên tiếp
+        if tool_result_count >= 3:
+            tools = None
+            contents.append(
+                "HỆ THỐNG: Bạn đã có đầy đủ kết quả từ các lần gọi công cụ ở trên. "
+                "Hãy tổng hợp và đưa ra câu trả lời cuối cùng cho người dùng ngay bây giờ."
+            )
+
+        config = types.GenerateContentConfig(temperature=temperature)
         if system_instruction:
-            config_kwargs["system_instruction"] = system_instruction
-        if req_temperature is not None:
-            config_kwargs["temperature"] = float(req_temperature)
+            config.system_instruction = system_instruction
 
-        if tools and allow_more_tools:
-            function_declarations = []
-            for tool in tools:
-                func_data = tool.get("function", {})
-                function_declarations.append(
-                    types.FunctionDeclaration(
-                        name=func_data.get("name"),
-                        description=func_data.get("description"),
-                        parameters=func_data.get("parameters")
+        if tools:
+            func_declarations = []
+            for t in tools:
+                if isinstance(t, dict) and t.get("type") == "function":
+                    f_info = t.get("function", {})
+                    func_declarations.append(
+                        types.FunctionDeclaration(
+                            name=f_info.get("name"),
+                            description=f_info.get("description"),
+                            parameters=f_info.get("parameters"),
+                        )
+                    )
+            if func_declarations:
+                config.tools = [types.Tool(function_declarations=func_declarations)]
+
+        return contents, config
+
+    def chat_completion(
+        self,
+        messages: List[Dict[str, str]],
+        temperature: float = 0.2,
+        tools: List[Dict[str, Any]] = None,
+    ) -> Any:
+        # 1. Thử gọi OpenAI/DeepSeek nếu model tương ứng và có API key
+        ext_resp = self._try_openai_compatible_api(messages, temperature, tools)
+        if ext_resp is not None:
+            return ext_resp
+
+        # 2. Gọi Google Gemini với cơ chế Retry + Key Rotation + Model Fallback
+        contents, config = self._prepare_request(messages, temperature, tools)
+
+        def _call(model_to_use: str):
+            return self.client.models.generate_content(
+                model=model_to_use,
+                contents=contents,
+                config=config,
+            )
+
+        response = self._execute_with_retry(_call)
+
+        tool_calls = []
+        if getattr(response, "function_calls", None):
+            for idx, fc in enumerate(response.function_calls):
+                args_dict = dict(fc.args) if fc.args else {}
+                tool_calls.append(
+                    _ToolCallMock(
+                        call_id=f"call_{idx}_{fc.name}",
+                        name=fc.name,
+                        arguments=args_dict,
                     )
                 )
-            if function_declarations:
-                config_kwargs["tools"] = [types.Tool(function_declarations=function_declarations)]
 
-        config = types.GenerateContentConfig(**config_kwargs)
+        text_content = ""
+        try:
+            if not tool_calls and response.text:
+                text_content = response.text
+        except Exception:
+            text_content = ""
 
-        candidate_models = [preferred_model]
-        for m in self.FALLBACK_MODELS:
-            if m not in candidate_models:
-                candidate_models.append(m)
+        return _ResponseMock(content=text_content, tool_calls=tool_calls)
 
-        return contents, config, preferred_model, candidate_models, tool_result_count, req_temperature
+    def stream_chat_completion(
+        self,
+        messages: List[Any],
+        temperature: float = 0.2,
+        tools: List[Dict[str, Any]] = None,
+    ) -> Generator[str, None, None]:
+        contents, config = self._prepare_request(messages, temperature, tools=None)
 
-    @staticmethod
-    def _is_local_or_rented_model(model_name: str | None) -> bool:
-        if not model_name:
-            return False
-        m = str(model_name).lower()
-        return (
-            m.startswith("rental:")
-            or m.startswith("local:")
-            or m.startswith("ollama:")
-            or "qwen" in m
-            or "deepseek" in m
-            or "llama" in m
-            or "phi" in m
-            or "mistral" in m
-        )
-
-    def chat_completion(self, messages, tools=None, agent_id=None, model=None, temperature=None):
-        if self._is_local_or_rented_model(model):
-            from .ollama_provider import OllamaProvider
-            logger.info(f"[GeminiProvider -> OllamaProvider] Định tuyến model '{model}' của agent '{agent_id}' sang Local LLM / Seller Node...")
-            return OllamaProvider().chat_completion(
-                messages=messages,
-                tools=tools,
-                agent_id=agent_id,
-                model=model,
-                temperature=temperature,
+        def _call_stream(model_to_use: str):
+            return self.client.models.generate_content_stream(
+                model=model_to_use,
+                contents=contents,
+                config=config,
             )
 
-        contents, config, preferred_model, candidate_models, tool_result_count, req_temperature = self._prepare_request(
-            messages, tools=tools, agent_id=agent_id, model=model, temperature=temperature
-        )
+        response_stream = self._execute_with_retry(_call_stream)
 
-        last_error = None
-        for attempt_model in candidate_models:
-            for retry in range(2):
-                try:
-                    logger.info(f"[GeminiProvider] Gọi model '{attempt_model}' (agent: {agent_id}, temp: {req_temperature}, tool_step: {tool_result_count})...")
-                    response = self.client.models.generate_content(
-                        model=attempt_model,
-                        contents=contents if contents else "Xin chào",
-                        config=config
-                    )
-
-                    # Trích xuất text content và tool calls an toàn từ candidate parts
-                    text_parts = []
-                    tool_calls_mock = []
-                    
-                    if hasattr(response, "candidates") and response.candidates:
-                        for cand in response.candidates:
-                            if hasattr(cand, "content") and cand.content and hasattr(cand.content, "parts"):
-                                for part in cand.content.parts:
-                                    if hasattr(part, "text") and part.text:
-                                        text_parts.append(part.text)
-                                    if hasattr(part, "function_call") and part.function_call:
-                                        fc = part.function_call
-                                        tool_calls_mock.append(
-                                            ToolCallMock(
-                                                id=f"call_{len(tool_calls_mock)}_{fc.name}",
-                                                name=fc.name,
-                                                arguments=dict(fc.args) if hasattr(fc, "args") and fc.args else {}
-                                            )
-                                        )
-
-                    if not tool_calls_mock and hasattr(response, "function_calls") and response.function_calls:
-                        for idx, fc in enumerate(response.function_calls):
-                            tool_calls_mock.append(
-                                ToolCallMock(
-                                    id=f"call_{idx}_{fc.name}",
-                                    name=fc.name,
-                                    arguments=dict(fc.args) if hasattr(fc, "args") and fc.args else {}
-                                )
-                            )
-
-                    text_content = "".join(text_parts) if text_parts else (getattr(response, "text", "") or "")
-                    message_mock = OpenAIMessageMock(content=text_content, tool_calls=tool_calls_mock)
-                    choice_mock = OpenAIChoiceMock(message=message_mock)
-                    return OpenAIResponseMock(choices=[choice_mock])
-
-                except Exception as e:
-                    err_str = str(e)
-                    last_error = e
-                    is_overloaded_or_rate = (
-                        "503" in err_str or
-                        "429" in err_str or
-                        "UNAVAILABLE" in err_str or
-                        "high demand" in err_str or
-                        "RESOURCE_EXHAUSTED" in err_str
-                    )
-
-                    if is_overloaded_or_rate:
-                        logger.warn(f"[GeminiProvider] Model '{attempt_model}' bị quá tải (503/429), chờ thử lại ({retry + 1}/2)...")
-                        time.sleep(1.5 * (retry + 1))
-                    else:
-                        break
-
-            logger.warn(f"[GeminiProvider] Model '{attempt_model}' không phản hồi. Tự động chuyển sang model dự phòng tiếp theo trong danh sách...")
-
-        logger.error(f"[GeminiProvider] Toàn bộ model dự phòng đều gặp sự cố: {last_error}")
-        if last_error is not None:
-            raise last_error
-        raise RuntimeError("Toàn bộ model dự phòng đều gặp sự cố nhưng không bắt được lỗi cụ thể.")
-
-    def stream_chat_completion(self, messages, tools=None, agent_id=None, model=None, temperature=None):
-        """
-        Stream tokens và tool calls từ Gemini API theo thời gian thực.
-        """
-        if self._is_local_or_rented_model(model):
-            from .ollama_provider import OllamaProvider
-            logger.info(f"[GeminiProvider -> OllamaProvider] Stream model '{model}' của agent '{agent_id}' qua Local LLM / Seller Node...")
-            yield from OllamaProvider().stream_chat_completion(
-                messages=messages,
-                tools=tools,
-                agent_id=agent_id,
-                model=model,
-                temperature=temperature,
-            )
-            return
-
-        contents, config, preferred_model, candidate_models, tool_result_count, req_temperature = self._prepare_request(
-            messages, tools=tools, agent_id=agent_id, model=model, temperature=temperature
-        )
-
-        last_error = None
-        for attempt_model in candidate_models:
-            for retry in range(2):
-                try:
-                    logger.info(f"[GeminiProvider] Stream model '{attempt_model}' (agent: {agent_id}, temp: {req_temperature})...")
-                    stream = self.client.models.generate_content_stream(
-                        model=attempt_model,
-                        contents=contents if contents else "Xin chào",
-                        config=config
-                    )
-
-                    accumulated_tool_calls = []
-                    has_yielded_token = False
-
-                    for chunk in stream:
-                        # Trích xuất function calls từ candidates parts
-                        if hasattr(chunk, "candidates") and chunk.candidates:
-                            for cand in chunk.candidates:
-                                if hasattr(cand, "content") and cand.content and hasattr(cand.content, "parts"):
-                                    for part in cand.content.parts:
-                                        if hasattr(part, "function_call") and part.function_call:
-                                            fc = part.function_call
-                                            accumulated_tool_calls.append(
-                                                ToolCallMock(
-                                                    id=f"call_{len(accumulated_tool_calls)}_{fc.name}",
-                                                    name=fc.name,
-                                                    arguments=dict(fc.args) if hasattr(fc, "args") and fc.args else {}
-                                                )
-                                            )
-                                        if hasattr(part, "text") and part.text:
-                                            has_yielded_token = True
-                                            yield {"type": "token", "content": part.text}
-
-                        if not accumulated_tool_calls and hasattr(chunk, "function_calls") and chunk.function_calls:
-                            for idx, fc in enumerate(chunk.function_calls):
-                                accumulated_tool_calls.append(
-                                    ToolCallMock(
-                                        id=f"call_{idx}_{fc.name}",
-                                        name=fc.name,
-                                        arguments=dict(fc.args) if hasattr(fc, "args") and fc.args else {}
-                                    )
-                                )
-
-                        text = getattr(chunk, "text", "") or ""
-                        if text and not has_yielded_token:
-                            has_yielded_token = True
-                            yield {"type": "token", "content": text}
-
-                    if accumulated_tool_calls:
-                        yield {"type": "tool_calls", "tool_calls": accumulated_tool_calls}
-                    return
-
-                except Exception as e:
-                    err_str = str(e)
-                    last_error = e
-                    is_overloaded_or_rate = (
-                        "503" in err_str or
-                        "429" in err_str or
-                        "UNAVAILABLE" in err_str or
-                        "high demand" in err_str or
-                        "RESOURCE_EXHAUSTED" in err_str
-                    )
-
-                    if is_overloaded_or_rate:
-                        logger.warn(f"[GeminiProvider] Stream model '{attempt_model}' bị quá tải, chờ thử lại...")
-                        time.sleep(1.5 * (retry + 1))
-                    else:
-                        break
-
-            logger.warn(f"[GeminiProvider] Model '{attempt_model}' stream gặp lỗi. Chuyển fallback...")
-
-        logger.error(f"[GeminiProvider] Toàn bộ model dự phòng stream đều gặp sự cố: {last_error}")
-        if last_error is not None:
-            raise last_error
-        raise RuntimeError("Toàn bộ model dự phòng stream đều gặp sự cố nhưng không bắt được lỗi cụ thể.")
+        for chunk in response_stream:
+            try:
+                if chunk.text:
+                    yield chunk.text
+            except Exception:
+                pass
