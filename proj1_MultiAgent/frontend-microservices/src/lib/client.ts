@@ -22,7 +22,11 @@ export async function request<T>(path: string, options?: RequestInit): Promise<T
         headers['x-user-id'] = user.id
     }
 
-    const res = await fetch(`${API_BASE}${path}`, {
+    // Chuẩn hóa path: Nếu API_BASE đã có /api/v1 mà path truyền vào cũng bắt đầu bằng /api/v1, loại bỏ tiền tố thừa
+    const normalizedPath = path.startsWith('/api/v1') ? path.replace(/^\/api\/v1/, '') : path
+    const url = `${API_BASE}${normalizedPath.startsWith('/') ? normalizedPath : '/' + normalizedPath}`
+
+    const res = await fetch(url, {
         ...options,
         headers,
     })

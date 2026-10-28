@@ -226,3 +226,52 @@ Content-Type: application/json
 ### 24. [Room Service] Hủy gán sở hữu Agent trong phòng
 DELETE {{baseUrl}}/api/v1/rooms/user-agent/{{roomId}}/user-agents/agent_ml
 Authorization: Bearer {{token}}
+
+### 25. [Distributed Service (Go)] Health Check
+GET {{baseUrl}}/api/v1/distributed/app/info
+
+### 26. [Distributed Service (Go)] Danh mục Models Hỗ Trợ Chạy Phân Tán
+GET {{baseUrl}}/api/v1/distributed/models/catalog
+
+### 27. [Distributed Service (Go)] Benchmark & Kiểm Tra Điều Kiện Phần Cứng
+POST {{baseUrl}}/api/v1/distributed/benchmark
+Content-Type: application/json
+
+{
+  "cpuCores": 16,
+  "deviceMemoryGB": 32,
+  "hasWebGPU": true,
+  "gpuName": "NVIDIA GeForce RTX 4080",
+  "vramGB": 16,
+  "os": "Windows 11 Pro 64-bit"
+}
+
+### 28. [Distributed Service (Go)] Đăng Ký Đối Tác Mô Hình & Cấu Hình Cho Thuê
+POST {{baseUrl}}/api/v1/distributed/nodes/register
+Content-Type: application/json
+
+{
+  "userId": "usr_test_partner_01",
+  "username": "ComputeNode_Master",
+  "email": "master.node@network.ai",
+  "hardware": {
+    "cpuCores": 16,
+    "deviceMemoryGB": 32,
+    "hasWebGPU": true,
+    "gpuName": "NVIDIA GeForce RTX 4080",
+    "vramGB": 16,
+    "os": "Windows 11 Pro"
+  },
+  "rentConfig": {
+    "allocatedCores": 12,
+    "allocatedRAMGB": 24,
+    "enableGPU": true,
+    "gpuSharePercent": 80,
+    "availabilitySchedule": "24/7",
+    "minPricePerHourCoin": 100
+  }
+}
+
+### 29. [Distributed Service (Go)] Lấy Danh Sách Các Nodes Trong Mạng Lưới
+GET {{baseUrl}}/api/v1/distributed/nodes
+

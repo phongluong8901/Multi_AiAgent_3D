@@ -17,6 +17,9 @@ import {
     IconLink,
     IconMapPin,
 } from '@/components/ui/icons'
+import PartnerOnboardingModal from '@/components/distributed/PartnerOnboardingModal'
+import { useUser } from '@/hooks/useUser'
+import { PartnerNodeData } from '@/lib/api/distributed'
 
 type UserNode = {
     _id: string
@@ -59,13 +62,39 @@ const GEO_HUBS = [
 ]
 
 export default function UserModelsPage() {
+    const { profile } = useUser()
     const [nodes, setNodes] = useState<UserNode[]>([])
     const [loading, setLoading] = useState(true)
     const [selectedModelFilter, setSelectedModelFilter] = useState<string | null>(null)
     const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
+    const [isPartnerModalOpen, setIsPartnerModalOpen] = useState(false)
 
     // View mode: 'globe' (3D Earth) | 'map2d' (2D Geospatial) | 'topology' (Cluster Graph)
     const [viewMode, setViewMode] = useState<'globe' | 'map2d' | 'topology'>('globe')
+
+    const handlePartnerRegistered = (newNode: PartnerNodeData) => {
+        // Tự động bổ sung node vừa đăng ký vào danh sách hiển thị
+        const enriched: UserNode = {
+            _id: newNode.id,
+            username: newNode.username || profile?.name || 'My_Partner_Node',
+            email: newNode.email || profile?.email || '',
+            status: 'online',
+            location: GEO_HUBS[0],
+            hardwareNode: {
+                cpuCores: newNode.hardware.cpuCores,
+                deviceMemoryGB: newNode.hardware.deviceMemoryGB,
+                hasWebGPU: newNode.hardware.hasWebGPU,
+                gpuName: newNode.hardware.gpuName,
+                recommendedModels: newNode.compatibleModels,
+                canRunAI: true,
+                status: 'IDLE',
+                bandwidthMbps: 1200,
+                latencyMs: 15,
+            },
+        }
+        setNodes((prev) => [enriched, ...prev])
+        setSelectedNodeId(newNode.id)
+    }
 
     useEffect(() => {
         async function fetchUserNodes() {
@@ -355,42 +384,83 @@ export default function UserModelsPage() {
                     </p>
                 </div>
 
-                {/* Các nút chuyển đổi Chế Độ Hiển Thị Bản Đồ (3D Globe / 2D Map / Topology) */}
-                <div className="flex items-center gap-2 bg-zinc-900 border border-zinc-800 p-1 rounded-xl">
+                <div className="flex flex-wrap items-center gap-3">
+                    {/* Nút Kích Hoạt Đối Tác Mô Hình & Tải App */}
                     <button
-                        onClick={() => setViewMode('globe')}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
-                            viewMode === 'globe'
-                                ? 'bg-blue-600 text-white shadow-sm'
-                                : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
-                        }`}
+                        onClick={() => setIsPartnerModalOpen(true)}
+                        className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white font-bold text-xs shadow-lg shadow-blue-500/25 transition cursor-pointer"
                     >
-                        <IconGlobe className="w-3.5 h-3.5" />
-                        <span>Quả địa cầu 3D</span>
+                        <svg className="w-4 h-4 text-white animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                        </svg>
+                        <span>Gia Nhập Đối Tác & Nhận App Desktop</span>
                     </button>
 
-                    <button
-                        onClick={() => setViewMode('map2d')}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
-                            viewMode === 'map2d'
-                                ? 'bg-blue-600 text-white shadow-sm'
-                                : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
-                        }`}
-                    >
-                        <IconMap className="w-3.5 h-3.5" />
-                        <span>Bản đồ 2D</span>
-                    </button>
+                    {/* Các nút chuyển đổi Chế Độ Hiển Thị Bản Đồ (3D Globe / 2D Map / Topology) */}
+                    <div className="flex items-center gap-1.5 bg-zinc-900 border border-zinc-800 p-1 rounded-xl">
+                        <button
+                            onClick={() => setViewMode('globe')}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                                viewMode === 'globe'
+                                    ? 'bg-blue-600 text-white shadow-sm'
+                                    : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
+                            }`}
+                        >
+                            <IconGlobe className="w-3.5 h-3.5" />
+                            <span>Quả địa cầu 3D</span>
+                        </button>
+
+                        <button
+                            onClick={() => setViewMode('map2d')}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                                viewMode === 'map2d'
+                                    ? 'bg-blue-600 text-white shadow-sm'
+                                    : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
+                            }`}
+                        >
+                            <IconMap className="w-3.5 h-3.5" />
+                            <span>Bản đồ 2D</span>
+                        </button>
+
+                        <button
+                            onClick={() => setViewMode('topology')}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                                viewMode === 'topology'
+                                    ? 'bg-blue-600 text-white shadow-sm'
+                                    : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
+                            }`}
+                        >
+                            <IconWorkflow className="w-3.5 h-3.5" />
+                            <span>Đồ thị Topo Cụm</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            {/* BANNER GIA NHẬP ĐỐI TÁC MÔ HÌNH VÀ TẢI CLIENT ELECTRON */}
+            <div className="relative overflow-hidden rounded-2xl border border-blue-500/30 bg-gradient-to-r from-blue-950/40 via-zinc-900/60 to-indigo-950/40 p-5 shadow-xl">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 relative z-10">
+                    <div className="space-y-1.5 max-w-2xl">
+                        <div className="inline-flex items-center gap-2 px-2.5 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-400/30 text-[10px] font-bold uppercase tracking-wider">
+                            <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-ping" />
+                            <span>Golang Distributed Service Core</span>
+                        </div>
+                        <h2 className="text-sm font-bold text-white">
+                            Kiếm SaveCoins từ phần cứng nhàn rỗi — Trở thành Đối Tác Mô Hình AI
+                        </h2>
+                        <p className="text-xs text-zinc-300 leading-relaxed">
+                            Hệ thống tự động kiểm tra RAM, CPU, GPU của bạn, gợi ý các mô hình AI phù hợp (DeepSeek-R1, Llama 3.3, Mistral, SDXL) và cho phép bạn cấu hình Core/RAM cho thuê. Khi đồng ý, bạn sẽ nhận được ứng dụng Desktop (Python + React + Electron) để kết nối trực tiếp vào mạng lưới.
+                        </p>
+                    </div>
 
                     <button
-                        onClick={() => setViewMode('topology')}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
-                            viewMode === 'topology'
-                                ? 'bg-blue-600 text-white shadow-sm'
-                                : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
-                        }`}
+                        onClick={() => setIsPartnerModalOpen(true)}
+                        className="shrink-0 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-lg shadow-blue-600/30 flex items-center justify-center gap-2 transition cursor-pointer"
                     >
-                        <IconWorkflow className="w-3.5 h-3.5" />
-                        <span>Đồ thị Topo Cụm</span>
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                        </svg>
+                        <span>Kiểm Tra Phần Cứng & Đăng Ký Đối Tác</span>
                     </button>
                 </div>
             </div>
@@ -682,6 +752,18 @@ export default function UserModelsPage() {
                     })}
                 </div>
             </div>
+
+            {/* Modal Onboarding Đối Tác Mô Hình & Tải Desktop Client */}
+            <PartnerOnboardingModal
+                isOpen={isPartnerModalOpen}
+                onClose={() => setIsPartnerModalOpen(false)}
+                currentUser={{
+                    id: profile?.id,
+                    username: profile?.name,
+                    email: profile?.email,
+                }}
+                onPartnerRegistered={handlePartnerRegistered}
+            />
         </div>
     )
 }

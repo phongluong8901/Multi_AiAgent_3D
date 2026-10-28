@@ -1,0 +1,55 @@
+# ==========================================
+# 1. NODE.JS & ELECTRON DEPENDENCIES
+# ==========================================
+node_modules/
+frontend/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Vite & TypeScript Build Caches
+frontend/.vite/
+*.tsbuildinfo
+
+# ==========================================
+# 2. PYTHON WORKER & PYINSTALLER ARTIFACTS
+# ==========================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.venv/
+venv/
+ENV/
+env/
+build/
+*.spec
+
+# ==========================================
+# 3. ELECTRON BUILD & RELEASE ARTIFACTS
+# ==========================================
+release/win-unpacked/
+release/*.blockmap
+release/*.yaml
+release/*.yml
+# File installer > 100MB tránh bị GitHub chặn push
+release/*.exe
+
+# ==========================================
+# 4. CONFIG & SENSITIVE KEYS
+# ==========================================
+.env
+.env.local
+.env.*.local
+worker-config.json
+
+# ==========================================
+# 5. OS SYSTEM FILES & IDE
+# ==========================================
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.vscode/
+.idea/

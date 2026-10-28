@@ -254,8 +254,11 @@ services:
       - MAPDRAW_SERVICE_URL=http://mapdraw-service:5005
       - SAVECOIN_SERVICE_URL=http://savecoin-service:5006
       - RL_SERVICE_URL=http://rltrain-service:5009
+      - DISTRIBUTED_SERVICE_URL=http://distributed-service:5010
+      - REDIS_URL=redis://redis:6379
       - JWT_SECRET=super_secret_key_2026
     depends_on:
+      - redis
       - user-service
       - room-service
       - chat-service
@@ -264,6 +267,28 @@ services:
       - mapdraw-service
       - savecoin-service
       - rltrain-service
+      - distributed-service
+    restart: always
+    networks:
+      - multi-agent-network
+
+  # --- Golang Distributed Compute & Electron App Delivery Service ---
+  distributed-service:
+    build: ./distributed-service
+    container_name: distributed_service
+    environment:
+      - PORT=5010
+      - CLIENT_APP_PATH=/app/release/Go-Python Worker Monitor Setup 1.0.0.exe
+      - GATEWAY_WS_URL=ws://localhost:4000/api/v1/distributed/ws
+      - JWT_SECRET=super_secret_key_2026
+      - DATABASE_URL=postgresql://neondb_owner:npg_nGjr85EBbXPw@ep-fragrant-fire-a1icbw9e-pooler.ap-southeast-1.aws.neon.tech/distributed_db?sslmode=require
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - ./worker-client/release:/app/release:ro
+    ports:
+      - "5010:5010"
+    depends_on:
+      - redis
     restart: always
     networks:
       - multi-agent-network

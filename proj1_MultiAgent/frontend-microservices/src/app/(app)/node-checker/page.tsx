@@ -123,6 +123,22 @@ export default function NodeCheckerPage() {
                 </button>
             )}
 
+            {/* Banner chuyển sang trang Đối Tác Mô Hình để cấu hình chi tiết & tải App Electron */}
+            <div className="rounded-xl border border-blue-500/30 bg-blue-950/20 p-4 flex items-center justify-between gap-3 text-xs">
+                <div className="space-y-0.5">
+                    <strong className="text-white block font-semibold">Muốn cho thuê Core, RAM, GPU & nhận SaveCoins?</strong>
+                    <span className="text-zinc-400 text-[11px] block">
+                        Cấu hình phân bổ chi tiết và tải ứng dụng Desktop Client (Python + React + Electron).
+                    </span>
+                </div>
+                <a
+                    href="/user-models"
+                    className="shrink-0 px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs transition shadow-md shadow-blue-600/20"
+                >
+                    Trang Đối Tác &rarr;
+                </a>
+            </div>
+
             {message && (
                 <p className="text-center text-xs font-medium text-zinc-300 mt-2">{message}</p>
             )}

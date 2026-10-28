@@ -104,6 +104,11 @@ npm install --save-dev @types/swagger-ui-express @types/swagger-jsdoc
 npm install cloudinary multer
 npm install --save-dev @types/multer
 
+--- distributed-service 
+go get github.com/redis/go-redis/v9
+go get github.com/lib/pq
+go mod tidy
+
 --- frontend-microservices
 npm install @react-oauth/google
 npm install axios
@@ -114,6 +119,10 @@ npm install lucide-react
 npm install socket.io-client
 
 npm install three @react-three/fiber @react-three/drei @dnd-kit/core @dnd-kit/utilities
+
+--- cd frontend
+npm install react-map-gl maplibre-gl
+npm install -D @types/maplibre-gl
 
 # --- run
 cd proj1_MultiAgent
@@ -149,6 +158,19 @@ npm run dev
 npm install
 npm run dev
 
+--- distributed-service (Port 5010 - Golang Model Partner & Worker Delivery)
+cd distributed-service
+go run main.go
+
+--- worker-client (Python Hardware Worker & Build .exe)
+cd worker-client
+pip install -r requirements.txt
+python worker.py
+# Build worker.exe:
+.\build_exe.bat
+
+
+
 
 - build rieng
 docker compose up --build -d user-service
@@ -159,7 +181,7 @@ docker compose up --build -d product-service
 docker compose up --build -d mapdraw-service
 docker compose up --build -d api-gateway
 docker compose up --build -d rltrain-service
-
+docker compose up --build -d distributed-service
 
 - xoa
 docker compose down
@@ -167,6 +189,21 @@ docker compose down
 - xoa va dat lai
 
 docker compose down -v
+
+--- build wworkder electron
+- worker.py
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+
+pip install -r requirements.txt
+
+pyinstaller --clean --onefile --name "worker" --distpath "./release" worker.py
+
+- frontend
+npm run build
+
+- electron
+npm run build:win
 
 # --- link port
 - swagger agent

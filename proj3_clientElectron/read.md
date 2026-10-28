@@ -21,6 +21,12 @@ pyinstaller --onefile main.py
 
 --- cd frontend
 npx create-vite@5.5.2 frontend --template react-ts
+npm install react-globe.gl three
+npm install react-leaflet leaflet --legacy-peer-deps
+npm install -D @types/leaflet
+
+npm install react-map-gl maplibre-gl
+npm install -D @types/maplibre-gl
 
 cd frontend
 npm install

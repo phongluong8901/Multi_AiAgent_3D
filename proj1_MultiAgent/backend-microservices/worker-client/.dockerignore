@@ -1,0 +1,35 @@
+# Version Control & Config
+.git
+.gitignore
+.dockerignore
+.vscode/
+.idea/
+
+# Dependencies
+node_modules/
+frontend/node_modules/
+venv/
+.venv/
+ENV/
+env/
+
+# Python & PyInstaller Build Artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+build/
+*.spec
+
+# Build Temporary Caches
+frontend/.vite/
+*.tsbuildinfo
+release/win-unpacked/
+release/*.blockmap
+release/*.yaml
+release/*.yml
+
+# Logs & OS Files
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db

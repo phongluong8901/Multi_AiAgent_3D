@@ -1,0 +1,44 @@
+{
+  "name": "proj3_client_electron",
+  "version": "1.0.0",
+  "description": "Go-Python Desktop Worker Client",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build:react": "cd frontend && npm run build",
+    "build:win": "npm run build:react && electron-builder --win"
+  },
+  "author": "Multi-Agent AI Partner",
+  "devDependencies": {
+    "electron": "41.7.1",
+    "electron-builder": "^26.18.0"
+  },
+  "build": {
+    "appId": "com.worker.desktop",
+    "productName": "Go-Python Worker Monitor",
+    "electronVersion": "41.7.1",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "main.js",
+      "frontend/dist/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "worker.exe",
+        "to": "worker.exe"
+      }
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Go-Python Worker Monitor"
+    }
+  }
+}
