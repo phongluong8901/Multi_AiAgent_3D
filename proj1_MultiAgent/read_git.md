@@ -51,3 +51,9 @@ git checkout -b p9_update_drawmap-service
 git add .
 git commit -m "change: first"
 git push origin p9_update_drawmap-service
+
+--- 
+git checkout -b p10_setup_flow_all
+git add .
+git commit -m "change: first"
+git push origin p10_setup_flow_all-service
