@@ -12,7 +12,8 @@ const SIDEBAR_EXTRA_NAV = [
     { href: '/firmware', label: 'ESP32 Robot 3D', badge: 'AI Sim', icon: RobotIcon },
     { href: '/node-checker', label: 'Kiểm tra Node AI', badge: 'Hot', icon: NodeIcon },
     { href: '/user-models', label: 'Đối tác Mô hình', icon: ModelsIcon },
-    { href: '/seller', label: 'Quản lý Seller & Node', badge: 'Pro', icon: SellerIcon },
+    { href: '/seller', label: 'Quản lý Cho Thuê (Seller)', badge: 'Host', icon: SellerIcon },
+    { href: '/owner', label: 'Thuê AI Cho Agent (Owner)', badge: 'Hot', icon: OwnerIcon },
     { href: '/admin', label: 'Quản trị Hệ thống', badge: 'Admin', icon: AdminIcon },
 ]
 
@@ -140,6 +141,17 @@ function GameIcon(props: any) {
             <line x1="15" y1="13" x2="15.01" y2="13" />
             <line x1="18" y1="11" x2="18.01" y2="11" />
             <rect x="2" y="6" width="20" height="12" rx="2" />
+        </svg>
+    )
+}
+
+function OwnerIcon(props: any) {
+    return (
+        <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+            <circle cx="9" cy="7" r="4" />
+            <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+            <path d="M16 3.13a4 4 0 0 1 0 7.75" />
         </svg>
     )
 }

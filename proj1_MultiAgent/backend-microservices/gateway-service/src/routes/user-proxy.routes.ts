@@ -23,7 +23,6 @@ const PUBLIC_PATHS = [
 const USER_BASE_PATHS = [
     "/api/v1/auth",
     "/api/v1/users",
-    "/api/v1/seller",
     "/api/v1/admin",
 ];
 
@@ -59,7 +58,6 @@ router.use(
             return (
                 pathname.startsWith("/api/v1/auth") ||
                 pathname.startsWith("/api/v1/users") ||
-                pathname.startsWith("/api/v1/seller") ||
                 pathname.startsWith("/api/v1/admin")
             );
         },

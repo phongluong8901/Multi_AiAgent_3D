@@ -255,6 +255,8 @@ services:
       - SAVECOIN_SERVICE_URL=http://savecoin-service:5006
       - RL_SERVICE_URL=http://rltrain-service:5009
       - DISTRIBUTED_SERVICE_URL=http://distributed-service:5010
+      - SELLER_SERVICE_URL=http://seller-service:5011
+      - OWER_SERVICE_URL=http://ower-service:5012
       - REDIS_URL=redis://redis:6379
       - JWT_SECRET=super_secret_key_2026
     depends_on:
@@ -268,6 +270,34 @@ services:
       - savecoin-service
       - rltrain-service
       - distributed-service
+      - seller-service
+      - ower-service
+    restart: always
+    networks:
+      - multi-agent-network
+
+  # --- Node.js TypeScript Seller Compute & Local AI Host Service ---
+  seller-service:
+    build: ./seller-service
+    container_name: seller_service
+    env_file:
+      - ./seller-service/.env
+    ports:
+      - "5011:5011"
+    restart: always
+    networks:
+      - multi-agent-network
+
+  # --- Node.js TypeScript Owner / Renter & Agent Model Service ---
+  ower-service:
+    build: ./ower-service
+    container_name: ower_service
+    env_file:
+      - ./ower-service/.env
+    ports:
+      - "5012:5012"
+    depends_on:
+      - seller-service
     restart: always
     networks:
       - multi-agent-network

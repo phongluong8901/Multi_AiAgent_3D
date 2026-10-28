@@ -41,6 +41,18 @@ npm install express dotenv cors http-proxy-middleware
 npm install -D typescript @types/node @types/express @types/cors tsx
 npx tsc --init
 
+--- ower-service
+npm init -y
+npm install express dotenv cors bcrypt 
+npm install -D typescript @types/node @types/express @types/cors @types/bcrypt
+npx tsc --init
+
+--- seller-service
+npm init -y
+npm install express dotenv cors bcrypt 
+npm install -D typescript @types/node @types/express @types/cors @types/bcrypt
+npx tsc --init
+
 --- frontend-microservices
 cd proj1_MultiAgent
 cd frontend-microservices

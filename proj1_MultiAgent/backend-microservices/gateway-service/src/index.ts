@@ -13,6 +13,8 @@ import mapRouter from "./routes/map-proxy.routes";
 import coinRouter from "./routes/coin-proxy.routes";
 import rlRouter from "./routes/rl-proxy.routes";
 import distributedRouter from "./routes/distributed-proxy.routes";
+import sellerRouter from "./routes/seller-proxy.routes";
+import ownerRouter from "./routes/owner-proxy.routes";
 import fs from "fs";
 import path from "path";
 
@@ -64,6 +66,8 @@ app.use(mapRouter);
 app.use(coinRouter);
 app.use(rlRouter);
 app.use(distributedRouter);
+app.use(sellerRouter);
+app.use(ownerRouter);
 
 // Khởi chạy Gateway Server bằng http.Server để hỗ trợ trơn tru WebSocket & HTTP
 server.listen(PORT, () => {
