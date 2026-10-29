@@ -102,14 +102,28 @@ const NAV_GROUPS: NavGroup[] = [
             {
                 href: '/training',
                 label: 'RL Training 3D',
-                desc: 'Huấn luyện học tăng cường PPO / DQN / SAC',
+                desc: 'Huấn luyện học tăng cường PPO / DQN / SAC né vật cản',
                 icon: IconTarget,
+            },
+            {
+                href: '/training/body',
+                label: 'RL Locomotion 3D',
+                desc: 'Dạy robot 4 chân / custom body tập đứng & bước đi',
+                badge: 'Body AI',
+                icon: IconBot,
             },
             {
                 href: '/maps/setup',
                 label: 'Map Studio 3D',
                 desc: 'Thiết kế bản đồ & bố trí vật thể 3D',
                 icon: IconMap,
+            },
+            {
+                href: '/agent-body-studio',
+                label: 'Agent Body Studio',
+                desc: 'Thiết kế thân robot, khớp nối để huấn luyện',
+                badge: 'Joints',
+                icon: IconBot,
             },
             {
                 href: '/games',
@@ -618,6 +632,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                     className={`flex-1 pb-16 md:pb-0 ${
                         pathname.startsWith('/office') ||
                         pathname.startsWith('/maps/setup') ||
+                        pathname.startsWith('/agent-body-studio') ||
                         pathname.startsWith('/firmware') ||
                         pathname.startsWith('/store') ||
                         pathname.includes('/rooms/')

@@ -21,6 +21,10 @@ export class SellerNodeRepository {
         return await SellerNodeModel.findOne({ nodeId });
     }
 
+    async findAll(): Promise<ISellerNode[]> {
+        return await SellerNodeModel.find().sort({ createdAt: -1 });
+    }
+
     async findBySellerId(sellerId: string): Promise<ISellerNode[]> {
         return await SellerNodeModel.find({ sellerId }).sort({ createdAt: -1 });
     }
@@ -54,6 +58,31 @@ export class SellerNodeRepository {
         return await SellerNodeModel.findOneAndUpdate(
             { nodeId },
             { $set: { status, lastPingAt: new Date() } },
+            { new: true }
+        );
+    }
+
+    async updateSpecsAndStatus(
+        nodeId: string,
+        specs: {
+            cpuCores?: number;
+            ramGB?: number;
+            gpuName?: string;
+            vramGB?: number;
+            coinsPerHour?: number;
+            status?: "ONLINE" | "BUSY" | "OFFLINE";
+            hostedModel?: string;
+            modelDisplayName?: string;
+        }
+    ): Promise<ISellerNode | null> {
+        return await SellerNodeModel.findOneAndUpdate(
+            { nodeId },
+            {
+                $set: {
+                    ...specs,
+                    lastPingAt: new Date(),
+                },
+            },
             { new: true }
         );
     }

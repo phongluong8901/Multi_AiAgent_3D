@@ -5,7 +5,10 @@ import { useFrame } from '@react-three/fiber'
 import { RoundedBox } from '@react-three/drei'
 import * as THREE from 'three'
 
-export type AgentFormType = 'humanoid' | 'duck' | 'amr' | 'drone'
+import { CustomAgentBodyMesh } from './CustomAgentBodyMesh'
+import type { AgentBodyDesign } from '@/lib/agentBody/agentBodyTypes'
+
+export type AgentFormType = 'humanoid' | 'duck' | 'amr' | 'drone' | 'custom'
 
 export interface NvidiaRobotProps {
     form?: AgentFormType
@@ -17,6 +20,8 @@ export interface NvidiaRobotProps {
     toolCount?: number
     modelId?: string | null
     isStudioPedestal?: boolean
+    bodyId?: string | null
+    bodyDesign?: AgentBodyDesign | null
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -1112,6 +1117,8 @@ export function NvidiaRobotRenderer(props: NvidiaRobotProps) {
     const { form = 'humanoid' } = props
 
     switch (form) {
+        case 'custom':
+            return <CustomAgentBodyMesh {...props} />
         case 'duck':
             return <NvidiaMicroDuckRobotMesh {...props} />
         case 'amr':

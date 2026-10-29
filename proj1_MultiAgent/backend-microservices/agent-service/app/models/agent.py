@@ -16,6 +16,8 @@ class AgentModel(Base):
     pos_z = Column(Float, default=0.0)
 
     model = Column(String, default="gemini-2.5-flash-lite")
+    form = Column(String, default="humanoid")
+    body_id = Column(String, nullable=True)
 
     prompt_id = Column(String, ForeignKey("prompts.id"), nullable=True)
     prompt = relationship("PromptModel", back_populates="agents")

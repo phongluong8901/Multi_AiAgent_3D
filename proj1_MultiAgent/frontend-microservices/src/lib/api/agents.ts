@@ -20,7 +20,9 @@ export type Agent = {
     prompt_id?: string | null
     tools?: unknown[]
     ownerName?: string
-    form?: 'humanoid' | 'duck' | 'amr' | 'drone'
+    form?: 'humanoid' | 'duck' | 'amr' | 'drone' | 'custom'
+    body_id?: string | null
+    bodyId?: string | null
 }
 
 export type AgentCreate = {
@@ -35,7 +37,9 @@ export type AgentCreate = {
     model?: string
     prompt_id?: string | null
     tool_ids?: string[]
-    form?: 'humanoid' | 'duck' | 'amr' | 'drone'
+    form?: 'humanoid' | 'duck' | 'amr' | 'drone' | 'custom'
+    body_id?: string | null
+    bodyId?: string | null
 }
 
 export type AgentUpdate = Partial<{
@@ -49,7 +53,9 @@ export type AgentUpdate = Partial<{
     model: string
     prompt_id: string | null
     tool_ids: string[]
-    form: 'humanoid' | 'duck' | 'amr' | 'drone'
+    form: 'humanoid' | 'duck' | 'amr' | 'drone' | 'custom'
+    body_id: string | null
+    bodyId: string | null
 }>
 
 export const agentsApi = {

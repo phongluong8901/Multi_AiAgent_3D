@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect } from 'react'
 import Link from 'next/link'
 import { useAgents } from '@/hooks/useAgents'
-import { agentsApi } from '@/lib/api'
+import { agentsApi, ownerApi, RentalSessionData } from '@/lib/api'
 import { toast } from 'sonner'
 import { useConfirm } from '@/context/ConfirmContext'
 import {
@@ -24,9 +24,10 @@ import {
     IconDrone,
     IconHumanoid,
     IconEdit,
+    IconHardDrive,
 } from '@/components/ui/icons'
 
-type AgentFormType = 'humanoid' | 'duck' | 'amr' | 'drone'
+import { AgentFormType } from '@/components/agents/NvidiaRobots'
 
 export default function AgentsPage() {
     const { confirm } = useConfirm()
@@ -35,6 +36,46 @@ export default function AgentsPage() {
     const [selectedFormFilter, setSelectedFormFilter] = useState<string>('all')
     const [selectedStatusFilter, setSelectedStatusFilter] = useState<string>('all')
     const [formMap, setFormMap] = useState<Record<string, AgentFormType>>({})
+    const [activeRentals, setActiveRentals] = useState<RentalSessionData[]>([])
+
+    // Tải danh sách máy Seller đang thuê để đồng bộ cấu hình mô hình AI
+    useEffect(() => {
+        ownerApi.getMyRentals()
+            .then((res) => {
+                if (res.success && Array.isArray(res.rentals)) {
+                    setActiveRentals(res.rentals.filter((r) => r.status === 'ACTIVE'))
+                }
+            })
+            .catch(() => {})
+    }, [])
+
+    // Map tra cứu rental theo agentId hoặc sessionId
+    const rentalByAgentId = useMemo(() => {
+        const map: Record<string, RentalSessionData> = {}
+        activeRentals.forEach((r) => {
+            const aId = r.boundAgentId || r.assignedAgentId
+            if (aId) map[aId] = r
+        })
+        return map
+    }, [activeRentals])
+
+    const rentalBySessionId = useMemo(() => {
+        const map: Record<string, RentalSessionData> = {}
+        activeRentals.forEach((r) => {
+            const sId = r.sessionId || r.id || r._id
+            if (sId) map[sId] = r
+        })
+        return map
+    }, [activeRentals])
+
+    const getAgentRental = (agent: any): RentalSessionData | null => {
+        if (rentalByAgentId[agent.id]) return rentalByAgentId[agent.id]
+        if (agent.model && typeof agent.model === 'string' && agent.model.startsWith('rented:')) {
+            const sId = agent.model.replace('rented:', '')
+            if (rentalBySessionId[sId]) return rentalBySessionId[sId]
+        }
+        return null
+    }
 
     // Đọc form preference từ LocalStorage
     useEffect(() => {
@@ -112,6 +153,13 @@ export default function AgentsPage() {
                     icon: <IconDrone className="w-5 h-5 text-cyan-300" />,
                     badgeBg: 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30',
                 }
+            case 'custom':
+                return {
+                    label: 'Custom Body',
+                    sub: 'URDF Studio · Articulated',
+                    icon: <IconBot className="w-5 h-5 text-purple-300" />,
+                    badgeBg: 'bg-purple-500/15 text-purple-300 border-purple-500/30',
+                }
             default:
                 return {
                     label: 'Project GR00T',
@@ -124,7 +172,7 @@ export default function AgentsPage() {
 
     // Thống kê theo form
     const stats = useMemo(() => {
-        const counts = { total: agents.length, humanoid: 0, duck: 0, amr: 0, drone: 0 }
+        const counts = { total: agents.length, humanoid: 0, duck: 0, amr: 0, drone: 0, custom: 0 }
         for (const ag of agents) {
             const f = formMap[ag.id] || 'humanoid'
             if (f in counts) {
@@ -138,7 +186,12 @@ export default function AgentsPage() {
     const filteredAgents = useMemo(() => {
         return agents.filter((ag) => {
             const form = formMap[ag.id] || 'humanoid'
-            if (selectedFormFilter !== 'all' && form !== selectedFormFilter) return false
+            if (selectedFormFilter === 'rented_ai') {
+                const hasRental = Boolean(getAgentRental(ag) || (ag.model && String(ag.model).startsWith('rented:')))
+                if (!hasRental) return false
+            } else if (selectedFormFilter !== 'all' && form !== selectedFormFilter) {
+                return false
+            }
             if (selectedStatusFilter !== 'all' && ag.status !== selectedStatusFilter) return false
             if (searchQuery.trim()) {
                 const q = searchQuery.toLowerCase()
@@ -150,7 +203,7 @@ export default function AgentsPage() {
             }
             return true
         })
-    }, [agents, formMap, selectedFormFilter, selectedStatusFilter, searchQuery])
+    }, [agents, formMap, selectedFormFilter, selectedStatusFilter, searchQuery, activeRentals])
 
     return (
         <div className="space-y-6 max-w-7xl mx-auto">
@@ -176,6 +229,10 @@ export default function AgentsPage() {
 
                     {/* Stats pills */}
                     <div className="flex flex-wrap gap-2 mt-4 text-[11px]">
+                        <span className="px-2.5 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-cyan-300 flex items-center gap-1.5 font-bold">
+                            <IconHardDrive className="w-3.5 h-3.5 text-cyan-400" />
+                            <span>P2P Seller AI:</span> <strong className="text-cyan-200 font-mono">{activeRentals.length} máy thuê</strong>
+                        </span>
                         <span className="px-2.5 py-1 rounded-full bg-lime-500/10 border border-lime-500/20 text-lime-400 flex items-center gap-1.5 font-bold">
                             <IconHumanoid className="w-3.5 h-3.5 text-lime-400" />
                             <span>GR00T Biped:</span> <strong className="text-white font-mono">{stats.humanoid}</strong>
@@ -192,10 +249,23 @@ export default function AgentsPage() {
                             <IconDrone className="w-3.5 h-3.5 text-cyan-400" />
                             <span>Cyber Falcon:</span> <strong className="text-cyan-200 font-mono">{stats.drone}</strong>
                         </span>
+                        <span className="px-2.5 py-1 rounded-full bg-purple-500/10 border border-purple-500/20 text-purple-300 flex items-center gap-1.5 font-bold">
+                            <IconBot className="w-3.5 h-3.5 text-purple-400" />
+                            <span>Custom Body:</span> <strong className="text-purple-200 font-mono">{stats.custom || 0}</strong>
+                        </span>
                     </div>
                 </div>
 
                 <div className="flex items-center gap-3">
+                    <Link
+                        href="/agent-body-studio"
+                        className="rounded-xl bg-violet-950/70 hover:bg-violet-900/80 border border-violet-500/30 text-violet-300 hover:text-white text-xs px-3.5 py-2.5 transition font-medium flex items-center gap-2"
+                        title="Thiết kế khung xương, khớp chuyển động & xuất URDF train RL"
+                    >
+                        <IconBot className="w-4 h-4 text-violet-400" />
+                        <span>Body Studio 3D</span>
+                    </Link>
+
                     <Link
                         href="/maps/setup"
                         className="rounded-xl bg-zinc-800/80 hover:bg-zinc-800 border border-zinc-700 text-zinc-300 hover:text-white text-xs px-3.5 py-2.5 transition font-medium flex items-center gap-2"
@@ -230,13 +300,19 @@ export default function AgentsPage() {
 
                 {/* Form type filters */}
                 <div className="flex items-center gap-1 overflow-x-auto w-full md:w-auto pb-1 md:pb-0">
-                    <span className="text-[11px] text-zinc-500 px-2 shrink-0">Hình thái:</span>
+                    <span className="text-[11px] text-zinc-500 px-2 shrink-0">Bộ lọc:</span>
                     {[
                         { id: 'all', label: 'Tất cả Robot', icon: null },
+                        {
+                            id: 'rented_ai',
+                            label: `Dùng AI Đã Thuê (${agents.filter((ag) => Boolean(getAgentRental(ag) || (ag.model && String(ag.model).startsWith('rented:')))).length})`,
+                            icon: <IconHardDrive className="w-3.5 h-3.5 text-cyan-400" />,
+                        },
                         { id: 'humanoid', label: 'GR00T Biped', icon: <IconHumanoid className="w-3.5 h-3.5 text-lime-400" /> },
                         { id: 'duck', label: 'MicroDuck', icon: <IconDuck className="w-3.5 h-3.5 text-amber-400" /> },
                         { id: 'amr', label: 'Nova Carter', icon: <IconAmr className="w-3.5 h-3.5 text-orange-400" /> },
                         { id: 'drone', label: 'Cyber Falcon', icon: <IconDrone className="w-3.5 h-3.5 text-cyan-400" /> },
+                        { id: 'custom', label: 'Custom Studio', icon: <IconBot className="w-3.5 h-3.5 text-purple-400" /> },
                     ].map((btn) => {
                         const active = selectedFormFilter === btn.id
                         return (
@@ -356,9 +432,22 @@ export default function AgentsPage() {
                                                 <span>{meta.sub}</span>
                                             </span>
 
-                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono">
-                                                <span>{agent.model || 'gemini-2.5-flash-lite'}</span>
-                                            </span>
+                                            {(() => {
+                                                const r = getAgentRental(agent)
+                                                if (r) {
+                                                    return (
+                                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 font-mono text-[10px] font-semibold">
+                                                            <IconHardDrive className="w-3 h-3 text-cyan-400 shrink-0" />
+                                                            <span className="truncate max-w-[130px]">P2P: {r.nodeName}</span>
+                                                        </span>
+                                                    )
+                                                }
+                                                return (
+                                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono">
+                                                        <span>{agent.model || 'gemini-2.5-flash-lite'}</span>
+                                                    </span>
+                                                )
+                                            })()}
 
                                             {agent.prompt_id && (
                                                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/20 font-medium">

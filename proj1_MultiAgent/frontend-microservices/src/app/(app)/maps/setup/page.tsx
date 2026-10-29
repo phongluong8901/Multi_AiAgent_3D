@@ -601,6 +601,13 @@ export default function MapSetupPage() {
                     </button>
 
                     <Link
+                        href="/agent-body-studio"
+                        className="px-3 py-1.5 rounded-xl bg-violet-950/80 hover:bg-violet-900/80 text-violet-300 border border-violet-500/30 font-medium transition flex items-center gap-1.5"
+                    >
+                        <span>Agent Body Studio →</span>
+                    </Link>
+
+                    <Link
                         href="/office"
                         className="px-3 py-1.5 rounded-xl bg-emerald-700/80 hover:bg-emerald-600 text-white font-medium transition flex items-center gap-1.5"
                     >

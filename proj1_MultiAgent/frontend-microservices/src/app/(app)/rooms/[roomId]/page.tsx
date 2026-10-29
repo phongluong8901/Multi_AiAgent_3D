@@ -93,30 +93,38 @@ export default function CollaborativeRoomPage() {
         onRoomUpdated: loadRoomData,
     })
 
-    // Load danh sách agents hệ thống và tự động join phòng
+    const hasJoinedRoomRef = useRef<string | null>(null)
+
+    // Load danh sách agents hệ thống và tự động join phòng lần đầu khi vào phòng
     useEffect(() => {
         if (!roomId) return
+        if (hasJoinedRoomRef.current === roomId) return
+        hasJoinedRoomRef.current = roomId
         let cancelled = false
 
-            ; (async () => {
-                try {
-                    const agentsList = await agentsApi.list().catch(() => [])
-                    if (cancelled) return
+        ;(async () => {
+            try {
+                const [agentsList] = await Promise.all([
+                    agentsApi.list().catch(() => []),
+                    loadRoomData(true),
+                ])
+                if (cancelled) return
 
-                    await loadRoomData()
-                    if (currentUserId) {
-                        try {
-                            const roomData = await roomsApi.join(roomId, { name: currentUserName })
-                            if (roomData) setRoom(roomData)
-                        } catch {
-                            /* Đã là thành viên thì bỏ qua */
-                        }
+                if (currentUserId) {
+                    try {
+                        const roomData = await roomsApi.join(roomId, { name: currentUserName })
+                        if (roomData && !cancelled) setRoom(roomData)
+                    } catch {
+                        /* Đã là thành viên thì bỏ qua */
                     }
-                    setAllAgents(agentsList ?? [])
-                } catch (err) {
-                    console.error(err)
                 }
-            })()
+                if (!cancelled) {
+                    setAllAgents(agentsList ?? [])
+                }
+            } catch (err) {
+                console.error(err)
+            }
+        })()
 
         return () => {
             cancelled = true

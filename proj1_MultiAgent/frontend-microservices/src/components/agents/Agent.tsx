@@ -8,6 +8,7 @@ import { Html } from '@react-three/drei'
 import AgentSpeechBubble from './AgentSpeechBubble'
 import AgentNameTag from './AgentNameTag'
 import AgentBody from './AgentBody'
+import { AgentFormType } from './NvidiaRobots'
 import { computeRLNavigationVelocity, getOfficeWaypoints } from '@/lib/rl/rlNavigator'
 
 export type AgentAction =
@@ -48,7 +49,8 @@ type Props = {
     isSelected?: boolean
     onSelect?: () => void
     ownerName?: string
-    form?: 'humanoid' | 'duck' | 'amr' | 'drone'
+    form?: AgentFormType
+    bodyId?: string | null
     useRL?: boolean
 }
 
@@ -74,6 +76,7 @@ export default function Agent({
     onSelect,
     ownerName,
     form,
+    bodyId,
     useRL = true,
 }: Props) {
     const body = useRef<RapierRigidBody>(null)
@@ -98,21 +101,23 @@ export default function Agent({
         }
     }
 
-    // Nhận diện hình thái Agent (Duck, AMR, Drone, Humanoid)
-    const agentForm = useMemo<'humanoid' | 'duck' | 'amr' | 'drone'>(() => {
+    // Nhận diện hình thái Agent (Duck, AMR, Drone, Humanoid, Custom)
+    const agentForm = useMemo<AgentFormType>(() => {
         if (form) return form
+        if (bodyId) return 'custom'
         if (typeof window !== 'undefined' && id) {
             const saved = localStorage.getItem(`agent_form:${id}`)
-            if (saved === 'duck' || saved === 'amr' || saved === 'drone' || saved === 'humanoid') {
-                return saved
+            if (saved === 'duck' || saved === 'amr' || saved === 'drone' || saved === 'humanoid' || saved === 'custom') {
+                return saved as AgentFormType
             }
         }
         const lower = ((name || '') + ' ' + (id || '')).toLowerCase()
+        if (lower.includes('custom') || lower.includes('body')) return 'custom'
         if (lower.includes('duck') || lower.includes('vit') || lower.includes('microduck')) return 'duck'
         if (lower.includes('amr') || lower.includes('agv') || lower.includes('xe') || lower.includes('logistics') || lower.includes('carter')) return 'amr'
         if (lower.includes('drone') || lower.includes('fly') || lower.includes('bay') || lower.includes('falcon')) return 'drone'
         return 'humanoid'
-    }, [form, name, id])
+    }, [form, bodyId, name, id])
 
     // Đăng ký bàn phím WASD / Mũi tên khi agent được chọn
     useEffect(() => {
@@ -361,6 +366,7 @@ export default function Agent({
 
     const shouldSit = isSittingAction && !isWalking
     const labelY = useMemo(() => {
+        if (agentForm === 'custom') return 1.35
         if (agentForm === 'amr') return 0.95
         if (agentForm === 'duck') return shouldSit ? 0.85 : 1.15
         if (agentForm === 'drone') return 1.65
@@ -368,6 +374,7 @@ export default function Agent({
     }, [agentForm, shouldSit])
 
     const colliderConfig = useMemo<{ args: [number, number]; pos: [number, number, number] }>(() => {
+        if (agentForm === 'custom') return { args: [0.35, 0.35], pos: [0, 0.45, 0] }
         if (agentForm === 'amr') return { args: [0.18, 0.42], pos: [0, 0.28, 0] }
         if (agentForm === 'duck') return { args: [0.22, 0.26], pos: [0, 0.32, 0] }
         if (agentForm === 'drone') return { args: [0.22, 0.32], pos: [0, 0.9, 0] }
@@ -403,6 +410,7 @@ export default function Agent({
                     walking={isWalking}
                     working={status === 'working' || targetAction === 'desk'}
                     form={agentForm}
+                    bodyId={bodyId}
                 />
 
                 {/* Vòng hào quang Neon / Target Reticle khi Agent được chọn */}

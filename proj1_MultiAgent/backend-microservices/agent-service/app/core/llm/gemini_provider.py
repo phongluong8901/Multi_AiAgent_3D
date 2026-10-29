@@ -281,9 +281,9 @@ class GeminiProvider(BaseLLMProvider):
         messages: List[Any],
         temperature: float = 0.2,
         tools: Optional[List[Dict[str, Any]]] = None,
-    ):
+    ) -> tuple[Any, types.GenerateContentConfig]:
         system_instruction = None
-        contents = []
+        contents: Any = []
         tool_result_count = 0
 
         for m in messages:
@@ -351,6 +351,7 @@ class GeminiProvider(BaseLLMProvider):
         messages: List[Any],
         temperature: float = 0.2,
         tools: Optional[List[Dict[str, Any]]] = None,
+        **kwargs,
     ) -> Any:
         # 1. Thử gọi OpenAI/DeepSeek nếu model tương ứng và có API key
         ext_resp = self._try_openai_compatible_api(messages, temperature, tools)
@@ -363,7 +364,7 @@ class GeminiProvider(BaseLLMProvider):
         def _call(model_to_use: str):
             return self.client.models.generate_content(
                 model=model_to_use,
-                contents=contents,
+                contents=contents,  # type: ignore
                 config=config,
             )
 
@@ -395,13 +396,27 @@ class GeminiProvider(BaseLLMProvider):
         messages: List[Any],
         temperature: float = 0.2,
         tools: Optional[List[Dict[str, Any]]] = None,
-    ) -> Generator[str, None, None]:
+        **kwargs,
+    ) -> Generator[Dict[str, Any], None, None]:
+        if tools:
+            # Nếu có tool, xử lý qua chat_completion để thu thập function_calls
+            resp = self.chat_completion(messages, temperature=temperature, tools=tools, **kwargs)
+            message = resp.choices[0].message
+            if message.tool_calls:
+                yield {"type": "tool_calls", "tool_calls": message.tool_calls}
+                return
+            if message.content:
+                chunk_size = 12
+                for i in range(0, len(message.content), chunk_size):
+                    yield {"type": "token", "content": message.content[i : i + chunk_size]}
+            return
+
         contents, config = self._prepare_request(messages, temperature, tools=None)
 
         def _call_stream(model_to_use: str):
             return self.client.models.generate_content_stream(
                 model=model_to_use,
-                contents=contents,
+                contents=contents,  # type: ignore
                 config=config,
             )
 
@@ -410,6 +425,6 @@ class GeminiProvider(BaseLLMProvider):
         for chunk in response_stream:
             try:
                 if chunk.text:
-                    yield chunk.text
+                    yield {"type": "token", "content": chunk.text}
             except Exception:
                 pass

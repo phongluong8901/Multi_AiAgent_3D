@@ -1,6 +1,6 @@
 import { request } from '../client'
 
-export type ModelType = 'cloud' | 'local_ollama' | 'local_webgpu'
+export type ModelType = 'cloud' | 'local_ollama' | 'local_webgpu' | 'rented_p2p'
 
 export type ProviderId = 'google' | 'openai' | 'anthropic' | 'deepseek' | 'groq' | 'openrouter'
 
@@ -19,7 +19,7 @@ export type AIModel = {
     id: string
     name: string
     provider: string
-    providerId?: ProviderId | 'ollama' | 'webgpu'
+    providerId?: ProviderId | 'ollama' | 'webgpu' | 'seller_p2p'
     type: ModelType
     description?: string
     contextWindow?: string
@@ -29,6 +29,13 @@ export type AIModel = {
     downloadProgress?: number // 0 -> 100
     tokenStats?: TokenStats
     isCustomKeyConfigured?: boolean
+    // Thông tin phiên thuê Seller P2P nếu có
+    rentalSessionId?: string
+    nodeId?: string
+    nodeName?: string
+    boundAgentName?: string
+    totalTokensUsed?: number
+    totalCoinsSpent?: number
 }
 
 export type ProviderConfig = {
@@ -280,12 +287,12 @@ const STORAGE_KEY_TOKEN_USAGE = 'ai_agent_token_usage_stats'
 const STORAGE_KEY_OLLAMA_HOST = 'ai_agent_ollama_host'
 
 export function getStoredApiKeys(): Record<ProviderId, string> {
-    if (typeof window === 'undefined') return {} as any
+    if (typeof window === 'undefined') return {} as Record<ProviderId, string>
     try {
         const raw = localStorage.getItem(STORAGE_KEY_API_KEYS)
-        return raw ? JSON.parse(raw) : {}
+        return raw ? JSON.parse(raw) : ({} as Record<ProviderId, string>)
     } catch {
-        return {} as any
+        return {} as Record<ProviderId, string>
     }
 }
 
@@ -501,23 +508,61 @@ export async function deleteOllamaModel(modelName: string, host = getOllamaHost(
     }
 }
 
-/** Lấy danh sách model tổng hợp (Cloud + Backend) */
+/** Lấy danh sách model tổng hợp (Cloud + Backend + Rented Seller P2P) */
 export async function listModels(): Promise<AIModel[]> {
+    let result: AIModel[] = []
     try {
         const backendModels = await request<AIModel[]>('/models')
         if (Array.isArray(backendModels) && backendModels.length > 0) {
-            return backendModels.map((m) => ({
+            result = backendModels.map((m) => ({
                 ...m,
                 type: m.type || 'cloud',
                 tokenStats: getModelTokenStats(m.id),
             }))
         }
     } catch {
-        // Fallback default cloud list
+        result = DEFAULT_CLOUD_MODELS.map((m) => ({
+            ...m,
+            tokenStats: getModelTokenStats(m.id),
+        }))
     }
 
-    return DEFAULT_CLOUD_MODELS.map((m) => ({
-        ...m,
-        tokenStats: getModelTokenStats(m.id),
-    }))
+    if (result.length === 0) {
+        result = DEFAULT_CLOUD_MODELS.map((m) => ({
+            ...m,
+            tokenStats: getModelTokenStats(m.id),
+        }))
+    }
+
+    // Tích hợp các mô hình mà Owner đang thuê từ Seller (P2P Mesh Network)
+    try {
+        const rentalsRes = await request<{ success: boolean; count?: number; rentals?: any[]; activeRentals?: any[] }>('/owner/rentals/my')
+        const activeList = (rentalsRes?.rentals || rentalsRes?.activeRentals || []).filter((r: any) => r.status === 'ACTIVE')
+        if (activeList.length > 0) {
+            const rentedModels: AIModel[] = activeList.map((r: any) => {
+                const sId = r.sessionId || r.id || r._id || ''
+                return {
+                    id: `rented:${sId}`,
+                    name: `[P2P Thuê] ${r.nodeName} - ${r.modelDisplayName || r.modelKey || 'Local AI'}`,
+                    provider: `Seller Trạm: ${r.nodeName}`,
+                    providerId: 'seller_p2p' as any,
+                    type: 'rented_p2p' as ModelType,
+                    description: `Mô hình chạy trực tiếp trên máy Seller (${r.nodeName}). Đã dùng ${(r.totalTokensUsed || 0).toLocaleString()} tokens.`,
+                    contextWindow: '32k',
+                    rentalSessionId: sId,
+                    nodeId: r.nodeId,
+                    nodeName: r.nodeName,
+                    boundAgentName: r.boundAgentName || r.assignedAgentId,
+                    totalTokensUsed: r.totalTokensUsed || 0,
+                    totalCoinsSpent: r.totalCoinsSpent || 0,
+                }
+            })
+            // Đưa các model P2P đã thuê lên đầu danh sách để ưu tiên chọn cho Agent
+            result = [...rentedModels, ...result]
+        }
+    } catch {
+        // Không chặn nếu offline hoặc chưa thuê máy
+    }
+
+    return result
 }

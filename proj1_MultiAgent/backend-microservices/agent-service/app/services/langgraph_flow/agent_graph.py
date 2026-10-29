@@ -25,12 +25,17 @@ class AgentWorkflow:
         messages = state["messages"]
         tool_definitions = state["tool_definitions"]
 
+        model = state.get("model")
+        # Lấy client phù hợp động (Gemini, Local Ollama, hoặc Rented Seller Node)
+        from app.core.llm.llm_registry import llm_registry
+        client = llm_registry.get_client(model) or self.llm_client
+
         # Gọi LLM Client (đã chuẩn hóa OpenAI format, hỗ trợ agent_id và model riêng biệt)
-        response = self.llm_client.chat_completion(
+        response = client.chat_completion(
             messages=messages,
             tools=tool_definitions if tool_definitions else None,
             agent_id=state.get("agent_id"),
-            model=state.get("model"),
+            model=model,
         )
         
         response_message = response.choices[0].message

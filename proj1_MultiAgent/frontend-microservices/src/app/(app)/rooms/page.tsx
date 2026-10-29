@@ -79,7 +79,7 @@ export default function RoomsHubPage() {
 
         const socket = io(socketUrl, {
             path: '/api/v1/rooms/socket.io',
-            transports: ['polling', 'websocket'],
+            transports: ['websocket'],
             auth: { token },
             extraHeaders: token ? { Authorization: `Bearer ${token}` } : {},
         })
@@ -92,12 +92,17 @@ export default function RoomsHubPage() {
             loadInvites()
         })
 
+        let presenceDebounce: any = null
         socket.on('room-updated', () => {
             loadData()
         })
 
         socket.on('room-presence-changed', () => {
-            loadData()
+            // Debounce để tránh giật lag khi nhiều user online/offline liên tiếp
+            clearTimeout(presenceDebounce)
+            presenceDebounce = setTimeout(() => {
+                loadData()
+            }, 1000)
         })
 
         socket.on('global_presence_updated', () => {

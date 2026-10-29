@@ -49,16 +49,22 @@ class OllamaProvider(BaseLLMProvider):
     """
 
     def __init__(self, model_name: str = "qwen2.5-coder:1.5b"):
-        raw = model_name
+        raw = model_name or "qwen2.5-coder:1.5b"
         self.target_node_id = ""
-        # Hỗ trợ định dạng: rental:<node_id>:<model_name>
-        if raw.startswith("rental:"):
-            parts = raw.split(":", 2)
-            if len(parts) == 3:
-                self.target_node_id = parts[1].strip()
-                raw = parts[2].strip()
+        self.rental_session_id = ""
+
+        # Hỗ trợ định dạng: rented:<sessionId> hoặc rental:<node_id>:<model_name>
+        if raw.startswith("rented:") or raw.startswith("rental:"):
+            prefix = "rented:" if raw.startswith("rented:") else "rental:"
+            rem = raw[len(prefix):].strip()
+            self.rental_session_id = rem
+            parts = rem.split(":", 1)
+            if len(parts) == 2:
+                self.target_node_id = parts[0].strip()
+                raw = parts[1].strip()
             else:
-                raw = raw.replace("rental:", "", 1).strip()
+                self.target_node_id = rem
+                raw = "qwen2.5:1.5b" 
 
         for prefix in ("ollama/", "ollama:", "local/", "local:"):
             if raw.startswith(prefix):
@@ -270,22 +276,98 @@ class OllamaProvider(BaseLLMProvider):
             data = json.loads(resp.read().decode("utf-8"))
             return data.get("response", "")
 
+    def _call_direct_ollama_stream(
+        self, prompt: str, system_prompt: str, temperature: float
+    ) -> Generator[str, None, None]:
+        """Stream token thực tế theo thời gian thực từ Ollama API."""
+        resolved_model = self._resolve_available_ollama_model()
+        url = f"{self.ollama_base_url}/api/generate"
+        payload = {
+            "model": resolved_model,
+            "prompt": prompt,
+            "system": system_prompt,
+            "stream": True,
+            "options": {"temperature": temperature},
+        }
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            for line in resp:
+                if not line:
+                    continue
+                try:
+                    chunk = json.loads(line.decode("utf-8"))
+                    token = chunk.get("response", "")
+                    if token:
+                        yield token
+                    if chunk.get("done"):
+                        break
+                except Exception:
+                    continue
+
+    def _call_rental_service(self, prompt: str, system_prompt: str) -> str:
+        """Gọi tới ower-service để thực thi inference trên máy trạm Seller đã thuê qua P2P Relay."""
+        owner_urls = [
+            os.getenv("OWNER_SERVICE_URL", "http://ower-service:5012").rstrip("/"),
+            "http://host.docker.internal:5012",
+            "http://localhost:5012",
+            "http://127.0.0.1:5012",
+            "http://gateway-service:4000",
+            "http://localhost:4000",
+        ]
+        payload = {
+            "rentalId": self.rental_session_id,
+            "rentalSessionId": self.rental_session_id,
+            "prompt": prompt,
+            "systemPrompt": system_prompt,
+        }
+        data_bytes = json.dumps(payload).encode("utf-8")
+
+        for base_url in owner_urls:
+            try:
+                target_url = f"{base_url}/api/v1/owner/agents/inference"
+                req = urllib.request.Request(
+                    target_url,
+                    data=data_bytes,
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(req, timeout=90) as resp:
+                    resp_data = json.loads(resp.read().decode("utf-8"))
+                    if resp_data.get("success") and resp_data.get("output"):
+                        return resp_data["output"]
+            except Exception:
+                continue
+        raise RuntimeError(f"Không thể kết nối tới ower-service cho phiên thuê '{self.rental_session_id}'")
+
     def _execute(self, messages: List[Any], temperature: float = 0.2, tools: Optional[List[Dict[str, Any]]] = None) -> tuple[str, List[_ToolCallMock]]:
         system_prompt, user_prompt, tool_result_count = self._extract_prompts(messages, tools=tools)
 
         raw_text = ""
-        # 1. Thử gọi qua Distributed Service (P2P Worker Node hoặc Seller Node đang thuê)
-        try:
-            raw_text = self._call_distributed_service(user_prompt, system_prompt, temperature)
-        except Exception as dist_err:
-            if self.target_node_id:
-                print(
-                    f"[OllamaProvider] Node thuê '{self.target_node_id}' không phản hồi ({dist_err}), chuyển sang Local Ollama..."
-                )
-            else:
-                print(
-                    f"[OllamaProvider] Distributed route fallback -> direct Ollama ({dist_err})"
-                )
+        # 1. Nếu có phiên thuê từ máy Seller -> Gọi ower-service P2P Relay
+        if self.rental_session_id:
+            try:
+                raw_text = self._call_rental_service(user_prompt, system_prompt)
+            except Exception as rent_err:
+                print(f"[OllamaProvider] Rental node '{self.rental_session_id}' fallback: {rent_err}")
+
+        # 2. Thử gọi qua Distributed Service (P2P Worker Node)
+        if not raw_text:
+            try:
+                raw_text = self._call_distributed_service(user_prompt, system_prompt, temperature)
+            except Exception as dist_err:
+                if self.target_node_id:
+                    print(
+                        f"[OllamaProvider] Node thuê '{self.target_node_id}' không phản hồi ({dist_err}), chuyển sang Local Ollama..."
+                    )
+                else:
+                    print(
+                        f"[OllamaProvider] Distributed route fallback -> direct Ollama ({dist_err})"
+                    )
 
         # 2. Fallback gọi trực tiếp tới Ollama trên máy chủ/máy cá nhân
         if not raw_text:
@@ -308,7 +390,7 @@ class OllamaProvider(BaseLLMProvider):
     def generate_text(
         self, prompt: str, system_prompt: Optional[str] = None, temperature: float = 0.7
     ) -> str:
-        messages = []
+        messages: List[Any] = []
         if system_prompt:
             messages.append(SystemMessage(content=system_prompt))
         messages.append(HumanMessage(content=prompt))
@@ -320,6 +402,7 @@ class OllamaProvider(BaseLLMProvider):
         messages: List[Any],
         temperature: float = 0.2,
         tools: Optional[List[Dict[str, Any]]] = None,
+        **kwargs,
     ) -> Any:
         text, tool_calls = self._execute(messages, temperature=temperature, tools=tools)
         return _ResponseMock(content=text, tool_calls=tool_calls)
@@ -329,8 +412,33 @@ class OllamaProvider(BaseLLMProvider):
         messages: List[Any],
         temperature: float = 0.2,
         tools: Optional[List[Dict[str, Any]]] = None,
-    ) -> Generator[str, None, None]:
-        text, _ = self._execute(messages, temperature=temperature, tools=None)
-        chunk_size = 24
-        for i in range(0, len(text), chunk_size):
-            yield text[i : i + chunk_size]
+        **kwargs,
+    ) -> Generator[Dict[str, Any], None, None]:
+        """
+        Streaming token và tool calls tương thích chuẩn AgentRunner và SSE UI.
+        - Nếu có tool calling hoặc qua Rental Relay: thực thi phân tích cấu trúc tool_calls.
+        - Nếu gọi Ollama trực tiếp không kèm tool: stream token thực tế theo thời gian thực.
+        """
+        # Nếu có tools hoặc chạy qua node thuê/distributed -> thực thi qua _execute và bóc tách tool calls
+        if tools or self.rental_session_id or self.target_node_id:
+            text, tool_calls = self._execute(messages, temperature=temperature, tools=tools)
+            if tool_calls:
+                yield {"type": "tool_calls", "tool_calls": tool_calls}
+                return
+
+            chunk_size = 12
+            for i in range(0, len(text), chunk_size):
+                yield {"type": "token", "content": text[i : i + chunk_size]}
+            return
+
+        # Gọi trực tiếp Ollama cục bộ: stream token theo thời gian thực
+        try:
+            system_prompt, user_prompt, _ = self._extract_prompts(messages, tools=None)
+            for token in self._call_direct_ollama_stream(user_prompt, system_prompt, temperature):
+                yield {"type": "token", "content": token}
+        except Exception:
+            # Fallback sang execute thông thường và chunking
+            text, _ = self._execute(messages, temperature=temperature, tools=None)
+            chunk_size = 12
+            for i in range(0, len(text), chunk_size):
+                yield {"type": "token", "content": text[i : i + chunk_size]}

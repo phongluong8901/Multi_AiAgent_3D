@@ -515,7 +515,11 @@ class AgentRunner:
 
         try:
             # 8. Khởi tạo State và thực thi LangGraph
-            preferred_model = agent_data.get("model") or "gemini-2.5-flash-lite"
+            preferred_model = (
+                (context or {}).get("model")
+                or agent_data.get("model")
+                or "gemini-2.5-flash-lite"
+            )
             initial_state: AgentState = {
                 "messages": initial_messages,
                 "agent_id": agent_id,
@@ -791,7 +795,11 @@ class AgentRunner:
         initial_messages.append(HumanMessage(content=user_message))
         memory_service.append_short_memory(agent_id, "user", user_message, room_id)
 
-        preferred_model = agent_data.get("model") or "gemini-2.5-flash-lite"
+        preferred_model = (
+            (context or {}).get("model")
+            or agent_data.get("model")
+            or "gemini-2.5-flash-lite"
+        )
         current_messages = list(initial_messages)
         tools_used = []
         final_answer = ""
@@ -800,7 +808,10 @@ class AgentRunner:
         for step in range(5):
             yield f"data: {json.dumps({'type': 'thinking', 'step': step + 1, 'content': 'Đang phân tích và xử lý...'}, ensure_ascii=False)}\n\n"
 
-            stream_gen = self.llm_client.stream_chat_completion(
+            from app.core.llm.llm_registry import llm_registry
+            dynamic_client = llm_registry.get_client(preferred_model) or self.llm_client
+
+            stream_gen = dynamic_client.stream_chat_completion(
                 messages=current_messages,
                 tools=tool_definitions if tool_definitions else None,
                 agent_id=agent_id,
@@ -810,11 +821,16 @@ class AgentRunner:
             tool_calls = None
             step_text = ""
             for item in stream_gen:
-                if item["type"] == "token":
-                    step_text += item["content"]
-                    yield f"data: {json.dumps({'type': 'token', 'content': item['content']}, ensure_ascii=False)}\n\n"
-                elif item["type"] == "tool_calls":
-                    tool_calls = item["tool_calls"]
+                if isinstance(item, str):
+                    step_text += item
+                    yield f"data: {json.dumps({'type': 'token', 'content': item}, ensure_ascii=False)}\n\n"
+                elif isinstance(item, dict):
+                    if item.get("type") == "token":
+                        token_content = item.get("content", "")
+                        step_text += token_content
+                        yield f"data: {json.dumps({'type': 'token', 'content': token_content}, ensure_ascii=False)}\n\n"
+                    elif item.get("type") == "tool_calls":
+                        tool_calls = item.get("tool_calls")
 
             if tool_calls:
                 lc_tool_calls = []

@@ -13,9 +13,17 @@ export function useRoom(roomId: string, currentUserId?: string, currentUserName?
     const [socketOnlineUsers, setSocketOnlineUsers] = useState<any[]>([])
 
     const isFirstLoadRef = useRef(true)
+    const lastLoadTimeRef = useRef(0)
 
-    const loadRoomData = useCallback(async () => {
+    const loadRoomData = useCallback(async (force = false) => {
         if (!roomId) return null
+        const now = Date.now()
+        // Debounce: tránh gọi lặp lại dồn dập trong 1.5 giây trừ khi ép buộc (force = true)
+        if (!force && now - lastLoadTimeRef.current < 1500) {
+            return null
+        }
+        lastLoadTimeRef.current = now
+
         try {
             if (isFirstLoadRef.current) {
                 setLoading(true)
@@ -68,7 +76,7 @@ export function useRoom(roomId: string, currentUserId?: string, currentUserName?
 
         const socket = io(socketUrl, {
             path: '/api/v1/rooms/socket.io',
-            transports: ['polling', 'websocket'],
+            transports: ['websocket'],
             auth: { token },
             extraHeaders: token ? { Authorization: `Bearer ${token}` } : {},
         })

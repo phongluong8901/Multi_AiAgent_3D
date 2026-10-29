@@ -10,6 +10,7 @@ import {
     IconDrone,
     IconHumanoid,
     IconGameController,
+    IconBot,
 } from '@/components/ui/icons'
 import { AgentFormType } from './NvidiaRobots'
 
@@ -70,6 +71,15 @@ export const ROBOT_HARDWARE_SPECS: Record<
         chassisType: 'Carbon X-Quadrotor',
         icon: IconDrone,
         accentColor: '#06b6d4',
+    },
+    custom: {
+        modelName: 'Custom Kinematic Body',
+        chipset: 'URDF Articulated Model',
+        computePower: 'PhysX 5.3 Multi-DOF',
+        perception: 'Proprioception + Contact',
+        chassisType: 'Body Studio Kinematic Tree',
+        icon: IconBot,
+        accentColor: '#a855f7',
     },
 }
 

@@ -85,7 +85,8 @@ export class OwnerController {
 
             res.status(200).json(result);
         } catch (error: any) {
-            res.status(500).json({ success: false, message: error.message });
+            const status = error.message?.includes("Chưa có") || error.message?.includes("không còn hiệu lực") ? 400 : 500;
+            res.status(status).json({ success: false, message: error.message });
         }
     }
 

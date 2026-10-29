@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import React, { useState, useEffect, useRef, useMemo } from 'react'
 import {
     Play,
@@ -298,6 +299,34 @@ export default function RLTrainingPage() {
 
     return (
         <div className="flex-1 space-y-6 p-4 md:p-8 max-w-7xl mx-auto text-zinc-100">
+            {/* Module RL Navigation vs Locomotion Tabs */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-zinc-800/60">
+                <div className="flex items-center gap-1.5 p-1 bg-zinc-900/90 border border-zinc-800 rounded-xl">
+                    <span className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-blue-600 text-white flex items-center gap-2 shadow-sm">
+                        <Compass className="w-3.5 h-3.5" />
+                        RL Navigation (LIDAR Cảm biến & Né vật cản)
+                    </span>
+                    <Link
+                        href="/training/body"
+                        className="px-3 py-1.5 text-xs font-medium rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 flex items-center gap-2 transition"
+                    >
+                        <Bot className="w-3.5 h-3.5 text-indigo-400" />
+                        RL Locomotion 3D (Khớp Thân, Tập Đứng & Đi)
+                        <span className="text-[10px] px-1.5 py-0.2 bg-indigo-500/20 text-indigo-300 rounded border border-indigo-500/30 font-semibold">
+                            Body AI
+                        </span>
+                    </Link>
+                </div>
+
+                <Link
+                    href="/agent-body-studio"
+                    className="hidden sm:flex items-center gap-1.5 text-xs text-zinc-400 hover:text-indigo-400 transition"
+                >
+                    <Sliders className="w-3.5 h-3.5" />
+                    Thiết kế khung robot tại Agent Body Studio
+                </Link>
+            </div>
+
             {/* Header Page */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-zinc-800/80">
                 <div>

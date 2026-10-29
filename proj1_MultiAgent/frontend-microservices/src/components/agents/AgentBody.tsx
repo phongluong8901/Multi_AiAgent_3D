@@ -2,6 +2,7 @@
 
 import React from 'react'
 import { NvidiaRobotRenderer, AgentFormType } from './NvidiaRobots'
+import type { AgentBodyDesign } from '@/lib/agentBody/agentBodyTypes'
 
 type Props = {
     color?: string
@@ -11,7 +12,9 @@ type Props = {
     sitting?: boolean
     walking?: boolean
     working?: boolean
-    form?: 'humanoid' | 'duck' | 'amr' | 'drone'
+    form?: AgentFormType
+    bodyId?: string | null
+    bodyDesign?: AgentBodyDesign | null
 }
 
 const AgentBody = React.memo(function AgentBody({
@@ -20,14 +23,18 @@ const AgentBody = React.memo(function AgentBody({
     walking = false,
     working = false,
     form = 'humanoid',
+    bodyId,
+    bodyDesign,
 }: Props) {
     return (
         <NvidiaRobotRenderer
-            form={form as AgentFormType}
+            form={form}
             color={color}
             sitting={sitting}
             walking={walking}
             working={working}
+            bodyId={bodyId}
+            bodyDesign={bodyDesign}
         />
     )
 })

@@ -3,6 +3,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import { connectDB } from "./config/db";
 import mapRoutes from "./routes/map.routes";
+import agentBodyRoutes from "./routes/agentBody.routes";
 
 dotenv.config();
 
@@ -24,6 +25,7 @@ app.get("/", (req, res) => {
 
 // Gắn routes
 app.use("/api/v1", mapRoutes);
+app.use("/api/v1", agentBodyRoutes);
 
 async function startServer() {
     await connectDB();

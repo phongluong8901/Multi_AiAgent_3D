@@ -1,6 +1,8 @@
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
+import Link from 'next/link'
+import { ownerApi, RentalSessionData, agentsApi, Agent } from '@/lib/api'
 import {
     AIModel,
     ProviderId,
@@ -97,7 +99,7 @@ const PROVIDER_INFO: Record<
 export default function ModelsManagementPage() {
     const { confirm } = useConfirm()
     // Tab chính: 'cloud' | 'local_ollama' | 'local_webgpu'
-    const [activeTab, setActiveTab] = useState<'cloud' | 'local_ollama' | 'local_webgpu'>('cloud')
+    const [activeTab, setActiveTab] = useState<'cloud' | 'local_ollama' | 'local_webgpu' | 'rented'>('cloud')
 
     // --- STATE CHO CLOUD PROVIDERS & API KEYS ---
     const [apiKeys, setApiKeys] = useState<Record<ProviderId, string>>({
@@ -150,6 +152,83 @@ export default function ModelsManagementPage() {
     const [testInferenceInput, setTestInferenceInput] = useState('Xin chào, bạn có thể tự giới thiệu?')
     const [testInferenceOutput, setTestInferenceOutput] = useState('')
     const [isRunningInference, setIsRunningInference] = useState(false)
+
+    // --- STATE CHO P2P SELLER RENTALS (MÁY OWNER ĐÃ THUÊ) ---
+    const [rentedSessions, setRentedSessions] = useState<RentalSessionData[]>([])
+    const [loadingRentals, setLoadingRentals] = useState(false)
+    const [bindingModalRental, setBindingModalRental] = useState<RentalSessionData | null>(null)
+    const [availableAgentsList, setAvailableAgentsList] = useState<Agent[]>([])
+    const [selectedTargetAgentId, setSelectedTargetAgentId] = useState<string>('')
+    const [bindingInProgress, setBindingInProgress] = useState(false)
+    const [rentedTestPrompt, setRentedTestPrompt] = useState('Viết cho tôi một hàm Python tối ưu đệ quy Fibonacci có Memoization.')
+    const [rentedTestOutput, setRentedTestOutput] = useState('')
+    const [runningRentedInference, setRunningRentedInference] = useState<string | null>(null)
+
+    // Tải danh sách máy Seller đã thuê và danh sách Agent của người dùng
+    const loadRentalsAndAgents = async () => {
+        setLoadingRentals(true)
+        try {
+            const [rRes, aRes] = await Promise.all([
+                ownerApi.getMyRentals(),
+                agentsApi.list().catch(() => [] as Agent[]),
+            ])
+            if (rRes.success && Array.isArray(rRes.rentals)) {
+                setRentedSessions(rRes.rentals.filter((r) => r.status === 'ACTIVE'))
+            }
+            if (Array.isArray(aRes)) {
+                setAvailableAgentsList(aRes)
+            }
+        } catch (err) {
+            console.warn('[RENTALS_LOAD] Loi khi nap phien thue:', err)
+        } finally {
+            setLoadingRentals(false)
+        }
+    }
+
+    const handleBindRentalToAgent = async (rental: RentalSessionData, targetAgentId: string) => {
+        const rId = rental.sessionId || rental.id || rental._id || ''
+        if (!rId || !targetAgentId) return
+        const targetAgent = availableAgentsList.find((a) => a.id === targetAgentId)
+        const agentName = targetAgent ? targetAgent.name : targetAgentId
+
+        setBindingInProgress(true)
+        try {
+            await ownerApi.bindAgent(rId, targetAgentId, agentName)
+            await agentsApi.update(targetAgentId, { model: `rented:${rId}` })
+            toast.success(`Đã gán thành công mô hình của ${rental.nodeName} cho Agent "${agentName}"!`)
+            setBindingModalRental(null)
+            await loadRentalsAndAgents()
+        } catch (err: any) {
+            toast.error(err.message || 'Lỗi khi gán mô hình cho Agent')
+        } finally {
+            setBindingInProgress(false)
+        }
+    }
+
+    const handleRunRentedTestInference = async (rental: RentalSessionData) => {
+        const rId = rental.sessionId || rental.id || rental._id || ''
+        if (!rId || !rentedTestPrompt.trim()) return
+
+        setRunningRentedInference(rId)
+        setRentedTestOutput('')
+        try {
+            const res = await ownerApi.runInference({
+                rentalId: rId,
+                rentalSessionId: rId,
+                prompt: rentedTestPrompt,
+            })
+            if (res.success) {
+                setRentedTestOutput(res.output)
+                toast.success(`Nhận phản hồi từ ${res.nodeName || rental.nodeName} (${res.latencyMs}ms)`)
+                await loadRentalsAndAgents()
+            }
+        } catch (err: any) {
+            toast.error(err.message || 'Lỗi khi chạy thử prompt trên máy Seller')
+        } finally {
+            setRunningRentedInference(null)
+        }
+    }
+
 
     // 1. Tải API keys và Token Stats khi mở trang
     useEffect(() => {
@@ -423,6 +502,19 @@ export default function ModelsManagementPage() {
                         <span>Ollama: {ollamaConnected ? `Live (${installedOllamaModels.length} models)` : 'Chưa bật'}</span>
                     </div>
 
+                    
+                    <div
+                        onClick={() => setActiveTab('rented')}
+                        className={`cursor-pointer flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-medium transition ${
+                            rentedSessions.length > 0
+                                ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30 hover:bg-cyan-500/20'
+                                : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-white'
+                        }`}
+                    >
+                        <IconHardDrive className="w-3.5 h-3.5 text-cyan-400" />
+                        <span>AI Đã Thuê: {rentedSessions.length} máy</span>
+                    </div>
+
                     <div
                         className={`hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-medium ${
                             webgpuSupported
@@ -467,6 +559,23 @@ export default function ModelsManagementPage() {
                     )}
                 </button>
 
+
+                <button
+                    onClick={() => setActiveTab('rented')}
+                    className={`flex-1 py-2.5 px-4 rounded-xl transition flex items-center justify-center gap-2 ${
+                        activeTab === 'rented'
+                            ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-lg shadow-cyan-500/20'
+                            : 'text-zinc-400 hover:text-white'
+                    }`}
+                >
+                    <IconHardDrive className="w-4 h-4" />
+                    <span>Máy Seller Đã Thuê (P2P Mesh)</span>
+                    {rentedSessions.length > 0 && (
+                        <span className="px-1.5 py-0.2 rounded-full bg-cyan-400/20 text-cyan-300 text-[10px] font-mono border border-cyan-400/30">
+                            {rentedSessions.length}
+                        </span>
+                    )}
+                </button>
                 <button
                     onClick={() => setActiveTab('local_webgpu')}
                     className={`flex-1 py-2.5 px-4 rounded-xl transition flex items-center justify-center gap-2 ${
@@ -1219,6 +1328,321 @@ export default function ModelsManagementPage() {
                             )}
                         </div>
                     </div>
+                </div>
+            )}
+
+
+            {/* ============================================================== */}
+            {/* TAB 4: MÁY TÍNH & MÔ HÌNH SELLER ĐÃ THUÊ (P2P MESH MẠNG LƯỚI)   */}
+            {/* ============================================================== */}
+            {activeTab === 'rented' && (
+                <div className="space-y-6 animate-in fade-in duration-200">
+                    {/* Header tóm tắt */}
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-gradient-to-r from-cyan-950/40 via-zinc-900 to-zinc-900/60 p-5 rounded-3xl border border-cyan-500/30 shadow-lg">
+                        <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 flex items-center gap-1.5">
+                                    <IconHardDrive className="w-3 h-3 text-cyan-400" />
+                                    <span>P2P DECENTRALIZED COMPUTE</span>
+                                </span>
+                                <span className="text-xs text-zinc-400">Kết nối trực tiếp qua WebRTC/WebSocket Mesh</span>
+                            </div>
+                            <h2 className="text-lg font-bold text-white">
+                                Máy Tính &amp; Mô Hình AI Bạn Đang Thuê Từ Seller
+                            </h2>
+                            <p className="text-xs text-zinc-400 max-w-2xl leading-relaxed">
+                                Các phiên thuê máy đang hoạt động. Bạn có thể gán mô hình này cho bất kỳ Agent nào trong hệ thống của bạn hoặc chạy thử prompt trực tiếp.
+                            </p>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                            <button
+                                type="button"
+                                onClick={loadRentalsAndAgents}
+                                disabled={loadingRentals}
+                                className="px-3.5 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-semibold transition flex items-center gap-1.5 border border-zinc-700"
+                            >
+                                <IconRefreshCw className={`w-3.5 h-3.5 ${loadingRentals ? 'animate-spin text-cyan-400' : ''}`} />
+                                <span>Làm Mới</span>
+                            </button>
+
+                            <Link
+                                href="/owner"
+                                className="px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-md shadow-blue-500/25"
+                            >
+                                <IconSparkles className="w-3.5 h-3.5" />
+                                <span>Thuê Thêm Máy Trên Sàn</span>
+                            </Link>
+                        </div>
+                    </div>
+
+                    {/* Stats mini bar */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        <div className="p-3.5 rounded-2xl bg-zinc-900 border border-zinc-800 space-y-1">
+                            <span className="text-[10px] text-zinc-500 block uppercase font-semibold">Máy Đang Thuê</span>
+                            <div className="text-xl font-mono font-bold text-cyan-400">{rentedSessions.length}</div>
+                            <span className="text-[10px] text-zinc-400">Trực tuyến sẵn sàng</span>
+                        </div>
+                        <div className="p-3.5 rounded-2xl bg-zinc-900 border border-zinc-800 space-y-1">
+                            <span className="text-[10px] text-zinc-500 block uppercase font-semibold">Tokens Tiêu Thụ</span>
+                            <div className="text-xl font-mono font-bold text-indigo-400">
+                                {rentedSessions.reduce((acc, r) => acc + (r.totalTokensUsed || 0), 0).toLocaleString()}
+                            </div>
+                            <span className="text-[10px] text-zinc-400">Trên các trạm đối tác</span>
+                        </div>
+                        <div className="p-3.5 rounded-2xl bg-zinc-900 border border-zinc-800 space-y-1">
+                            <span className="text-[10px] text-zinc-500 block uppercase font-semibold">SaveCoin Đã Chi</span>
+                            <div className="text-xl font-mono font-bold text-amber-400">
+                                {rentedSessions.reduce((acc, r) => acc + (r.totalCoinsSpent || 0), 0).toFixed(2)}
+                            </div>
+                            <span className="text-[10px] text-zinc-400">Thanh toán linh hoạt</span>
+                        </div>
+                        <div className="p-3.5 rounded-2xl bg-zinc-900 border border-zinc-800 space-y-1">
+                            <span className="text-[10px] text-zinc-500 block uppercase font-semibold">Agent Đang Gắn Kết</span>
+                            <div className="text-xl font-mono font-bold text-emerald-400">
+                                {rentedSessions.filter((r) => Boolean(r.boundAgentName || r.boundAgentId)).length}
+                            </div>
+                            <span className="text-[10px] text-zinc-400">Nhân sự AI thụ hưởng</span>
+                        </div>
+                    </div>
+
+                    {/* Danh sách máy Seller đã thuê */}
+                    {rentedSessions.length === 0 ? (
+                        <div className="p-12 text-center rounded-3xl border border-dashed border-zinc-800 bg-zinc-950/60 space-y-4">
+                            <IconHardDrive className="w-12 h-12 text-zinc-600 mx-auto" />
+                            <div className="space-y-1 max-w-md mx-auto">
+                                <h3 className="text-sm font-bold text-white">Bạn Chưa Có Máy Seller Nào Đang Thuê</h3>
+                                <p className="text-xs text-zinc-400 leading-relaxed">
+                                    Hãy thuê máy trạm GPU/CPU từ các đối tác gần bạn để Agent có thể chạy mô hình ngôn ngữ lớn (Llama 3, Qwen 2.5, DeepSeek) với chi phí tiết kiệm 85% và bảo mật P2P tuyệt đối.
+                                </p>
+                            </div>
+                            <Link
+                                href="/owner"
+                                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-bold transition shadow-lg shadow-blue-500/20"
+                            >
+                                <IconSparkles className="w-4 h-4" />
+                                <span>Ghé Thăm Sàn Thuê AI P2P Ngay</span>
+                            </Link>
+                        </div>
+                    ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            {rentedSessions.map((r, idx) => {
+                                const sId = r.sessionId || r.id || r._id || `sess_${idx}`
+                                const isTestingThis = runningRentedInference === sId
+
+                                return (
+                                    <div
+                                        key={sId}
+                                        className="rounded-2xl border border-cyan-500/30 bg-zinc-900/90 hover:border-cyan-400/60 p-4.5 flex flex-col justify-between space-y-4 transition shadow-md group"
+                                    >
+                                        <div className="space-y-3">
+                                            {/* Header Card */}
+                                            <div className="flex items-center justify-between">
+                                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 flex items-center gap-1">
+                                                    <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                                                    <span>ONLINE P2P</span>
+                                                </span>
+                                                <span className="text-[10px] font-mono text-zinc-500">
+                                                    ID: {String(sId).slice(-8)}
+                                                </span>
+                                            </div>
+
+                                            {/* Machine Info */}
+                                            <div>
+                                                <h3 className="text-sm font-bold text-white group-hover:text-cyan-300 transition truncate">
+                                                    {r.nodeName}
+                                                </h3>
+                                                <p className="text-xs text-cyan-400 font-semibold mt-0.5 flex items-center gap-1.5 truncate">
+                                                    <IconBot className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                                                    <span>{r.modelDisplayName || r.modelKey || 'Local AI'}</span>
+                                                </p>
+                                            </div>
+
+                                            {/* Bound Agent status */}
+                                            <div className="p-2.5 rounded-xl bg-zinc-950/80 border border-zinc-800 text-[11px] space-y-1">
+                                                <span className="text-zinc-500 block text-[10px]">Cấu hình Agent:</span>
+                                                {r.boundAgentName || r.assignedAgentId ? (
+                                                    <div className="flex items-center gap-1.5 text-emerald-400 font-medium">
+                                                        <IconCheck className="w-3.5 h-3.5 shrink-0" />
+                                                        <span className="truncate">
+                                                            Đang nạp cho Agent: <strong>{r.boundAgentName || r.assignedAgentId}</strong>
+                                                        </span>
+                                                    </div>
+                                                ) : (
+                                                    <div className="flex items-center gap-1.5 text-amber-400 italic">
+                                                        <IconAlertCircle className="w-3.5 h-3.5 shrink-0" />
+                                                        <span>Chưa gán cho Agent nào</span>
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            {/* Usage stats */}
+                                            <div className="grid grid-cols-2 gap-2 text-center text-xs bg-zinc-950/50 p-2 rounded-xl border border-zinc-800/80">
+                                                <div>
+                                                    <span className="text-[9px] text-zinc-500 block">Token đã dùng</span>
+                                                    <strong className="text-indigo-400 font-mono text-[11px]">
+                                                        {(r.totalTokensUsed || 0).toLocaleString()}
+                                                    </strong>
+                                                </div>
+                                                <div>
+                                                    <span className="text-[9px] text-zinc-500 block">Coins đã chi</span>
+                                                    <strong className="text-amber-400 font-mono text-[11px]">
+                                                        {Number(r.totalCoinsSpent || 0).toFixed(2)}
+                                                    </strong>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Actions */}
+                                        <div className="space-y-2 pt-2 border-t border-zinc-800/80">
+                                            <div className="grid grid-cols-2 gap-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setSelectedTargetAgentId(r.boundAgentId || '')
+                                                        setBindingModalRental(r)
+                                                    }}
+                                                    className="py-2 px-2.5 rounded-xl bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-300 font-bold text-xs border border-cyan-500/30 transition flex items-center justify-center gap-1"
+                                                >
+                                                    <IconSliders className="w-3 h-3 text-cyan-400" />
+                                                    <span>Gán Cho Agent</span>
+                                                </button>
+
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleRunRentedTestInference(r)}
+                                                    disabled={Boolean(runningRentedInference)}
+                                                    className="py-2 px-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-bold text-xs border border-zinc-700 transition flex items-center justify-center gap-1 disabled:opacity-50"
+                                                >
+                                                    <IconPlay className="w-3 h-3 text-emerald-400 fill-current" />
+                                                    <span>{isTestingThis ? 'Đang gọi...' : 'Chạy Thử'}</span>
+                                                </button>
+                                            </div>
+
+                                            <Link
+                                                href={`/agents/setup?model=rented:${sId}`}
+                                                className="w-full py-1.5 rounded-xl bg-zinc-950 hover:bg-zinc-900 text-zinc-400 hover:text-white font-medium text-[11px] transition flex items-center justify-center gap-1 border border-zinc-800"
+                                            >
+                                                <IconBot className="w-3 h-3 text-blue-400" />
+                                                <span>Tạo Agent Mới Dùng Model Này</span>
+                                            </Link>
+                                        </div>
+                                    </div>
+                                )
+                            })}
+                        </div>
+                    )}
+
+                    {/* KHUNG PLAYGROUND TEST TRỰC TIẾP MÔ HÌNH THUÊ */}
+                    <div className="rounded-3xl border border-cyan-500/30 bg-zinc-900/80 p-5 sm:p-6 space-y-4">
+                        <div className="border-b border-zinc-800/80 pb-3 flex items-center justify-between">
+                            <div>
+                                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                                    <IconSparkles className="w-4 h-4 text-cyan-400" />
+                                    <span>Trình Thử Nghiệm Prompt Nhanh Trên Máy Seller Đã Thuê</span>
+                                </h3>
+                                <p className="text-xs text-zinc-400">
+                                    Gửi yêu cầu trực tiếp qua mạng lưới P2P đến máy trạm của đối tác và nhận kết quả tức thì
+                                </p>
+                            </div>
+                            {runningRentedInference && (
+                                <span className="text-xs font-mono text-cyan-400 animate-pulse flex items-center gap-1">
+                                    <IconRefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                    <span>Đang sinh token...</span>
+                                </span>
+                            )}
+                        </div>
+
+                        <div className="space-y-3">
+                            <div className="flex gap-2">
+                                <input
+                                    type="text"
+                                    value={rentedTestPrompt}
+                                    onChange={(e) => setRentedTestPrompt(e.target.value)}
+                                    placeholder="Nhập prompt gửi tới máy của Seller..."
+                                    className="flex-1 rounded-2xl border border-zinc-700 bg-zinc-950 px-4 py-2.5 text-xs text-white placeholder-zinc-500 outline-none focus:border-cyan-500 transition"
+                                />
+                                {rentedSessions.length > 0 && (
+                                    <button
+                                        type="button"
+                                        onClick={() => handleRunRentedTestInference(rentedSessions[0])}
+                                        disabled={Boolean(runningRentedInference) || !rentedTestPrompt.trim()}
+                                        className="px-5 py-2.5 rounded-2xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 disabled:opacity-50 text-white font-bold text-xs transition flex items-center gap-1.5 shadow active:scale-95 shrink-0"
+                                    >
+                                        <IconPlay className="w-3.5 h-3.5 fill-current" />
+                                        <span>Gửi Lệnh</span>
+                                    </button>
+                                )}
+                            </div>
+
+                            {rentedTestOutput && (
+                                <div className="p-4 rounded-2xl bg-zinc-950 border border-cyan-500/30 text-xs text-zinc-200 leading-relaxed font-mono whitespace-pre-wrap animate-in fade-in">
+                                    {rentedTestOutput}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* MODAL GÁN MÔ HÌNH VÀO AGENT */}
+                    {bindingModalRental && (
+                        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+                            <div className="bg-zinc-900 border border-cyan-500/40 rounded-3xl max-w-md w-full p-6 space-y-5 shadow-2xl animate-in zoom-in-95">
+                                <div className="space-y-1">
+                                    <span className="text-[10px] font-bold text-cyan-400 uppercase tracking-wider block">
+                                        Cấu Hình Model Cho Agent
+                                    </span>
+                                    <h3 className="text-base font-bold text-white">
+                                        Gán Mô Hình Của {bindingModalRental.nodeName}
+                                    </h3>
+                                    <p className="text-xs text-zinc-400">
+                                        Mô hình: <strong className="text-cyan-300">{bindingModalRental.modelDisplayName || bindingModalRental.modelKey}</strong>
+                                    </p>
+                                </div>
+
+                                <div className="space-y-2">
+                                    <label className="text-xs text-zinc-300 font-medium block">
+                                        Chọn Agent bạn tự tạo để nạp mô hình này:
+                                    </label>
+                                    <select
+                                        value={selectedTargetAgentId}
+                                        onChange={(e) => setSelectedTargetAgentId(e.target.value)}
+                                        className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3 py-2.5 text-xs text-white outline-none focus:border-cyan-500 transition"
+                                    >
+                                        <option value="">-- Chọn Agent --</option>
+                                        {availableAgentsList.map((ag) => (
+                                            <option key={ag.id} value={ag.id}>
+                                                {ag.name} (@{ag.id}) - Model hiện tại: {ag.model || 'Mặc định'}
+                                            </option>
+                                        ))}
+                                    </select>
+                                    {availableAgentsList.length === 0 && (
+                                        <p className="text-[11px] text-amber-400">
+                                            Bạn chưa tạo Agent nào. Hãy tạo một Agent mới trước!
+                                        </p>
+                                    )}
+                                </div>
+
+                                <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-zinc-800">
+                                    <button
+                                        type="button"
+                                        onClick={() => setBindingModalRental(null)}
+                                        className="px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-semibold transition"
+                                    >
+                                        Hủy Bỏ
+                                    </button>
+                                    <button
+                                        type="button"
+                                        disabled={!selectedTargetAgentId || bindingInProgress}
+                                        onClick={() => handleBindRentalToAgent(bindingModalRental, selectedTargetAgentId)}
+                                        className="px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-xs font-bold transition disabled:opacity-50 flex items-center gap-1.5 shadow"
+                                    >
+                                        <IconCheck className="w-3.5 h-3.5" />
+                                        <span>{bindingInProgress ? 'Đang Gán...' : 'Xác Nhận Gán Model'}</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
             )}
         </div>

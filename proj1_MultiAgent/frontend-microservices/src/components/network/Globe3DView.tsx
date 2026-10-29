@@ -25,6 +25,7 @@ export interface GeoLink {
     to: GeoNode
     model: string
     latency: number
+    type?: 'seller-seller' | 'seller-owner'
 }
 
 // Chuyển đổi tọa độ Lat/Lng sang Vector3 trên mặt cầu bán kính R
@@ -74,7 +75,7 @@ function ArcLine({
         pulseRef.current.position.copy(pos)
     })
 
-    const color = isSelected ? '#38bdf8' : '#3b82f6'
+    const color = isSelected ? '#38bdf8' : link.type === 'seller-owner' ? '#06b6d4' : '#3b82f6'
 
     return (
         <group>

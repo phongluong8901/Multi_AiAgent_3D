@@ -8,6 +8,8 @@ const SIDEBAR_EXTRA_NAV = [
     { href: '/games', label: 'Agent Games 3D', badge: 'Play', icon: GameIcon },
     { href: '/lab', label: 'Agent Lab 3D', badge: 'AI Gen', icon: LabIcon },
     { href: '/training', label: 'RL Training 3D', badge: 'RL Sim', icon: TrainingIcon },
+    { href: '/training/body', label: 'RL Locomotion 3D', badge: 'Body AI', icon: TrainingIcon },
+    { href: '/agent-body-studio', label: 'Agent Body Studio', badge: 'Joints', icon: RobotIcon },
     { href: '/store', label: 'Agent Store', badge: 'Shop', icon: StoreIcon },
     { href: '/firmware', label: 'ESP32 Robot 3D', badge: 'AI Sim', icon: RobotIcon },
     { href: '/node-checker', label: 'Kiểm tra Node AI', badge: 'Hot', icon: NodeIcon },

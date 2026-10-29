@@ -11,7 +11,8 @@ export class SellerController {
             const nodes = await sellerNodeService.getMarketNodes(lng, lat, radiusKm);
             res.status(200).json({ success: true, count: nodes.length, nodes });
         } catch (error: any) {
-            res.status(500).json({ success: false, message: error.message });
+            const status = error.message?.includes("không tồn tại") ? 404 : 400;
+            res.status(status).json({ success: false, message: error.message });
         }
     }
 
@@ -21,7 +22,8 @@ export class SellerController {
             const nodes = await sellerNodeService.getMyNodes(sellerId);
             res.status(200).json({ success: true, count: nodes.length, nodes });
         } catch (error: any) {
-            res.status(500).json({ success: false, message: error.message });
+            const status = error.message?.includes("không tồn tại") ? 404 : 400;
+            res.status(status).json({ success: false, message: error.message });
         }
     }
 
@@ -44,7 +46,8 @@ export class SellerController {
             }
             res.status(200).json({ success: true, message: `Trạng thái Node đã chuyển sang ${status}`, node: updated });
         } catch (error: any) {
-            res.status(500).json({ success: false, message: error.message });
+            const status = error.message?.includes("không tồn tại") ? 404 : 400;
+            res.status(status).json({ success: false, message: error.message });
         }
     }
 
@@ -58,7 +61,8 @@ export class SellerController {
             }
             res.status(200).json({ success: true, message: "Cập nhật bảng giá cho thuê thành công!", node: updated });
         } catch (error: any) {
-            res.status(500).json({ success: false, message: error.message });
+            const status = error.message?.includes("không tồn tại") ? 404 : 400;
+            res.status(status).json({ success: false, message: error.message });
         }
     }
 
@@ -82,7 +86,8 @@ export class SellerController {
 
             res.status(200).json({ success: true, ...result });
         } catch (error: any) {
-            res.status(500).json({ success: false, message: error.message });
+            const status = error.message?.includes("không tồn tại") ? 404 : 400;
+            res.status(status).json({ success: false, message: error.message });
         }
     }
 
@@ -92,7 +97,8 @@ export class SellerController {
             const data = await sellerNodeService.getDashboard(sellerId);
             res.status(200).json({ success: true, ...data });
         } catch (error: any) {
-            res.status(500).json({ success: false, message: error.message });
+            const status = error.message?.includes("không tồn tại") ? 404 : 400;
+            res.status(status).json({ success: false, message: error.message });
         }
     }
 }

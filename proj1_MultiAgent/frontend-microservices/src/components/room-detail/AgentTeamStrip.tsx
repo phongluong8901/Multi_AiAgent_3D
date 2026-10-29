@@ -1,6 +1,6 @@
 'use client'
 
-import { IconBot, IconUser, IconDuck, IconAmr, IconDrone, IconHumanoid } from '@/components/ui/icons'
+import { IconBot, IconUser, IconDuck, IconAmr, IconDrone, IconHumanoid, IconHardDrive } from '@/components/ui/icons'
 
 interface AgentTeamStripProps {
     roomAgents: any[]
@@ -63,6 +63,12 @@ export function AgentTeamStrip({
                                 }`}
                         />
                         <span>{ag.name}</span>
+                        {ag.model && (String(ag.model).startsWith('rented:') || String(ag.model).startsWith('rental:')) && (
+                            <span className="text-[9px] bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 px-1 py-0.2 rounded font-bold uppercase font-mono flex items-center gap-0.5" title={"Mô hình chạy trên máy Seller đã thuê: " + ag.model}>
+                                <IconHardDrive className="w-2.5 h-2.5 text-cyan-400" />
+                                <span>P2P AI</span>
+                            </span>
+                        )}
                         {ag.ownerName && (
                             <span className="text-[10px] text-blue-400 bg-blue-950/60 border border-blue-500/30 px-1 rounded flex items-center gap-0.5">
                                 <IconUser className="w-2.5 h-2.5" />

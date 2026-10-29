@@ -14,6 +14,8 @@ class AgentService:
             "speech": agent.speech,
             "position": [agent.pos_x, agent.pos_y, agent.pos_z],
             "model": getattr(agent, "model", None) or "gemini-2.5-flash-lite",
+            "form": getattr(agent, "form", None) or "humanoid",
+            "body_id": getattr(agent, "body_id", None),
             "prompt_id": agent.prompt_id,
             "tools": agent.tools
         }

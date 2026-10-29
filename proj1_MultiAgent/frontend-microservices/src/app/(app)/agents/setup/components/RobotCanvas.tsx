@@ -3,12 +3,13 @@
 import React from 'react'
 import { Canvas } from '@react-three/fiber'
 import { OrbitControls, Text, Float } from '@react-three/drei'
-import { IconDuck, IconAmr, IconDrone, IconHumanoid } from '@/components/ui/icons'
+import { IconDuck, IconAmr, IconDrone, IconHumanoid, IconBot } from '@/components/ui/icons'
 import {
     AgentFormType,
     NvidiaRobotRenderer,
 } from '@/components/agents/NvidiaRobots'
 import NvidiaIsaacHud, { ROBOT_HARDWARE_SPECS } from '@/components/agents/NvidiaIsaacHud'
+import type { AgentBodyDesign } from '@/lib/agentBody/agentBodyTypes'
 
 export type { AgentFormType }
 
@@ -19,6 +20,8 @@ type Props = {
     customColor?: string
     label?: string
     agentForm?: AgentFormType
+    bodyId?: string | null
+    bodyDesign?: AgentBodyDesign | null
     onFormChange?: (form: AgentFormType) => void
 }
 
@@ -47,9 +50,11 @@ export default function RobotCanvas({
     customColor,
     label,
     agentForm = 'humanoid',
+    bodyId,
+    bodyDesign,
     onFormChange,
 }: Props) {
-    const specs = ROBOT_HARDWARE_SPECS[agentForm]
+    const specs = ROBOT_HARDWARE_SPECS[agentForm] || ROBOT_HARDWARE_SPECS.humanoid
 
     return (
         <div className="relative w-full h-[520px] rounded-2xl overflow-hidden border border-zinc-800 bg-gradient-to-b from-zinc-950 via-[#0a0d14] to-zinc-950 shadow-2xl">
@@ -71,6 +76,7 @@ export default function RobotCanvas({
                         { id: 'amr' as AgentFormType, label: 'Nova Carter', icon: IconAmr, color: '#f97316' },
                         { id: 'duck' as AgentFormType, label: 'MicroDuck', icon: IconDuck, color: '#eab308' },
                         { id: 'drone' as AgentFormType, label: 'Falcon Drone', icon: IconDrone, color: '#06b6d4' },
+                        { id: 'custom' as AgentFormType, label: 'Custom Body', icon: IconBot, color: '#a855f7' },
                     ].map((btn) => {
                         const active = agentForm === btn.id
                         const BtnIcon = btn.icon
@@ -126,6 +132,8 @@ export default function RobotCanvas({
                             toolCount={toolCount}
                             modelId={modelId}
                             isStudioPedestal={true}
+                            bodyId={bodyId}
+                            bodyDesign={bodyDesign}
                         />
                     </group>
 

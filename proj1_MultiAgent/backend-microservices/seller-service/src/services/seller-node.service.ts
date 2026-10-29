@@ -10,11 +10,17 @@ export class SellerNodeService {
      * để khi người dùng đăng ký đối tác tại /user-models hoặc /node-checker thì xuất hiện ngay trên Chợ Thuê (/owner).
      */
     async syncPartnerNodesFromDistributed(): Promise<void> {
-        const urls = [DISTRIBUTED_SERVICE_URL, "http://localhost:5010"];
+        const urls = [
+            DISTRIBUTED_SERVICE_URL,
+            "http://localhost:5010",
+            "http://127.0.0.1:5010",
+            "http://localhost:4000",
+            "http://127.0.0.1:4000",
+        ];
         for (const baseUrl of urls) {
             try {
                 const res = await fetch(`${baseUrl}/api/v1/distributed/nodes`, {
-                    signal: AbortSignal.timeout(2000),
+                    signal: AbortSignal.timeout(3000),
                 });
                 if (!res.ok) continue;
                 const data: any = await res.json();
@@ -24,21 +30,29 @@ export class SellerNodeService {
                     if (!pn.id) continue;
                     const existing = await sellerNodeRepository.findByNodeId(pn.id);
                     const statusMapped = pn.status === "OFFLINE" ? "OFFLINE" : pn.status === "BUSY" ? "BUSY" : "ONLINE";
+                    
+                    // Lấy chính xác cấu hình tài nguyên cấp phát & giá thuê từ trang chia sẻ NodeAI (/node-checker)
+                    const sharedCores = Number(pn.rentConfig?.allocatedCores) || Number(pn.hardware?.allocatedCores) || Number(pn.hardware?.cpuCores) || 8;
+                    const sharedRAM = Number(pn.rentConfig?.allocatedRAMGB) || Number(pn.hardware?.allocatedRAMGB) || Number(pn.hardware?.deviceMemoryGB) || 16;
+                    const sharedPrice = Number(pn.rentConfig?.minPricePerHourCoin) || Number(pn.coinsPerHour) || 35;
+                    const hasGPU = pn.rentConfig?.enableGPU !== undefined ? Boolean(pn.rentConfig.enableGPU) : Boolean(pn.hardware?.hasWebGPU);
+                    const sharedVRAM = hasGPU ? (Number(pn.hardware?.vramGB) || 8) : 0;
+                    const modelKey = pn.activeModel || pn.rentConfig?.defaultModel || pn.compatibleModels?.[0] || "qwen-2.5-coder-1.5b";
+
                     if (!existing) {
-                        const modelKey = pn.activeModel || pn.compatibleModels?.[0] || "qwen-2.5-coder-1.5b";
                         await sellerNodeRepository.create({
                             nodeId: pn.id,
                             sellerId: pn.userId || "usr_seller_01",
                             sellerName: pn.username || "Distributed Partner",
                             nodeName: `${pn.username || "Partner"} Workstation (${pn.hardware?.gpuName || "CPU Node"})`,
-                            cpuCores: Number(pn.hardware?.cpuCores) || 8,
-                            ramGB: Number(pn.hardware?.deviceMemoryGB) || 16,
-                            gpuName: pn.hardware?.gpuName || "Integrated GPU",
-                            vramGB: Number(pn.hardware?.vramGB) || 8,
+                            cpuCores: sharedCores,
+                            ramGB: sharedRAM,
+                            gpuName: hasGPU ? (pn.hardware?.gpuName || "Integrated GPU") : "CPU Only",
+                            vramGB: sharedVRAM,
                             hostedModel: modelKey,
                             modelDisplayName: modelKey,
                             localEndpoint: "http://localhost:11434",
-                            coinsPerHour: Number(pn.rentConfig?.minPricePerHourCoin) || 35,
+                            coinsPerHour: sharedPrice,
                             coinsPer1kTokens: 0.5,
                             status: statusMapped,
                             locationName: "Hà Nội, Việt Nam",
@@ -51,8 +65,18 @@ export class SellerNodeService {
                             totalTokensServed: 0,
                             totalCoinsEarned: Number(pn.totalCoinsEarned) || 0,
                         });
-                    } else if (existing.status !== statusMapped) {
-                        await sellerNodeRepository.updateStatus(pn.id, statusMapped);
+                    } else {
+                        // Luôn đồng bộ lại CPU, RAM, GPU, Giá và Trạng thái theo đúng cấu hình trang NodeAI chia sẻ
+                        await sellerNodeRepository.updateSpecsAndStatus(pn.id, {
+                            cpuCores: sharedCores,
+                            ramGB: sharedRAM,
+                            gpuName: hasGPU ? (pn.hardware?.gpuName || "Integrated GPU") : "CPU Only",
+                            vramGB: sharedVRAM,
+                            coinsPerHour: sharedPrice,
+                            status: statusMapped,
+                            hostedModel: modelKey,
+                            modelDisplayName: modelKey,
+                        });
                     }
                 }
                 break;
@@ -119,7 +143,12 @@ export class SellerNodeService {
 
     async getDashboard(sellerId: string) {
         await this.syncPartnerNodesFromDistributed();
-        const myNodes = await sellerNodeRepository.findBySellerId(sellerId);
+        let myNodes = await sellerNodeRepository.findBySellerId(sellerId);
+        if (myNodes.length === 0) {
+            const all = await sellerNodeRepository.findAll();
+            const fallback = all.filter((n) => n.sellerId === "usr_seller_01" || n.sellerId === sellerId);
+            myNodes = fallback.length > 0 ? fallback : all;
+        }
         const displayNodes = myNodes;
 
         const totalEarned = displayNodes.reduce((sum, n) => sum + (n.totalCoinsEarned || 0), 0);

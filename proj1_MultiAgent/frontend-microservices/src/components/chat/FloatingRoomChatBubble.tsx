@@ -75,20 +75,20 @@ export default function FloatingRoomChatBubble() {
     }
 
     useEffect(() => {
-        if (!user?.id) return
+        if (!user?.id || isInsideRoomDetail) return
         loadBubbleRooms()
-        const timer = setInterval(loadBubbleRooms, 20000)
+        const timer = setInterval(loadBubbleRooms, 30000)
         return () => clearInterval(timer)
-    }, [user?.id])
+    }, [user?.id, isInsideRoomDetail])
 
-    // Tải chi tiết thành viên Online/Offline của phòng đang chọn
+    // Tải chi tiết thành viên Online/Offline của phòng đang chọn (chỉ khi mở bubble)
     useEffect(() => {
-        if (!selectedRoomId) return
+        if (!selectedRoomId || !isOpen || isInsideRoomDetail) return
         roomsApi
             .get(selectedRoomId)
             .then((r) => setSelectedRoomDetail(r))
             .catch(() => {})
-    }, [selectedRoomId, isOpen])
+    }, [selectedRoomId, isOpen, isInsideRoomDetail])
 
     const {
         messages,
@@ -98,9 +98,9 @@ export default function FloatingRoomChatBubble() {
         chatLoading,
         sendMessage,
     } = useChat({
-        roomId: selectedRoomId,
+        roomId: !isInsideRoomDetail && isOpen ? selectedRoomId : '',
         onRoomUpdated: () => {
-            if (selectedRoomId) {
+            if (selectedRoomId && isOpen) {
                 roomsApi.get(selectedRoomId).then(setSelectedRoomDetail).catch(() => {})
             }
         },

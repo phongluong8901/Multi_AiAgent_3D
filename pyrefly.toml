@@ -2,6 +2,8 @@
 search-path = [
     "proj1_MultiAgent/backend-microservices/worker-client",
     "proj1_MultiAgent/backend-microservices/worker-client/backend_worker",
+    "proj1_MultiAgent/backend-microservices/agent-service",
+    "proj1_MultiAgent/backend-microservices/agent-service/app",
+    "proj1_MultiAgent/backend-microservices/agent-service/app/core/llm",
     "."
 ]
-

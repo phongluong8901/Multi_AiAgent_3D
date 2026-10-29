@@ -48,6 +48,7 @@ export { toolsApi } from './tools'
 
 export type { AIModel } from './models'
 export { listModels } from './models'
+export { ownerApi, type RentalSessionData, type OwnerDashboardData } from './owner'
 
 export type { WorkflowTrace, WorkflowTraceNode } from './types'
 

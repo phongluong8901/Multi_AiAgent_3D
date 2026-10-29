@@ -26,8 +26,8 @@ export default function SellerPage() {
     useEffect(() => {
         if (nodeDetails) {
             setNodeName(nodeDetails.name || nodeDetails.nodeName || '')
-            setCpuCores(nodeDetails.cpuCores || 4)
-            setRamGB(nodeDetails.deviceMemoryGB || nodeDetails.ramGB || 16)
+            setCpuCores(nodeDetails.rentConfig?.allocatedCores || nodeDetails.allocatedCores || nodeDetails.cpuCores || 4)
+            setRamGB(nodeDetails.rentConfig?.allocatedRAMGB || nodeDetails.allocatedRAMGB || nodeDetails.deviceMemoryGB || nodeDetails.ramGB || 16)
             setGpuName(nodeDetails.gpuName || '')
             setHasWebGPU(Boolean(nodeDetails.hasWebGPU))
         }

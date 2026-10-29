@@ -310,12 +310,20 @@ export default function SellerComputePage() {
 
                                     <div className="grid grid-cols-2 gap-2 mt-3 p-2.5 rounded-xl bg-zinc-950/60 border border-zinc-800/50 text-[11px]">
                                         <div>
-                                            <span className="text-zinc-500 block">Phần cứng:</span>
-                                            <span className="text-zinc-200 font-mono truncate block">{node.gpuName || `${node.cpuCores} Core CPU`}</span>
+                                            <span className="text-zinc-500 block">CPU Cấp phát:</span>
+                                            <span className="text-blue-400 font-mono font-semibold truncate block">{node.cpuCores} Cores Chia sẻ</span>
                                         </div>
                                         <div>
-                                            <span className="text-zinc-500 block">Bộ nhớ:</span>
-                                            <span className="text-zinc-200 font-mono">{node.vramGB ? `${node.vramGB}GB VRAM` : `${node.ramGB}GB RAM`}</span>
+                                            <span className="text-zinc-500 block">RAM Chia sẻ:</span>
+                                            <span className="text-indigo-400 font-mono font-semibold">{node.ramGB} GB RAM</span>
+                                        </div>
+                                        <div>
+                                            <span className="text-zinc-500 block">Đồ họa GPU:</span>
+                                            <span className="text-zinc-200 font-mono truncate block">{node.gpuName || 'CPU Only'}</span>
+                                        </div>
+                                        <div>
+                                            <span className="text-zinc-500 block">VRAM GPU:</span>
+                                            <span className="text-purple-400 font-mono">{node.vramGB ? `${node.vramGB}GB VRAM` : '0 GB (CPU)'}</span>
                                         </div>
                                         <div>
                                             <span className="text-zinc-500 block">Giá thuê/h:</span>

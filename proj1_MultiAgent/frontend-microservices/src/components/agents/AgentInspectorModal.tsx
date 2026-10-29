@@ -110,15 +110,23 @@ export default function AgentInspectorModal({
                     <div className="p-3.5 rounded-2xl bg-zinc-900/60 border border-zinc-800/80 space-y-1.5">
                         <div className="flex items-center justify-between">
                             <span className="font-semibold text-zinc-300 flex items-center gap-2">
-                                <Cpu className="w-4 h-4 text-purple-400" />
+                                <Cpu className={`w-4 h-4 ${modelName.startsWith('rented:') || modelName.startsWith('rental:') ? 'text-cyan-400' : 'text-purple-400'}`} />
                                 Mô hình Trí tuệ (LLM Model)
                             </span>
-                            <span className="px-2 py-0.5 rounded-md bg-purple-500/10 text-purple-300 border border-purple-500/20 font-mono text-[11px]">
-                                {modelName}
-                            </span>
+                            {modelName.startsWith('rented:') || modelName.startsWith('rental:') ? (
+                                <span className="px-2 py-0.5 rounded-md bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 font-mono text-[11px] font-bold">
+                                    [P2P Rented] {modelName}
+                                </span>
+                            ) : (
+                                <span className="px-2 py-0.5 rounded-md bg-purple-500/10 text-purple-300 border border-purple-500/20 font-mono text-[11px]">
+                                    {modelName}
+                                </span>
+                            )}
                         </div>
                         <p className="text-[11px] text-zinc-400">
-                            Mô hình ngôn ngữ lớn phụ trách suy luận, điều phối chuỗi hành động và giao tiếp ngữ cảnh với người dùng.
+                            {modelName.startsWith('rented:') || modelName.startsWith('rental:')
+                                ? 'Mô hình Local AI đang chạy trên máy trạm của đối tác Seller (P2P Mesh). Công cụ thực thi an toàn trên Agent Service phía Owner.'
+                                : 'Mô hình ngôn ngữ lớn phụ trách suy luận, điều phối chuỗi hành động và giao tiếp ngữ cảnh với người dùng.'}
                         </p>
                     </div>
 
@@ -146,6 +154,32 @@ export default function AgentInspectorModal({
                             })}
                         </div>
                     </div>
+
+                    {/* Mục Thân Khớp Custom Body (nếu có) */}
+                    {(agent.form === 'custom' || agent.body_id || agent.bodyId) && (
+                        <div className="p-3.5 rounded-2xl bg-purple-950/30 border border-purple-500/30 space-y-2">
+                            <div className="flex items-center justify-between">
+                                <span className="font-semibold text-purple-300 flex items-center gap-2">
+                                    <Bot className="w-4 h-4 text-purple-400" />
+                                    Khung Xương & Khớp Động Học (Body Studio)
+                                </span>
+                                <Link
+                                    href="/agent-body-studio"
+                                    className="px-2.5 py-1 rounded-lg bg-purple-900/40 hover:bg-purple-800/50 text-purple-200 border border-purple-500/30 text-[11px] font-semibold flex items-center gap-1 transition"
+                                >
+                                    <span>Mở Body Studio</span>
+                                    <ExternalLink className="w-3 h-3 text-purple-300" />
+                                </Link>
+                            </div>
+                            <div className="flex items-center justify-between text-[11px] font-mono text-zinc-300 pt-0.5">
+                                <span className="text-zinc-400">ID Mẫu Body:</span>
+                                <span className="text-purple-300 font-semibold">{agent.body_id || agent.bodyId || 'Custom Kinematic Model'}</span>
+                            </div>
+                            <p className="text-[10px] text-zinc-400">
+                                ✓ Cấu trúc khớp URDF (Revolute / Continuous / Prismatic) sẵn sàng nạp hành động motor khi học tăng cường RL.
+                            </p>
+                        </div>
+                    )}
 
                     {/* Mục Reinforcement Learning Policy */}
                     <div className="p-3.5 rounded-2xl bg-gradient-to-r from-blue-950/40 to-indigo-950/40 border border-blue-500/30 space-y-2">

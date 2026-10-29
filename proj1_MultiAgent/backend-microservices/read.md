@@ -195,6 +195,8 @@ docker compose up --build -d api-gateway
 docker compose up --build -d rltrain-service
 docker compose up --build -d distributed-service    
 docker compose up --build -d agent-firmware
+docker compose up --build -d seller-service
+docker compose up --build -d ower-service
 
 - xoa
 docker compose down

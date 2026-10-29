@@ -3,7 +3,7 @@ import { createProxyMiddleware, fixRequestBody } from "http-proxy-middleware";
 
 const router = Router();
 const MAPDRAW_SERVICE_URL = process.env.MAPDRAW_SERVICE_URL || "http://localhost:5005";
-const MAP_PATHS = ["/api/v1/maps"];
+const MAP_PATHS = ["/api/v1/maps", "/api/v1/agent-bodies"];
 
 router.use(
     createProxyMiddleware({

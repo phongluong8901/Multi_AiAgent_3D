@@ -63,7 +63,7 @@ export function useChat({ roomId, typeChat, onRoomUpdated }: UseChatProps) {
 
         const socket = io(socketUrl, {
             path: '/api/v1/chats/socket.io',
-            transports: ['websocket', 'polling'],
+            transports: ['websocket'],
             reconnectionAttempts: 5,
             reconnectionDelay: 3000,
             timeout: 8000,
@@ -202,18 +202,7 @@ export function useChat({ roomId, typeChat, onRoomUpdated }: UseChatProps) {
             }
         })
 
-        const heartbeat = setInterval(() => {
-            const u = getUser()
-            if (u) {
-                chatsApi.updatePresence(roomId, {
-                    id: u.id,
-                    name: u.name || u.email,
-                }).catch(() => { })
-            }
-        }, 30000)
-
         return () => {
-            clearInterval(heartbeat)
             socket.emit('leave_room', { roomId })
             socket.disconnect()
             socketRef.current = null

@@ -24,6 +24,7 @@ interface ClusterTopology3DViewProps {
     activeModelFilter?: string | null
     selectedNodeId?: string | null
     onSelectNode?: (id: string | null) => void
+    connectionFilter?: 'all' | 'seller-seller' | 'seller-owner'
 }
 
 // ─── ĐƯỜNG KẾT NỐI 3D GIỮA 2 NODE CÓ HIỆU ỨNG PHOTON CHUYỂN ĐỘNG ─────
@@ -128,7 +129,8 @@ function NodeMesh3D({
                         e.stopPropagation()
                         onSelect()
                     }}
-                    cursor="pointer"
+                    onPointerOver={() => { document.body.style.cursor = 'pointer' }}
+                    onPointerOut={() => { document.body.style.cursor = 'auto' }}
                 >
                     <octahedronGeometry args={[isSelected ? 0.35 : 0.26, 0]} />
                     <meshStandardMaterial
@@ -245,6 +247,7 @@ export default function ClusterTopology3DView({
     activeModelFilter,
     selectedNodeId,
     onSelectNode,
+    connectionFilter = 'all',
 }: ClusterTopology3DViewProps) {
     // Phân bố các node theo tọa độ 3D có chiều sâu (X, Y, Z)
     const { nodePositions, links } = useMemo(() => {
@@ -278,7 +281,16 @@ export default function ClusterTopology3DView({
                 const a = positions[i]
                 const b = positions[j]
 
+                const isAHub = Boolean(a.node.isHub)
+                const isBHub = Boolean(b.node.isHub)
+                const isSellerSeller = !isAHub && !isBHub
+                const isSellerOwner = (isAHub && !isBHub) || (!isAHub && isBHub)
+
+                if (connectionFilter === 'seller-seller' && !isSellerSeller) continue
+                if (connectionFilter === 'seller-owner' && !isSellerOwner) continue
+
                 const hasSharedModel =
+                    isSellerOwner ||
                     !activeModelFilter ||
                     (a.node.model === activeModelFilter && b.node.model === activeModelFilter) ||
                     a.node.model === b.node.model
@@ -289,7 +301,9 @@ export default function ClusterTopology3DView({
                         end: b.pos,
                         fromId: a.node.id,
                         toId: b.node.id,
-                        color: a.node.model.includes('coder')
+                        color: isSellerOwner
+                            ? '#06b6d4' // Cyan cho luồng Seller ⇄ Owner
+                            : a.node.model.includes('coder')
                             ? '#38bdf8' // Xanh lam cho Coder
                             : a.node.model.includes('deepseek')
                             ? '#a855f7' // Tím cho DeepSeek
@@ -300,7 +314,7 @@ export default function ClusterTopology3DView({
         }
 
         return { nodePositions: positions, links: linksList }
-    }, [nodes, activeModelFilter])
+    }, [nodes, activeModelFilter, connectionFilter])
 
     return (
         <div className="w-full h-full relative bg-zinc-950 overflow-hidden select-none">

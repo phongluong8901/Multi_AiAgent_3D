@@ -91,7 +91,7 @@ export default function WorldMap2DView({
                             <path
                                 d={`M ${fromPos.x} ${fromPos.y} Q ${midX} ${midY} ${toPos.x} ${toPos.y}`}
                                 fill="none"
-                                stroke={isSelected ? '#38bdf8' : 'url(#link-grad)'}
+                                stroke={isSelected ? '#38bdf8' : link.type === 'seller-owner' ? '#06b6d4' : 'url(#link-grad)'}
                                 strokeWidth={isSelected ? 2 : 1.2}
                                 strokeOpacity={isSelected ? 0.9 : 0.35}
                                 strokeDasharray={isSelected ? '6 3' : undefined}

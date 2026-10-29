@@ -1,3 +1,4 @@
+import { agentBodiesApi, CloudAgentBody } from '@/lib/api/agentBodies'
 'use client'
 
 import { useParams, useRouter } from 'next/navigation'
@@ -16,6 +17,7 @@ import {
     promptsApi,
     toolsApi,
     listModels,
+    ownerApi,
     Agent,
     Prompt,
     Tool,
@@ -41,6 +43,7 @@ import {
     IconAmr,
     IconDrone,
     IconHumanoid,
+    IconBot,
 } from '@/components/ui/icons'
 
 const COLOR_PRESETS = [
@@ -59,6 +62,7 @@ const FORM_SIGNATURE_COLORS: Record<AgentFormType, string> = {
     duck: '#7dd3fc',
     amr: '#f97316',
     drone: '#06b6d4',
+    custom: '#a855f7',
 }
 
 import { toast } from 'sonner'
@@ -74,6 +78,8 @@ export default function AgentDetailPage() {
     const [name, setName] = useState('')
     const [color, setColor] = useState('#76b900')
     const [agentForm, setAgentForm] = useState<AgentFormType>('humanoid')
+    const [bodyId, setBodyId] = useState<string | null>(null)
+    const [customBodies, setCustomBodies] = useState<CloudAgentBody[]>([])
     const [status, setStatus] = useState('idle')
     const [speech, setSpeech] = useState('')
 
@@ -107,6 +113,12 @@ export default function AgentDetailPage() {
                 setAgent(ag)
                 setName(ag.name || '')
                 setColor(ag.color || '#4299e1')
+                if (ag.body_id || ag.bodyId) {
+                    setBodyId(ag.body_id || ag.bodyId || null)
+                }
+                if (ag.form) {
+                    setAgentForm(ag.form as AgentFormType)
+                }
                 setStatus(ag.status || 'idle')
                 setSpeech(ag.speech || '')
 
@@ -151,6 +163,13 @@ export default function AgentDetailPage() {
                 setError(err instanceof Error ? err.message : 'Không thể tải thông tin Agent')
             })
             .finally(() => setLoading(false))
+        agentBodiesApi.getBodies()
+            .then((res) => {
+                if (res?.data && res.data.length > 0) {
+                    setCustomBodies(res.data)
+                }
+            })
+            .catch(() => {})
     }, [id])
 
     // DnD sensors
@@ -215,11 +234,24 @@ export default function AgentDetailPage() {
             }
 
             const updated = await agentsApi.update(id, updatePayload)
+
+            // Nếu chọn mô hình thuê từ Seller, đồng bộ gán vào phiên thuê
+            if (chosenModel.startsWith('rented:')) {
+                const rentalId = chosenModel.replace('rented:', '')
+                try {
+                    await ownerApi.bindAgent(rentalId, id, name.trim())
+                } catch (e) {
+                    console.warn('[RENTAL_BIND] Khong the gan rental cho agent:', e)
+                }
+            }
             setAgent(updated)
 
             // Lưu model preference & form chassis phía client
             if (typeof window !== 'undefined') {
                 localStorage.setItem(`agent_form:${id}`, agentForm)
+            if (agentForm === 'custom' && bodyId) {
+                localStorage.setItem(`agent_body_id:${id}`, bodyId)
+            }
                 localStorage.setItem(`agent_model:${id}`, chosenModel)
             }
 
@@ -429,12 +461,13 @@ export default function AgentDetailPage() {
                                         ISAAC SIM ENGINE
                                     </span>
                                 </div>
-                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
                                     {[
                                         { id: 'humanoid', label: 'Project GR00T', desc: 'Biped Robot 2 chân', icon: IconHumanoid, glow: 'hover:border-[#76b900] text-[#76b900]' },
                                         { id: 'duck', label: 'MicroDuck Bipedal', desc: 'Vịt 2 chân Servo AI', icon: IconDuck, glow: 'hover:border-sky-400 text-sky-400' },
                                         { id: 'amr', label: 'Nova Carter AMR', desc: 'Tự hành 360° LiDAR', icon: IconAmr, glow: 'hover:border-orange-500 text-orange-400' },
                                         { id: 'drone', label: 'Cyber Falcon', desc: 'Drone tuần tra RTK', icon: IconDrone, glow: 'hover:border-cyan-400 text-cyan-400' },
+                                        { id: 'custom', label: 'Custom Studio', desc: 'Thân & Khớp tự vẽ', icon: IconBot, glow: 'hover:border-purple-400 text-purple-400' },
                                     ].map((f) => {
                                         const active = agentForm === f.id
                                         const FormIcon = f.icon
@@ -472,6 +505,63 @@ export default function AgentDetailPage() {
                                     })}
                                 </div>
                             </div>
+
+                            {/* BỘ CHỌN CUSTOM BODY TỪ AGENT BODY STUDIO */}
+                            {agentForm === 'custom' && (
+                                <div className="rounded-xl border border-purple-500/40 bg-purple-950/20 p-3.5 space-y-3">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                            <div className="w-6 h-6 rounded-lg bg-purple-500/20 flex items-center justify-center text-purple-400">
+                                                <IconBot className="w-4 h-4" />
+                                            </div>
+                                            <div>
+                                                <h4 className="text-xs font-bold text-white">Mẫu Body Khớp Động Học (URDF Studio)</h4>
+                                                <p className="text-[10px] text-zinc-400">Gán khung xương, khớp xoay và động cơ đã thiết kế cho Agent này</p>
+                                            </div>
+                                        </div>
+                                        <Link
+                                            href="/agent-body-studio"
+                                            target="_blank"
+                                            className="text-[11px] font-semibold text-purple-300 hover:text-white px-2.5 py-1 rounded-lg bg-purple-900/40 border border-purple-500/30 hover:bg-purple-800/50 transition flex items-center gap-1"
+                                        >
+                                            <span>Mở Body Studio</span>
+                                            <span>↗</span>
+                                        </Link>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                        <div>
+                                            <label className="block text-[10px] font-semibold uppercase text-zinc-400 mb-1">
+                                                Chọn Body Đã Lưu Trên Cloud / Studio
+                                            </label>
+                                            <select
+                                                value={bodyId || ''}
+                                                onChange={(e) => setBodyId(e.target.value || null)}
+                                                className="w-full rounded-lg bg-zinc-800/90 border border-zinc-700 px-3 py-2 text-xs font-mono text-zinc-200 outline-none focus:border-purple-500"
+                                            >
+                                                {customBodies.length === 0 && (
+                                                    <option value="">Chưa có body nào trên Cloud (Dùng mặc định Quadruped)</option>
+                                                )}
+                                                {customBodies.map((b) => (
+                                                    <option key={b.bodyId} value={b.bodyId}>
+                                                        {b.name} ({b.joints?.filter(j => j.type !== 'fixed')?.length || 0} DOF / {b.category})
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        <div className="rounded-lg bg-zinc-900/80 border border-zinc-800 p-2 flex flex-col justify-center text-[11px] font-mono text-zinc-300">
+                                            <div className="flex justify-between">
+                                                <span className="text-zinc-500">Mã Body:</span>
+                                                <span className="text-purple-300 truncate max-w-[150px]">{bodyId || 'Mặc định (Quadruped)'}</span>
+                                            </div>
+                                            <div className="flex justify-between mt-0.5">
+                                                <span className="text-zinc-500">Huấn luyện RL:</span>
+                                                <span className="text-emerald-400">Sẵn sàng (URDF / Gym Env)</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
 
                             <div className="grid sm:grid-cols-2 gap-3.5">
                                 <div>

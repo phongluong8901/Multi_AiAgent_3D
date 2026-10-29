@@ -13,6 +13,7 @@ export class OwnerRentalService {
         if (lat !== undefined) query.set("lat", String(lat));
         if (radiusKm !== undefined) query.set("radiusKm", String(radiusKm));
 
+        let rawNodes: any[] = [];
         const baseUrls = [SELLER_SERVICE_URL, "http://localhost:5011"];
         for (const baseUrl of baseUrls) {
             try {
@@ -20,15 +21,30 @@ export class OwnerRentalService {
                 const res = await fetch(url, { signal: AbortSignal.timeout(4000) });
                 if (res.ok) {
                     const data: any = await res.json();
-                    if (data.nodes) return data.nodes;
+                    if (data.nodes) {
+                        rawNodes = data.nodes;
+                        break;
+                    }
                 }
             } catch (err: any) {
                 logger.warn(`Không kết nối được seller-service market (${baseUrl}):`, err.message);
             }
         }
 
-        // Không trả về dữ liệu ảo: trả về mảng rỗng nếu chưa có node nào
-        return [];
+        // Lọc bỏ những node đang nằm trong các phiên thuê ACTIVE (đã được thuê rồi)
+        try {
+            const activeSessions = await rentalSessionRepository.findAllActive();
+            const rentedNodeIds = new Set(
+                activeSessions.map((s) => s.nodeId).filter(Boolean)
+            );
+            return rawNodes.filter((node) => {
+                const nId = node.nodeId || node.id;
+                return !rentedNodeIds.has(nId);
+            });
+        } catch (err: any) {
+            logger.warn(`Lỗi khi lọc các node đã thuê:`, err.message);
+            return rawNodes;
+        }
     }
 
     async startRental(data: any): Promise<IRentalSession> {
@@ -71,11 +87,79 @@ export class OwnerRentalService {
             // Ignore
         }
 
+        // Đồng bộ trạng thái Node sang BUSY trên seller-service (seller_db MongoDB)
+        const sellerUrls = [SELLER_SERVICE_URL, "http://localhost:5011", "http://127.0.0.1:5011", "http://localhost:4000"];
+        for (const sUrl of sellerUrls) {
+            try {
+                const patchRes = await fetch(`${sUrl}/api/v1/seller/nodes/${encodeURIComponent(data.nodeId)}/status`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ status: "BUSY" }),
+                    signal: AbortSignal.timeout(2500),
+                });
+                if (patchRes.ok) break;
+            } catch {
+                // Ignore
+            }
+        }
+
+        // Đồng bộ trạng thái Node sang BUSY trên distributed-service (Neon PostgreSQL & Redis)
+        const distUrls = ["http://distributed-service:5010", "http://localhost:5010", "http://127.0.0.1:5010", "http://localhost:4000"];
+        for (const dUrl of distUrls) {
+            try {
+                const distRes = await fetch(`${dUrl}/api/v1/distributed/nodes/toggle-status`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ nodeId: data.nodeId, status: "BUSY" }),
+                    signal: AbortSignal.timeout(2500),
+                });
+                if (distRes.ok) break;
+            } catch {
+                // Ignore
+            }
+        }
+
+        logger.info(`[RENTAL] Đã lưu phiên thuê ${sessionId} cho node ${data.nodeId} và cập nhật trạng thái BUSY trên toàn hệ thống`);
         return created;
     }
 
     async stopRental(sessionId: string): Promise<IRentalSession | null> {
-        return await rentalSessionRepository.stopSession(sessionId);
+        const stopped = await rentalSessionRepository.stopSession(sessionId);
+        if (stopped) {
+            // Đồng bộ trạng thái Node về ONLINE trên seller-service (MongoDB)
+            const sellerUrls = [SELLER_SERVICE_URL, "http://localhost:5011", "http://127.0.0.1:5011", "http://localhost:4000"];
+            for (const sUrl of sellerUrls) {
+                try {
+                    const patchRes = await fetch(`${sUrl}/api/v1/seller/nodes/${encodeURIComponent(stopped.nodeId)}/status`, {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ status: "ONLINE" }),
+                        signal: AbortSignal.timeout(2500),
+                    });
+                    if (patchRes.ok) break;
+                } catch {
+                    // Ignore
+                }
+            }
+
+            // Đồng bộ trạng thái Node về IDLE trên distributed-service (PostgreSQL & Redis)
+            const distUrls = ["http://distributed-service:5010", "http://localhost:5010", "http://127.0.0.1:5010", "http://localhost:4000"];
+            for (const dUrl of distUrls) {
+                try {
+                    const distRes = await fetch(`${dUrl}/api/v1/distributed/nodes/toggle-status`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ nodeId: stopped.nodeId, status: "ONLINE" }),
+                        signal: AbortSignal.timeout(2500),
+                    });
+                    if (distRes.ok) break;
+                } catch {
+                    // Ignore
+                }
+            }
+            logger.info(`[RENTAL] Đã dừng phiên thuê ${sessionId} và chuyển node ${stopped.nodeId} về ONLINE`);
+        }
+        return stopped;
     }
 
     async getMyRentals(renterId: string): Promise<IRentalSession[]> {
@@ -85,6 +169,9 @@ export class OwnerRentalService {
     async bindAgent(data: any) {
         const bindingId = `bind_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
         const rentalSessionId = data.rentalSessionId || data.rentalId || "";
+        if (rentalSessionId) {
+            await rentalSessionRepository.updateBoundAgent(rentalSessionId, data.agentId, data.agentName);
+        }
         return await agentBindingRepository.createOrUpdate({
             bindingId,
             agentId: data.agentId,
