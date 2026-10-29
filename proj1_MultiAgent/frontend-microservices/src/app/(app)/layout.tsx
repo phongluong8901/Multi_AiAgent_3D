@@ -1,6 +1,9 @@
 import { Suspense } from 'react'
 import AppShell from './AppShell'
 
+// Opt out of instant-navigation validation for the authenticated app layout
+export const instant = false
+
 export default function AppLayout({ children }: { children: React.ReactNode }) {
     return (
         <Suspense

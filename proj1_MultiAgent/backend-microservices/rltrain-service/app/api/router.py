@@ -75,7 +75,7 @@ def list_policies():
 
 @router.post("/policies/save")
 def save_policy(req: SavePolicyRequest):
-    return trainer.save_policy(req.policy_name)
+    return trainer.save_policy(req.policy_name, req.agent_id)
 
 @router.post("/policies/load")
 def load_policy(req: LoadPolicyRequest):

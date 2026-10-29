@@ -138,7 +138,7 @@ export class AgentInferenceService {
                         temperature,
                         maxTokens,
                     }),
-                    signal: AbortSignal.timeout(50000),
+                    signal: AbortSignal.timeout(20000),
                 });
 
                 if (res.ok) {
@@ -198,59 +198,11 @@ export class AgentInferenceService {
             }
         }
 
-        // Fallback suy luận thông minh khi máy tính đối tác đang khởi động hoặc chưa mở Ollama
+        // Kiểm tra kết quả thực tế từ Seller Worker
         if (!sellerResult || !sellerResult.output) {
-            let sampleAnswer = "";
-            const lowerPrompt = prompt.toLowerCase();
-            if (lowerPrompt.includes("fibonacci")) {
-                sampleAnswer = `Dưới đây là hàm tính toán chuỗi Fibonacci tối ưu bằng đệ quy có nhớ (Memoization) bằng Python:\n\n` +
-                    `\`\`\`python\n` +
-                    `def fibonacci(n: int, memo: dict = {}) -> int:\n` +
-                    `    """\n` +
-                    `    Tính số Fibonacci thứ n với độ phức tạp:\n` +
-                    `    - Thời gian: O(n)\n` +
-                    `    - Bộ nhớ: O(n)\n` +
-                    `    """\n` +
-                    `    if n <= 0:\n` +
-                    `        return 0\n` +
-                    `    if n == 1:\n` +
-                    `        return 1\n` +
-                    `    if n not in memo:\n` +
-                    `        memo[n] = fibonacci(n - 1, memo) + fibonacci(n - 2, memo)\n` +
-                    `    return memo[n]\n\n` +
-                    `# Kiểm tra thử nghiệm\n` +
-                    `if __name__ == "__main__":\n` +
-                    `    print([fibonacci(i) for i in range(10)])\n` +
-                    `    # Kết quả: [0, 1, 1, 2, 3, 5, 8, 13, 21, 34]\n` +
-                    `\`\`\`\n\n` +
-                    `**Giải thích kỹ thuật:**\n` +
-                    `- Đệ quy thuần túy có độ phức tạp lũy thừa O(2^n) do tính lặp lại nhiều lần các nhánh con.\n` +
-                    `- Bằng Memoization, mỗi bài toán con chỉ được giải một lần duy nhất và lưu vào cache \`memo\`, tối ưu hoá hoàn toàn hiệu năng xử lý.`;
-            } else if (lowerPrompt.includes("python") || lowerPrompt.includes("code") || lowerPrompt.includes("hàm") || lowerPrompt.includes("viết")) {
-                sampleAnswer = `Dưới đây là giải pháp code được tối ưu theo yêu cầu của bạn:\n\n` +
-                    `\`\`\`python\n` +
-                    `def execute_agent_task(query: str) -> dict:\n` +
-                    `    """Xử lý yêu cầu tự động từ Agent Pipeline."""\n` +
-                    `    result = {\n` +
-                    `        "status": "COMPLETED",\n` +
-                    `        "query": query,\n` +
-                    `        "processed_by": "${session?.modelDisplayName || "Local AI"}",\n` +
-                    `    }\n` +
-                    `    return result\n` +
-                    `\`\`\`\n\n` +
-                    `Code đã được chuẩn hóa PEP 8 và sẵn sàng nạp vào luồng thực thi Agent.`;
-            } else {
-                sampleAnswer = `Phản hồi từ mô hình **${session?.modelDisplayName || "Local AI"}** trên máy trạm đối tác **${session?.nodeName || "Seller Station"}**:\n\n` +
-                    `Yêu cầu của bạn: "${prompt}"\n\n` +
-                    `Hệ thống đã phân tích ngữ cảnh và phản hồi tác vụ thành công. Mọi chỉ số tính toán và số dư SaveCoin đã được cập nhật.`;
-            }
-
-            sellerResult = {
-                output: sampleAnswer,
-                tokens: Math.max(25, Math.round(sampleAnswer.length / 3.8)),
-                latencyMs: 1250,
-                coinsBilled: 0.15,
-            };
+            const nodeLabel = session?.nodeName || session?.nodeId || "Seller Node";
+            const detailMsg = lastErr?.message || "Desktop Worker (Electron) chưa phản hồi hoặc chưa bật Ollama";
+            throw new Error(`[P2P Relay Error] Không thể kết nối tới máy trạm "${nodeLabel}" (Node ID: ${session?.nodeId}). Chi tiết: ${detailMsg}. Vui lòng đảm bảo ứng dụng Worker (.exe / worker.py) đang chạy và giữ kết nối WebSocket.`);
         }
 
         const latencyMs = sellerResult.latencyMs || 0;

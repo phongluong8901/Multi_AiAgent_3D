@@ -155,12 +155,14 @@ class WorkerNetworkClient:
             ollama_url = self.conn_info["ollama_url"]
             rent_config = self.conn_info["rent_config"]
 
-            urls_to_try = [target_ws_url]
+            sep = "&" if "?" in target_ws_url else "?"
+            p_str = f"token={token}&nodeId={node_id}" if (token or node_id) else ""
+            primary_with_params = f"{target_ws_url}{sep}{p_str}" if p_str else target_ws_url
+            urls_to_try = [primary_with_params, target_ws_url]
             for f_url in self.fallback_urls:
                 if f_url not in urls_to_try:
-                    sep = "&" if "?" in f_url else "?"
-                    p_str = f"token={token}&nodeId={node_id}" if token else ""
-                    urls_to_try.append(f"{f_url}{sep}{p_str}" if p_str else f_url)
+                    f_sep = "&" if "?" in f_url else "?"
+                    urls_to_try.append(f"{f_url}{f_sep}{p_str}" if p_str else f_url)
 
             self.ws = None
             active_url = ""

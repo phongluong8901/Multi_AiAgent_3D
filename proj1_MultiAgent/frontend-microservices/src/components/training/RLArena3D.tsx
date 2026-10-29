@@ -533,7 +533,7 @@ export default function RLArena3D({
             <div className="absolute top-3 left-3 z-10 flex items-center gap-2 bg-zinc-900/80 backdrop-blur-md px-3 py-1.5 rounded-xl border border-zinc-700/60 text-xs text-zinc-300">
                 <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
                 <span className="font-semibold text-white">
-                    {isOffice ? '🏢 3D Office Arena' : '🎯 Cyber Grid Arena'}
+                    {isOffice ? '[OFFICE] 3D Office Arena' : '[TARGET] Cyber Grid Arena'}
                 </span>
                 <span className="text-zinc-500">|</span>
                 <span>Toạ độ Agent: [{agentState.x}, {agentState.z}]</span>

@@ -5,6 +5,7 @@ import { sellerApi, SellerNodeData, SellerDashboardData } from '@/lib/api/seller
 import { distributedApi } from '@/lib/api/distributed'
 import { useConfirm } from '@/context/ConfirmContext'
 import { useUser } from '@/hooks/useUser'
+import { useWorkerNetwork } from '@/hooks/useWorkerNetwork'
 import { notify } from '@/lib/toast'
 import {
     Server,
@@ -29,6 +30,16 @@ import {
 export default function SellerComputePage() {
     const { profile } = useUser()
     const { alert: alertModal } = useConfirm()
+    const {
+        myNode: desktopNode,
+        wsConnected,
+        toggleNodeStatus: toggleWorkerStatus,
+    } = useWorkerNetwork({
+        id: profile?.id,
+        name: profile?.name,
+        email: profile?.email,
+    })
+
     const [dashboard, setDashboard] = useState<SellerDashboardData | null>(null)
     const [loading, setLoading] = useState(true)
     const [isRegisterOpen, setIsRegisterOpen] = useState(false)
@@ -40,6 +51,7 @@ export default function SellerComputePage() {
 
     // Form đăng ký máy mới
     const [newNode, setNewNode] = useState({
+        nodeId: '',
         nodeName: 'PC Gaming RTX - Qwen 2.5 Coder',
         cpuCores: 8,
         ramGB: 16,
@@ -54,6 +66,26 @@ export default function SellerComputePage() {
         lng: 105.7828,
         lat: 21.0333,
     })
+
+    const handleFillFromWorker = () => {
+        if (!desktopNode) return
+        const hw = desktopNode.hardware || ({} as any)
+        const rent = desktopNode.rentConfig || ({} as any)
+        const modelName = desktopNode.activeModel || rent.defaultModel || 'qwen-2.5-coder-1.5b'
+        setNewNode((prev) => ({
+            ...prev,
+            nodeId: desktopNode.id,
+            nodeName: `${desktopNode.username || currentSellerName} Workstation (${hw.gpuName || 'Local PC'})`,
+            cpuCores: Number(rent.allocatedCores) || Number(hw.cpuCores) || 8,
+            ramGB: Number(rent.allocatedRAMGB) || Number(hw.deviceMemoryGB) || 16,
+            gpuName: hw.gpuName || ((desktopNode as any).hasGPU ? 'NVIDIA GPU' : 'CPU Mode'),
+            vramGB: Number(hw.vramGB) || 0,
+            hostedModel: modelName,
+            modelDisplayName: modelName,
+            coinsPerHour: Number(rent.minPricePerHourCoin) || 35,
+        }))
+        notify.success(`Đã nạp thông số từ Electron Worker (${desktopNode.id})`)
+    }
 
     const loadDashboard = async () => {
         try {
@@ -76,8 +108,12 @@ export default function SellerComputePage() {
         const nextStatus = currentStatus === 'ONLINE' ? 'OFFLINE' : 'ONLINE'
         try {
             await sellerApi.toggleNodeStatus(nodeId, nextStatus as any)
+            await distributedApi.toggleNodeStatus(nodeId, nextStatus === 'ONLINE' ? 'IDLE' : 'OFFLINE').catch(() => null)
+            if (desktopNode && (desktopNode.id === nodeId || nodeId.includes(desktopNode.id))) {
+                await toggleWorkerStatus(desktopNode.id, currentStatus)
+            }
             await loadDashboard()
-            notify.success(`Đã chuyển trạng thái sang ${nextStatus}`)
+            notify.success(`Đã chuyển trạng thái máy ${nodeId} sang ${nextStatus}`)
         } catch (err: any) {
             notify.error('Lỗi cập nhật trạng thái', { description: err.message })
         }
@@ -263,6 +299,38 @@ export default function SellerComputePage() {
                 </div>
             </div>
 
+            {/* Live Electron Worker Connection Card */}
+            {desktopNode && (
+                <div className="bg-zinc-900/60 border border-emerald-500/30 rounded-2xl p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-lg shadow-emerald-950/20">
+                    <div className="flex items-start md:items-center gap-3">
+                        <span className={`mt-1 md:mt-0 w-3 h-3 rounded-full shrink-0 ${wsConnected ? 'bg-emerald-400 shadow-[0_0_8px_#10b981] animate-pulse' : 'bg-rose-500'}`} />
+                        <div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-xs font-bold text-white">Electron Worker Cục Bộ: <span className="font-mono text-emerald-400">{desktopNode.id}</span></span>
+                                <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono border ${wsConnected ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : 'bg-rose-500/10 text-rose-400 border-rose-500/30'}`}>
+                                    {wsConnected ? 'WebSocket Đã Kết Nối (Online)' : 'Worker Offline'}
+                                </span>
+                            </div>
+                            <p className="text-[11px] text-zinc-400 mt-1">
+                                Model Ollama: <strong className="text-emerald-400 font-mono">{desktopNode.activeModel || 'qwen2.5-coder:1.5b'}</strong> &bull; Hardware: {desktopNode.hardware?.gpuName || 'CPU'} ({desktopNode.rentConfig?.allocatedCores || desktopNode.hardware?.cpuCores || 4} cores, {desktopNode.rentConfig?.allocatedRAMGB || desktopNode.hardware?.deviceMemoryGB || 8}GB RAM)
+                            </p>
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-2 self-end md:self-auto shrink-0">
+                        <button
+                            type="button"
+                            onClick={() => {
+                                handleFillFromWorker()
+                                setIsRegisterOpen(true)
+                            }}
+                            className="px-3.5 py-1.5 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white text-xs font-bold rounded-xl shadow transition"
+                        >
+                            Đưa Node Này Lên Chợ Thuê
+                        </button>
+                    </div>
+                </div>
+            )}
+
             {/* My Nodes Section */}
             <div className="space-y-3">
                 <div className="flex items-center justify-between">
@@ -379,16 +447,44 @@ export default function SellerComputePage() {
                             </button>
                         </div>
 
+                        {desktopNode && (
+                            <div className="p-3 rounded-xl bg-zinc-950 border border-emerald-500/30 flex items-center justify-between gap-2">
+                                <div>
+                                    <span className="text-xs font-bold text-white block">Phát hiện Worker trên máy này</span>
+                                    <span className="text-[10px] text-zinc-400 font-mono">ID: {desktopNode.id} &bull; Model: {desktopNode.activeModel || 'qwen2.5-coder:1.5b'}</span>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={handleFillFromWorker}
+                                    className="px-3 py-1 bg-emerald-600/30 hover:bg-emerald-600/40 text-emerald-300 border border-emerald-500/40 text-[11px] font-semibold rounded-lg transition"
+                                >
+                                    Nạp Cấu Hình
+                                </button>
+                            </div>
+                        )}
+
                         <form onSubmit={handleRegisterNode} className="space-y-3 text-xs">
-                            <div>
-                                <label className="text-zinc-400 block mb-1">Tên máy trạm / Node:</label>
-                                <input
-                                    type="text"
-                                    value={newNode.nodeName}
-                                    onChange={(e) => setNewNode({ ...newNode, nodeName: e.target.value })}
-                                    className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-white focus:border-amber-500 focus:outline-none"
-                                    required
-                                />
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="text-zinc-400 block mb-1">Tên máy trạm / Node:</label>
+                                    <input
+                                        type="text"
+                                        value={newNode.nodeName}
+                                        onChange={(e) => setNewNode({ ...newNode, nodeName: e.target.value })}
+                                        className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-white focus:border-amber-500 focus:outline-none"
+                                        required
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-zinc-400 block mb-1">Node ID (Liên kết Electron):</label>
+                                    <input
+                                        type="text"
+                                        value={newNode.nodeId}
+                                        onChange={(e) => setNewNode({ ...newNode, nodeId: e.target.value })}
+                                        placeholder={desktopNode?.id || "Để trống để tự tạo"}
+                                        className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-white font-mono focus:border-amber-500 focus:outline-none"
+                                    />
+                                </div>
                             </div>
 
                             <div className="grid grid-cols-2 gap-3">
@@ -476,10 +572,11 @@ export default function SellerComputePage() {
                                     value={newNode.hostedModel}
                                     onChange={(e) => {
                                         const model = e.target.value
-                                        let display = 'Qwen 2.5 Coder (1.5B Instruct)'
-                                        if (model === 'deepseek-r1-7b') display = 'DeepSeek-R1 Distill Qwen (7B)'
-                                        if (model === 'llama-3.3-8b') display = 'Meta Llama 3.3 (8B Instruct)'
-                                        if (model === 'phi-3-mini') display = 'Microsoft Phi-3 Mini (3.8B)'
+                                        let display = model
+                                        if (model === 'qwen-2.5-coder-1.5b') display = 'Qwen 2.5 Coder (1.5B Instruct)'
+                                        else if (model === 'deepseek-r1-7b') display = 'DeepSeek-R1 Distill Qwen (7B)'
+                                        else if (model === 'llama-3.3-8b') display = 'Meta Llama 3.3 (8B Instruct)'
+                                        else if (model === 'phi-3-mini') display = 'Microsoft Phi-3 Mini (3.8B)'
                                         setNewNode({
                                             ...newNode,
                                             hostedModel: model,
@@ -488,10 +585,21 @@ export default function SellerComputePage() {
                                     }}
                                     className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2.5 text-white focus:border-amber-500 focus:outline-none"
                                 >
-                                    <option value="qwen-2.5-coder-1.5b">Qwen 2.5 Coder (1.5B Instruct) - Tối ưu cho code</option>
-                                    <option value="deepseek-r1-7b">DeepSeek-R1 Distill Qwen (7B) - Reasoning chuyên sâu</option>
-                                    <option value="llama-3.3-8b">Meta Llama 3.3 (8B Instruct) - Đa nhiệm</option>
-                                    <option value="phi-3-mini">Microsoft Phi-3 Mini (3.8B) - Nhẹ gọn</option>
+                                    {desktopNode && Array.isArray(desktopNode.compatibleModels) && desktopNode.compatibleModels.length > 0 && (
+                                        <optgroup label="Mô hình phát hiện từ Ollama của bạn">
+                                            {desktopNode.compatibleModels.map((m) => (
+                                                <option key={m} value={m}>
+                                                    {m} (Đang có sẵn trong máy)
+                                                </option>
+                                            ))}
+                                        </optgroup>
+                                    )}
+                                    <optgroup label="Mô hình tiêu chuẩn">
+                                        <option value="qwen-2.5-coder-1.5b">Qwen 2.5 Coder (1.5B Instruct) - Tối ưu cho code</option>
+                                        <option value="deepseek-r1-7b">DeepSeek-R1 Distill Qwen (7B) - Reasoning chuyên sâu</option>
+                                        <option value="llama-3.3-8b">Meta Llama 3.3 (8B Instruct) - Đa nhiệm</option>
+                                        <option value="phi-3-mini">Microsoft Phi-3 Mini (3.8B) - Nhẹ gọn</option>
+                                    </optgroup>
                                 </select>
                             </div>
 

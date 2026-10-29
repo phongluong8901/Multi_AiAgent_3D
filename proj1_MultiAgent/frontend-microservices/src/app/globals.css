@@ -110,7 +110,7 @@
 }
 
 /* ==========================================================================
-   GLOBAL LAYOUT & RESPONSIVE TWEAKS
+   GLOBAL LAYOUT & RESPONSIVE MULTI-DEVICE GUARDS
    ========================================================================== */
 html,
 body {
@@ -118,6 +118,10 @@ body {
   color: var(--foreground);
   font-family: var(--font-sans);
   min-height: 100%;
+  width: 100%;
+  max-width: 100vw;
+  overflow-x: hidden;
+  position: relative;
   -webkit-tap-highlight-color: transparent;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -127,6 +131,19 @@ body {
 html {
   scroll-behavior: smooth;
   padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Prevent Media & Canvas Horizontal Overflows */
+img, svg, video, iframe, embed, object {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Code & Text Overflows */
+pre, code {
+  max-width: 100%;
+  overflow-x: auto;
+  word-break: break-word;
 }
 
 /* Responsive Custom Scrollbars */

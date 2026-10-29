@@ -91,6 +91,7 @@ func main() {
 	mux.HandleFunc("/api/v1/distributed/ws", wsHandler.HandleWebSocket)
 	mux.HandleFunc("/ws", wsHandler.HandleWebSocket)
 	mux.HandleFunc("/api/v1/distributed/inference", wsHandler.HandleInferenceRelay)
+	mux.HandleFunc("/api/v1/inference/execute", wsHandler.HandleInferenceRelay)
 
 	wrappedHandler := corsMiddleware(mux)
 

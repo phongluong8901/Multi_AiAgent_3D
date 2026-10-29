@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useUser } from '@/hooks/useUser'
 import { useOwnedAgents } from '@/hooks/useOwnedAgents'
 import { useAgents } from '@/hooks/useAgents'
+import { useLanguage } from '@/context/LanguageContext'
 
 const PRESET_AVATARS = [
     'https://api.dicebear.com/7.x/bottts/svg?seed=Alex',
@@ -16,6 +17,7 @@ const PRESET_AVATARS = [
 ]
 
 export default function ProfilePage() {
+    const { t } = useLanguage()
     const { profile, loading, saving, updateProfile, uploadAvatar, updateStatus } =
         useUser()
     const { agents } = useAgents()
@@ -37,7 +39,7 @@ export default function ProfilePage() {
     if (loading) {
         return (
             <div className="flex min-h-[50vh] items-center justify-center text-sm text-zinc-500">
-                Đang tải hồ sơ...
+                {t.common.loading}
             </div>
         )
     }
@@ -54,21 +56,21 @@ export default function ProfilePage() {
     const node = profile?.hardwareNode
 
     return (
-        <div className="mx-auto max-w-4xl space-y-8 pb-16">
+        <div className="mx-auto max-w-4xl w-full space-y-6 sm:space-y-8 pb-16 overflow-hidden">
             {/* Banner */}
-            <div className="rounded-3xl border border-zinc-800 bg-gradient-to-r from-blue-950/60 via-indigo-950/40 to-zinc-900 p-8">
-                <div className="flex flex-col items-start gap-6 sm:flex-row sm:items-center">
-                    <div className="relative">
+            <div className="rounded-2xl sm:rounded-3xl border border-zinc-800 bg-gradient-to-r from-blue-950/60 via-indigo-950/40 to-zinc-900 p-5 sm:p-8">
+                <div className="flex flex-col items-start gap-4 sm:gap-6 sm:flex-row sm:items-center">
+                    <div className="relative shrink-0">
                         <img
                             src={
                                 avatarUrl ||
                                 `https://api.dicebear.com/7.x/bottts/svg?seed=${name || 'User'}`
                             }
                             alt={name}
-                            className="h-20 w-20 rounded-2xl border-2 border-blue-500/40 object-cover"
+                            className="h-16 w-16 sm:h-20 sm:w-20 rounded-2xl border-2 border-blue-500/40 object-cover"
                         />
                         <span
-                            className={`absolute -bottom-1 -right-1 h-4 w-4 rounded-full ring-4 ring-zinc-900 ${profile?.status === 'online'
+                            className={`absolute -bottom-1 -right-1 h-3.5 w-3.5 sm:h-4 sm:w-4 rounded-full ring-4 ring-zinc-900 ${profile?.status === 'online'
                                     ? 'bg-emerald-500'
                                     : profile?.status === 'busy'
                                         ? 'bg-amber-500'
@@ -76,22 +78,22 @@ export default function ProfilePage() {
                                 }`}
                         />
                     </div>
-                    <div>
+                    <div className="min-w-0 flex-1">
                         <p className="text-xs text-blue-400">
                             {profile?.role || 'Thành viên'}
                         </p>
-                        <h1 className="text-2xl font-bold text-white">
+                        <h1 className="text-xl sm:text-2xl font-bold text-white truncate">
                             {profile?.name || 'Thành viên'}
                         </h1>
-                        <p className="font-mono text-xs text-zinc-400">{profile?.email}</p>
+                        <p className="font-mono text-xs text-zinc-400 truncate">{profile?.email}</p>
                     </div>
-                    <div className="sm:ml-auto">
+                    <div className="sm:ml-auto w-full sm:w-auto">
                         <select
                             value={profile?.status || 'online'}
                             onChange={(e) =>
                                 updateStatus(e.target.value as 'online' | 'offline' | 'busy')
                             }
-                            className="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs text-white"
+                            className="w-full sm:w-auto rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs text-white"
                         >
                             <option value="online">Online</option>
                             <option value="busy">Busy</option>
@@ -101,22 +103,22 @@ export default function ProfilePage() {
                 </div>
             </div>
 
-            {/* Thêm phần hiển thị cấu hình AI Hardware Node */}
-            <div className="rounded-3xl border border-zinc-800 bg-zinc-900 p-6 space-y-4">
-                <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
-                    <h2 className="text-sm font-bold uppercase tracking-wider text-zinc-200">
+            {/* Cấu hình AI Hardware Node */}
+            <div className="rounded-2xl sm:rounded-3xl border border-zinc-800 bg-zinc-900 p-4 sm:p-6 space-y-4">
+                <div className="flex items-center justify-between border-b border-zinc-800 pb-3 gap-2">
+                    <h2 className="text-xs sm:text-sm font-bold uppercase tracking-wider text-zinc-200">
                         Thông số AI Hardware Node
                     </h2>
                     <Link
                         href="/node-checker"
-                        className="text-xs text-blue-400 hover:text-blue-300 font-medium transition"
+                        className="text-xs text-blue-400 hover:text-blue-300 font-medium transition shrink-0"
                     >
-                        Kiểm tra & Cập nhật &rarr;
+                        Kiểm tra &rarr;
                     </Link>
                 </div>
 
                 {node && node.canRunAI ? (
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 text-xs">
                         <div className="rounded-2xl border border-zinc-800/80 bg-zinc-950/60 p-3.5 space-y-1">
                             <span className="text-zinc-500 block">Trạng thái Node:</span>
                             <div className="flex items-center gap-2">
@@ -162,11 +164,11 @@ export default function ProfilePage() {
                         </div>
                     </div>
                 ) : (
-                    <div className="flex items-center justify-between text-xs text-zinc-400 bg-zinc-950/50 p-4 rounded-2xl border border-zinc-800">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between text-xs text-zinc-400 bg-zinc-950/50 p-4 rounded-2xl border border-zinc-800 gap-3">
                         <span>Chưa đăng ký hoặc kích hoạt Node tính toán phân tán.</span>
                         <Link
                             href="/node-checker"
-                            className="px-3.5 py-1.5 rounded-xl bg-blue-600 text-white font-semibold text-[11px] hover:bg-blue-500 transition"
+                            className="px-3.5 py-1.5 rounded-xl bg-blue-600 text-white font-semibold text-[11px] hover:bg-blue-500 transition text-center shrink-0"
                         >
                             Kích hoạt Node ngay
                         </Link>
@@ -178,10 +180,10 @@ export default function ProfilePage() {
                 {/* Form */}
                 <form
                     onSubmit={handleSave}
-                    className="space-y-4 rounded-3xl border border-zinc-800 bg-zinc-900 p-6 md:col-span-2"
+                    className="space-y-4 rounded-2xl sm:rounded-3xl border border-zinc-800 bg-zinc-900 p-4 sm:p-6 md:col-span-2"
                 >
                     <h2 className="border-b border-zinc-800 pb-3 text-base font-bold text-white">
-                        Chỉnh sửa hồ sơ
+                        {t.common.edit} {t.nav.profile}
                     </h2>
 
                     <div>
@@ -206,7 +208,7 @@ export default function ProfilePage() {
 
                     <div>
                         <label className="mb-1.5 block text-xs text-zinc-400">Avatar</label>
-                        <div className="mb-2 flex gap-2 overflow-x-auto pb-1">
+                        <div className="mb-2 flex gap-2 overflow-x-auto pb-1 no-scrollbar">
                             {PRESET_AVATARS.map((url) => (
                                 <button
                                     key={url}
@@ -234,7 +236,7 @@ export default function ProfilePage() {
                                 const f = e.target.files?.[0]
                                 if (f) uploadAvatar(f)
                             }}
-                            className="text-xs text-zinc-400"
+                            className="text-xs text-zinc-400 w-full"
                         />
                     </div>
 
@@ -242,20 +244,20 @@ export default function ProfilePage() {
                         <button
                             type="submit"
                             disabled={saving}
-                            className="rounded-xl bg-blue-600 px-6 py-2.5 text-xs font-semibold text-white hover:bg-blue-500 disabled:opacity-50 transition"
+                            className="w-full sm:w-auto rounded-xl bg-blue-600 px-6 py-2.5 text-xs font-semibold text-white hover:bg-blue-500 disabled:opacity-50 transition"
                         >
-                            {saving ? 'Đang lưu...' : 'Lưu thay đổi'}
+                            {saving ? t.common.saving : t.common.save}
                         </button>
                     </div>
                 </form>
 
                 {/* Owned agents */}
-                <div className="space-y-3 rounded-3xl border border-zinc-800 bg-zinc-900 p-6">
+                <div className="space-y-3 rounded-2xl sm:rounded-3xl border border-zinc-800 bg-zinc-900 p-4 sm:p-6">
                     <h2 className="border-b border-zinc-800 pb-3 text-base font-bold text-white">
                         Agent của tôi
                     </h2>
                     {agentsLoading ? (
-                        <p className="text-xs text-zinc-500">Đang tải...</p>
+                        <p className="text-xs text-zinc-500">{t.common.loading}</p>
                     ) : (
                         <div className="max-h-80 space-y-2 overflow-y-auto">
                             {agents.map((ag) => {

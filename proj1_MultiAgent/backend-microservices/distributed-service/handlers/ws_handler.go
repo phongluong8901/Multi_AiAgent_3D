@@ -175,9 +175,12 @@ func (h *WSHandler) HandleInferenceRelay(w http.ResponseWriter, r *http.Request)
 			if !strings.HasPrefix(nid, "web_listener_") {
 				targetConn = conn
 				targetNodeID = nid
+				log.Printf("[DISTRIBUTED INFERENCE] Target node %s not found; falling back to active worker %s\n", req.NodeID, targetNodeID)
 				break
 			}
 		}
+	} else {
+		log.Printf("[DISTRIBUTED INFERENCE] Found matching worker %s for inference (model: %s)\n", targetNodeID, req.Model)
 	}
 	h.mu.Unlock()
 
@@ -434,6 +437,12 @@ func (h *WSHandler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 			// 2. Gói tin quét tải phần cứng từ Python Worker (SYSTEM_INFO / HARDWARE_STATS)
 			if msgType == "SYSTEM_INFO" || msgType == "HARDWARE_STATS" || payload["cpu_percent"] != nil {
+				if pNID, ok := payload["nodeId"].(string); ok && pNID != "" {
+					if nodeID == "" || strings.HasPrefix(nodeID, "guest_worker_") {
+						nodeID = pNID
+					}
+				}
+
 				var cpuP, ramP, diskP, gpuP, gpuTemp float64
 				var hwReport *models.HardwareReport
 				var hostname string

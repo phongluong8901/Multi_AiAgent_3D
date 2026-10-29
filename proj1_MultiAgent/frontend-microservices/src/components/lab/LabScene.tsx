@@ -125,7 +125,7 @@ function IncubationPod({
                 anchorX="center"
                 anchorY="middle"
             >
-                {isCompleted ? '✓ AGENT HOÀN THIỆN' : isSynthesizing ? '⚡ ĐANG TỔNG HỢP AGENT...' : 'QUANTUM AGENT POD'}
+                {isCompleted ? '✓ AGENT HOÀN THIỆN' : isSynthesizing ? '[FAST] ĐANG TỔNG HỢP AGENT...' : 'QUANTUM AGENT POD'}
             </Text>
 
             {/* Nếu chưa có agent nào được sinh và không đang tạo: hiển thị khối hologram lập phương lơ lửng */}

@@ -160,6 +160,7 @@ export default function ModelsManagementPage() {
     const [availableAgentsList, setAvailableAgentsList] = useState<Agent[]>([])
     const [selectedTargetAgentId, setSelectedTargetAgentId] = useState<string>('')
     const [bindingInProgress, setBindingInProgress] = useState(false)
+    const [selectedTestRentalId, setSelectedTestRentalId] = useState<string>('')
     const [rentedTestPrompt, setRentedTestPrompt] = useState('Viết cho tôi một hàm Python tối ưu đệ quy Fibonacci có Memoization.')
     const [rentedTestOutput, setRentedTestOutput] = useState('')
     const [runningRentedInference, setRunningRentedInference] = useState<string | null>(null)
@@ -1554,7 +1555,23 @@ export default function ModelsManagementPage() {
                         </div>
 
                         <div className="space-y-3">
-                            <div className="flex gap-2">
+                            <div className="flex flex-col sm:flex-row gap-2">
+                                {rentedSessions.length > 1 && (
+                                    <select
+                                        value={selectedTestRentalId || rentedSessions[0]?.sessionId || rentedSessions[0]?.id || ''}
+                                        onChange={(e) => setSelectedTestRentalId(e.target.value)}
+                                        className="bg-zinc-950 border border-zinc-700 text-xs text-white rounded-2xl px-3 py-2.5 outline-none focus:border-cyan-500"
+                                    >
+                                        {rentedSessions.map((s) => {
+                                            const id = s.sessionId || s.id || ''
+                                            return (
+                                                <option key={id} value={id}>
+                                                    {s.nodeName} ({s.modelDisplayName})
+                                                </option>
+                                            )
+                                        })}
+                                    </select>
+                                )}
                                 <input
                                     type="text"
                                     value={rentedTestPrompt}
@@ -1565,9 +1582,12 @@ export default function ModelsManagementPage() {
                                 {rentedSessions.length > 0 && (
                                     <button
                                         type="button"
-                                        onClick={() => handleRunRentedTestInference(rentedSessions[0])}
+                                        onClick={() => {
+                                            const target = rentedSessions.find((r) => (r.sessionId || r.id) === selectedTestRentalId) || rentedSessions[0]
+                                            handleRunRentedTestInference(target)
+                                        }}
                                         disabled={Boolean(runningRentedInference) || !rentedTestPrompt.trim()}
-                                        className="px-5 py-2.5 rounded-2xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 disabled:opacity-50 text-white font-bold text-xs transition flex items-center gap-1.5 shadow active:scale-95 shrink-0"
+                                        className="px-5 py-2.5 rounded-2xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 disabled:opacity-50 text-white font-bold text-xs transition flex items-center justify-center gap-1.5 shadow active:scale-95 shrink-0"
                                     >
                                         <IconPlay className="w-3.5 h-3.5 fill-current" />
                                         <span>Gửi Lệnh</span>

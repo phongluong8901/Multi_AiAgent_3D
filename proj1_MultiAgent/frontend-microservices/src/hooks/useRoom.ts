@@ -36,7 +36,7 @@ export function useRoom(roomId: string, currentUserId?: string, currentUserName?
                 console.warn('[useRoom] Không thể tải thông tin phòng:', err.message)
 
                 if (err.response?.status === 403 || err.status === 403) {
-                    const pwd = prompt('🔒 Phòng này là riêng tư. Vui lòng nhập mật khẩu để truy cập:')
+                    const pwd = prompt('[XÁC THỰC] Phòng này là riêng tư. Vui lòng nhập mật khẩu để truy cập:')
                     if (pwd) {
                         try {
                             await roomsApi.join(roomId, { password: pwd })
@@ -103,7 +103,7 @@ export function useRoom(roomId: string, currentUserId?: string, currentUserName?
         })
 
         socket.on('room-updated', async () => {
-            console.log('🔄 [Room Socket] Received room-updated event')
+            console.log('[ROOM_SOCKET] Received room-updated event')
             loadRoomData()
         })
 

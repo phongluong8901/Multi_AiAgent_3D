@@ -10,6 +10,7 @@ import { RoomCard } from '@/components/room/RoomCard'
 import { CreateRoomModal } from '@/components/room/CreateRoomModal'
 import { toast } from 'sonner'
 import { useConfirm } from '@/context/ConfirmContext'
+import { Building } from 'lucide-react'
 
 export default function RoomsHubPage() {
     const me = getUser()
@@ -231,7 +232,7 @@ export default function RoomsHubPage() {
                         <p className="mt-1 text-2xl font-bold text-white">{rooms.length}</p>
                     </div>
                     <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                        🏢
+                        <Building className="w-5 h-5 text-blue-400" />
                     </div>
                 </div>
 

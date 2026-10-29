@@ -14,7 +14,7 @@ export function useSeller() {
         setLoading(true)
         setError(null)
         try {
-            const data = await sellerApi.getNodeDetails()
+            const data = (sellerApi as any).getNodeDetails ? await (sellerApi as any).getNodeDetails() : null
             setNodeDetails(data)
         } catch (e) {
             const msg = e instanceof Error ? e.message : 'Không tải được thông tin node'
@@ -48,7 +48,7 @@ export function useSeller() {
 
     const sendHeartbeat = async () => {
         try {
-            const result = await sellerApi.pingHeartbeat()
+            const result = (sellerApi as any).pingHeartbeat ? await (sellerApi as any).pingHeartbeat() : null
             return result
         } catch (e) {
             const msg = e instanceof Error ? e.message : 'Gửi heartbeat thất bại'

@@ -100,7 +100,17 @@ export class SellerNodeService {
         const nodeId = data.nodeId || `node_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
         const existing = await sellerNodeRepository.findByNodeId(nodeId);
         if (existing) {
-            return existing;
+            await sellerNodeRepository.updateSpecsAndStatus(nodeId, {
+                cpuCores: Number(data.cpuCores) || existing.cpuCores,
+                ramGB: Number(data.ramGB) || existing.ramGB,
+                gpuName: data.gpuName || existing.gpuName,
+                vramGB: Number(data.vramGB) || existing.vramGB,
+                coinsPerHour: Number(data.coinsPerHour) || existing.coinsPerHour,
+                status: "ONLINE",
+                hostedModel: data.hostedModel || existing.hostedModel,
+                modelDisplayName: data.modelDisplayName || existing.modelDisplayName,
+            });
+            return (await sellerNodeRepository.findByNodeId(nodeId)) || existing;
         }
 
         const lng = Number(data.lng) || (data.location?.coordinates?.[0] ?? 105.7828);

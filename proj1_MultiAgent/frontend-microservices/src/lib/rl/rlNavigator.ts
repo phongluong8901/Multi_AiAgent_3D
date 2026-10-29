@@ -13,33 +13,33 @@ export type Obstacle2D = {
  */
 export const OFFICE_OBSTACLES: Obstacle2D[] = [
     // 1. PHÒNG QUẢN LÝ & ĐIỀU HÀNH (Tây Bắc: X < 0, Z < 0)
-    { x: -9.5, z: -8.0, radius: 1.4, type: 'desk' },       // Bàn Giám đốc
-    { x: -5.5, z: -8.0, radius: 1.4, type: 'desk' },       // Bàn Điều phối
-    { x: -9.5, z: -4.0, radius: 1.4, type: 'desk' },       // Bàn Quản lý PM
-    { x: -5.5, z: -3.5, radius: 1.4, type: 'roundtable' }, // Bàn họp nhỏ
-    { x: -13.2, z: -5.25, radius: 1.1, type: 'cabinet' },  // Tủ tài liệu
-    { x: -13.2, z: -9.5, radius: 0.9, type: 'plant' },     // Cây cảnh
-    { x: -3.5, z: -9.5, radius: 0.9, type: 'plant' },      // Cây cảnh
+    { x: -9.5, z: -8.0, radius: 0.95, type: 'desk' },       // Bàn Giám đốc
+    { x: -5.5, z: -8.0, radius: 0.95, type: 'desk' },       // Bàn Điều phối
+    { x: -9.5, z: -4.0, radius: 0.95, type: 'desk' },       // Bàn Quản lý PM
+    { x: -5.5, z: -3.5, radius: 1.3, type: 'roundtable' }, // Bàn họp nhỏ
+    { x: -13.2, z: -5.25, radius: 1.0, type: 'cabinet' },  // Tủ tài liệu
+    { x: -13.2, z: -9.5, radius: 0.8, type: 'plant' },     // Cây cảnh
+    { x: -3.5, z: -9.5, radius: 0.8, type: 'plant' },      // Cây cảnh
 
     // 2. PHÒNG NGHIÊN CỨU & TÌM KIẾM (Đông Bắc: X > 0, Z < 0)
-    { x: 5.5, z: -8.0, radius: 1.4, type: 'desk' },        // Bàn AI Lab
-    { x: 9.5, z: -8.0, radius: 1.4, type: 'desk' },        // Bàn Web Crawler
-    { x: 5.5, z: -4.0, radius: 1.4, type: 'desk' },        // Bàn Knowledge Graph
-    { x: 9.5, z: -4.0, radius: 1.4, type: 'desk' },        // Bàn Data Research
-    { x: 13.2, z: -9.0, radius: 1.0, type: 'server' },     // Server Rack 1
-    { x: 13.2, z: -6.0, radius: 1.0, type: 'server' },     // Server Rack 2
-    { x: 13.2, z: -4.0, radius: 1.0, type: 'server' },     // Server Rack 3
-    { x: 3.5, z: -9.5, radius: 0.9, type: 'plant' },       // Cây cảnh
-    { x: 13.2, z: -1.2, radius: 0.9, type: 'plant' },      // Cây cảnh
+    { x: 5.5, z: -8.0, radius: 0.95, type: 'desk' },        // Bàn AI Lab
+    { x: 9.5, z: -8.0, radius: 0.95, type: 'desk' },        // Bàn Web Crawler
+    { x: 5.5, z: -4.0, radius: 0.95, type: 'desk' },        // Bàn Knowledge Graph
+    { x: 9.5, z: -4.0, radius: 0.95, type: 'desk' },        // Bàn Data Research
+    { x: 13.2, z: -9.0, radius: 0.9, type: 'server' },     // Server Rack 1
+    { x: 13.2, z: -6.0, radius: 0.9, type: 'server' },     // Server Rack 2
+    { x: 13.2, z: -4.0, radius: 0.9, type: 'server' },     // Server Rack 3
+    { x: 3.5, z: -9.5, radius: 0.8, type: 'plant' },       // Cây cảnh
+    { x: 13.2, z: -1.2, radius: 0.8, type: 'plant' },      // Cây cảnh
 
     // 3. PHÒNG PHÂN TÍCH & ĐÁNH GIÁ (Đông Nam: X > 0, Z > 0)
-    { x: 5.5, z: 4.0, radius: 1.4, type: 'desk' },         // Bàn Analyst
-    { x: 9.5, z: 4.0, radius: 1.4, type: 'desk' },         // Bàn Metric QA
-    { x: 5.5, z: 8.0, radius: 1.4, type: 'desk' },         // Bàn Evaluator
-    { x: 9.5, z: 8.0, radius: 1.4, type: 'desk' },         // Bàn Audit
-    { x: 13.2, z: 2.5, radius: 1.1, type: 'cabinet' },     // Tủ tài liệu
-    { x: 3.5, z: 9.5, radius: 0.9, type: 'plant' },        // Cây cảnh
-    { x: 13.2, z: 9.5, radius: 0.9, type: 'plant' },       // Cây cảnh
+    { x: 5.5, z: 4.0, radius: 0.95, type: 'desk' },         // Bàn Analyst
+    { x: 9.5, z: 4.0, radius: 0.95, type: 'desk' },         // Bàn Metric QA
+    { x: 5.5, z: 8.0, radius: 0.95, type: 'desk' },         // Bàn Evaluator
+    { x: 9.5, z: 8.0, radius: 0.95, type: 'desk' },         // Bàn Audit
+    { x: 13.2, z: 2.5, radius: 1.0, type: 'cabinet' },     // Tủ tài liệu
+    { x: 3.5, z: 9.5, radius: 0.8, type: 'plant' },        // Cây cảnh
+    { x: 13.2, z: 9.5, radius: 0.8, type: 'plant' },       // Cây cảnh
 
     // 4. KHU VỰC LOUNGE & NGHỈ NGƠI (Tây Nam: X < 0, Z > 0)
     { x: -9.0, z: 4.5, radius: 1.8, type: 'sofa' },        // Ghế Sofa
@@ -194,10 +194,15 @@ export function computeRLNavigationVelocity(
     let maxThreat = 0
 
     for (const obs of customObstacles) {
+        // Nếu điểm đích nằm ngay tại/rất gần vật cản này (ví dụ Agent đang đi về bàn làm việc của chính mình)
+        // thì không tạo lực đẩy cản trở việc tiếp cận đích.
+        const distGoalToObs = Math.hypot(targetPos.x - obs.x, targetPos.z - obs.z)
+        if (distGoalToObs < obs.radius + 0.3) continue
+
         const ox = currentPos.x - obs.x
         const oz = currentPos.z - obs.z
         const dist = Math.sqrt(ox * ox + oz * oz)
-        const safeDist = obs.radius + 0.55  // Bán kính an toàn bao gồm cả người Agent
+        const safeDist = obs.radius + 0.45  // Bán kính an toàn bao gồm cả người Agent
 
         if (dist < safeDist + DETECTION_RADIUS && dist > 0.05) {
             // Vector chuẩn hóa đẩy ra xa tâm vật thể

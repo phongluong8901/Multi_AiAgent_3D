@@ -2,31 +2,33 @@
 
 import Link from 'next/link'
 import { useAgents } from '@/hooks/useAgents'
+import { useLanguage } from '@/context/LanguageContext'
 
 export default function DashboardPage() {
     const { agents, connected } = useAgents()
+    const { t } = useLanguage()
 
     const working = agents.filter((a) => a.status === 'working').length
     const idle = agents.filter((a) => a.status === 'idle').length
     const blocked = agents.filter((a) => a.status === 'blocked').length
 
     return (
-        <div className="space-y-6">
-            <div className="flex items-center justify-between">
+        <div className="space-y-6 w-full max-w-full overflow-hidden">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
-                    <h1 className="text-xl font-semibold text-white">Dashboard</h1>
+                    <h1 className="text-xl font-semibold text-white tracking-tight">{t.nav.dashboard}</h1>
                     <p className="text-xs text-zinc-400 mt-1">
                         Hệ thống quản trị mạng lưới Agent & Tác vụ tự động
                     </p>
                 </div>
-                <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-zinc-800 bg-zinc-900 text-xs">
+                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border border-zinc-800 bg-zinc-900 text-xs w-fit">
                     <span className={`w-2 h-2 rounded-full ${connected ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
-                    <span className="text-zinc-300 font-medium">API: {connected ? 'Connected' : 'Disconnected'}</span>
+                    <span className="text-zinc-300 font-medium">API: {connected ? t.common.connected : t.common.disconnected}</span>
                 </div>
             </div>
 
             {/* Thống kê tổng quan */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                 <Card
                     label="Tổng số Agents"
                     value={agents.length}
@@ -68,7 +70,7 @@ export default function DashboardPage() {
             </div>
 
             {/* Các liên kết chức năng chính */}
-            <div className="grid md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <Link
                     href="/rooms"
                     className="rounded-2xl border border-blue-500/30 bg-gradient-to-br from-blue-950/40 to-zinc-900 p-5 hover:border-blue-500/60 transition shadow-lg shadow-blue-500/5 group"
@@ -86,8 +88,8 @@ export default function DashboardPage() {
                             </svg>
                         </div>
                     </div>
-                    <h2 className="font-bold text-white text-base group-hover:text-blue-400 transition">Team Rooms</h2>
-                    <p className="text-xs text-zinc-400 mt-1">Vào phòng chung kết hợp nhiều Agent & ra lệnh chéo</p>
+                    <h2 className="font-bold text-white text-base group-hover:text-blue-400 transition">{t.nav.teamRooms}</h2>
+                    <p className="text-xs text-zinc-400 mt-1">{t.nav.teamRoomsDesc}</p>
                 </Link>
 
                 <Link
@@ -106,8 +108,8 @@ export default function DashboardPage() {
                             </svg>
                         </div>
                     </div>
-                    <h2 className="font-semibold text-white text-base group-hover:text-zinc-200 transition">Office 3D</h2>
-                    <p className="text-xs text-zinc-400 mt-1">Xem văn phòng ảo 3D thời gian thực</p>
+                    <h2 className="font-semibold text-white text-base group-hover:text-zinc-200 transition">{t.nav.office3D}</h2>
+                    <p className="text-xs text-zinc-400 mt-1">{t.nav.office3DDesc}</p>
                 </Link>
 
                 <Link
@@ -126,13 +128,13 @@ export default function DashboardPage() {
                             </svg>
                         </div>
                     </div>
-                    <h2 className="font-semibold text-white text-base group-hover:text-zinc-200 transition">Quản Lý Agent</h2>
-                    <p className="text-xs text-zinc-400 mt-1">Cấu hình prompt, tools và mô hình</p>
+                    <h2 className="font-semibold text-white text-base group-hover:text-zinc-200 transition">{t.nav.agents}</h2>
+                    <p className="text-xs text-zinc-400 mt-1">{t.nav.agentsDesc}</p>
                 </Link>
             </div>
 
             {/* Danh sách Agents chi tiết */}
-            <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-5 space-y-3">
+            <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 sm:p-5 space-y-3">
                 <h2 className="text-sm font-semibold text-zinc-200">Danh Sách Agents Khả Dụng</h2>
                 <div className="space-y-2">
                     {agents.length === 0 && (
@@ -142,16 +144,16 @@ export default function DashboardPage() {
                         <Link
                             key={a.id}
                             href={`/agents/${a.id}`}
-                            className="flex items-center justify-between rounded-xl bg-zinc-950/60 border border-zinc-800/80 px-4 py-3 hover:border-zinc-700 hover:bg-zinc-950 transition"
+                            className="flex items-center justify-between gap-3 rounded-xl bg-zinc-950/60 border border-zinc-800/80 px-3.5 sm:px-4 py-3 hover:border-zinc-700 hover:bg-zinc-950 transition min-w-0"
                         >
-                            <div className="flex items-center gap-3">
+                            <div className="flex items-center gap-3 min-w-0 flex-1">
                                 <span
                                     className="w-3 h-3 rounded-full shrink-0 shadow-sm"
                                     style={{ backgroundColor: a.color }}
                                 />
-                                <span className="text-sm font-medium text-white">{a.name}</span>
+                                <span className="text-sm font-medium text-white truncate">{a.name}</span>
                             </div>
-                            <span className="text-[11px] font-mono px-2.5 py-0.5 rounded-md bg-zinc-900 text-zinc-400 border border-zinc-800 uppercase">
+                            <span className="text-[11px] font-mono px-2.5 py-0.5 rounded-md bg-zinc-900 text-zinc-400 border border-zinc-800 uppercase shrink-0">
                                 {a.status}
                             </span>
                         </Link>

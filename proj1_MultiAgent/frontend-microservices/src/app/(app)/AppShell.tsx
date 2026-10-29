@@ -2,12 +2,14 @@
 
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import React, { useEffect, useState, useRef } from 'react'
+import React, { useEffect, useState, useRef, useMemo } from 'react'
 import { clearSession, getUser, isLoggedIn, User } from '@/lib/auth'
 import { notify } from '@/lib/toast'
 import Sidebar from './Siderbar'
 import FloatingRoomChatBubble from '@/components/chat/FloatingRoomChatBubble'
 import ThemeToggle from '@/components/ui/ThemeToggle'
+import LanguageToggle from '@/components/ui/LanguageToggle'
+import { useLanguage } from '@/context/LanguageContext'
 import { Menu, X } from 'lucide-react'
 import {
     IconActivity,
@@ -47,154 +49,155 @@ interface NavGroup {
     items: NavItem[]
 }
 
-const NAV_GROUPS: NavGroup[] = [
-    {
-        id: 'workspaces',
-        label: 'Không Gian & Phòng',
-        icon: IconBuilding,
-        items: [
-            {
-                href: '/rooms',
-                label: 'Team Rooms',
-                desc: 'Phòng họp nhóm & điều phối đa Agent',
-                badge: 'Live',
-                icon: IconUsers,
-            },
-            {
-                href: '/office',
-                label: '3D Office',
-                desc: 'Không gian văn phòng 3D trực quan',
-                icon: IconBuilding,
-            },
-            {
-                href: '/chat',
-                label: 'Chat Trung Tâm',
-                desc: 'Nhắn tin trực tiếp & lịch sử hội thoại',
-                icon: IconMessageSquare,
-            },
-            {
-                href: '/store',
-                label: 'Agent Store',
-                desc: 'Chợ mua bán & thuê nhân sự AI',
-                badge: 'Shop',
-                icon: IconShoppingBag,
-            },
-        ],
-    },
-    {
-        id: 'studios',
-        label: '3D Studio & Nhúng',
-        icon: IconCpu,
-        items: [
-            {
-                href: '/firmware',
-                label: 'Firmware 3D (ESP32)',
-                desc: 'Nạp Agent vào ESP32/ESP32-S3 & Stream Room',
-                badge: 'IoT AI',
-                icon: IconCpu,
-            },
-            {
-                href: '/lab',
-                label: 'Agent Lab 3D',
-                desc: 'Phòng thí nghiệm sinh code & kiểm thử',
-                icon: IconSparkles,
-            },
-            {
-                href: '/training',
-                label: 'RL Training 3D',
-                desc: 'Huấn luyện học tăng cường PPO / DQN / SAC né vật cản',
-                icon: IconTarget,
-            },
-            {
-                href: '/training/body',
-                label: 'RL Locomotion 3D',
-                desc: 'Dạy robot 4 chân / custom body tập đứng & bước đi',
-                badge: 'Body AI',
-                icon: IconBot,
-            },
-            {
-                href: '/maps/setup',
-                label: 'Map Studio 3D',
-                desc: 'Thiết kế bản đồ & bố trí vật thể 3D',
-                icon: IconMap,
-            },
-            {
-                href: '/agent-body-studio',
-                label: 'Agent Body Studio',
-                desc: 'Thiết kế thân robot, khớp nối để huấn luyện',
-                badge: 'Joints',
-                icon: IconBot,
-            },
-            {
-                href: '/games',
-                label: 'Agent Games 3D',
-                desc: 'Đấu trường mô phỏng & tương tác 3D',
-                icon: IconGameController,
-            },
-        ],
-    },
-    {
-        id: 'ai_core',
-        label: 'Cấu Hình AI',
-        icon: IconBot,
-        items: [
-            {
-                href: '/agents',
-                label: 'Agents',
-                desc: 'Quản lý danh sách & vai trò AI Agent',
-                icon: IconBot,
-            },
-            {
-                href: '/prompts',
-                label: 'Prompts',
-                desc: 'Thiết lập System Prompt & chỉ dẫn chuyên môn',
-                icon: IconFileText,
-            },
-            {
-                href: '/tools',
-                label: 'Tools',
-                desc: 'Kho công cụ thực thi & tích hợp API',
-                icon: IconWrench,
-            },
-            {
-                href: '/models',
-                label: 'Models',
-                desc: 'Cấu hình Gemini, OpenAI, Claude & Local Ollama',
-                icon: IconLayers,
-            },
-        ],
-    },
-]
-
-const ACCOUNT_ITEMS: NavItem[] = [
-    {
-        href: '/profile',
-        label: 'Hồ Sơ Cá Nhân',
-        desc: 'Thông tin tài khoản & bảo mật',
-        icon: IconUser,
-    },
-    {
-        href: '/seller-profile',
-        label: 'Hồ Sơ Seller (Host GPU)',
-        desc: 'Quản lý trạm cho thuê mô hình AI cục bộ',
-        icon: IconServer,
-    },
-    {
-        href: '/admin-dashboard',
-        label: 'Admin Dashboard',
-        desc: 'Giám sát toàn bộ hệ thống Microservices',
-        icon: IconShield,
-    },
-]
-
 export default function AppShell({ children }: { children: React.ReactNode }) {
     const pathname = usePathname()
     const router = useRouter()
+    const { t } = useLanguage()
     const [user, setUser] = useState<User | null>(null)
-    const [ready, setReady] = useState(false)
+    const [, setReady] = useState(false)
     const [openGroupId, setOpenGroupId] = useState<string | null>(null)
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
     const navRef = useRef<HTMLDivElement | null>(null)
+
+    const navGroups = useMemo<NavGroup[]>(() => [
+        {
+            id: 'workspaces',
+            label: t.nav.workspaces,
+            icon: IconBuilding,
+            items: [
+                {
+                    href: '/rooms',
+                    label: t.nav.teamRooms,
+                    desc: t.nav.teamRoomsDesc,
+                    badge: 'Live',
+                    icon: IconUsers,
+                },
+                {
+                    href: '/office',
+                    label: t.nav.office3D,
+                    desc: t.nav.office3DDesc,
+                    icon: IconBuilding,
+                },
+                {
+                    href: '/chat',
+                    label: t.nav.centralChat,
+                    desc: t.nav.centralChatDesc,
+                    icon: IconMessageSquare,
+                },
+                {
+                    href: '/store',
+                    label: t.nav.agentStore,
+                    desc: t.nav.agentStoreDesc,
+                    badge: 'Shop',
+                    icon: IconShoppingBag,
+                },
+            ],
+        },
+        {
+            id: 'studios',
+            label: t.nav.studios,
+            icon: IconCpu,
+            items: [
+                {
+                    href: '/firmware',
+                    label: t.nav.firmware,
+                    desc: t.nav.firmwareDesc,
+                    badge: 'IoT AI',
+                    icon: IconCpu,
+                },
+                {
+                    href: '/lab',
+                    label: t.nav.agentLab,
+                    desc: t.nav.agentLabDesc,
+                    icon: IconSparkles,
+                },
+                {
+                    href: '/training',
+                    label: t.nav.rlTraining,
+                    desc: t.nav.rlTrainingDesc,
+                    icon: IconTarget,
+                },
+                {
+                    href: '/training/body',
+                    label: t.nav.rlLocomotion,
+                    desc: t.nav.rlLocomotionDesc,
+                    badge: 'Body AI',
+                    icon: IconBot,
+                },
+                {
+                    href: '/maps/setup',
+                    label: t.nav.mapStudio,
+                    desc: t.nav.mapStudioDesc,
+                    icon: IconMap,
+                },
+                {
+                    href: '/agent-body-studio',
+                    label: t.nav.agentBodyStudio,
+                    desc: t.nav.agentBodyStudioDesc,
+                    badge: 'Joints',
+                    icon: IconBot,
+                },
+                {
+                    href: '/games',
+                    label: t.nav.games3D,
+                    desc: t.nav.games3DDesc,
+                    icon: IconGameController,
+                },
+            ],
+        },
+        {
+            id: 'ai_core',
+            label: t.nav.aiConfig,
+            icon: IconBot,
+            items: [
+                {
+                    href: '/agents',
+                    label: t.nav.agents,
+                    desc: t.nav.agentsDesc,
+                    icon: IconBot,
+                },
+                {
+                    href: '/prompts',
+                    label: t.nav.prompts,
+                    desc: t.nav.promptsDesc,
+                    icon: IconFileText,
+                },
+                {
+                    href: '/tools',
+                    label: t.nav.tools,
+                    desc: t.nav.toolsDesc,
+                    icon: IconWrench,
+                },
+                {
+                    href: '/models',
+                    label: t.nav.models,
+                    desc: t.nav.modelsDesc,
+                    icon: IconLayers,
+                },
+            ],
+        },
+    ], [t])
+
+    const accountItems = useMemo<NavItem[]>(() => [
+        {
+            href: '/profile',
+            label: t.nav.profile,
+            desc: t.nav.profileDesc,
+            icon: IconUser,
+        },
+        {
+            href: '/seller-profile',
+            label: t.nav.sellerProfile,
+            desc: t.nav.sellerProfileDesc,
+            icon: IconServer,
+        },
+        {
+            href: '/admin-dashboard',
+            label: t.nav.adminDashboard,
+            desc: t.nav.adminDashboardDesc,
+            icon: IconShield,
+        },
+    ], [t])
 
     useEffect(() => {
         if (!isLoggedIn()) {
@@ -228,30 +231,22 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         router.replace('/login')
     }
 
-    if (!ready) {
-        return (
-            <div className="min-h-screen bg-background flex items-center justify-center text-muted-foreground text-sm font-medium">
-                Loading...
-            </div>
-        )
-    }
-
     const isItemActive = (href: string) =>
         pathname === href || (href !== '/dashboard' && pathname.startsWith(href))
 
     return (
-        <div className="min-h-screen bg-background text-foreground flex flex-col transition-colors duration-200">
+        <div className="min-h-screen w-full max-w-full overflow-x-hidden bg-background text-foreground flex flex-col transition-colors duration-200">
             {/* Top Header Ngang Gọn Gàng Theo Cụm Chức Năng */}
-            <header className="h-14 border-b border-border/80 bg-card/85 backdrop-blur-xl sticky top-0 z-50">
+            <header className="h-14 border-b border-border/80 bg-card/85 backdrop-blur-xl sticky top-0 z-50 w-full">
                 <div
                     ref={navRef}
-                    className="h-full max-w-7xl mx-auto px-4 flex items-center justify-between gap-4"
+                    className="h-full max-w-7xl mx-auto px-3 sm:px-4 flex items-center justify-between gap-2 sm:gap-4"
                 >
                     {/* Cột Trái: Logo + Cụm Điều Hướng Phân Nhóm */}
-                    <div className="flex items-center gap-5">
+                    <div className="flex items-center gap-3 sm:gap-5 min-w-0">
                         <Link
                             href="/dashboard"
-                            className="font-semibold tracking-tight flex items-center gap-2.5 shrink-0 group"
+                            className="font-semibold tracking-tight flex items-center gap-2 sm:gap-2.5 shrink-0 group"
                         >
                             <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-600/30 to-indigo-600/20 border border-blue-500/40 flex items-center justify-center text-blue-400 shadow-sm group-hover:border-blue-400 transition">
                                 <IconZap className="w-4 h-4" />
@@ -260,15 +255,15 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                                 <span className="text-sm font-bold text-foreground leading-none">
                                     Multi-Agent OS
                                 </span>
-                                <span className="text-[10px] text-muted-foreground font-medium mt-0.5">
+                                <span className="text-[10px] text-muted-foreground font-medium mt-0.5 hidden xs:inline-block">
                                     3D Room & Embedded AI
                                 </span>
                             </div>
                         </Link>
 
-                        <div className="h-4 w-px bg-border hidden sm:block" />
+                        <div className="h-4 w-px bg-border hidden xl:block" />
 
-                        <nav className="hidden md:flex items-center gap-1.5">
+                        <nav className="hidden xl:flex items-center gap-1.5">
                             {/* Nút Dashboard đơn lẻ */}
                             <Link
                                 href="/dashboard"
@@ -279,11 +274,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                                 }`}
                             >
                                 <IconActivity className="w-3.5 h-3.5" />
-                                <span>Tổng Quan</span>
+                                <span>{t.nav.dashboard}</span>
                             </Link>
 
                             {/* Các cụm nhóm chức năng (Dropdown) */}
-                            {NAV_GROUPS.map((group) => {
+                            {navGroups.map((group) => {
                                 const GroupIcon = group.icon
                                 const activeChild = group.items.find((i) => isItemActive(i.href))
                                 const isOpen = openGroupId === group.id
@@ -356,7 +351,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                                                                             </span>
                                                                         )}
                                                                     </div>
-                                                                    <p className="text-[11px] text-muted-foreground leading-snug mt-0.5">
+                                                                    <p className="text-[11px] text-muted-foreground leading-snug mt-0.5 line-clamp-1">
                                                                         {item.desc}
                                                                     </p>
                                                                 </div>
@@ -372,23 +367,23 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                         </nav>
                     </div>
 
-                    {/* Cột Phải: Truy cập nhanh Team Rooms + Menu Tài Khoản & Quản Trị */}
-                    <div className="flex items-center gap-2.5">
+                    {/* Cột Phải: Phím tắt nhanh + Đa ngôn ngữ + Theme Switcher + Menu Tài Khoản */}
+                    <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
                         <Link
                             href="/rooms"
-                            className={`hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition ${
+                            className={`hidden 2xl:flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition ${
                                 pathname.startsWith('/rooms')
                                     ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300'
                                     : 'bg-secondary hover:bg-secondary/80 border-border text-foreground'
                             }`}
                         >
                             <IconUsers className="w-3.5 h-3.5 text-emerald-400" />
-                            <span>Phòng Họp</span>
+                            <span>{t.nav.teamRooms}</span>
                         </Link>
 
                         <Link
                             href="/firmware"
-                            className={`hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition ${
+                            className={`hidden 2xl:flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition ${
                                 pathname.startsWith('/firmware')
                                     ? 'bg-primary/20 border-primary/40 text-primary'
                                     : 'bg-secondary hover:bg-secondary/80 border-border text-foreground'
@@ -397,6 +392,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                             <IconCpu className="w-3.5 h-3.5 text-primary" />
                             <span>Firmware</span>
                         </Link>
+
+                        {/* Language Switcher Toggle */}
+                        <LanguageToggle />
 
                         {/* Theme Switcher Toggle */}
                         <ThemeToggle />
@@ -408,13 +406,13 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                                 onClick={() =>
                                     setOpenGroupId((prev) => (prev === 'account' ? null : 'account'))
                                 }
-                                className="flex items-center gap-2 bg-secondary/80 hover:bg-secondary border border-border px-3 py-1.5 rounded-xl text-xs text-foreground transition"
+                                className="flex items-center gap-1.5 sm:gap-2 bg-secondary/80 hover:bg-secondary border border-border px-2.5 sm:px-3 py-1.5 rounded-xl text-xs text-foreground transition"
                             >
                                 <div className="w-5 h-5 rounded-full bg-primary/20 border border-primary/40 flex items-center justify-center text-primary">
                                     <IconUser className="w-3 h-3" />
                                 </div>
-                                <span className="font-medium max-w-[110px] sm:max-w-[130px] truncate">
-                                    {user?.name ?? user?.email}
+                                <span className="font-medium max-w-[70px] sm:max-w-[120px] truncate hidden xs:inline-block">
+                                    {user?.name ?? user?.email ?? 'Tài khoản'}
                                 </span>
                                 <IconChevronDown
                                     className={`w-3.5 h-3.5 text-muted-foreground transition-transform ${
@@ -430,12 +428,12 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                                             {user?.name || 'Thành viên'}
                                         </div>
                                         <div className="text-[11px] text-muted-foreground truncate">
-                                            {user?.email}
+                                            {user?.email || 'user@local'}
                                         </div>
                                     </div>
 
                                     <div className="space-y-1">
-                                        {ACCOUNT_ITEMS.map((item) => {
+                                        {accountItems.map((item) => {
                                             const ItemIcon = item.icon
                                             const active = isItemActive(item.href)
                                             return (
@@ -467,18 +465,18 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                                             className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-xs font-medium text-destructive hover:bg-destructive/10 transition"
                                         >
                                             <IconLogOut className="w-4 h-4" />
-                                            <span>Đăng xuất tài khoản</span>
+                                            <span>{t.common.logout}</span>
                                         </button>
                                     </div>
                                 </div>
                             )}
                         </div>
 
-                        {/* Hamburger Button trên Mobile */}
+                        {/* Hamburger Button trên Mobile & Tablet (< xl) */}
                         <button
                             type="button"
                             onClick={() => setMobileMenuOpen(true)}
-                            className="md:hidden w-8 h-8 rounded-xl bg-secondary/80 hover:bg-secondary border border-border text-foreground flex items-center justify-center transition"
+                            className="xl:hidden w-8 h-8 rounded-xl bg-secondary/80 hover:bg-secondary border border-border text-foreground flex items-center justify-center transition"
                             aria-label="Menu"
                         >
                             <Menu className="w-4 h-4" />
@@ -487,9 +485,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 </div>
             </header>
 
-            {/* Mobile Drawer Navigation (Side-over Sheet) */}
+            {/* Mobile / Tablet Drawer Navigation (Side-over Sheet) */}
             {mobileMenuOpen && (
-                <div className="fixed inset-0 z-50 md:hidden flex">
+                <div className="fixed inset-0 z-50 xl:hidden flex">
                     {/* Backdrop */}
                     <div
                         className="fixed inset-0 bg-black/70 backdrop-blur-sm transition-opacity"
@@ -513,10 +511,13 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                             </button>
                         </div>
 
-                        {/* Theme Toggle & User Info */}
+                        {/* Theme & Language Switchers */}
                         <div className="py-3 border-b border-border flex items-center justify-between">
-                            <span className="text-xs text-muted-foreground">Chủ đề:</span>
-                            <ThemeToggle />
+                            <span className="text-xs text-muted-foreground">Tuỳ chọn:</span>
+                            <div className="flex items-center gap-2">
+                                <LanguageToggle />
+                                <ThemeToggle />
+                            </div>
                         </div>
 
                         {/* Navigation Groups */}
@@ -530,10 +531,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                                 }`}
                             >
                                 <IconActivity className="w-4 h-4" />
-                                <span>Tổng Quan (Dashboard)</span>
+                                <span>{t.nav.dashboard}</span>
                             </Link>
 
-                            {NAV_GROUPS.map((group) => (
+                            {navGroups.map((group) => (
                                 <div key={group.id} className="space-y-1">
                                     <div className="px-2 text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
                                         {group.label}
@@ -576,7 +577,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                                     }`}
                                 >
                                     <IconServer className="w-4 h-4 shrink-0 text-primary" />
-                                    <span>Kiểm Tra Node AI</span>
+                                    <span>{t.nav.nodeChecker}</span>
                                 </Link>
                                 <Link
                                     href="/user-models"
@@ -586,7 +587,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                                     }`}
                                 >
                                     <IconSparkles className="w-4 h-4 shrink-0 text-indigo-400" />
-                                    <span>Đối Tác Mô Hình (3D)</span>
+                                    <span>{t.nav.userModels}</span>
                                 </Link>
                                 <Link
                                     href="/seller"
@@ -596,7 +597,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                                     }`}
                                 >
                                     <IconShoppingBag className="w-4 h-4 shrink-0 text-amber-400" />
-                                    <span>Quản Lý Cho Thuê (Seller)</span>
+                                    <span>{t.nav.sellerManage}</span>
                                 </Link>
                                 <Link
                                     href="/owner"
@@ -606,7 +607,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                                     }`}
                                 >
                                     <IconCpu className="w-4 h-4 shrink-0 text-emerald-400" />
-                                    <span>Thuê AI Cho Agent (Owner)</span>
+                                    <span>{t.nav.ownerRent}</span>
                                 </Link>
                             </div>
                         </div>
@@ -618,7 +619,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                                 className="w-full flex items-center justify-center gap-2 py-2 rounded-xl bg-destructive/15 border border-destructive/25 text-destructive text-xs font-semibold hover:bg-destructive/25 transition"
                             >
                                 <IconLogOut className="w-4 h-4" />
-                                <span>Đăng Xuất</span>
+                                <span>{t.common.logout}</span>
                             </button>
                         </div>
                     </div>
@@ -626,10 +627,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             )}
 
             {/* Layout chính kết hợp Sidebar dọc và Main Content */}
-            <div className="flex flex-1">
+            <div className="flex flex-1 w-full min-w-0 overflow-x-hidden">
                 <Sidebar />
                 <main
-                    className={`flex-1 pb-16 md:pb-0 ${
+                    className={`flex-1 min-w-0 w-full overflow-x-hidden pb-16 md:pb-0 ${
                         pathname.startsWith('/office') ||
                         pathname.startsWith('/maps/setup') ||
                         pathname.startsWith('/agent-body-studio') ||
@@ -653,7 +654,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                     }`}
                 >
                     <IconActivity className="w-4 h-4" />
-                    <span className="mt-0.5">Tổng quan</span>
+                    <span className="mt-0.5">{t.nav.dashboard}</span>
                 </Link>
 
                 <Link
@@ -663,7 +664,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                     }`}
                 >
                     <IconUsers className="w-4 h-4" />
-                    <span className="mt-0.5">Phòng họp</span>
+                    <span className="mt-0.5">{t.nav.teamRooms}</span>
                 </Link>
 
                 <Link
@@ -696,7 +697,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 </button>
             </nav>
 
-            {/* Nút Bubble Float Chat toàn cục giúp chat trực tiếp với mọi Room ngay từ bên ngoài */}
+            {/* Nút Bubble Float Chat toàn cục */}
             <FloatingRoomChatBubble />
         </div>
     )

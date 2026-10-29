@@ -1,6 +1,6 @@
-import { agentBodiesApi, CloudAgentBody } from '@/lib/api/agentBodies'
 'use client'
 
+import { agentBodiesApi, CloudAgentBody } from '@/lib/api/agentBodies'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
@@ -169,7 +169,7 @@ export default function AgentDetailPage() {
                     setCustomBodies(res.data)
                 }
             })
-            .catch(() => {})
+            .catch(() => { })
     }, [id])
 
     // DnD sensors
@@ -249,9 +249,9 @@ export default function AgentDetailPage() {
             // Lưu model preference & form chassis phía client
             if (typeof window !== 'undefined') {
                 localStorage.setItem(`agent_form:${id}`, agentForm)
-            if (agentForm === 'custom' && bodyId) {
-                localStorage.setItem(`agent_body_id:${id}`, bodyId)
-            }
+                if (agentForm === 'custom' && bodyId) {
+                    localStorage.setItem(`agent_body_id:${id}`, bodyId)
+                }
                 localStorage.setItem(`agent_model:${id}`, chosenModel)
             }
 
@@ -482,11 +482,10 @@ export default function AgentDetailPage() {
                                                         setColor(FORM_SIGNATURE_COLORS[nextForm])
                                                     }
                                                 }}
-                                                className={`p-2.5 rounded-xl border text-left transition flex flex-col justify-between ${
-                                                    active
+                                                className={`p-2.5 rounded-xl border text-left transition flex flex-col justify-between ${active
                                                         ? 'bg-zinc-800/90 border-[#76b900] text-white shadow-[0_0_15px_rgba(118,185,0,0.2)]'
                                                         : 'bg-zinc-800/40 border-zinc-700/60 text-zinc-400 hover:text-white hover:bg-zinc-800 ' + f.glow
-                                                }`}
+                                                    }`}
                                             >
                                                 <div className="flex items-center justify-between">
                                                     <div className={`p-1.5 rounded-lg ${active ? 'bg-[#76b900]/20 text-[#76b900]' : 'bg-zinc-700/40 text-zinc-400'}`}>
@@ -618,11 +617,10 @@ export default function AgentDetailPage() {
                                                     type="button"
                                                     title={p.label}
                                                     onClick={() => setColor(p.hex)}
-                                                    className={`w-6 h-6 rounded-full border transition flex items-center justify-center ${
-                                                        isSelectedColor
+                                                    className={`w-6 h-6 rounded-full border transition flex items-center justify-center ${isSelectedColor
                                                             ? 'border-white scale-110 shadow-[0_0_8px_rgba(255,255,255,0.4)]'
                                                             : 'border-zinc-700 hover:scale-105'
-                                                    }`}
+                                                        }`}
                                                     style={{ backgroundColor: p.hex }}
                                                 >
                                                     {isSelectedColor && (

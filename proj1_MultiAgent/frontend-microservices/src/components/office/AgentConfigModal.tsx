@@ -247,9 +247,10 @@ export default function AgentConfigModal({
                                             return (
                                                 <span
                                                     key={idx}
-                                                    className="px-2 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/25 text-amber-300 font-mono text-[10px]"
+                                                    className="px-2 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/25 text-amber-300 font-mono text-[10px] inline-flex items-center gap-1"
                                                 >
-                                                    ⚙️ {name}
+                                                    <IconWrench className="w-2.5 h-2.5 text-amber-400" />
+                                                    {name}
                                                 </span>
                                             )
                                         })
@@ -293,13 +294,13 @@ export default function AgentConfigModal({
 
                         <div className="flex items-center justify-between pt-1">
                             <p className="text-[10px] text-zinc-400 italic">
-                                ✓ Tự động né vật cản tiếp tuyến khi bạn click chọn điểm đến trên sàn.
+                                [RL] Tự động né vật cản tiếp tuyến khi bạn click chọn điểm đến trên sàn.
                             </p>
                             <Link
                                 href="/training"
                                 className="text-[10px] text-blue-400 hover:text-blue-300 underline flex items-center gap-1 shrink-0 ml-2"
                             >
-                                <span>Mở phòng Huấn luyện RL →</span>
+                                <span>Mở phòng Huấn luyện RL -&gt;</span>
                             </Link>
                         </div>
                     </div>

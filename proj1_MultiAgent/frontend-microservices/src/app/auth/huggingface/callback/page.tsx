@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
+import { Sparkles } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 
 function HuggingfaceCallbackInner() {
@@ -38,8 +39,8 @@ function HuggingfaceCallbackInner() {
     return (
         <div className="min-h-screen bg-zinc-950 flex items-center justify-center p-4">
             <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-8 max-w-md w-full text-center shadow-xl">
-                <div className="w-12 h-12 mx-auto mb-4 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
-                    <span className="text-2xl">🤗</span>
+                <div className="w-12 h-12 mx-auto mb-4 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
+                    <Sparkles className="w-6 h-6" />
                 </div>
                 <h1 className="text-lg font-semibold text-white mb-2">Hugging Face OAuth</h1>
                 {(loading || (!error && !localError)) && (

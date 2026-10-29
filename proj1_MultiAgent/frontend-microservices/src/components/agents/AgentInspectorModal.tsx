@@ -1,22 +1,24 @@
 'use client'
 
-import React from 'react'
+import React, { useState, useEffect } from 'react'
 import Link from 'next/link'
 import {
     Bot,
     Cpu,
     Wrench,
     Compass,
-    ShieldCheck,
     Sparkles,
     MessageSquare,
     ExternalLink,
     X,
     Activity,
+    CheckCircle2,
+    Check,
     Layers,
-    CheckCircle2
+    Award
 } from 'lucide-react'
 import { Agent as AgentType } from '@/lib/api'
+import { getAgentRLConfig, AgentRLConfig, ALGORITHM_LABELS } from '@/lib/rl/agentRLProfile'
 
 type AgentInspectorModalProps = {
     agent: AgentType | null
@@ -32,9 +34,34 @@ export default function AgentInspectorModal({
     isOpen,
     onClose,
     onOpenChat,
-    currentAlgorithm = 'ppo',
-    mapName = 'office'
+    currentAlgorithm,
+    mapName: propMapName
 }: AgentInspectorModalProps) {
+    const [rlConfig, setRlConfig] = useState<AgentRLConfig | null>(null)
+
+    useEffect(() => {
+        if (!agent) return
+
+        // Nạp cấu hình RL đã lưu của riêng agent này
+        const config = getAgentRLConfig(agent.id)
+        if (currentAlgorithm) {
+            config.algorithm = currentAlgorithm as any
+            config.algorithmName = ALGORITHM_LABELS[currentAlgorithm.toLowerCase()] || currentAlgorithm.toUpperCase()
+        }
+        if (propMapName) {
+            config.mapName = propMapName === 'grid' ? 'grid' : 'office'
+        }
+        setRlConfig(config)
+
+        const handleUpdate = (e: any) => {
+            if (e.detail?.agentId === agent.id) {
+                setRlConfig(e.detail.config)
+            }
+        }
+        window.addEventListener('agent-rl-updated', handleUpdate)
+        return () => window.removeEventListener('agent-rl-updated', handleUpdate)
+    }, [agent?.id, currentAlgorithm, propMapName])
+
     if (!isOpen || !agent) return null
 
     // Nhận diện Model LLM
@@ -43,16 +70,9 @@ export default function AgentInspectorModal({
         ? agent.tools
         : ['workflow_planner_tool', 'web_search_tool', 'text_summarizer']
 
-    const algoLabels: Record<string, string> = {
-        ppo: 'PPO (Proximal Policy Optimization - Actor Critic)',
-        sac: 'SAC (Soft Actor-Critic - Max Entropy)',
-        sac2: 'SAC v2 (Auto-Alpha + Twin Critics)',
-        dreamer: 'Dreamer (World Models + Latent Rollouts)',
-        muzero: 'MuZero (DeepMind MCTS Lookahead Planning)',
-        dqn: 'DQN (Deep Q-Network + Replay)',
-        q_learning: 'Q-Learning (Tabular Baseline)'
-    }
-    const algoLabel = algoLabels[currentAlgorithm.toLowerCase()] || currentAlgorithm.toUpperCase()
+    const activeConfig = rlConfig || getAgentRLConfig(agent.id)
+    const effectiveAlgoName = activeConfig.algorithmName || ALGORITHM_LABELS[activeConfig.algorithm] || activeConfig.algorithm?.toUpperCase()
+    const effectiveMapName = activeConfig.mapName === 'grid' ? 'Cyber Grid Arena' : 'Office 3D Room Map'
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-fadeIn">
@@ -62,6 +82,7 @@ export default function AgentInspectorModal({
                 <button
                     onClick={onClose}
                     className="absolute top-5 right-5 p-2 rounded-full bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-800 transition"
+                    title="Đóng"
                 >
                     <X className="w-4 h-4" />
                 </button>
@@ -176,47 +197,70 @@ export default function AgentInspectorModal({
                                 <span className="text-purple-300 font-semibold">{agent.body_id || agent.bodyId || 'Custom Kinematic Model'}</span>
                             </div>
                             <p className="text-[10px] text-zinc-400">
-                                ✓ Cấu trúc khớp URDF (Revolute / Continuous / Prismatic) sẵn sàng nạp hành động motor khi học tăng cường RL.
+                                [URDF] Cấu trúc khớp URDF (Revolute / Continuous / Prismatic) sẵn sàng nạp hành động motor khi học tăng cường RL.
                             </p>
                         </div>
                     )}
 
                     {/* Mục Reinforcement Learning Policy */}
-                    <div className="p-3.5 rounded-2xl bg-gradient-to-r from-blue-950/40 to-indigo-950/40 border border-blue-500/30 space-y-2">
+                    <div className="p-3.5 rounded-2xl bg-gradient-to-r from-blue-950/40 to-indigo-950/40 border border-blue-500/30 space-y-2.5">
                         <div className="flex items-center justify-between">
                             <span className="font-semibold text-blue-300 flex items-center gap-2">
                                 <Compass className="w-4 h-4 text-blue-400" />
                                 Thuật toán RL & Điều hướng Nạp vào {agent.name}
                             </span>
-                            <span className="px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold flex items-center gap-1">
-                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                                ACTIVE STEERING
-                            </span>
+                            <div className="flex items-center gap-2">
+                                {activeConfig.policyName && (
+                                    <span className="px-2 py-0.5 rounded-md bg-blue-500/15 text-blue-300 border border-blue-500/30 text-[10px] font-mono font-medium">
+                                        {activeConfig.policyName}
+                                    </span>
+                                )}
+                                <span className="px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold flex items-center gap-1">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                                    ACTIVE STEERING
+                                </span>
+                            </div>
                         </div>
 
                         <div className="grid grid-cols-2 gap-2 text-[11px] pt-1 text-zinc-300">
                             <div className="p-2 rounded-xl bg-zinc-900/70 border border-zinc-800">
                                 <span className="text-zinc-500 block text-[10px]">Thuật toán Huấn luyện</span>
-                                <strong className="text-white">{algoLabel}</strong>
+                                <strong className="text-white">{effectiveAlgoName}</strong>
                             </div>
                             <div className="p-2 rounded-xl bg-zinc-900/70 border border-zinc-800">
                                 <span className="text-zinc-500 block text-[10px]">Cảm biến Không gian</span>
-                                <strong className="text-cyan-400">8-Beam 13D Continuous LIDAR</strong>
+                                <strong className="text-cyan-400">{activeConfig.sensorType || '8-Beam 13D Continuous LIDAR'}</strong>
                             </div>
                             <div className="p-2 rounded-xl bg-zinc-900/70 border border-zinc-800">
                                 <span className="text-zinc-500 block text-[10px]">Chế độ Né tránh</span>
-                                <strong className="text-emerald-400">Tiếp tuyến Né Bàn Ghế & Tường</strong>
+                                <strong className="text-emerald-400">{activeConfig.steeringMode || 'Tiếp tuyến Né Bàn Ghế & Tường'}</strong>
                             </div>
                             <div className="p-2 rounded-xl bg-zinc-900/70 border border-zinc-800">
                                 <span className="text-zinc-500 block text-[10px]">Môi trường Bản đồ</span>
-                                <strong className="text-indigo-400">
-                                    {mapName === 'grid' ? 'Cyber Grid Arena' : 'Office 3D Room Map'}
-                                </strong>
+                                <strong className="text-indigo-400">{effectiveMapName}</strong>
                             </div>
                         </div>
 
-                        <p className="text-[10px] text-zinc-400 pt-1">
-                            ✓ Robot <strong className="text-zinc-200">{agent.name}</strong> ({agent.id}) tự nhận diện mép bàn, ghế sofa, vách kính và tự động uốn lượn né vật cản khi được chỉ định đích.
+                        {/* Thống kê Tri thức Huấn luyện đã nạp */}
+                        <div className="flex items-center justify-between px-2.5 py-1.5 rounded-xl bg-zinc-900/50 border border-zinc-800/80 text-[11px] text-zinc-400">
+                            <span className="flex items-center gap-1.5">
+                                <Activity className="w-3.5 h-3.5 text-blue-400" />
+                                <span>Episodes: <strong className="text-zinc-200">{activeConfig.episodes ?? 300}</strong></span>
+                            </span>
+                            <span>•</span>
+                            <span className="flex items-center gap-1.5">
+                                <Layers className="w-3.5 h-3.5 text-indigo-400" />
+                                <span>States: <strong className="text-zinc-200">{activeConfig.statesLearned ?? 0}</strong></span>
+                            </span>
+                            <span>•</span>
+                            <span className="flex items-center gap-1.5">
+                                <Award className="w-3.5 h-3.5 text-emerald-400" />
+                                <span>Thành công: <strong className="text-emerald-300">{activeConfig.successRate ?? 95}%</strong></span>
+                            </span>
+                        </div>
+
+                        <p className="text-[10px] text-zinc-400 pt-0.5">
+                            [RL] Robot <strong className="text-zinc-200">{agent.name}</strong> ({agent.id}) tự nhận diện mép bàn, ghế sofa, vách kính và tự động uốn lượn né vật cản khi được chỉ định đích.
                         </p>
                     </div>
                 </div>
@@ -224,7 +268,7 @@ export default function AgentInspectorModal({
                 {/* 3. Action Buttons */}
                 <div className="flex items-center justify-between gap-3 pt-2">
                     <Link
-                        href="/training"
+                        href={`/training?agent=${encodeURIComponent(agent.id)}`}
                         className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-xs font-semibold text-zinc-200 transition"
                     >
                         <Compass className="w-4 h-4 text-blue-400" />

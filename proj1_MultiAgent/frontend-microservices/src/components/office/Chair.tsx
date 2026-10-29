@@ -7,7 +7,7 @@ type Props = {
 
 export default function Chair({ position, rotation = [0, 0, 0] }: Props) {
     return (
-        <RigidBody type="fixed" colliders="cuboid" position={position} rotation={rotation}>
+        <RigidBody type="fixed" colliders={false} position={position} rotation={rotation}>
             <group>
                 <mesh position={[0, 0.45, 0]} castShadow>
                     <boxGeometry args={[0.52, 0.06, 0.52]} />

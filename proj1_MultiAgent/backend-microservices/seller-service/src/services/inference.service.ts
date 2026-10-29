@@ -42,10 +42,10 @@ export class InferenceService {
         if (!node) {
             // Nếu không tìm thấy chính xác nodeId này, tìm node ONLINE hoặc BUSY bất kỳ đang trực tuyến
             const allNodes = await sellerNodeRepository.findAll();
-            node = allNodes.find((n: any) => n.nodeId === nodeId || n.status === "ONLINE" || n.status === "BUSY") || allNodes[0] || null;
+            node = allNodes.find((n: any) => n.nodeId === nodeId || n.status === "ONLINE" || n.status === "BUSY") || null;
         }
 
-        const effectiveNodeId = node?.nodeId || nodeId || "local_seller_mesh";
+        const effectiveNodeId = nodeId || node?.nodeId || "local_seller_mesh";
         const effectiveNodeName = node?.nodeName || "Local Desktop Worker";
         const effectiveModelName = node?.modelDisplayName || "Qwen 2.5 Coder (1.5B)";
         const targetModel = this.normalizeOllamaModel(node?.hostedModel);
@@ -136,58 +136,11 @@ export class InferenceService {
             }
         }
 
-        // Nếu cả WS Worker lẫn Ollama trực tiếp đều chưa bật, kích hoạt fallback suy luận thông minh
-        // để bảo đảm luồng trải nghiệm của người dùng trên Playground không bị gián đoạn hay văng lỗi 500
-        if (!usedOllama) {
-            logger.warn(
-                `[INFERENCE] Worker Desktop và Ollama (:11434) chưa phản hồi. Sử dụng fallback suy luận bảo toàn dịch vụ cho model ${targetModel}.`
+        // Nếu cả WS Worker lẫn Ollama trực tiếp đều không phản hồi, báo lỗi minh bạch
+        if (!usedOllama || !generatedText) {
+            throw new Error(
+                `[P2P Relay Error] Không thể kết nối tới Desktop Worker hoặc Ollama (:11434) của node "${effectiveNodeName}" (Node ID: ${effectiveNodeId}). Vui lòng đảm bảo ứng dụng Worker (.exe / worker.py) đang chạy và mô hình "${targetModel}" đã sẵn sàng trong Ollama.`
             );
-
-            // Sinh câu trả lời thông minh dựa trên prompt
-            let sampleAnswer = "";
-            const lowerPrompt = prompt.toLowerCase();
-            if (lowerPrompt.includes("fibonacci")) {
-                sampleAnswer = `Dưới đây là hàm tính dãy số Fibonacci tối ưu bằng đệ quy có nhớ (Memoization) bằng Python:\n\n` +
-                    `\`\`\`python\n` +
-                    `def fibonacci(n: int, memo: dict = {}) -> int:\n` +
-                    `    """Tính số Fibonacci thứ n với độ phức tạp O(n) thời gian và O(n) bộ nhớ."""\n` +
-                    `    if n <= 0:\n` +
-                    `        return 0\n` +
-                    `    if n == 1:\n` +
-                    `        return 1\n` +
-                    `    if n not in memo:\n` +
-                    `        memo[n] = fibonacci(n - 1, memo) + fibonacci(n - 2, memo)\n` +
-                    `    return memo[n]\n\n` +
-                    `# Kiểm tra thử nghiệm\n` +
-                    `if __name__ == "__main__":\n` +
-                    `    print([fibonacci(i) for i in range(10)])\n` +
-                    `    # Kết quả: [0, 1, 1, 2, 3, 5, 8, 13, 21, 34]\n` +
-                    `\`\`\`\n\n` +
-                    `*Giải thích kỹ thuật*:\n` +
-                    `- Phương pháp đệ quy thuần túy có độ phức tạp lũy thừa O(2^n) do tính toán lặp lại các nhánh con.\n` +
-                    `- Kỹ thuật Memoization lưu kết quả của từng bài toán con vào dictionary \`memo\`, giảm số phép tính xuống chỉ còn O(n).`;
-            } else if (lowerPrompt.includes("python") || lowerPrompt.includes("code") || lowerPrompt.includes("hàm") || lowerPrompt.includes("viết")) {
-                sampleAnswer = `Dưới đây là giải pháp code được tối ưu theo yêu cầu của bạn:\n\n` +
-                    `\`\`\`python\n` +
-                    `def execute_agent_task(query: str) -> dict:\n` +
-                    `    """Xử lý yêu cầu từ Agent Pipeline."""\n` +
-                    `    result = {\n` +
-                    `        "status": "COMPLETED",\n` +
-                    `        "query": query,\n` +
-                    `        "processed_by": "${effectiveModelName}",\n` +
-                    `    }\n` +
-                    `    return result\n` +
-                    `\`\`\`\n\n` +
-                    `Code đã được kiểm thử tính đúng đắn và chuẩn hóa PEP 8.`;
-            } else {
-                sampleAnswer = `Chào bạn! Tôi là Agent hoạt động dưới sự hỗ trợ tính toán của mô hình **${effectiveModelName}** (nạp từ trạm **${effectiveNodeName}**).\n\n` +
-                    `Yêu cầu của bạn: "${prompt}"\n\n` +
-                    `Hệ thống đã phân tích ngữ cảnh và phản hồi tác vụ thành công. ` +
-                    `Khi ứng dụng Desktop Worker hoặc Ollama của bạn được kết nối, các lượt suy luận tiếp theo sẽ tự động được offload trực tiếp xuống GPU/CPU phần cứng thời gian thực.`;
-            }
-
-            generatedText = sampleAnswer;
-            usedOllama = true;
         }
 
         const latencyMs = Date.now() - startTime;

@@ -66,3 +66,12 @@ npm run build:react
 npm run build:win
 ```
 File cài đặt hoàn chỉnh `Go-Python Worker Monitor Setup 1.0.0.exe` sẽ được tạo vào thư mục `release/`.
+
+
+# --- neu chay dev tren pc -> start electron online (workder phai build ra truoc, react cung phai build)
+
+pyinstaller --clean --onefile --name "worker" --distpath "./release" worker.py
+
+npm run build:react
+
+npm start 

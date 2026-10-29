@@ -112,7 +112,7 @@ export function TeamChatPanel({
                     }
                 }
             } catch (err: any) {
-                console.error('❌ Lỗi upload file:', err)
+                console.error('[ERROR] Lỗi upload file:', err)
                 toast.error(`Không thể tải file lên: ${err.message || 'Lỗi không xác định'}`)
                 setUploading(false)
                 return
@@ -704,7 +704,7 @@ export function TeamChatPanel({
                         <span className="text-[11px] text-zinc-300 bg-purple-500/20 border border-purple-500/30 px-2.5 py-0.5 rounded-lg flex items-center gap-1">
                             Toàn bộ {roomAgents.length} AI Agent trong phòng
                         </span>
-                        <span className="text-[10px] text-zinc-400 italic">➔ Tự động phát biểu lần lượt & Trưởng nhóm đúc kết biên bản</span>
+                        <span className="text-[10px] text-zinc-400 italic">[AUTO] Tự động phát biểu lần lượt &amp; Trưởng nhóm đúc kết biên bản</span>
                     </div>
                 )}
 

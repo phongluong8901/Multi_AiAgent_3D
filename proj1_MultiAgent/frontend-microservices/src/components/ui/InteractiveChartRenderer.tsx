@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useMemo } from 'react'
+import { Lightbulb } from 'lucide-react'
 
 export interface ChartDataset {
     label: string

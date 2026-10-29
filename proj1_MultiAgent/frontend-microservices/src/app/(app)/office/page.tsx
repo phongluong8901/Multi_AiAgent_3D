@@ -43,7 +43,7 @@ const DEFAULT_OFFICE_AGENTS: Agent[] = [
         color: '#facc15',
         status: 'idle',
         speech: 'Chào mừng bạn đến với Microservice Multi 3D! Tôi phụ trách điều phối và giao việc cho các chuyên gia.',
-        position: [-9.5, 0, -8.0],
+        position: [-7.5, 0.1, -5.8],
         model: 'gemini-2.5-flash',
         prompt_id: 'manager',
         form: 'humanoid',
@@ -54,7 +54,7 @@ const DEFAULT_OFFICE_AGENTS: Agent[] = [
         color: '#38bdf8',
         status: 'idle',
         speech: 'Sẵn sàng thu thập, tra cứu tin tức và trích xuất dữ liệu Internet chuyên sâu.',
-        position: [5.5, 0, -8.0],
+        position: [5.5, 0.1, -5.8],
         model: 'gemini-2.5-flash-lite',
         prompt_id: 'chuyen_gia_tim_kiem',
         form: 'duck',
@@ -65,7 +65,7 @@ const DEFAULT_OFFICE_AGENTS: Agent[] = [
         color: '#e53e3e',
         status: 'idle',
         speech: 'Tôi đúc kết toàn bộ ngữ cảnh thành báo cáo 3 phần súc tích và mạch lạc.',
-        position: [9.5, 0, 4.0],
+        position: [9.5, 0.1, 5.8],
         model: 'gemini-2.5-flash-lite',
         prompt_id: 'chuyen_gia_tom_tat',
         form: 'amr',
@@ -76,7 +76,7 @@ const DEFAULT_OFFICE_AGENTS: Agent[] = [
         color: '#9333ea',
         status: 'idle',
         speech: 'Chuyên gia xử lý tính toán số học, tài chính và công thức đại số chính xác 100%.',
-        position: [1.5, 0, 4.0],
+        position: [-5.5, 0.1, -5.8],
         model: 'gemini-2.5-flash-lite',
         prompt_id: 'chuyen_gia_tinh_toan',
         form: 'humanoid',
@@ -87,7 +87,7 @@ const DEFAULT_OFFICE_AGENTS: Agent[] = [
         color: '#fb923c',
         status: 'idle',
         speech: 'Phân tích thống kê mô tả (mean, median, std, min, max) và phát hiện xu hướng dữ liệu.',
-        position: [5.5, 0, 4.0],
+        position: [5.5, 0.1, 2.0],
         model: 'gemini-2.5-flash',
         prompt_id: 'chuyen_gia_phan_tich',
         form: 'amr',
@@ -98,7 +98,7 @@ const DEFAULT_OFFICE_AGENTS: Agent[] = [
         color: '#10b981',
         status: 'idle',
         speech: 'Chuyên gia Machine Learning & AI, đánh giá metrics (Accuracy, F1, MSE) và gợi ý kiến trúc tối ưu.',
-        position: [9.5, 0, -8.0],
+        position: [9.5, 0.1, -5.8],
         model: 'gemini-2.5-flash',
         prompt_id: 'chuyen_gia_ml',
         form: 'humanoid',
@@ -109,7 +109,7 @@ const DEFAULT_OFFICE_AGENTS: Agent[] = [
         color: '#ec4899',
         status: 'idle',
         speech: 'Chuyên gia trực quan hóa dữ liệu, biến biến động giá cả và số liệu thành biểu đồ trực quan.',
-        position: [-1.5, 0, 4.0],
+        position: [7.5, 0.1, 2.0],
         model: 'gemini-2.5-flash',
         prompt_id: 'chuyen_gia_truc_quan',
         form: 'drone',
@@ -282,7 +282,7 @@ export default function OfficePage() {
                         setLocalAgents((prev) =>
                             prev.map((a) =>
                                 a.id === target.id
-                                    ? { ...a, status: 'working', speech: `⚙️ Thực thi ${toolName}` }
+                                    ? { ...a, status: 'working', speech: `[EXEC] Thực thi ${toolName}` }
                                     : a
                             )
                         )
@@ -353,7 +353,7 @@ export default function OfficePage() {
                         setLocalAgents((prev) =>
                             prev.map((a) =>
                                 a.id === target.id
-                                    ? { ...a, status: 'error', speech: '⚠️ Gặp lỗi khi xử lý!' }
+                                    ? { ...a, status: 'error', speech: '[ERROR] Gặp lỗi khi xử lý!' }
                                     : a
                             )
                         )
@@ -384,7 +384,7 @@ export default function OfficePage() {
             setLocalAgents((prev) =>
                 prev.map((a) =>
                     a.id === target.id
-                        ? { ...a, status: 'error', speech: '⚠️ Mất kết nối Agent Service' }
+                        ? { ...a, status: 'error', speech: '[DISCONNECTED] Mất kết nối Agent Service' }
                         : a
                 )
             )

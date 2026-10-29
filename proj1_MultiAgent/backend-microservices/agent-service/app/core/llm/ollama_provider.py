@@ -75,7 +75,7 @@ class OllamaProvider(BaseLLMProvider):
             "OLLAMA_BASE_URL", "http://host.docker.internal:11434"
         ).rstrip("/")
         self.distributed_url = os.getenv(
-            "DISTRIBUTED_SERVICE_URL", "http://distributed-service:8083"
+            "DISTRIBUTED_SERVICE_URL", "http://distributed-service:5010"
         ).rstrip("/")
 
     def _build_tool_calling_instruction(self, tools: List[Dict[str, Any]]) -> str:
@@ -214,25 +214,42 @@ class OllamaProvider(BaseLLMProvider):
     def _call_distributed_service(
         self, prompt: str, system_prompt: str, temperature: float
     ) -> str:
-        url = f"{self.distributed_url}/api/v1/inference/execute"
+        dist_urls = [
+            self.distributed_url,
+            "http://distributed-service:5010",
+            "http://host.docker.internal:5010",
+            "http://localhost:5010",
+        ]
         payload = {
             "model": self.model_name,
             "prompt": prompt,
-            "system": system_prompt,
+            "systemPrompt": system_prompt,
             "temperature": temperature,
-            "node_id": self.target_node_id,
+            "nodeId": self.target_node_id,
+            "stream": False,
         }
-        req = urllib.request.Request(
-            url,
-            data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=90) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            if data.get("success") and data.get("response"):
-                return data["response"]
-            raise RuntimeError(data.get("error") or "Distributed service returned empty response")
+        data_bytes = json.dumps(payload).encode("utf-8")
+
+        for base_url in dist_urls:
+            for path in ("/api/v1/distributed/inference", "/api/v1/inference/execute"):
+                try:
+                    url = f"{base_url.rstrip('/')}{path}"
+                    req = urllib.request.Request(
+                        url,
+                        data=data_bytes,
+                        headers={"Content-Type": "application/json"},
+                        method="POST",
+                    )
+                    with urllib.request.urlopen(req, timeout=30) as resp:
+                        data = json.loads(resp.read().decode("utf-8"))
+                        ans = data.get("output") or data.get("response")
+                        if ans:
+                            return str(ans)
+                        if data.get("message") and not data.get("success"):
+                            raise RuntimeError(data["message"])
+                except Exception:
+                    continue
+        raise RuntimeError(f"Không thể kết nối tới Distributed Service ({self.target_node_id})")
 
     def _resolve_available_ollama_model(self) -> str:
         """Kiểm tra danh sách model đang có trong Ollama và tự động khớp tên gần nhất nếu lệch tag."""
@@ -336,10 +353,12 @@ class OllamaProvider(BaseLLMProvider):
                     headers={"Content-Type": "application/json"},
                     method="POST",
                 )
-                with urllib.request.urlopen(req, timeout=90) as resp:
+                with urllib.request.urlopen(req, timeout=25) as resp:
                     resp_data = json.loads(resp.read().decode("utf-8"))
                     if resp_data.get("success") and resp_data.get("output"):
                         return resp_data["output"]
+                    if resp_data.get("message"):
+                        raise RuntimeError(resp_data["message"])
             except Exception:
                 continue
         raise RuntimeError(f"Không thể kết nối tới ower-service cho phiên thuê '{self.rental_session_id}'")

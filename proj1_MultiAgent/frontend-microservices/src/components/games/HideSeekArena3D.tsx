@@ -273,7 +273,7 @@ export default function HideSeekArena3D({
             {/* Player Mode Guide Badge */}
             {isPlayerMode && (
                 <div className="absolute bottom-4 left-4 z-10 px-3 py-1.5 rounded-xl bg-purple-950/85 backdrop-blur-md border border-purple-500/40 text-xs text-purple-200 pointer-events-none">
-                    🎮 <strong>Điều khiển:</strong> Phím mũi tên / WASD để điều khiển Robot né tránh nón tầm nhìn của Seeker!
+                    [GAME] <strong>Điều khiển:</strong> Phím mũi tên / WASD để điều khiển Robot né tránh nón tầm nhìn của Seeker!
                 </div>
             )}
 

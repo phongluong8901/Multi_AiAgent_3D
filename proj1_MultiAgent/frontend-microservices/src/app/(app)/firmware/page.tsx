@@ -37,7 +37,7 @@ import {
 } from '@/components/ui/icons'
 
 // Code logic mặc định cho ESP32 / ESP32-S3 Robot Simulator
-const DEFAULT_LOGIC_CODE = `// ⚡ ESP32 / ESP32-S3 ROBOT & ROOM STREAM LOGIC (JavaScript Virtual Runner)
+const DEFAULT_LOGIC_CODE = `// [FAST] ESP32 / ESP32-S3 ROBOT & ROOM STREAM LOGIC (JavaScript Virtual Runner)
 // Bạn có thể chỉnh sửa logic phản xạ tại đây và bấm "Nạp Agent vào Mạch" để áp dụng!
 
 function onRoomAgentStream(tokenChunk, meta) {
@@ -623,9 +623,9 @@ export default function FirmwarePage() {
             </div>
 
             {/* Main Content */}
-            <div className="flex-1 flex overflow-hidden">
+            <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
                 {/* ─── CỘT TRÁI: 3D SIMULATION CANVAS ───────────────────────── */}
-                <div className="flex-1 flex flex-col relative border-r border-zinc-800">
+                <div className="flex-1 min-h-[340px] lg:min-h-0 flex flex-col relative border-b lg:border-b-0 lg:border-r border-zinc-800">
                     <div className="flex-1 w-full h-full relative">
                         <ESP32RobotCanvas
                             robotState={robotState}
@@ -706,7 +706,7 @@ export default function FirmwarePage() {
                 </div>
 
                 {/* ─── CỘT PHẢI: ROOM BRIDGE, CẤU HÌNH MẠNG & CODE STUDIO ──── */}
-                <div className="w-[490px] flex flex-col bg-zinc-900/50 backdrop-blur-md">
+                <div className="w-full lg:w-[460px] xl:w-[490px] flex flex-col bg-zinc-900/50 backdrop-blur-md overflow-hidden">
                     {/* Navigation Tabs */}
                     <div className="flex items-center border-b border-zinc-800 px-2 pt-2 gap-1 shrink-0 bg-zinc-900/80 overflow-x-auto">
                         <button

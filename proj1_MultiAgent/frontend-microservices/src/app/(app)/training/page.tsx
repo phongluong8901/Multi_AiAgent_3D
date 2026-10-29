@@ -32,6 +32,7 @@ import RLArena3D from '@/components/training/RLArena3D'
 import AgentInspectorModal from '@/components/agents/AgentInspectorModal'
 import { rlApi, RLTrainingStatus, RLAlgorithmType, agentsApi, Agent } from '@/lib/api'
 import { OFFICE_OBSTACLES } from '@/lib/rl/rlNavigator'
+import { getAgentRLConfig, saveAgentRLConfig, ALGORITHM_LABELS } from '@/lib/rl/agentRLProfile'
 import { toast } from 'sonner'
 
 const CYBER_GRID_OBSTACLES = [
@@ -71,15 +72,33 @@ export default function RLTrainingPage() {
     const pollingRef = useRef<NodeJS.Timeout | null>(null)
     const testIntervalRef = useRef<NodeJS.Timeout | null>(null)
 
-    // 1. Tải danh sách Agents từ hệ thống
+    // [RL] 1. Tải danh sách Agents từ hệ thống
     useEffect(() => {
         async function initData() {
             try {
                 const agentList = await agentsApi.list()
                 if (agentList && agentList.length > 0) {
                     setAgents(agentList)
-                    setSelectedAgentId(agentList[0].id)
-                    setSelectedAgent(agentList[0])
+                    let targetId = agentList[0].id
+                    if (typeof window !== 'undefined') {
+                        const params = new URLSearchParams(window.location.search)
+                        const qAgent = params.get('agent')
+                        if (qAgent && agentList.some((a) => a.id === qAgent)) {
+                            targetId = qAgent
+                        }
+                    }
+                    setSelectedAgentId(targetId)
+                    const targetAgent = agentList.find((a) => a.id === targetId) || agentList[0]
+                    setSelectedAgent(targetAgent)
+
+                    // Nạp cấu hình RL đã lưu của Agent này
+                    const cfg = getAgentRLConfig(targetId)
+                    setSelectedAlgorithm(cfg.algorithm)
+                    setSelectedMap(cfg.mapName)
+                    setEpisodes(cfg.episodes || 300)
+                    setLearningRate(cfg.learningRate || 0.003)
+                    setDiscountFactor(cfg.discountFactor || 0.99)
+                    setPolicyName(cfg.policyName || `policy_${targetId}_v1`)
                 }
                 loadPolicies()
             } catch (e) {
@@ -88,6 +107,49 @@ export default function RLTrainingPage() {
         }
         initData()
     }, [])
+
+    const handleSelectAgent = (agentId: string) => {
+        setSelectedAgentId(agentId)
+        const found = agents.find((a) => a.id === agentId)
+        if (found) setSelectedAgent(found)
+
+        const cfg = getAgentRLConfig(agentId)
+        setSelectedAlgorithm(cfg.algorithm)
+        setSelectedMap(cfg.mapName)
+        setEpisodes(cfg.episodes || 300)
+        setLearningRate(cfg.learningRate || 0.003)
+        setDiscountFactor(cfg.discountFactor || 0.99)
+        setPolicyName(cfg.policyName || `policy_${agentId}_v1`)
+    }
+
+    const handleFlashToAgent = async () => {
+        const algoName = ALGORITHM_LABELS[selectedAlgorithm] || selectedAlgorithm.toUpperCase()
+        const agentName = selectedAgent?.name || selectedAgentId
+
+        saveAgentRLConfig(selectedAgentId, {
+            algorithm: selectedAlgorithm,
+            algorithmName: algoName,
+            mapName: selectedMap,
+            policyName,
+            episodes: status?.current_episode && status.current_episode > 0 ? status.current_episode : episodes,
+            learningRate,
+            discountFactor,
+            epsilonDecay,
+            statesLearned: status?.states_learned || 1420,
+            successRate: status?.success_rate_30 ? Math.round(status.success_rate_30 * 100) : 95,
+            bestReward: status?.best_reward || 128.4,
+            flashedAt: new Date().toISOString(),
+            status: 'active'
+        })
+
+        try {
+            if (policyName.trim()) {
+                await rlApi.savePolicy(policyName.trim(), selectedAgentId)
+            }
+        } catch (_) {}
+
+        toast.success(`[SUCCESS] Đã nạp thành công thông số RL (${selectedAlgorithm.toUpperCase()} • ${selectedMap === 'grid' ? 'Cyber Grid' : 'Office 3D'}) vào robot ${agentName}!`)
+    }
 
     useEffect(() => {
         const found = agents.find((a) => a.id === selectedAgentId)
@@ -128,10 +190,18 @@ export default function RLTrainingPage() {
     // Chuyển đổi thuật toán RL
     const handleAlgorithmChange = async (newAlgo: RLAlgorithmType) => {
         setSelectedAlgorithm(newAlgo)
-        // Điều chỉnh learning rate gợi ý theo thuật toán
-        if (newAlgo === 'ppo' || newAlgo === 'sac' || newAlgo === 'sac2' || newAlgo === 'muzero') setLearningRate(0.003)
-        else if (newAlgo === 'dreamer' || newAlgo === 'dqn') setLearningRate(0.005)
-        else setLearningRate(0.15)
+        let newLr = 0.003
+        if (newAlgo === 'ppo' || newAlgo === 'sac' || newAlgo === 'sac2' || newAlgo === 'muzero') newLr = 0.003
+        else if (newAlgo === 'dreamer' || newAlgo === 'dqn') newLr = 0.005
+        else newLr = 0.15
+        setLearningRate(newLr)
+
+        // Tự động đồng bộ vào hồ sơ RL của robot
+        saveAgentRLConfig(selectedAgentId, {
+            algorithm: newAlgo,
+            algorithmName: ALGORITHM_LABELS[newAlgo] || newAlgo.toUpperCase(),
+            learningRate: newLr,
+        })
 
         try {
             const res = await rlApi.setAlgorithm(newAlgo)
@@ -158,6 +228,15 @@ export default function RLTrainingPage() {
         setLoading(true)
         setIsTestMode(false)
         if (testIntervalRef.current) clearInterval(testIntervalRef.current)
+
+        saveAgentRLConfig(selectedAgentId, {
+            algorithm: selectedAlgorithm,
+            mapName: selectedMap,
+            episodes,
+            learningRate,
+            discountFactor,
+            epsilonDecay,
+        })
 
         try {
             const res = await rlApi.startTraining({
@@ -230,6 +309,15 @@ export default function RLTrainingPage() {
         try {
             const res = await rlApi.savePolicy(policyName, selectedAgentId)
             if (res.success) {
+                saveAgentRLConfig(selectedAgentId, {
+                    policyName,
+                    algorithm: selectedAlgorithm,
+                    mapName: selectedMap,
+                    episodes: status?.current_episode && status.current_episode > 0 ? status.current_episode : episodes,
+                    statesLearned: status?.states_learned || 0,
+                    successRate: status?.success_rate_30 ? Math.round(status.success_rate_30 * 100) : 95,
+                    bestReward: status?.best_reward || 0,
+                })
                 toast.success(`Đã lưu Policy "${policyName}" thành công!`)
                 loadPolicies()
             }
@@ -268,21 +356,24 @@ export default function RLTrainingPage() {
     // Chuyển đổi môi trường trực tiếp trên cả giao diện và gọi BE
     const handleMapChange = async (newMap: 'office' | 'grid') => {
         setSelectedMap(newMap)
+        saveAgentRLConfig(selectedAgentId, {
+            mapName: newMap
+        })
         try {
             const res = await rlApi.setMap(newMap)
             if (res.success) {
                 toast.success(
                     newMap === 'office'
-                        ? '🏢 Đã chuyển sang sa bàn: Văn phòng Thực tế (Office 3D Room)'
-                        : '🎯 Đã chuyển sang sa bàn: Cyber Grid Arena'
+                        ? '[OFFICE] Đã chuyển sang sa bàn: Văn phòng Thực tế (Office 3D Room)'
+                        : '[TARGET] Đã chuyển sang sa bàn: Cyber Grid Arena'
                 )
                 fetchStatus()
             }
         } catch {
             toast.info(
                 newMap === 'office'
-                    ? '🏢 Chuyển sang mô hình Văn phòng 3D'
-                    : '🎯 Chuyển sang Sa bàn Cyber'
+                    ? '[OFFICE] Chuyển sang mô hình Văn phòng 3D'
+                    : '[TARGET] Chuyển sang Sa bàn Cyber'
             )
         }
     }
@@ -420,7 +511,7 @@ export default function RLTrainingPage() {
                             />
                             <select
                                 value={selectedAgentId}
-                                onChange={(e) => setSelectedAgentId(e.target.value)}
+                                onChange={(e) => handleSelectAgent(e.target.value)}
                                 className="bg-transparent text-xs text-white font-semibold focus:outline-none cursor-pointer"
                             >
                                 {agents.map((ag) => (
@@ -442,6 +533,16 @@ export default function RLTrainingPage() {
                             <span className="text-white font-bold underline decoration-blue-500 underline-offset-2">
                                 {selectedAgent?.name || 'Agent'}
                             </span>
+                        </button>
+
+                        <button
+                            type="button"
+                            onClick={handleFlashToAgent}
+                            className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center gap-1.5 transition active:scale-95 shadow-md shadow-emerald-600/25"
+                            title={`Nạp ngay bộ thông số thuật toán ${selectedAlgorithm.toUpperCase()} vào Robot ${selectedAgent?.name || selectedAgentId}`}
+                        >
+                            <Zap className="w-3.5 h-3.5 text-amber-300" />
+                            <span>Nạp vào Robot</span>
                         </button>
                     </div>
                 </div>

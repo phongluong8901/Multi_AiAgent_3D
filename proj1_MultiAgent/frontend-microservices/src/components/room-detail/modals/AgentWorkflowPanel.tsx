@@ -358,7 +358,7 @@ export function AgentWorkflowPanel({
                             {mode === 'sequential' && <IconCheck className="w-3.5 h-3.5 text-blue-400" />}
                         </div>
                         <p className="text-[10px] text-zinc-400 leading-tight">
-                            Pipeline theo thứ tự bước: Agent 1 ➔ Agent 2 ➔ Agent 3.
+                            Pipeline theo thứ tự bước: Agent 1 -&gt; Agent 2 -&gt; Agent 3.
                         </p>
                     </button>
 
@@ -538,10 +538,10 @@ export function AgentWorkflowPanel({
                                                     onChange={(e) => handleSelectStepTool(idx, e.target.value)}
                                                     className="bg-zinc-900 border border-zinc-700/80 text-[11px] text-zinc-200 px-2 py-1 rounded-lg outline-none focus:border-blue-500"
                                                 >
-                                                    <option value="">🤖 Tự động (Agent tự chọn)</option>
+                                                    <option value="">[BOT] Tự động (Agent tự chọn)</option>
                                                     {tools.map((t) => (
                                                         <option key={t.id} value={t.id}>
-                                                            🛠️ {t.name} ({t.id})
+                                                            [TOOL] {t.name} ({t.id})
                                                         </option>
                                                     ))}
                                                 </select>

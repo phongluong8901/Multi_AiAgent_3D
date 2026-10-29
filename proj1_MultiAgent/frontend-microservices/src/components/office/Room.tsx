@@ -32,12 +32,27 @@ export const MANAGEMENT_DESK_SLOTS: [number, number, number][] = [
     [-9.5, 0, -4.0],   // Bàn Quản lý dự án PM
 ]
 
+/** Vị trí xuất phát (spawn) ban đầu của Agent trong phòng Quản lý: sàn thoáng, không chạm bàn ghế */
+export const MANAGEMENT_SPAWN_SLOTS: [number, number, number][] = [
+    [-7.5, 0.1, -5.8],   // Lối đi thoáng trung tâm phòng Quản lý
+    [-5.5, 0.1, -5.8],   // Lối đi trước bàn Điều phối
+    [-7.5, 0.1, -3.2],   // Lối đi giữa bàn PM và bàn họp nhỏ
+]
+
 /** 2. Vị trí bàn làm việc PHÒNG NGHIÊN CỨU & TÌM KIẾM (Research & Search Lab) */
 export const RESEARCH_DESK_SLOTS: [number, number, number][] = [
     [5.5, 0, -8.0],    // Chuyên viên Nghiên cứu AI / Machine Learning
     [9.5, 0, -8.0],    // Kỹ sư Thu thập & Web Crawler
     [5.5, 0, -4.0],    // Chuyên gia Tìm kiếm & Knowledge Graph
     [9.5, 0, -4.0],    // Chuyên viên Tổng hợp tri thức
+]
+
+/** Vị trí xuất phát (spawn) ban đầu của Agent trong phòng Nghiên cứu */
+export const RESEARCH_SPAWN_SLOTS: [number, number, number][] = [
+    [5.5, 0.1, -5.8],    // Hành lang thoáng giữa 2 hàng bàn Nghiên cứu
+    [9.5, 0.1, -5.8],    // Hành lang thoáng gần server rack
+    [5.5, 0.1, -2.0],    // Lối đi trước cửa phòng Nghiên cứu
+    [9.5, 0.1, -2.0],    // Lối đi thoáng phía Nam
 ]
 
 /** 3. Vị trí bàn làm việc PHÒNG PHÂN TÍCH & ĐÁNH GIÁ (Data & Analytics Dept) */
@@ -48,12 +63,27 @@ export const ANALYTICS_DESK_SLOTS: [number, number, number][] = [
     [9.5, 0, 8.0],     // Chuyên gia Thẩm định Rủi ro & Audit
 ]
 
+/** Vị trí xuất phát (spawn) ban đầu của Agent trong phòng Phân tích */
+export const ANALYTICS_SPAWN_SLOTS: [number, number, number][] = [
+    [5.5, 0.1, 2.0],     // Lối đi thoáng trước cửa phòng Phân tích
+    [9.5, 0.1, 2.0],     // Lối đi thoáng phía Bắc
+    [5.5, 0.1, 5.8],     // Hành lang thoáng giữa 2 hàng bàn Phân tích
+    [9.5, 0.1, 5.8],     // Hành lang thoáng trước bảng Dashboard KPI
+]
+
 /** Danh sách tổng hợp tất cả các bàn trong toàn bộ văn phòng */
 export const OFFICE_DESK_SLOTS: [number, number, number][] = [
     ...MANAGEMENT_DESK_SLOTS,
     ...RESEARCH_DESK_SLOTS,
     ...ANALYTICS_DESK_SLOTS,
 ]
+
+/** Vị trí làm việc tại ghế ngồi trước bàn (không trùng tâm bàn để tránh va chạm cuboid của Desk) */
+export function getDeskSeatPosition(desk: [number, number, number]): [number, number, number] {
+    const [x, , z] = desk
+    const isNorth = z < 0
+    return [x, 0, z + (isNorth ? 1.05 : -1.05)]
+}
 
 /** Các điểm đích đến tương ứng với hành động trong văn phòng */
 export const OFFICE_ACTION_SPOTS = {
@@ -129,20 +159,20 @@ export function detectAgentDepartment(agent: AgentType): OfficeDepartment {
     return 'research'
 }
 
-/** Đường đi tuần tra hành lang và quay về bàn */
-function buildWalkPath(desk: [number, number, number]): [number, number, number][] {
-    const [x, , z] = desk
+/** Đường đi tuần tra hành lang xuất phát từ vị trí spawn thoáng đãng */
+function buildWalkPath(spawn: [number, number, number]): [number, number, number][] {
+    const [x, , z] = spawn
     const isEast = x > 0
     const isNorth = z < 0
 
     return [
-        [x, 0, z + (isNorth ? 1.5 : -1.5)],
+        [x, 0, z],
         [isEast ? 4.0 : -4.0, 0, isNorth ? -3.0 : 3.0],
         [0, 0, isNorth ? -3.0 : 3.0],
         [0, 0, 0],
         [0, 0, isNorth ? -3.0 : 3.0],
         [isEast ? 4.0 : -4.0, 0, isNorth ? -3.0 : 3.0],
-        [x, 0, z + (isNorth ? 1.5 : -1.5)],
+        [x, 0, z],
     ]
 }
 
@@ -234,7 +264,7 @@ export default function Room({
     onFloorClick,
     agentTargetActions = {},
 }: RoomProps) {
-    // Phân bổ từng agent vào đúng phòng ban và đúng bàn làm việc
+    // Phân bổ từng agent vào đúng phòng ban, vị trí spawn thông thoáng và vị trí bàn ngồi làm việc
     const agentSlots = useMemo(() => {
         const counters: Record<OfficeDepartment, number> = {
             management: 0,
@@ -246,19 +276,27 @@ export default function Room({
             const dept = detectAgentDepartment(agent)
             const count = counters[dept]++
             let desk: [number, number, number]
+            let spawnPos: [number, number, number]
 
             if (dept === 'management') {
                 desk = MANAGEMENT_DESK_SLOTS[count % MANAGEMENT_DESK_SLOTS.length]
+                spawnPos = MANAGEMENT_SPAWN_SLOTS[count % MANAGEMENT_SPAWN_SLOTS.length]
             } else if (dept === 'research') {
                 desk = RESEARCH_DESK_SLOTS[count % RESEARCH_DESK_SLOTS.length]
+                spawnPos = RESEARCH_SPAWN_SLOTS[count % RESEARCH_SPAWN_SLOTS.length]
             } else {
                 desk = ANALYTICS_DESK_SLOTS[count % ANALYTICS_DESK_SLOTS.length]
+                spawnPos = ANALYTICS_SPAWN_SLOTS[count % ANALYTICS_SPAWN_SLOTS.length]
             }
+
+            const seatPos = getDeskSeatPosition(desk)
 
             return {
                 agent,
                 dept,
                 desk,
+                spawnPos,
+                seatPos,
             }
         })
     }, [agents])
@@ -371,7 +409,7 @@ export default function Room({
 
             {/* Cụm Server Rack siêu máy tính AI & Bảng nghiên cứu */}
             <ServerRack position={[13.2, 0, -9.0]} />
-            <ServerRack position={[13.2, 0, -7.5]} />
+            <ServerRack position={[13.2, 0, -6.0]} />
             <ServerRack position={[13.2, 0, -4.0]} />
             <Plant position={[3.5, 0, -9.5]} />
             <Plant position={[13.2, 0, -1.2]} />
@@ -434,8 +472,8 @@ export default function Room({
                 </mesh>
             </group>
 
-            {/* ===== 8. ĐẶT AGENT VÀO ĐÚNG PHÒNG BAN TƯƠNG ỨNG ===== */}
-            {agentSlots.map(({ agent, desk }) => {
+            {/* ===== 8. ĐẶT AGENT VÀO VỊ TRÍ SPAWN THOÁNG ĐÃNG TRÁNH KẸT BÀN GHẾ ===== */}
+            {agentSlots.map(({ agent, spawnPos, seatPos }) => {
                 const override = agentTargetActions[agent.id]
                 const isSelected = selectedAgentId === agent.id
 
@@ -443,14 +481,14 @@ export default function Room({
                     <Agent
                         key={agent.id}
                         id={agent.id}
-                        position={desk}
-                        deskPosition={desk}
+                        position={spawnPos}
+                        deskPosition={seatPos}
                         color={agent.color}
                         name={agent.name}
                         status={agent.status}
                         speech={agent.speech}
                         speed={1.0}
-                        waypoints={buildWalkPath(desk)}
+                        waypoints={buildWalkPath(spawnPos)}
                         targetAction={override?.action}
                         targetPosition={override?.targetPos}
                         isSelected={isSelected}

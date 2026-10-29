@@ -429,10 +429,13 @@ class RLTrainer:
             "info": info
         }
 
-    def save_policy(self, policy_name: str) -> Dict[str, Any]:
+    def save_policy(self, policy_name: str, agent_id: Optional[str] = None) -> Dict[str, Any]:
         """Lưu file chính sách điều hướng đã train xuống ổ đĩa"""
         filename = f"{policy_name}.json"
         filepath = os.path.join(self.saved_dir, filename)
+
+        if agent_id:
+            self.selected_agent_id = agent_id
 
         if self.algorithm == "ppo":
             policy_data = self.ppo_agent.export_policy()
