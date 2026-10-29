@@ -193,7 +193,8 @@ docker compose up --build -d product-service
 docker compose up --build -d mapdraw-service
 docker compose up --build -d api-gateway
 docker compose up --build -d rltrain-service
-docker compose up --build -d distributed-service
+docker compose up --build -d distributed-service    
+docker compose up --build -d agent-firmware
 
 - xoa
 docker compose down
@@ -209,9 +210,11 @@ python -m venv venv
 
 pip install -r requirements.txt
 
+-> .exe luu trong realse
 pyinstaller --clean --onefile --name "worker" --distpath "./release" worker.py
 
 - frontend
+cd frontend
 npm run build
 
 - electron

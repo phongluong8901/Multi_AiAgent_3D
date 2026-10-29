@@ -61,6 +61,7 @@ func main() {
 	nodeHandler := handlers.NewNodeHandler(nodeRegistry, benchmarkEngine, appDistributor)
 	appHandler := handlers.NewAppHandler(appDistributor, nodeRegistry)
 	wsHandler := handlers.NewWSHandler(nodeRegistry, redisStorage)
+	nodeHandler.SetWSHandler(wsHandler)
 
 	// Thiết lập HTTP Router (Mux)
 	mux := http.NewServeMux()

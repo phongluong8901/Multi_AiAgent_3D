@@ -2,8 +2,82 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Electron Window Draggable Region Definitions */
+.app-drag {
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+.no-drag,
+button,
+input,
+select,
+textarea,
+a,
+[role="button"] {
+  -webkit-app-region: no-drag;
+}
+
+/* Postman Dark Theme Global Styling */
 body {
   margin: 0;
-  background-color: #121212;
-  color: #e5e7eb;
+  padding: 0;
+  background-color: #141414;
+  color: #e6e6e6;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  overflow: hidden;
+  user-select: none;
+}
+
+/* Sleek Dark Minimalist Scrollbars (Postman Style) */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: #181818;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #333333;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #484848;
+}
+
+/* Leaflet Postman Styling */
+.leaflet-container {
+  background-color: #141414 !important;
+  font-family: inherit;
+}
+
+/* Dark Map Mode for Leaflet: Inverts OpenStreetMap into sleek charcoal dark without needing any API key */
+.dark-map .leaflet-tile-pane {
+  filter: invert(100%) hue-rotate(180deg) brightness(88%) contrast(92%);
+}
+
+.satellite-map .leaflet-tile-pane {
+  filter: contrast(1.05) brightness(0.95);
+}
+
+.light-map .leaflet-tile-pane {
+  filter: none;
+}
+
+.leaflet-range-tooltip {
+  background: #1e1e1e !important;
+  color: #ffffff !important;
+  border: 1px solid #383838 !important;
+  border-radius: 6px !important;
+  padding: 4px 8px !important;
+  font-size: 10px !important;
+  font-family: monospace !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4) !important;
+}
+
+.leaflet-range-tooltip::before {
+  border-top-color: #1e1e1e !important;
 }

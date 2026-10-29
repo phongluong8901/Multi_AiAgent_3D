@@ -25,7 +25,7 @@ export default function Sidebar() {
         <aside
             onMouseEnter={() => setExpanded(true)}
             onMouseLeave={() => setExpanded(false)}
-            className={`border-r border-zinc-800/80 bg-zinc-900/40 backdrop-blur-md hidden md:flex flex-col justify-between transition-all duration-300 sticky top-14 h-[calc(100vh-3.5rem)] z-40 ${expanded ? 'w-64 p-4' : 'w-16 p-2 items-center'
+            className={`border-r border-border bg-card/60 backdrop-blur-md hidden md:flex flex-col justify-between transition-all duration-300 sticky top-14 h-[calc(100vh-3.5rem)] z-40 ${expanded ? 'w-64 p-4' : 'w-16 p-2 items-center'
                 }`}
         >
             <div className="space-y-4 w-full">
@@ -44,11 +44,11 @@ export default function Sidebar() {
                                 title={!expanded ? item.label : undefined}
                                 className={`flex items-center gap-3 py-2.5 rounded-xl text-xs font-medium transition group relative ${expanded ? 'px-3' : 'justify-center px-2'
                                     } ${active
-                                        ? 'bg-blue-600/15 text-blue-400 border border-blue-500/20 shadow-sm'
-                                        : 'text-zinc-400 hover:text-white hover:bg-zinc-800/60'
+                                        ? 'bg-primary/15 text-primary border border-primary/25 shadow-sm font-semibold'
+                                        : 'text-muted-foreground hover:text-foreground hover:bg-secondary/70'
                                     }`}
                             >
-                                <Icon className={`w-4 h-4 shrink-0 ${active ? 'text-blue-400' : 'text-zinc-400 group-hover:text-white'}`} />
+                                <Icon className={`w-4 h-4 shrink-0 ${active ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground'}`} />
 
                                 {expanded && (
                                     <span className="truncate flex-1">{item.label}</span>

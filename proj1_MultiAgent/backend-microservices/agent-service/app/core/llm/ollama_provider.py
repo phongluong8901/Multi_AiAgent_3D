@@ -3,7 +3,7 @@ import os
 import re
 import urllib.request
 import urllib.error
-from typing import List, Dict, Any, Generator
+from typing import List, Dict, Any, Generator, Optional
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, ToolMessage
 from .base_provider import BaseLLMProvider
 
@@ -25,7 +25,7 @@ class _ToolCallMock:
 
 
 class _MessageMock:
-    def __init__(self, content: str, tool_calls: List[_ToolCallMock] = None):
+    def __init__(self, content: str, tool_calls: Optional[List[_ToolCallMock]] = None):
         self.content = content
         self.tool_calls = tool_calls or []
 
@@ -36,7 +36,7 @@ class _ChoiceMock:
 
 
 class _ResponseMock:
-    def __init__(self, content: str, tool_calls: List[_ToolCallMock] = None):
+    def __init__(self, content: str, tool_calls: Optional[List[_ToolCallMock]] = None):
         self.choices = [_ChoiceMock(_MessageMock(content, tool_calls))]
 
 
@@ -105,7 +105,7 @@ class OllamaProvider(BaseLLMProvider):
         )
 
     def _extract_prompts(
-        self, messages: List[Any], tools: List[Dict[str, Any]] = None
+        self, messages: List[Any], tools: Optional[List[Dict[str, Any]]] = None
     ) -> tuple[str, str, int]:
         system_parts = []
         conversation_parts = []
@@ -151,7 +151,7 @@ class OllamaProvider(BaseLLMProvider):
         return system_prompt, user_prompt, tool_result_count
 
     def _parse_tool_calls_from_text(
-        self, text: str, allowed_tools: List[Dict[str, Any]] = None
+        self, text: str, allowed_tools: Optional[List[Dict[str, Any]]] = None
     ) -> tuple[str, List[_ToolCallMock]]:
         """Trích xuất lệnh gọi công cụ từ thẻ <tool_call>...</tool_call> hoặc JSON block của Local LLM."""
         if not text:
@@ -270,7 +270,7 @@ class OllamaProvider(BaseLLMProvider):
             data = json.loads(resp.read().decode("utf-8"))
             return data.get("response", "")
 
-    def _execute(self, messages: List[Any], temperature: float = 0.2, tools: List[Dict[str, Any]] = None) -> tuple[str, List[_ToolCallMock]]:
+    def _execute(self, messages: List[Any], temperature: float = 0.2, tools: Optional[List[Dict[str, Any]]] = None) -> tuple[str, List[_ToolCallMock]]:
         system_prompt, user_prompt, tool_result_count = self._extract_prompts(messages, tools=tools)
 
         raw_text = ""
@@ -306,7 +306,7 @@ class OllamaProvider(BaseLLMProvider):
         return cleaned_final or raw_text, []
 
     def generate_text(
-        self, prompt: str, system_prompt: str = None, temperature: float = 0.7
+        self, prompt: str, system_prompt: Optional[str] = None, temperature: float = 0.7
     ) -> str:
         messages = []
         if system_prompt:
@@ -317,9 +317,9 @@ class OllamaProvider(BaseLLMProvider):
 
     def chat_completion(
         self,
-        messages: List[Dict[str, str]],
+        messages: List[Any],
         temperature: float = 0.2,
-        tools: List[Dict[str, Any]] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
     ) -> Any:
         text, tool_calls = self._execute(messages, temperature=temperature, tools=tools)
         return _ResponseMock(content=text, tool_calls=tool_calls)
@@ -328,7 +328,7 @@ class OllamaProvider(BaseLLMProvider):
         self,
         messages: List[Any],
         temperature: float = 0.2,
-        tools: List[Dict[str, Any]] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
     ) -> Generator[str, None, None]:
         text, _ = self._execute(messages, temperature=temperature, tools=None)
         chunk_size = 24

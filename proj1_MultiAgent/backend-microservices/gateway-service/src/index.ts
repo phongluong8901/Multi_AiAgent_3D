@@ -15,6 +15,7 @@ import rlRouter from "./routes/rl-proxy.routes";
 import distributedRouter from "./routes/distributed-proxy.routes";
 import sellerRouter from "./routes/seller-proxy.routes";
 import ownerRouter from "./routes/owner-proxy.routes";
+import firmwareRouter from "./routes/firmware-proxy.routes";
 import fs from "fs";
 import path from "path";
 
@@ -98,6 +99,7 @@ app.use(rlRouter);
 app.use(distributedRouter);
 app.use(sellerRouter);
 app.use(ownerRouter);
+app.use(firmwareRouter);
 
 // Khởi chạy Gateway Server bằng http.Server để hỗ trợ trơn tru WebSocket & HTTP
 server.listen(PORT, () => {

@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-from app.models.sql_models import Tool
+from app.models.tool import ToolModel
 
 DEFAULT_TOOLS = [
     {
@@ -107,10 +107,17 @@ DEFAULT_TOOLS = [
 
 def seed_tools(db: Session):
     for item in DEFAULT_TOOLS:
-        existing = db.query(Tool).filter(Tool.id == item["id"]).first()
+        existing = db.query(ToolModel).filter(ToolModel.id == item["id"]).first()
         if not existing:
-            db.add(Tool(**item))
+            db.add(
+                ToolModel(
+                    id=item["id"],
+                    name=item["name"],
+                    description=item.get("description", ""),
+                    category=item.get("category", "builtin"),
+                )
+            )
         else:
             existing.name = item["name"]
-            existing.description = item["description"]
+            existing.description = item.get("description", "")
     db.commit()

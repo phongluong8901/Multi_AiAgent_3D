@@ -53,3 +53,5 @@ ehthumbs.db
 Desktop.ini
 .vscode/
 .idea/
+
+venv/

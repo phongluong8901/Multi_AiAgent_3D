@@ -176,33 +176,35 @@ export class ChatController {
             createdAt: (saved as any).createdAt,
         });
 
-        const targetAgents = await agentDispatcher.resolveTargetAgents({
-            roomId,
-            message,
-            chatType: resolvedTypeChat,
-            senderType: senderType || "user",
-            targetAgentId,
-        });
+        if (!metadata?.skipAgentDispatch) {
+            const targetAgents = await agentDispatcher.resolveTargetAgents({
+                roomId,
+                message,
+                chatType: resolvedTypeChat,
+                senderType: senderType || "user",
+                targetAgentId,
+            });
 
-        if (targetAgents.length > 0) {
-            for (const agentId of targetAgents) {
-                agentDispatcher
-                    .dispatchToAgent({
-                        agentId,
-                        roomId,
-                        prompt: message,
-                        senderName: senderName || "User",
-                        senderId,
-                        depth: 0,
-                        originalTypeChat: resolvedTypeChat,
-                        rootTypeChat: resolvedTypeChat,
-                        initiatorAgentId: agentId,
-                        userGoal: message,
-                        visitedAgents: [agentId],
-                    })
-                    .catch((err) => {
-                        console.error(`[ChatController] Error dispatching to ${agentId}:`, err);
-                    });
+            if (targetAgents.length > 0) {
+                for (const agentId of targetAgents) {
+                    agentDispatcher
+                        .dispatchToAgent({
+                            agentId,
+                            roomId,
+                            prompt: message,
+                            senderName: senderName || "User",
+                            senderId,
+                            depth: 0,
+                            originalTypeChat: resolvedTypeChat,
+                            rootTypeChat: resolvedTypeChat,
+                            initiatorAgentId: agentId,
+                            userGoal: message,
+                            visitedAgents: [agentId],
+                        })
+                        .catch((err) => {
+                            console.error(`[ChatController] Error dispatching to ${agentId}:`, err);
+                        });
+                }
             }
         }
 

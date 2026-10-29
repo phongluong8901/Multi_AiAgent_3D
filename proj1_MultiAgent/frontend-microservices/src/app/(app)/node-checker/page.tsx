@@ -1,11 +1,11 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
-import { useHardwareNode } from '@/hooks/useHardwareNode'
-import { useConfirm } from '@/context/ConfirmContext'
+import React, { useState } from 'react'
+import Link from 'next/link'
 import { notify } from '@/lib/toast'
 import { useUser } from '@/hooks/useUser'
-import { distributedApi, PartnerNodeData } from '@/lib/api/distributed'
+import { distributedApi } from '@/lib/api/distributed'
+import { useWorkerNetwork } from '@/hooks/useWorkerNetwork'
 import PartnerOnboardingModal from '@/components/distributed/PartnerOnboardingModal'
 import {
     Cpu,
@@ -13,92 +13,128 @@ import {
     Zap,
     Server,
     ShieldCheck,
-    CheckCircle2,
-    PowerOff,
-    RefreshCw,
-    AlertCircle,
     ArrowRight,
     Radio,
     Download,
-    Activity,
-    Monitor,
-    Laptop,
     Play,
     Pause,
     Terminal,
     ChevronRight,
     ExternalLink,
+    MapPin,
+    CheckCircle2,
+    Send,
+    Sparkles,
+    Bot,
+    RefreshCw,
+    MessageSquare,
+    Sliders,
+    Key,
+    Copy,
+    Check,
+    Settings2,
+    FileDown,
 } from 'lucide-react'
 
 export default function NodeCheckerPage() {
     const { profile } = useUser()
-    const { confirm: confirmModal } = useConfirm()
-    const { loading: browserLoading, submitting, report, isRegistered, registerNode, unregisterNode } = useHardwareNode()
+    const {
+        myNode: desktopNode,
+        onlineNodes,
+        wsConnected,
+        pingLatency,
+        toggleNodeStatus,
+        upsertRegisteredNode,
+    } = useWorkerNetwork({
+        id: profile?.id,
+        name: profile?.name,
+        email: profile?.email,
+    })
 
-    // State giám sát ứng dụng Desktop Worker (.exe)
-    const [desktopNode, setDesktopNode] = useState<PartnerNodeData | null>(null)
-    const [isCheckingDesktop, setIsCheckingDesktop] = useState(false)
     const [togglingStatus, setTogglingStatus] = useState(false)
     const [isOnboardingModalOpen, setIsOnboardingModalOpen] = useState(false)
-    const [pingLatency, setPingLatency] = useState<number | null>(null)
 
-    // Thăm dò tín hiệu ping từ Desktop App qua Distributed Service (mỗi 3 giây)
-    const checkDesktopAppConnection = async () => {
-        setIsCheckingDesktop(true)
-        const startTime = Date.now()
-        try {
-            // 1. Kiểm tra node của user hiện tại
-            const myRes = await distributedApi.getMyNode(undefined, profile?.id).catch(() => null)
-            const latency = Date.now() - startTime
+    // State cho cấu hình setup Core, RAM, GPU và Token kết nối Web - Local
+    const [allocatedCores, setAllocatedCores] = useState<number>(4)
+    const [allocatedRAMGB, setAllocatedRAMGB] = useState<number>(8)
+    const [enableGPU, setEnableGPU] = useState<boolean>(true)
+    const [gpuSharePercent, setGpuSharePercent] = useState<number>(75)
+    const [minPricePerHourCoin, setMinPricePerHourCoin] = useState<number>(50)
+    const [maxTokens, setMaxTokens] = useState<number>(2048)
+    const [contextLength, setContextLength] = useState<number>(4096)
+    const [temperature, setTemperature] = useState<number>(0.7)
+    const [defaultModel, setDefaultModel] = useState<string>('qwen2.5-coder:1.5b')
+    const [maxConcurrentTasks, setMaxConcurrentTasks] = useState<number>(2)
+    const [copiedToken, setCopiedToken] = useState(false)
+    const [isSavingConfig, setIsSavingConfig] = useState(false)
 
-            if (myRes?.success && myRes.node) {
-                setDesktopNode(myRes.node)
-                setPingLatency(Math.max(4, Math.round(latency / 2)))
-            } else {
-                // 2. Nếu chưa tìm thấy theo userId, tìm trong danh sách các node đang online
-                const listRes = await distributedApi.listNodes().catch(() => null)
-                if (listRes?.success && listRes.nodes && listRes.nodes.length > 0) {
-                    // Lấy node phù hợp hoặc node đầu tiên của seller
-                    const matching = listRes.nodes.find(
-                        (n) => n.userId === profile?.id || n.username === profile?.name
-                    ) || listRes.nodes[0]
+    // Xác định xem máy Seller có GPU rời thực tế hay không
+    const hasDetectedGPU = desktopNode
+        ? Boolean(
+              (desktopNode as any).hasGPU ||
+              (desktopNode.hardware && desktopNode.hardware.hasWebGPU) ||
+              (desktopNode.hardware?.gpuName && desktopNode.hardware.gpuName !== 'CPU Mode')
+          )
+        : true
 
-                    setDesktopNode(matching)
-                    setPingLatency(Math.max(6, Math.round(latency / 2)))
-                } else {
-                    setDesktopNode(null)
-                    setPingLatency(null)
+    // Đồng bộ cấu hình đã lưu khi desktopNode tải xong
+    React.useEffect(() => {
+        if (desktopNode) {
+            if (desktopNode.rentConfig) {
+                if (desktopNode.rentConfig.allocatedCores) setAllocatedCores(desktopNode.rentConfig.allocatedCores)
+                if (desktopNode.rentConfig.allocatedRAMGB) setAllocatedRAMGB(desktopNode.rentConfig.allocatedRAMGB)
+                if (desktopNode.rentConfig.enableGPU !== undefined) setEnableGPU(desktopNode.rentConfig.enableGPU)
+                if (desktopNode.rentConfig.gpuSharePercent) setGpuSharePercent(desktopNode.rentConfig.gpuSharePercent)
+                if (desktopNode.rentConfig.minPricePerHourCoin) setMinPricePerHourCoin(desktopNode.rentConfig.minPricePerHourCoin)
+                if (desktopNode.rentConfig.maxTokens) setMaxTokens(desktopNode.rentConfig.maxTokens)
+                if (desktopNode.rentConfig.contextLength) setContextLength(desktopNode.rentConfig.contextLength)
+                if (desktopNode.rentConfig.temperature !== undefined) setTemperature(desktopNode.rentConfig.temperature)
+                if (desktopNode.rentConfig.defaultModel) {
+                    setDefaultModel(desktopNode.rentConfig.defaultModel)
+                    setTestModel(desktopNode.rentConfig.defaultModel)
                 }
+                if (desktopNode.rentConfig.maxConcurrentTasks) setMaxConcurrentTasks(desktopNode.rentConfig.maxConcurrentTasks)
+            } else if (desktopNode.hardware) {
+                if (desktopNode.hardware.cpuCores) setAllocatedCores(Math.max(1, Math.round(desktopNode.hardware.cpuCores / 2)))
+                if (desktopNode.hardware.deviceMemoryGB) setAllocatedRAMGB(Math.max(2, Math.round(desktopNode.hardware.deviceMemoryGB / 2)))
             }
-        } catch {
-            setDesktopNode(null)
-            setPingLatency(null)
-        } finally {
-            setIsCheckingDesktop(false)
         }
-    }
+    }, [desktopNode])
 
-    useEffect(() => {
-        checkDesktopAppConnection()
-        const interval = setInterval(checkDesktopAppConnection, 3500)
-        return () => clearInterval(interval)
-    }, [profile?.id, profile?.name])
+    // State cho tính năng Test Stream LLM xuống máy Seller
+    const [testModel, setTestModel] = useState<string>('qwen2.5-coder:1.5b')
+    const [testPrompt, setTestPrompt] = useState<string>(
+        'Xin chào! Hãy giới thiệu ngắn về bạn và kiểm tra xem kết nối LLM cục bộ trên máy Seller có ổn định không.'
+    )
+    const [isTesting, setIsTesting] = useState(false)
+    const [streamOutput, setStreamOutput] = useState<string>('')
+    const [testStats, setTestStats] = useState<{
+        latencyMs?: number
+        tokensCount?: number
+        error?: string
+        modelUsed?: string
+    } | null>(null)
 
-    // Bật hoặc tắt trạng thái kết nối trực tiếp trên Web
+    // Node chỉ được coi là Đang Trực Tuyến khi Electron Worker thực sự đang kết nối và truyền Telemetry
+    const isDesktopConnected =
+        desktopNode !== null &&
+        (desktopNode.status === 'IDLE' || desktopNode.status === 'BUSY') &&
+        Boolean(desktopNode.lastTelemetry)
+
+    const isRegisteredWaitingOrPaused = desktopNode !== null && !isDesktopConnected
+
     const handleToggleConnection = async () => {
         if (!desktopNode) return
         setTogglingStatus(true)
         try {
-            const isCurrentlyOnline = desktopNode.status === 'IDLE' || desktopNode.status === 'BUSY'
-            const nextStatus = isCurrentlyOnline ? 'OFFLINE' : 'IDLE'
-
-            const res = await distributedApi.toggleNodeStatus(desktopNode.id, nextStatus)
+            const isCurrentlyActive = isDesktopConnected
+            const nextAction = isCurrentlyActive ? 'OFFLINE' : 'IDLE'
+            const res = await toggleNodeStatus(desktopNode.id, nextAction)
             if (res.success) {
-                setDesktopNode((prev) => (prev ? { ...prev, status: nextStatus } : null))
                 notify.success(
-                    nextStatus === 'IDLE'
-                        ? 'Đã bật lại kết nối chia sẻ tài nguyên cho Agent!'
-                        : 'Đã tạm dừng kết nối chia sẻ tài nguyên.'
+                    isCurrentlyActive
+                        ? 'Đã tạm dừng chia sẻ tài nguyên (ngắt khỏi mạng lưới 3D).'
+                        : 'Đã mở sẵn sàng kết nối! Hãy chạy ứng dụng Electron Worker trên máy để truyền luồng dữ liệu.'
                 )
             } else {
                 notify.error('Lỗi cập nhật trạng thái: ' + res.message)
@@ -110,163 +146,258 @@ export default function NodeCheckerPage() {
         }
     }
 
-    const handleRegisterNode = async () => {
-        const res = await registerNode()
-        if (res.success) {
-            notify.success('Đã cập nhật và kích hoạt Node AI thành công!')
-        } else {
-            notify.error('Cập nhật thất bại: ' + (res.error || 'Lỗi kết nối server'))
+    const handleRunTestLLM = async () => {
+        if (!testPrompt.trim()) {
+            notify.error('Vui lòng nhập nội dung câu hỏi test.')
+            return
+        }
+        setIsTesting(true)
+        setStreamOutput('')
+        setTestStats(null)
+
+        try {
+            const res = await distributedApi.testInferenceStream(
+                {
+                    nodeId: desktopNode?.id,
+                    model: testModel,
+                    prompt: testPrompt,
+                    temperature,
+                    maxTokens,
+                },
+                (chunk) => {
+                    setStreamOutput((prev) => prev + chunk)
+                }
+            )
+
+            if (res.success) {
+                // Ước lượng tokens theo từ
+                const tokenEstimate = Math.max(1, Math.round(res.output.length / 3.5))
+                setTestStats({
+                    latencyMs: res.latencyMs,
+                    tokensCount: tokenEstimate,
+                    modelUsed: res.model || testModel,
+                })
+                notify.success(`Stream thành công từ máy Seller (${res.latencyMs}ms)!`)
+            } else {
+                setTestStats({
+                    error: res.error || 'Worker không phản hồi',
+                    latencyMs: res.latencyMs,
+                })
+                notify.error('Thất bại: ' + (res.error || 'Lỗi gọi Ollama'))
+            }
+        } catch (err: any) {
+            setTestStats({
+                error: err.message || 'Lỗi kết nối tới Distributed Service',
+            })
+            notify.error('Lỗi kiểm tra LLM: ' + err.message)
+        } finally {
+            setIsTesting(false)
         }
     }
 
-    const handleUnregisterNode = async () => {
-        const ok = await confirmModal({
-            title: 'Hủy kích hoạt Node AI?',
-            description: 'Bạn có chắc chắn muốn hủy đăng ký Node tính toán này? Trình duyệt và hệ thống sẽ dừng chia sẻ tài nguyên tính toán vào mạng lưới.',
-            variant: 'danger',
-            confirmText: 'Hủy kích hoạt',
-            cancelText: 'Giữ lại',
-        })
-        if (!ok) return
+    const activeAuthToken =
+        desktopNode?.authToken ||
+        'dist_seller_' + (profile?.id ? profile.id.slice(0, 8) : 'demo88')
+    const activeNodeId =
+        desktopNode?.id || (profile?.id ? `node_${profile.id}` : 'node_seller_local')
 
-        const res = await unregisterNode()
-        if (res.success) {
-            notify.success('Đã hủy kích hoạt và ngắt kết nối Node AI thành công.')
-        } else {
-            notify.error('Hủy thất bại: ' + (res.error || 'Lỗi thao tác'))
+    const handleCopyToken = () => {
+        navigator.clipboard.writeText(activeAuthToken)
+        setCopiedToken(true)
+        notify.success('Đã sao chép Auth Token vào bộ nhớ tạm!')
+        setTimeout(() => setCopiedToken(false), 2500)
+    }
+
+    const handleDownloadConfigFile = () => {
+        const configData = {
+            serverWsUrl: 'ws://localhost:4000/api/v1/distributed/ws',
+            authToken: activeAuthToken,
+            nodeId: activeNodeId,
+            localEndpoint: 'http://localhost:11434',
+            allocatedCores,
+            allocatedRAMGB,
+            enableGPU,
+            gpuSharePercent,
+            maxTokens,
+            contextLength,
+            temperature,
+            defaultModel,
+            maxConcurrentTasks,
+        }
+        const blob = new Blob([JSON.stringify(configData, null, 2)], { type: 'application/json' })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = 'worker-config.json'
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        URL.revokeObjectURL(url)
+        notify.success('Đã tải xuống file worker-config.json! Hãy dán vào thư mục worker hoặc import trên Electron.')
+    }
+
+    const handleSaveRentConfig = async () => {
+        setIsSavingConfig(true)
+        try {
+            const payload = {
+                userId: profile?.id || desktopNode?.userId || 'usr_seller_' + Date.now().toString(36),
+                username: profile?.name || desktopNode?.username || 'Seller Node',
+                email: profile?.email || desktopNode?.email || 'seller@network.ai',
+                hardware: desktopNode?.hardware || {
+                    cpuCores: navigator.hardwareConcurrency || 8,
+                    deviceMemoryGB: 16,
+                    hasWebGPU: false,
+                    gpuName: 'NVIDIA GeForce RTX (hoặc CPU)',
+                    vramGB: 8,
+                    os: 'Windows 64-bit',
+                    arch: 'x64',
+                },
+                rentConfig: {
+                    allocatedCores,
+                    allocatedRAMGB,
+                    enableGPU,
+                    gpuSharePercent,
+                    availabilitySchedule: '24/7',
+                    minPricePerHourCoin,
+                    autoStartWithOS: true,
+                    maxTokens,
+                    contextLength,
+                    temperature,
+                    defaultModel,
+                    maxConcurrentTasks,
+                },
+            }
+
+            const res = await distributedApi.registerPartnerNode(payload)
+            if (res.success && res.node) {
+                upsertRegisteredNode(res.node)
+                notify.success('Đã lưu cấu hình tài nguyên cấp phát & Token kết nối thành công!')
+            } else {
+                notify.error('Không thể lưu cấu hình: ' + (res.message || 'Lỗi không xác định'))
+            }
+        } catch (err: any) {
+            notify.error('Lỗi khi lưu cấu hình: ' + err.message)
+        } finally {
+            setIsSavingConfig(false)
         }
     }
 
-    const isDesktopConnected =
-        desktopNode !== null && (desktopNode.status === 'IDLE' || desktopNode.status === 'BUSY')
-    const isDesktopPaused = desktopNode !== null && desktopNode.status === 'OFFLINE'
-
-    // Dữ liệu phần cứng chuyên sâu ưu tiên lấy từ Desktop App (quét sâu từ driver), sau đó mới tới Web Browser
-    const displayCores = desktopNode?.hardware.cpuCores || report?.cpuCores || 4
-    const displayRAM = desktopNode?.hardware.deviceMemoryGB || report?.deviceMemoryGB || 8
+    const displayCores = desktopNode?.hardware.cpuCores || 0
+    const displayRAM = desktopNode?.hardware.deviceMemoryGB || 0
     const displayGPU =
         desktopNode?.hardware.gpuName && desktopNode.hardware.gpuName !== 'Đang kiểm tra...'
             ? desktopNode.hardware.gpuName
-            : report?.gpuName && report.gpuName !== 'Không khả dụng'
-            ? report.gpuName
-            : 'Đang chờ Desktop App quét GPU...'
-    const hasGPU = desktopNode?.hardware.hasWebGPU || report?.hasWebGPU || false
+            : 'Chờ ứng dụng Electron Worker quét driver GPU...'
+    const detectedModels =
+        desktopNode?.compatibleModels && desktopNode.compatibleModels.length > 0
+            ? desktopNode.compatibleModels
+            : ['qwen2.5-coder:1.5b']
 
     return (
-        <div className="mx-auto my-6 max-w-2xl space-y-6">
+        <div className="mx-auto my-4 sm:my-6 max-w-7xl px-3 sm:px-6 space-y-6 transition-colors duration-200">
             {/* 1. HEADER TRANG & NÚT GIA NHẬP ĐỐI TÁC */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-zinc-800 pb-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border pb-4">
                 <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-blue-600/10 border border-blue-500/20 flex items-center justify-center text-blue-400 shrink-0">
+                    <div className="w-10 h-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary shrink-0">
                         <Server className="w-5 h-5" />
                     </div>
                     <div>
                         <div className="flex items-center gap-2">
-                            <h1 className="text-sm font-bold text-white tracking-wide">
-                                Node Inspector & Giám Sát Kết Nối AI
+                            <h1 className="text-sm font-bold text-foreground tracking-wide">
+                                Kiểm Tra Node AI & Kết Nối Electron Worker
                             </h1>
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                                Worker Bridge
+                            <span
+                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                                    wsConnected
+                                        ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                                        : 'bg-muted text-muted-foreground border-border'
+                                }`}
+                            >
+                                {wsConnected ? 'WS Bridge Live' : 'WS Connecting...'}
                             </span>
                         </div>
-                        <p className="text-xs text-zinc-400 mt-0.5">
-                            Kiểm tra kết nối hai chiều giữa Desktop App (.exe) của Seller và Server phân tán.
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                            Đồng bộ trực tiếp với trang <strong>Đối tác Mô hình</strong>: Khi chạy Electron Worker trên máy Seller, Node mới chính thức vào mạng lưới.
                         </p>
                     </div>
                 </div>
 
                 <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
-                    <a
-                        href="https://ollama.com"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-700/80 text-xs font-semibold transition flex items-center gap-1.5"
-                        title="Tải công cụ chạy Local LLM Ollama (ollama.com)"
-                    >
-                        <ExternalLink className="w-3.5 h-3.5 text-zinc-400" />
-                        <span>Tải Ollama</span>
-                    </a>
-
-                    <a
-                        href="https://lmstudio.ai"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="px-3 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-700/80 text-xs font-semibold transition flex items-center gap-1.5"
-                        title="Tải công cụ chạy Local LLM LM Studio (lmstudio.ai)"
-                    >
-                        <ExternalLink className="w-3.5 h-3.5 text-purple-400" />
-                        <span>Tải LM Studio</span>
-                    </a>
-
                     <button
                         onClick={() => setIsOnboardingModalOpen(true)}
                         className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs shadow-md shadow-blue-500/20 transition flex items-center gap-1.5"
                     >
                         <Zap className="w-3.5 h-3.5 fill-current" />
-                        <span>Gia Nhập Đối Tác</span>
+                        <span>Cấu Hình Đối Tác</span>
                     </button>
 
                     <a
                         href={distributedApi.getDownloadAppUrl()}
-                        className="px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 text-xs font-semibold transition flex items-center gap-1.5"
+                        className="px-3 py-1.5 rounded-xl bg-secondary hover:bg-secondary/80 text-foreground border border-border text-xs font-semibold transition flex items-center gap-1.5"
                         title="Tải trực tiếp bộ cài đặt Desktop Client"
                     >
-                        <Download className="w-3.5 h-3.5 text-blue-400" />
-                        <span>Tải App (.exe)</span>
+                        <Download className="w-3.5 h-3.5 text-primary" />
+                        <span>Tải Worker (.exe)</span>
                     </a>
                 </div>
             </div>
 
-            {/* 2. KHỐI GIÁM SÁT KẾT NỐI REAL-TIME TỪ DESKTOP APP (PING NGƯỢC) */}
+            {/* 2. KHỐI GIÁM SÁT KẾT NỐI REAL-TIME TỪ ELECTRON DESKTOP WORKER */}
             <div
                 className={`rounded-2xl border p-5 space-y-4 transition-all duration-300 ${
                     isDesktopConnected
-                        ? 'bg-gradient-to-r from-emerald-950/20 via-zinc-900/60 to-blue-950/20 border-emerald-500/40 shadow-lg shadow-emerald-500/5'
-                        : isDesktopPaused
-                        ? 'bg-zinc-900/60 border-amber-500/30'
-                        : 'bg-zinc-900/40 border-zinc-800'
+                        ? 'bg-card border-emerald-500/40 shadow-lg shadow-emerald-500/5'
+                        : isRegisteredWaitingOrPaused
+                        ? 'bg-card border-amber-500/30'
+                        : 'bg-card border-border'
                 }`}
             >
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800/80 pb-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border/80 pb-3">
                     <div className="flex items-center gap-2.5">
                         <span
                             className={`w-3 h-3 rounded-full ${
                                 isDesktopConnected
                                     ? 'bg-emerald-400 animate-pulse'
-                                    : isDesktopPaused
+                                    : isRegisteredWaitingOrPaused
                                     ? 'bg-amber-400'
-                                    : 'bg-zinc-600'
+                                    : 'bg-muted-foreground'
                             }`}
                         />
                         <div>
-                            <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
-                                <span>Tín Hiệu Kết Nối Desktop App (Electron Worker)</span>
+                            <h3 className="text-xs font-bold text-foreground uppercase tracking-wider flex items-center gap-2">
+                                <span>
+                                    {isDesktopConnected
+                                        ? `Electron Worker Đang Kết Nối: ${desktopNode?.username || 'Seller Node'}`
+                                        : isRegisteredWaitingOrPaused
+                                        ? `Đã Đăng Ký (${desktopNode?.username}) — Chờ Chạy Electron Worker`
+                                        : 'Chưa Kết Nối Electron Desktop Worker'}
+                                </span>
                             </h3>
-                            <p className="text-[11px] text-zinc-400">
+                            <p className="text-[11px] text-muted-foreground mt-0.5">
                                 {isDesktopConnected
-                                    ? 'Máy trạm của Seller đang trực tuyến và ping ngược liên tục về Server.'
-                                    : isDesktopPaused
-                                    ? 'Người dùng đã tạm dừng chia sẻ kết nối (Offline Mode).'
-                                    : 'Đang quét tìm tín hiệu ping ngược từ file worker.exe trên máy tính của bạn...'}
+                                    ? 'Máy của bạn đã gia nhập mạng lưới Đối tác Mô hình 3D và sẵn sàng nhận lệnh suy luận AI.'
+                                    : isRegisteredWaitingOrPaused
+                                    ? 'Cấu hình đã lưu nhưng chưa nhận được luồng WebSocket từ worker.exe (hoặc đang tạm dừng).'
+                                    : 'Hãy chạy ứng dụng Go-Python Worker (.exe) trên máy tính Seller để kết nối vào mạng lưới.'}
                             </p>
                         </div>
                     </div>
 
-                    {/* Công tắc BẬT / TẮT kết nối hai chiều */}
+                    {/* Công tắc BẬT / TẮT kết nối vào mạng lưới khi có node */}
                     {desktopNode && (
                         <button
                             onClick={handleToggleConnection}
                             disabled={togglingStatus}
-                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 border shadow-sm ${
+                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 border shadow-sm shrink-0 ${
                                 isDesktopConnected
-                                    ? 'bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border-amber-500/30'
-                                    : 'bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border-emerald-500/30'
+                                    ? 'bg-amber-500/15 hover:bg-amber-500/25 text-amber-500 dark:text-amber-300 border-amber-500/30'
+                                    : 'bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-600 dark:text-emerald-300 border-emerald-500/30'
                             }`}
                         >
                             {isDesktopConnected ? (
                                 <>
                                     <Pause className="w-3.5 h-3.5" />
-                                    <span>{togglingStatus ? 'Đang dừng...' : 'Tạm Dừng Chia Sẻ (Tắt)'}</span>
+                                    <span>{togglingStatus ? 'Đang dừng...' : 'Tạm Dừng Chia Sẻ'}</span>
                                 </>
                             ) : (
                                 <>
@@ -280,64 +411,145 @@ export default function NodeCheckerPage() {
 
                 {/* Chi tiết Ping và Tải thời gian thực từ Desktop App */}
                 {isDesktopConnected ? (
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-                        <div className="bg-zinc-950/70 p-3 rounded-xl border border-zinc-800/80 space-y-1">
-                            <span className="text-[10px] text-zinc-400 block">Độ Trễ Ping Ngược</span>
-                            <div className="flex items-baseline gap-1">
-                                <strong className="text-lg font-black text-emerald-400 font-mono">
-                                    {pingLatency !== null ? pingLatency : 12}
-                                </strong>
-                                <span className="text-[10px] text-emerald-400 font-mono">ms</span>
+                    <div className="space-y-3">
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                            <div className="bg-secondary/40 p-3 rounded-xl border border-border space-y-1">
+                                <span className="text-[10px] text-muted-foreground block">Độ Trễ WebSocket</span>
+                                <div className="flex items-baseline gap-1">
+                                    <strong className="text-lg font-black text-emerald-600 dark:text-emerald-400 font-mono">
+                                        {pingLatency ?? 8}
+                                    </strong>
+                                    <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-mono">ms</span>
+                                </div>
+                                <span className="text-[9px] text-muted-foreground block">Stream trực tiếp P2P</span>
                             </div>
-                            <span className="text-[9px] text-zinc-500 block">Kết nối trực tiếp P2P</span>
+
+                            <div className="bg-secondary/40 p-3 rounded-xl border border-border space-y-1">
+                                <span className="text-[10px] text-muted-foreground block">Tải CPU Máy Seller</span>
+                                <div className="flex items-baseline gap-1">
+                                    <strong className="text-lg font-black text-blue-600 dark:text-blue-400 font-mono">
+                                        {desktopNode?.lastTelemetry?.cpu_percent !== undefined
+                                            ? desktopNode.lastTelemetry.cpu_percent.toFixed(1)
+                                            : '0.0'}
+                                        %
+                                    </strong>
+                                </div>
+                                <span className="text-[9px] text-muted-foreground block">Đo thực tế từ psutil</span>
+                            </div>
+
+                            <div className="bg-secondary/40 p-3 rounded-xl border border-border space-y-1">
+                                <span className="text-[10px] text-muted-foreground block">Tải RAM Máy Seller</span>
+                                <div className="flex items-baseline gap-1">
+                                    <strong className="text-lg font-black text-indigo-600 dark:text-indigo-400 font-mono">
+                                        {desktopNode?.lastTelemetry?.ram_percent !== undefined
+                                            ? desktopNode.lastTelemetry.ram_percent.toFixed(1)
+                                            : '0.0'}
+                                        %
+                                    </strong>
+                                </div>
+                                <span className="text-[9px] text-muted-foreground block">Bộ nhớ vật lý thực</span>
+                            </div>
+
+                            <div className="bg-secondary/40 p-3 rounded-xl border border-border space-y-1">
+                                <span className="text-[10px] text-muted-foreground block">SaveCoins Tích Lũy</span>
+                                <div className="flex items-baseline gap-1">
+                                    <strong className="text-lg font-black text-amber-600 dark:text-amber-400 font-mono">
+                                        {Number(desktopNode?.totalCoinsEarned || 0).toFixed(2)}
+                                    </strong>
+                                    <span className="text-[10px] text-amber-600 dark:text-amber-400">Coins</span>
+                                </div>
+                                <span className="text-[9px] text-muted-foreground block">Cộng tự động khi Online</span>
+                            </div>
                         </div>
 
-                        <div className="bg-zinc-950/70 p-3 rounded-xl border border-zinc-800/80 space-y-1">
-                            <span className="text-[10px] text-zinc-400 block">Tải CPU Máy Seller</span>
-                            <div className="flex items-baseline gap-1">
-                                <strong className="text-lg font-black text-blue-400 font-mono">
-                                    {desktopNode?.lastTelemetry?.cpu_percent !== undefined
-                                        ? desktopNode.lastTelemetry.cpu_percent.toFixed(0)
-                                        : 18}
-                                    %
-                                </strong>
-                            </div>
-                            <span className="text-[9px] text-zinc-500 block">Đo từ psutil ngầm</span>
-                        </div>
+                        {/* Card Giám Sát Trạng Thái Hoạt Động & Token Của Local LLM */}
+                        <div className="bg-card/90 rounded-xl border border-border p-3.5 space-y-3">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-border/80 pb-2.5">
+                                <div className="flex items-center gap-2">
+                                    <Sparkles className="w-4 h-4 text-amber-500" />
+                                    <span className="text-xs font-bold text-foreground uppercase tracking-wider">
+                                        Trạng Thái Hoạt Động Của Local LLM (Ollama P2P)
+                                    </span>
+                                    <span className="text-[11px] text-muted-foreground font-mono">
+                                        [{desktopNode?.llmStats?.current_model || desktopNode?.activeModel || defaultModel}]
+                                    </span>
+                                </div>
 
-                        <div className="bg-zinc-950/70 p-3 rounded-xl border border-zinc-800/80 space-y-1">
-                            <span className="text-[10px] text-zinc-400 block">Tải RAM Máy Seller</span>
-                            <div className="flex items-baseline gap-1">
-                                <strong className="text-lg font-black text-indigo-400 font-mono">
-                                    {desktopNode?.lastTelemetry?.ram_percent !== undefined
-                                        ? desktopNode.lastTelemetry.ram_percent.toFixed(0)
-                                        : 42}
-                                    %
-                                </strong>
+                                <div className="flex items-center gap-2">
+                                    {desktopNode?.llmStats?.is_busy || desktopNode?.status === 'BUSY' ? (
+                                        <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-600 dark:text-amber-300 text-[11px] font-bold animate-pulse">
+                                            <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
+                                            <span>ĐANG SINH TOKEN (BUSY)</span>
+                                        </span>
+                                    ) : (
+                                        <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 text-[11px] font-bold">
+                                            <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                                            <span>SẴN SÀNG NHẬN LỆNH (IDLE)</span>
+                                        </span>
+                                    )}
+                                </div>
                             </div>
-                            <span className="text-[9px] text-zinc-500 block">Hệ điều hành cấp phát</span>
-                        </div>
 
-                        <div className="bg-zinc-950/70 p-3 rounded-xl border border-zinc-800/80 space-y-1">
-                            <span className="text-[10px] text-zinc-400 block">SaveCoins Tích Lũy</span>
-                            <div className="flex items-baseline gap-1">
-                                <strong className="text-lg font-black text-amber-400 font-mono">
-                                    {desktopNode?.totalCoinsEarned || 0}
-                                </strong>
-                                <span className="text-[10px] text-amber-400">Coins</span>
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
+                                <div className="bg-secondary/40 p-2.5 rounded-lg border border-border space-y-1">
+                                    <span className="text-[10px] text-muted-foreground block">Tổng Token Xử Lý</span>
+                                    <div className="flex items-baseline gap-1">
+                                        <strong className="text-base font-black text-amber-600 dark:text-amber-400 font-mono">
+                                            {(desktopNode?.llmStats?.total_tokens ?? 0).toLocaleString()}
+                                        </strong>
+                                        <span className="text-[10px] text-muted-foreground font-mono">tokens</span>
+                                    </div>
+                                    <span className="text-[9px] text-muted-foreground block">
+                                        Prompt: {(desktopNode?.llmStats?.prompt_tokens ?? 0).toLocaleString()} | Sinh: {(desktopNode?.llmStats?.completion_tokens ?? 0).toLocaleString()}
+                                    </span>
+                                </div>
+
+                                <div className="bg-secondary/40 p-2.5 rounded-lg border border-border space-y-1">
+                                    <span className="text-[10px] text-muted-foreground block">Số Lần Gọi LLM</span>
+                                    <div className="flex items-baseline gap-1">
+                                        <strong className="text-base font-black text-blue-600 dark:text-blue-400 font-mono">
+                                            {desktopNode?.llmStats?.total_requests ?? 0}
+                                        </strong>
+                                        <span className="text-[10px] text-muted-foreground font-mono">calls</span>
+                                    </div>
+                                    <span className="text-[9px] text-muted-foreground block">
+                                        Đang chạy: {desktopNode?.llmStats?.active_requests ?? 0} tác vụ
+                                    </span>
+                                </div>
+
+                                <div className="bg-secondary/40 p-2.5 rounded-lg border border-border space-y-1">
+                                    <span className="text-[10px] text-muted-foreground block">Tốc Độ Sinh Token</span>
+                                    <div className="flex items-baseline gap-1">
+                                        <strong className="text-base font-black text-emerald-600 dark:text-emerald-400 font-mono">
+                                            {(desktopNode?.llmStats?.tokens_per_sec ?? 0).toFixed(1)}
+                                        </strong>
+                                        <span className="text-[10px] text-muted-foreground font-mono">tok/s</span>
+                                    </div>
+                                    <span className="text-[9px] text-muted-foreground block">Đo đạc lần chạy gần nhất</span>
+                                </div>
+
+                                <div className="bg-secondary/40 p-2.5 rounded-lg border border-border space-y-1">
+                                    <span className="text-[10px] text-muted-foreground block">Độ Trễ Phản Hồi</span>
+                                    <div className="flex items-baseline gap-1">
+                                        <strong className="text-base font-black text-purple-600 dark:text-purple-400 font-mono">
+                                            {(desktopNode?.llmStats?.last_latency_ms ?? 0).toFixed(0)}
+                                        </strong>
+                                        <span className="text-[10px] text-muted-foreground font-mono">ms</span>
+                                    </div>
+                                    <span className="text-[9px] text-muted-foreground block">Thời gian xử lý trọn vẹn</span>
+                                </div>
                             </div>
-                            <span className="text-[9px] text-zinc-500 block">Thu nhập tự động</span>
                         </div>
                     </div>
                 ) : (
-                    <div className="bg-zinc-950/60 border border-dashed border-zinc-800 rounded-xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs">
+                    <div className="bg-secondary/30 border border-dashed border-border rounded-xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs">
                         <div className="space-y-1 text-center sm:text-left">
-                            <span className="text-zinc-300 font-bold block flex items-center justify-center sm:justify-start gap-1.5">
-                                <Radio className="w-4 h-4 text-blue-400 animate-spin" />
-                                <span>Chưa nhận được tín hiệu Ping từ Desktop App</span>
+                            <span className="text-foreground font-bold flex items-center justify-center sm:justify-start gap-1.5">
+                                <Radio className="w-4 h-4 text-blue-500 animate-spin" />
+                                <span>Đang lắng nghe kết nối WebSocket từ ứng dụng Electron Worker...</span>
                             </span>
-                            <p className="text-zinc-500 text-[11px] max-w-md">
-                                Hãy mở ứng dụng <strong>Go-Python Worker (.exe)</strong> trên máy tính của bạn. Ứng dụng sẽ tự động kết nối và truyền dữ liệu phần cứng chuyên sâu về bảng điều khiển này.
+                            <p className="text-muted-foreground text-[11px] max-w-md">
+                                Mở <strong>Go-Python Worker Monitor (.exe)</strong> trên máy tính Seller. Ngay khi ứng dụng chạy, thông số CPU/RAM/GPU/Ollama sẽ tự động đẩy lên đây và đưa máy vào <strong>Cụm 3D Đối Tác Mô Hình</strong>.
                             </p>
                         </div>
 
@@ -352,89 +564,667 @@ export default function NodeCheckerPage() {
                 )}
             </div>
 
-            {/* 3. THÔNG SỐ PHẦN CỨNG CHUYÊN SÂU (ĐÃ ĐỒNG BỘ TỪ DESKTOP APP) */}
-            <div className="grid grid-cols-2 gap-4 rounded-2xl border border-zinc-800 bg-zinc-900/50 p-5 text-xs">
+
+            {/* 3. BỐ CỤC ĐA THIẾT BỊ (RESPONSIVE 12-COLUMN GRID TRÊN DESKTOP, STACK TRÊN MOBILE) */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                {/* CỘT TRÁI (7 COLS TRÊN DESKTOP): THIẾT LẬP TÀI NGUYÊN, TOKEN & THÔNG SỐ */}
+                <div className="lg:col-span-7 space-y-6">
+            {/* 4.5 CẤU HÌNH ĐIỀU CHỈNH TÀI NGUYÊN (CORE, RAM, GPU) & TOKEN KẾT NỐI LOCAL */}
+            <div className="rounded-2xl border border-border bg-card/75 backdrop-blur-md p-5 space-y-5 shadow-lg">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-border/80 pb-3">
+                    <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 shrink-0">
+                            <Sliders className="w-4 h-4" />
+                        </div>
+                        <div>
+                            <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+                                <span>Cấu Hình Setup Tài Nguyên & Token Kết Nối Local Worker</span>
+                            </h3>
+                            <p className="text-[11px] text-zinc-400 mt-0.5">
+                                Điều chỉnh giới hạn CPU, RAM, GPU cho phép Worker khai thác và lấy Token liên kết trực tiếp ứng dụng Electron/Python.
+                            </p>
+                        </div>
+                    </div>
+
+                    <span
+                        className={`px-2.5 py-1 rounded-full text-[10px] font-bold border self-start sm:self-auto flex items-center gap-1 ${
+                            isDesktopConnected
+                                ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                                : 'bg-zinc-800 text-zinc-400 border-border'
+                        }`}
+                    >
+                        <Key className="w-3 h-3" />
+                        <span>{isDesktopConnected ? 'Worker Live & Áp Dụng' : 'Sẵn Sàng Cấu Hình'}</span>
+                    </span>
+                </div>
+
+                {/* KHỐI AUTH TOKEN & TẢI FILE CONFIG */}
+                <div className="bg-zinc-950/80 border border-border rounded-xl p-3.5 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                        <label className="text-[11px] font-bold text-zinc-300 flex items-center gap-1.5">
+                            <Key className="w-3.5 h-3.5 text-amber-400" />
+                            <span>Mã Auth Token Kết Nối Máy Local:</span>
+                        </label>
+                        <span className="text-[10px] text-zinc-500 font-mono">Node ID: {activeNodeId}</span>
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                        <div className="flex-1 bg-zinc-900 border border-border rounded-lg px-3 py-2 text-xs font-mono text-amber-300 select-all truncate">
+                            {activeAuthToken}
+                        </div>
+
+                        <button
+                            type="button"
+                            onClick={handleCopyToken}
+                            className="px-3 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-semibold transition flex items-center justify-center gap-1.5 border border-border shrink-0"
+                            title="Sao chép Token để dán vào Tab Config của Electron Worker"
+                        >
+                            {copiedToken ? (
+                                <>
+                                    <Check className="w-3.5 h-3.5 text-emerald-400" />
+                                    <span className="text-emerald-400">Đã Sao Chép</span>
+                                </>
+                            ) : (
+                                <>
+                                    <Copy className="w-3.5 h-3.5 text-zinc-400" />
+                                    <span>Sao Chép Token</span>
+                                </>
+                            )}
+                        </button>
+
+                        <button
+                            type="button"
+                            onClick={handleDownloadConfigFile}
+                            className="px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold transition flex items-center justify-center gap-1.5 shadow-md shadow-blue-500/20 shrink-0"
+                            title="Tải trực tiếp file worker-config.json đặt vào thư mục chạy worker"
+                        >
+                            <FileDown className="w-3.5 h-3.5" />
+                            <span>Tải worker-config.json</span>
+                        </button>
+                    </div>
+
+                    <p className="text-[10px] text-zinc-400 leading-relaxed">
+                        <strong className="text-zinc-300">Hướng dẫn kết nối:</strong> Mở ứng dụng Electron Worker trên máy Seller, chuyển sang tab <strong>Config & Token</strong>, dán mã Auth Token này và bấm <em>Lưu</em> (hoặc đặt file <code>worker-config.json</code> vừa tải vào thư mục chạy worker). Ứng dụng sẽ tự động liên kết với tài khoản này.
+                    </p>
+                </div>
+
+                {/* ĐIỀU CHỈNH SETUP TÀI NGUYÊN (CPU, RAM, GPU) */}
+                <div className="space-y-4 pt-1">
+                    <h4 className="text-[11px] font-bold text-zinc-300 uppercase tracking-wider flex items-center gap-1.5">
+                        <Settings2 className="w-3.5 h-3.5 text-blue-400" />
+                        <span>Giới Hạn Tài Nguyên Cấp Phát Cho Mạng Lưới</span>
+                    </h4>
+
+                    {/* CPU Cores Slider */}
+                    <div className="space-y-1.5 bg-zinc-950/50 border border-border/80 p-3 rounded-xl">
+                        <div className="flex items-center justify-between text-xs">
+                            <span className="text-zinc-300 flex items-center gap-1.5">
+                                <Cpu className="w-3.5 h-3.5 text-blue-400" />
+                                <span>Số Luồng CPU Cho Phép:</span>
+                            </span>
+                            <strong className="text-blue-400 font-mono text-sm">
+                                {allocatedCores} Cores{' '}
+                                <span className="text-[10px] text-zinc-500">
+                                    / {displayCores > 0 ? displayCores : 16} Cores máy
+                                </span>
+                            </strong>
+                        </div>
+                        <input
+                            type="range"
+                            min="1"
+                            max={Math.max(16, displayCores || 8)}
+                            value={allocatedCores}
+                            onChange={(e) => setAllocatedCores(parseInt(e.target.value))}
+                            className="w-full accent-blue-500 cursor-pointer"
+                        />
+                        <div className="flex justify-between text-[10px] text-zinc-500 font-mono">
+                            <span>1 Core (Tối thiểu)</span>
+                            <span>{Math.max(16, displayCores || 8)} Cores (Toàn bộ)</span>
+                        </div>
+                    </div>
+
+                    {/* RAM Slider */}
+                    <div className="space-y-1.5 bg-zinc-950/50 border border-border/80 p-3 rounded-xl">
+                        <div className="flex items-center justify-between text-xs">
+                            <span className="text-zinc-300 flex items-center gap-1.5">
+                                <HardDrive className="w-3.5 h-3.5 text-indigo-400" />
+                                <span>Dung Lượng RAM Cho Phép:</span>
+                            </span>
+                            <strong className="text-indigo-400 font-mono text-sm">
+                                {allocatedRAMGB} GB{' '}
+                                <span className="text-[10px] text-zinc-500">
+                                    / {displayRAM > 0 ? displayRAM : 32} GB máy
+                                </span>
+                            </strong>
+                        </div>
+                        <input
+                            type="range"
+                            min="2"
+                            max={Math.max(32, displayRAM || 16)}
+                            step="1"
+                            value={allocatedRAMGB}
+                            onChange={(e) => setAllocatedRAMGB(parseInt(e.target.value))}
+                            className="w-full accent-indigo-500 cursor-pointer"
+                        />
+                        <div className="flex justify-between text-[10px] text-zinc-500 font-mono">
+                            <span>2 GB</span>
+                            <span>{Math.max(32, displayRAM || 16)} GB</span>
+                        </div>
+                    </div>
+
+                    {/* GPU Switch & Share % */}
+                    <div className="bg-zinc-950/50 border border-border/80 p-3 rounded-xl space-y-3">
+                        <div className="flex items-center justify-between">
+                            <div className="space-y-0.5">
+                                <label className="text-xs font-semibold text-zinc-200 flex items-center gap-1.5 cursor-pointer">
+                                    <Zap className="w-3.5 h-3.5 text-amber-400" />
+                                    <span>Bật Tăng Tốc Phần Cứng GPU (Card Đồ Họa)</span>
+                                </label>
+                                <p className="text-[10px] text-zinc-400">
+                                    Cho phép Worker offload layer và KV cache sang GPU để tăng tốc sinh token LLM.
+                                </p>
+                            </div>
+                            <input
+                                type="checkbox"
+                                disabled={!hasDetectedGPU}
+                                checked={hasDetectedGPU && enableGPU}
+                                onChange={(e) => setEnableGPU(e.target.checked)}
+                                className={`w-4 h-4 rounded ${hasDetectedGPU ? 'accent-amber-500 cursor-pointer' : 'opacity-40 cursor-not-allowed'}`}
+                            />
+                        </div>
+
+                        {!hasDetectedGPU && (
+                            <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-xs text-amber-300 flex items-center gap-2">
+                                <span className="font-mono font-bold text-[10px] bg-amber-950/80 text-amber-400 px-2 py-0.5 rounded border border-amber-800 shrink-0">
+                                    [Chế độ CPU Only]
+                                </span>
+                                <span className="text-[11px] text-zinc-400">
+                                    Không phát hiện GPU rời NVIDIA trên máy đối tác. Tùy chọn chia sẻ GPU đã được khóa để chỉ chia sẻ CPU và RAM.
+                                </span>
+                            </div>
+                        )}
+
+                        {enableGPU && (
+                            <div className="pt-2.5 border-t border-border space-y-1.5 pl-2 border-l-2 border-amber-500/50">
+                                <div className="flex items-center justify-between text-xs">
+                                    <span className="text-zinc-300">Tỷ Lệ VRAM GPU Cho Phép Dùng:</span>
+                                    <strong className="text-amber-400 font-mono text-sm">{gpuSharePercent}%</strong>
+                                </div>
+                                <input
+                                    type="range"
+                                    min="10"
+                                    max="100"
+                                    step="5"
+                                    value={gpuSharePercent}
+                                    onChange={(e) => setGpuSharePercent(parseInt(e.target.value))}
+                                    className="w-full accent-amber-500 cursor-pointer"
+                                />
+                                <div className="flex justify-between text-[10px] text-zinc-500 font-mono">
+                                    <span>10% (Chạy nhẹ)</span>
+                                    <span>100% (Toàn lực)</span>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* LLM Local Serving Configuration */}
+                    <div className="bg-zinc-950/50 border border-border/80 p-3.5 rounded-xl space-y-3">
+                        <div className="flex items-center justify-between border-b border-zinc-800 pb-2">
+                            <label className="text-xs font-semibold text-zinc-200 flex items-center gap-1.5">
+                                <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                                <span>Cấu Hình Tham Số Mô Hình AI (Ollama Local LLM)</span>
+                            </label>
+                            <span className="text-[10px] text-zinc-500 font-mono">P2P Serving Engine</span>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                            <div className="space-y-1">
+                                <label className="text-zinc-400 text-[11px] block">Model Mặc Định Phục Vụ P2P:</label>
+                                {detectedModels.length > 0 ? (
+                                    <select
+                                        value={defaultModel}
+                                        onChange={(e) => setDefaultModel(e.target.value)}
+                                        className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono focus:outline-none focus:border-amber-500"
+                                    >
+                                        {detectedModels.map((m) => (
+                                            <option key={m} value={m}>
+                                                {m}
+                                            </option>
+                                        ))}
+                                    </select>
+                                ) : (
+                                    <input
+                                        type="text"
+                                        value={defaultModel}
+                                        onChange={(e) => setDefaultModel(e.target.value.trim())}
+                                        placeholder="qwen2.5-coder:1.5b"
+                                        className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono focus:outline-none focus:border-amber-500"
+                                    />
+                                )}
+                            </div>
+
+                            <div className="space-y-1">
+                                <label className="text-zinc-400 text-[11px] block">Tác Vụ Đồng Thời (Concurrent Tasks):</label>
+                                <input
+                                    type="number"
+                                    min="1"
+                                    max="4"
+                                    value={maxConcurrentTasks}
+                                    onChange={(e) => setMaxConcurrentTasks(Math.max(1, Math.min(4, parseInt(e.target.value) || 1)))}
+                                    className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono focus:outline-none focus:border-amber-500"
+                                />
+                            </div>
+                        </div>
+
+                        {/* Max Tokens Slider */}
+                        <div className="space-y-1 pt-1">
+                            <div className="flex items-center justify-between text-xs">
+                                <span className="text-zinc-300">Max Tokens Tối Đa Mỗi Request:</span>
+                                <strong className="text-amber-400 font-mono text-xs">{maxTokens} tokens</strong>
+                            </div>
+                            <input
+                                type="range"
+                                min="256"
+                                max="8192"
+                                step="256"
+                                value={maxTokens}
+                                onChange={(e) => setMaxTokens(parseInt(e.target.value))}
+                                className="w-full accent-amber-500 cursor-pointer"
+                            />
+                            <div className="flex justify-between text-[10px] text-zinc-500 font-mono">
+                                <span>256 tokens</span>
+                                <span>8,192 tokens</span>
+                            </div>
+                        </div>
+
+                        {/* Context Length Slider */}
+                        <div className="space-y-1 pt-1">
+                            <div className="flex items-center justify-between text-xs">
+                                <span className="text-zinc-300">Độ Dài Ngữ Cảnh (Context Window):</span>
+                                <strong className="text-emerald-400 font-mono text-xs">{contextLength} tokens</strong>
+                            </div>
+                            <input
+                                type="range"
+                                min="1024"
+                                max="16384"
+                                step="1024"
+                                value={contextLength}
+                                onChange={(e) => setContextLength(parseInt(e.target.value))}
+                                className="w-full accent-emerald-500 cursor-pointer"
+                            />
+                            <div className="flex justify-between text-[10px] text-zinc-500 font-mono">
+                                <span>1,024 tokens</span>
+                                <span>16,384 tokens</span>
+                            </div>
+                        </div>
+
+                        {/* Temperature Slider */}
+                        <div className="space-y-1 pt-1">
+                            <div className="flex items-center justify-between text-xs">
+                                <span className="text-zinc-300">Độ Ngẫu Nhiên / Sáng Tạo (Temperature):</span>
+                                <strong className="text-purple-400 font-mono text-xs">{temperature.toFixed(2)}</strong>
+                            </div>
+                            <input
+                                type="range"
+                                min="0.0"
+                                max="1.0"
+                                step="0.05"
+                                value={temperature}
+                                onChange={(e) => setTemperature(parseFloat(e.target.value))}
+                                className="w-full accent-purple-500 cursor-pointer"
+                            />
+                            <div className="flex justify-between text-[10px] text-zinc-500 font-mono">
+                                <span>0.0 (Chính xác / Code)</span>
+                                <span>1.0 (Sáng tạo)</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Đơn Giá & Nút Lưu */}
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-2">
+                        <div className="flex items-center gap-2 text-xs">
+                            <span className="text-zinc-400">Đơn giá cho thuê:</span>
+                            <div className="flex items-center gap-1 bg-zinc-950 border border-border px-2.5 py-1.5 rounded-lg">
+                                <input
+                                    type="number"
+                                    min="1"
+                                    value={minPricePerHourCoin}
+                                    onChange={(e) => setMinPricePerHourCoin(Math.max(1, parseInt(e.target.value) || 1))}
+                                    className="w-16 bg-transparent text-white font-mono font-bold text-xs focus:outline-none"
+                                />
+                                <span className="text-[10px] text-amber-400 font-semibold">Coins/giờ</span>
+                            </div>
+                        </div>
+
+                        <button
+                            type="button"
+                            onClick={handleSaveRentConfig}
+                            disabled={isSavingConfig}
+                            className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 shadow-md ${
+                                isSavingConfig
+                                    ? 'bg-amber-600/50 text-amber-200 cursor-not-allowed'
+                                    : 'bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white shadow-amber-600/20'
+                            }`}
+                        >
+                            {isSavingConfig ? (
+                                <>
+                                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                    <span>Đang Lưu Cấu Hình...</span>
+                                </>
+                            ) : (
+                                <>
+                                    <CheckCircle2 className="w-3.5 h-3.5" />
+                                    <span>Lưu & Cập Nhật Thiết Lập Tài Nguyên</span>
+                                </>
+                            )}
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            {/* 3. THÔNG SỐ PHẦN CỨNG ĐỒNG BỘ TỪ ELECTRON WORKER */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 rounded-2xl border border-border bg-card/70 backdrop-blur-md p-5 text-xs">
                 <div className="space-y-1">
                     <div className="flex items-center gap-1.5 text-zinc-400">
                         <Cpu className="w-4 h-4 text-blue-400" />
-                        <span>Luồng CPU Thực Tế:</span>
+                        <span>Số Luồng CPU Máy Seller:</span>
                     </div>
-                    <span className="text-sm font-semibold text-zinc-200 block font-mono pl-5.5">
-                        {displayCores} Cores {desktopNode ? '(Từ Driver OS)' : '(Browser)'}
+                    <span className="text-sm font-semibold text-zinc-200 block font-mono">
+                        {isDesktopConnected
+                            ? `${displayCores} Cores (Từ Electron Worker)`
+                            : displayCores > 0
+                            ? `${displayCores} Cores (Cấu hình đã lưu - Offline)`
+                            : 'Chưa kết nối Worker'}
                     </span>
                 </div>
 
                 <div className="space-y-1">
                     <div className="flex items-center gap-1.5 text-zinc-400">
                         <HardDrive className="w-4 h-4 text-indigo-400" />
-                        <span>Dung Lượng RAM Thực Tế:</span>
+                        <span>Dung Lượng RAM Hệ Thống:</span>
                     </div>
-                    <span className="text-sm font-semibold text-zinc-200 block font-mono pl-5.5">
-                        {displayRAM} GB {desktopNode ? '(Toàn Bộ Hệ Thống)' : '(Sandbox)'}
+                    <span className="text-sm font-semibold text-zinc-200 block font-mono">
+                        {isDesktopConnected
+                            ? `${displayRAM} GB (Từ Electron Worker)`
+                            : displayRAM > 0
+                            ? `${displayRAM} GB (Cấu hình đã lưu - Offline)`
+                            : 'Chưa kết nối Worker'}
                     </span>
                 </div>
 
-                <div className="col-span-2 pt-3 border-t border-zinc-800/60 space-y-1">
+                <div className="sm:col-span-2 pt-3 border-t border-border/60 space-y-1">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-1.5 text-zinc-400">
                             <Zap className="w-4 h-4 text-amber-400" />
-                            <span>Card Đồ Họa & GPU Acceleration:</span>
+                            <span>Card Đồ Họa (GPU) & Vị Trí Node:</span>
                         </div>
-                        {desktopNode && (
-                            <span className="text-[10px] text-emerald-400 font-semibold font-mono">
-                                Đã Xác Thực Driver
+                        {isDesktopConnected && (
+                            <span className="text-[10px] text-emerald-400 font-semibold font-mono flex items-center gap-1">
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                <span>Đã đồng bộ sang Đối tác Mô hình</span>
                             </span>
                         )}
                     </div>
-                    <span
-                        className={`text-xs font-medium block pl-5.5 ${
-                            hasGPU || (desktopNode && desktopNode.hardware.gpuName)
-                                ? 'text-emerald-400'
-                                : 'text-amber-400'
-                        }`}
-                    >
-                        {displayGPU}
-                    </span>
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1">
+                        <span
+                            className={`text-xs font-medium ${
+                                isDesktopConnected ? 'text-emerald-400' : 'text-zinc-400'
+                            }`}
+                        >
+                            {isDesktopConnected ? displayGPU : 'Chờ ứng dụng Electron Worker kết nối...'}
+                        </span>
+                        {desktopNode?.location && isDesktopConnected && (
+                            <span className="text-[11px] text-cyan-400 flex items-center gap-1 font-mono">
+                                <MapPin className="w-3.5 h-3.5" />
+                                <span>
+                                    {desktopNode.location.city}, {desktopNode.location.country}
+                                </span>
+                            </span>
+                        )}
+                    </div>
                 </div>
             </div>
 
-            {/* 4. PHẦN MỀM CHẠY LOCAL LLM (YÊU CẦU CHO SELLER) */}
-            <div className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-5 space-y-3.5">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-zinc-800/80 pb-3">
+            {/* 4. DANH SÁCH MODEL OLLAMA QUÉT TỪ MÁY SELLER */}
+            <div className="rounded-2xl border border-border bg-card/70 backdrop-blur-md p-5 space-y-3">
+                <div className="flex items-center justify-between">
+                    <h3 className="text-xs font-semibold text-zinc-300 flex items-center gap-2">
+                        <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                        <span>Mô hình Local LLM trên máy Seller (quét từ cổng 11434):</span>
+                    </h3>
+                    <span className="text-[10px] text-zinc-500 font-mono">
+                        {isDesktopConnected ? `${detectedModels.length} model sẵn sàng` : 'Chờ Worker quét Ollama'}
+                    </span>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                    {detectedModels.map((model) => (
+                        <span
+                            key={model}
+                            className={`px-3 py-1.5 rounded-xl border text-xs font-medium font-mono ${
+                                isDesktopConnected
+                                    ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30 shadow-sm'
+                                    : 'bg-zinc-800/60 text-zinc-500 border-border'
+                            }`}
+                        >
+                            {model}
+                        </span>
+                    ))}
+                </div>
+            </div>
+
+                </div>
+
+                {/* CỘT PHẢI (5 COLS TRÊN DESKTOP): PLAYGROUND TEST LLM, ENGINES & LINK 3D */}
+                <div className="lg:col-span-5 space-y-6">
+            {/* 5. KHU VỰC THỬ NGHIỆM TEST SUY LUẬN & STREAM LLM XUỐNG MÁY SELLER */}
+            <div className="rounded-2xl border border-border bg-card/75 backdrop-blur-md p-5 space-y-4 shadow-lg">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-border/80 pb-3">
+                    <div className="flex items-center gap-2">
+                        <div className="w-7 h-7 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400">
+                            <Sparkles className="w-4 h-4" />
+                        </div>
+                        <div>
+                            <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+                                <span>Thử Nghiệm Gửi Lệnh & Stream LLM Xuống Máy Seller</span>
+                            </h3>
+                            <p className="text-[11px] text-zinc-400">
+                                Bắn một câu hỏi qua WebSocket vào engine Ollama cục bộ để kiểm tra tốc độ stream token thời gian thực.
+                            </p>
+                        </div>
+                    </div>
+                    <span
+                        className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border self-start sm:self-auto ${
+                            isDesktopConnected
+                                ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20'
+                                : 'bg-zinc-800 text-zinc-400 border-border'
+                        }`}
+                    >
+                        {isDesktopConnected ? 'Worker Ready to Stream' : 'Chờ Worker kết nối'}
+                    </span>
+                </div>
+
+                {/* Chọn Model và Gợi ý Prompt */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="space-y-1">
+                        <label className="text-[11px] font-semibold text-zinc-300 block">
+                            Model Đích Trên Máy Seller:
+                        </label>
+                        <select
+                            value={testModel}
+                            onChange={(e) => setTestModel(e.target.value)}
+                            className="w-full bg-zinc-950 border border-border rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono"
+                        >
+                            {detectedModels.map((m) => (
+                                <option key={m} value={m}>
+                                    {m}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+
+                    <div className="sm:col-span-2 space-y-1">
+                        <label className="text-[11px] font-semibold text-zinc-300 block">
+                            Gợi Ý Câu Hỏi Mẫu:
+                        </label>
+                        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                            {[
+                                'Xin chào, giới thiệu bạn và test kết nối nhé!',
+                                'Viết hàm Python đệ quy Fibonacci có memoization.',
+                                'Kể 3 ưu điểm khi chạy Local LLM thay vì Cloud.',
+                            ].map((sample, sIdx) => (
+                                <button
+                                    key={sIdx}
+                                    type="button"
+                                    onClick={() => setTestPrompt(sample)}
+                                    className="px-2.5 py-1 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-[10px] text-zinc-300 hover:text-white transition shrink-0 truncate max-w-[220px]"
+                                >
+                                    {sample}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+
+                {/* Input Prompt */}
+                <div className="space-y-2">
+                    <div className="relative">
+                        <textarea
+                            rows={3}
+                            value={testPrompt}
+                            onChange={(e) => setTestPrompt(e.target.value)}
+                            placeholder="Nhập câu hỏi bạn muốn gửi xuống mô hình local của Seller..."
+                            className="w-full bg-zinc-950 border border-border rounded-xl p-3 text-xs text-white focus:outline-none focus:border-indigo-500 transition resize-none placeholder-zinc-500 font-sans"
+                        />
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2 text-[11px] text-zinc-400">
+                            <Bot className="w-3.5 h-3.5 text-zinc-500" />
+                            <span>
+                                Đích đến: <strong className="text-zinc-200 font-mono">{desktopNode?.username || 'Seller Worker'}</strong> (:11434)
+                            </span>
+                        </div>
+
+                        <button
+                            type="button"
+                            onClick={handleRunTestLLM}
+                            disabled={isTesting || !isDesktopConnected}
+                            className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 shadow-md ${
+                                isTesting
+                                    ? 'bg-indigo-600/50 text-indigo-200 cursor-not-allowed'
+                                    : !isDesktopConnected
+                                    ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
+                                    : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-indigo-600/20'
+                            }`}
+                        >
+                            {isTesting ? (
+                                <>
+                                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                    <span>Đang Stream Tokens...</span>
+                                </>
+                            ) : (
+                                <>
+                                    <Send className="w-3.5 h-3.5" />
+                                    <span>Bắn Lệnh Test LLM Stream</span>
+                                </>
+                            )}
+                        </button>
+                    </div>
+                </div>
+
+                {/* Hộp hiển thị kết quả Streaming thời gian thực */}
+                {(streamOutput || isTesting || testStats) && (
+                    <div className="rounded-xl border border-border bg-zinc-950 p-4 space-y-2.5">
+                        <div className="flex items-center justify-between border-b border-border pb-2 text-xs">
+                            <div className="flex items-center gap-2">
+                                <span
+                                    className={`w-2 h-2 rounded-full ${
+                                        isTesting
+                                            ? 'bg-amber-400 animate-ping'
+                                            : testStats?.error
+                                            ? 'bg-red-400'
+                                            : 'bg-emerald-400'
+                                    }`}
+                                />
+                                <span className="font-semibold text-white">
+                                    {isTesting
+                                        ? 'Đang nhận luồng token từ Worker...'
+                                        : testStats?.error
+                                        ? 'Lỗi kết nối Local Engine'
+                                        : 'Hoàn tất phản hồi từ mô hình Seller'}
+                                </span>
+                            </div>
+
+                            {testStats && !testStats.error && (
+                                <div className="flex items-center gap-3 text-[11px] font-mono">
+                                    <span className="text-zinc-400">
+                                        Độ trễ: <strong className="text-emerald-400">{testStats.latencyMs}ms</strong>
+                                    </span>
+                                    <span className="text-zinc-400">
+                                        Ước tính: <strong className="text-cyan-400">{testStats.tokensCount} tokens</strong>
+                                    </span>
+                                </div>
+                            )}
+                        </div>
+
+                        {testStats?.error ? (
+                            <div className="p-3 bg-red-950/20 border border-red-500/30 rounded-lg text-xs text-red-300 space-y-1">
+                                <div className="font-bold flex items-center gap-1.5">
+                                    <span>Không thể kích hoạt suy luận từ máy Seller</span>
+                                </div>
+                                <p className="text-[11px] text-zinc-400">{testStats.error}</p>
+                                <p className="text-[10px] text-zinc-500 pt-1 border-t border-red-500/20">
+                                    Mẹo: Hãy đảm bảo bạn đã cài đặt Ollama trên máy tính và đã tải model bằng lệnh: <code className="text-zinc-200">ollama run {testModel}</code>
+                                </p>
+                            </div>
+                        ) : (
+                            <div className="font-mono text-xs text-zinc-200 whitespace-pre-wrap leading-relaxed max-h-60 overflow-y-auto p-1 scrollbar-thin">
+                                {streamOutput}
+                                {isTesting && (
+                                    <span className="inline-block w-1.5 h-3.5 bg-indigo-400 animate-pulse ml-0.5 align-middle" />
+                                )}
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
+
+            {/* 6. PHẦN MỀM CHẠY LOCAL LLM (OLLAMA / LM STUDIO) */}
+            <div className="rounded-2xl border border-border bg-card/70 backdrop-blur-md p-5 space-y-3.5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-border/80 pb-3">
                     <div>
                         <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2">
                             <Terminal className="w-4 h-4 text-blue-400" />
-                            <span>Phần Mềm Chạy Local LLM Cần Thiết (Ollama / LM Studio)</span>
+                            <span>Engine Chạy Local LLM Kèm Theo Worker (Ollama / LM Studio)</span>
                         </h3>
                         <p className="text-[11px] text-zinc-400 mt-0.5">
-                            Để cung cấp streaming AI cho người thuê, máy của bạn cần cài đặt một trong hai engine sau:
+                            Worker (.exe) sẽ tự động chuyển tiếp câu hỏi từ Agent vào Ollama trên máy bạn:
                         </p>
                     </div>
-                    <span className="text-[10px] text-zinc-500 font-mono">Local Inference Engines</span>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                    {/* Thẻ Ollama */}
                     <a
                         href="https://ollama.com"
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="p-4 rounded-xl border border-zinc-800 bg-zinc-950/70 hover:border-blue-500/50 hover:bg-zinc-900 transition-all group flex flex-col justify-between space-y-3 shadow-sm"
+                        className="p-4 rounded-xl border border-border bg-zinc-950/70 hover:border-blue-500/50 hover:bg-zinc-900 transition-all group flex flex-col justify-between space-y-3 shadow-sm"
                     >
                         <div className="space-y-1.5">
                             <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-2">
-                                    <strong className="text-xs font-bold text-white group-hover:text-blue-400 transition flex items-center gap-1.5">
-                                        <span>Ollama</span>
+                                    <strong className="text-xs font-bold text-white group-hover:text-blue-400 transition">
+                                        Ollama
                                     </strong>
                                     <span className="px-2 py-0.5 rounded text-[10px] bg-blue-500/20 text-blue-300 font-mono font-semibold">
-                                        Khuyên dùng
+                                        Mặc định (:11434)
                                     </span>
                                 </div>
                                 <ExternalLink className="w-3.5 h-3.5 text-zinc-500 group-hover:text-blue-400 transition shrink-0" />
                             </div>
                             <p className="text-[11px] text-zinc-400 leading-relaxed">
-                                Nhẹ, chạy ngầm ổn định tại cổng <code className="text-zinc-200 font-mono">http://localhost:11434</code>. Chỉ cần gõ lệnh <code className="text-blue-300 font-mono">ollama run qwen2.5:7b</code> là sẵn sàng nhận stream.
+                                Chạy ngầm tại <code className="text-zinc-200 font-mono">http://localhost:11434</code>. Gõ <code className="text-blue-300 font-mono">ollama run qwen2.5-coder:1.5b</code> để Worker tự động nhận diện.
                             </p>
                         </div>
                         <div className="text-[11px] text-blue-400 font-semibold flex items-center gap-1">
@@ -443,27 +1233,26 @@ export default function NodeCheckerPage() {
                         </div>
                     </a>
 
-                    {/* Thẻ LM Studio */}
                     <a
                         href="https://lmstudio.ai"
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="p-4 rounded-xl border border-zinc-800 bg-zinc-950/70 hover:border-purple-500/50 hover:bg-zinc-900 transition-all group flex flex-col justify-between space-y-3 shadow-sm"
+                        className="p-4 rounded-xl border border-border bg-zinc-950/70 hover:border-purple-500/50 hover:bg-zinc-900 transition-all group flex flex-col justify-between space-y-3 shadow-sm"
                     >
                         <div className="space-y-1.5">
                             <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-2">
-                                    <strong className="text-xs font-bold text-white group-hover:text-purple-400 transition flex items-center gap-1.5">
-                                        <span>LM Studio</span>
+                                    <strong className="text-xs font-bold text-white group-hover:text-purple-400 transition">
+                                        LM Studio
                                     </strong>
                                     <span className="px-2 py-0.5 rounded text-[10px] bg-purple-500/20 text-purple-300 font-mono font-semibold">
-                                        UI Trực Quan
+                                        GUI (:1234)
                                     </span>
                                 </div>
                                 <ExternalLink className="w-3.5 h-3.5 text-zinc-500 group-hover:text-purple-400 transition shrink-0" />
                             </div>
                             <p className="text-[11px] text-zinc-400 leading-relaxed">
-                                Giao diện đồ họa trực quan tại cổng <code className="text-zinc-200 font-mono">http://localhost:1234</code>. Hỗ trợ tùy chỉnh GPU offload layers và tải file GGUF trực tiếp.
+                                Giao diện trực quan hỗ trợ GGUF và GPU offload.
                             </p>
                         </div>
                         <div className="text-[11px] text-purple-400 font-semibold flex items-center gap-1">
@@ -474,86 +1263,31 @@ export default function NodeCheckerPage() {
                 </div>
             </div>
 
-            {/* 5. DANH SÁCH MODEL TƯƠNG THÍCH VỚI MÁY CỦA SELLER */}
-            <div className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-5 space-y-3">
-                <h3 className="text-xs font-semibold text-zinc-300 flex items-center justify-between">
-                    <span className="flex items-center gap-2">
-                        <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                        <span>Mô hình AI tương thích & có thể chạy nạp cho Agent:</span>
-                    </span>
-                    <span className="text-[10px] text-zinc-500 font-mono">Qwen 2.5 Coder Ready</span>
-                </h3>
-
-                <div className="flex flex-wrap gap-2">
-                    {['qwen2.5-coder:1.5b', 'deepseek-r1:7b', 'phi3:mini', 'llama3:8b'].map((model) => (
-                        <span
-                            key={model}
-                            className={`px-3 py-1.5 rounded-xl border text-xs font-medium font-mono ${
-                                model.includes('qwen')
-                                    ? 'bg-blue-600/20 text-blue-300 border-blue-400/40 shadow-sm'
-                                    : 'bg-zinc-800/60 text-zinc-400 border-zinc-700'
-                            }`}
-                        >
-                            {model}
-                        </span>
-                    ))}
-                </div>
-            </div>
-
-            {/* 5. ACTION BUTTONS: KÍCH HOẠT & HỦY KÍCH HOẠT */}
-            <div className="space-y-3">
-                {isRegistered ? (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <button
-                            onClick={handleRegisterNode}
-                            disabled={submitting}
-                            className="w-full rounded-xl py-3 px-4 text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 transition flex items-center justify-center gap-2 shadow-sm disabled:opacity-50"
-                        >
-                            <RefreshCw className={`w-4 h-4 ${submitting ? 'animate-spin' : ''}`} />
-                            <span>{submitting ? 'Đang cập nhật...' : 'Cập nhật Lại Thông Số'}</span>
-                        </button>
-
-                        <button
-                            onClick={handleUnregisterNode}
-                            disabled={submitting}
-                            className="w-full rounded-xl py-3 px-4 text-xs font-semibold bg-red-950/40 hover:bg-red-900/60 text-red-300 border border-red-500/30 transition flex items-center justify-center gap-2 shadow-sm disabled:opacity-50"
-                        >
-                            <PowerOff className="w-4 h-4 text-red-400" />
-                            <span>Hủy Kích Hoạt Node</span>
-                        </button>
-                    </div>
-                ) : (
-                    <button
-                        onClick={handleRegisterNode}
-                        disabled={submitting}
-                        className="w-full rounded-xl py-3 px-4 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-500 shadow-lg shadow-blue-600/25 transition flex items-center justify-center gap-2 disabled:opacity-50"
-                    >
-                        <Zap className="w-4 h-4 text-white" />
-                        <span>{submitting ? 'Đang đồng bộ...' : 'Kích hoạt & Đăng ký Node Tính Toán'}</span>
-                    </button>
-                )}
-            </div>
-
-            {/* 6. BANNER CHUYỂN SANG TRANG ĐỐI TÁC MÔ HÌNH VỚI ĐỒ THỊ 3D */}
-            <div className="rounded-xl border border-blue-500/30 bg-blue-950/20 p-4 flex items-center justify-between gap-3 text-xs">
+            {/* 6. BANNER ĐỒNG BỘ SANG TRANG ĐỐI TÁC MÔ HÌNH (/user-models) */}
+            <div className="rounded-xl border border-blue-500/30 bg-blue-950/20 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
                 <div className="space-y-0.5">
                     <strong className="text-white block font-semibold">
-                        Theo dõi vị trí và Cụm Topo 3D của máy bạn trên mạng lưới
+                        {isDesktopConnected
+                            ? `Đang có ${onlineNodes.length} máy trạm trực tuyến trên Cụm 3D Đối Tác Mô Hình`
+                            : 'Chưa có máy trạm nào trong Cụm 3D (Đang chờ Electron Worker kết nối)'}
                     </strong>
                     <span className="text-zinc-400 text-[11px] block">
-                        Xem độ sâu không gian 3D, băng thông P2P và các node đối tác khác đang online.
+                        Trang Kiểm tra Node AI và trang Đối tác Mô hình dùng chung một luồng WebSocket thời gian thực.
                     </span>
                 </div>
-                <a
+                <Link
                     href="/user-models"
-                    className="shrink-0 px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs transition shadow-md shadow-blue-600/20 flex items-center gap-1.5"
+                    className="shrink-0 px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs transition shadow-md shadow-blue-600/20 inline-flex items-center gap-1.5 self-start sm:self-auto"
                 >
-                    <span>Xem Cụm 3D</span>
+                    <span>Mở Trang Đối Tác Mô Hình</span>
                     <ArrowRight className="w-3.5 h-3.5" />
-                </a>
+                </Link>
             </div>
 
-            {/* Modal Onboarding Đối Tác Mô Hình & Hướng dẫn tải Desktop Client */}
+                </div>
+            </div>
+
+            {/* Modal Onboarding Đối Tác Mô Hình */}
             <PartnerOnboardingModal
                 isOpen={isOnboardingModalOpen}
                 onClose={() => setIsOnboardingModalOpen(false)}
@@ -563,9 +1297,11 @@ export default function NodeCheckerPage() {
                     email: profile?.email,
                 }}
                 onPartnerRegistered={(node) => {
-                    setDesktopNode(node)
+                    upsertRegisteredNode(node)
                     setIsOnboardingModalOpen(false)
-                    notify.success('Gia nhập đối tác thành công! Hãy tải và chạy file .exe để bắt đầu ping.')
+                    notify.success(
+                        'Đã lưu cấu hình! Hãy mở ứng dụng Go-Python Worker (.exe) trên máy để chính thức kết nối vào mạng lưới.'
+                    )
                 }}
             />
         </div>

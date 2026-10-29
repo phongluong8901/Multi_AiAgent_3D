@@ -257,6 +257,7 @@ services:
       - DISTRIBUTED_SERVICE_URL=http://distributed-service:5010
       - SELLER_SERVICE_URL=http://seller-service:5011
       - OWER_SERVICE_URL=http://ower-service:5012
+      - FIRMWARE_SERVICE_URL=http://agent-firmware:5014
       - REDIS_URL=redis://redis:6379
       - JWT_SECRET=super_secret_key_2026
     depends_on:
@@ -272,6 +273,28 @@ services:
       - distributed-service
       - seller-service
       - ower-service
+      - agent-firmware
+    restart: always
+    networks:
+      - multi-agent-network
+
+  # --- Python FastAPI Embedded Agent Firmware & Room Bridge Service (ESP32 / ESP32-S3) ---
+  agent-firmware:
+    build: ./agent-firmware
+    container_name: agent_firmware_service
+    env_file:
+      - ./agent-firmware/.env
+    environment:
+      - PORT=5014
+      - AGENT_SERVICE_URL=http://agent-service:8000
+      - CHAT_SERVICE_URL=http://chat-service:5003
+      - ROOM_SERVICE_URL=http://room-service:5002
+      - GATEWAY_URL=http://api-gateway:4000
+    ports:
+      - "5014:5014"
+    depends_on:
+      - chat-service
+      - agent-service
     restart: always
     networks:
       - multi-agent-network

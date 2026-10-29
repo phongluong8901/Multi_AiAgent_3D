@@ -1,5 +1,6 @@
 from sqlalchemy.orm import Session
-from app.models.sql_models import Agent
+from app.models.agent import AgentModel
+from app.models.tool import ToolModel
 
 DEFAULT_AGENTS = [
     {
@@ -81,12 +82,27 @@ DEFAULT_AGENTS = [
 
 def seed_agents(db: Session):
     for item in DEFAULT_AGENTS:
-        existing = db.query(Agent).filter(Agent.id == item["id"]).first()
+        tool_ids = item.get("tools", [])
+        tool_objs = (
+            db.query(ToolModel).filter(ToolModel.id.in_(tool_ids)).all()
+            if tool_ids
+            else []
+        )
+        existing = db.query(AgentModel).filter(AgentModel.id == item["id"]).first()
         if not existing:
-            db.add(Agent(**item))
+            new_agent = AgentModel(
+                id=item["id"],
+                name=item["name"],
+                model=item.get("model", "gemini-2.5-flash-lite"),
+                prompt_id=item.get("prompt_id"),
+                speech=item.get("description", ""),
+            )
+            new_agent.tools = tool_objs
+            db.add(new_agent)
         else:
             existing.name = item["name"]
-            existing.description = item["description"]
-            existing.prompt_id = item["prompt_id"]
-            existing.tools = item["tools"]
+            existing.prompt_id = item.get("prompt_id")
+            if item.get("model"):
+                existing.model = item["model"]
+            existing.tools = tool_objs
     db.commit()

@@ -27,6 +27,8 @@ export function useChat({ roomId, typeChat, onRoomUpdated }: UseChatProps) {
     const [chatLoading, setChatLoading] = useState(true)
 
     const socketRef = useRef<Socket | null>(null)
+    const onRoomUpdatedRef = useRef(onRoomUpdated)
+    onRoomUpdatedRef.current = onRoomUpdated
 
     // 1. Tải lịch sử chat và thông tin hiện diện ban đầu qua REST API
     const loadChatHistory = useCallback(async () => {
@@ -61,14 +63,19 @@ export function useChat({ roomId, typeChat, onRoomUpdated }: UseChatProps) {
 
         const socket = io(socketUrl, {
             path: '/api/v1/chats/socket.io',
-            transports: ['polling', 'websocket'],
+            transports: ['websocket', 'polling'],
+            reconnectionAttempts: 5,
+            reconnectionDelay: 3000,
+            timeout: 8000,
             auth: { token },
             extraHeaders: token ? { Authorization: `Bearer ${token}` } : {},
         })
 
         socketRef.current = socket
+        let loggedErrorOnce = false
 
         socket.on('connect', () => {
+            loggedErrorOnce = false
             console.log(`[Chat Socket] Connected to chat service, socket id: ${socket.id}`)
             setConnected(true)
 
@@ -90,7 +97,10 @@ export function useChat({ roomId, typeChat, onRoomUpdated }: UseChatProps) {
         })
 
         socket.on('connect_error', (err) => {
-            console.warn('[Chat Socket] Connection error:', err.message)
+            if (!loggedErrorOnce) {
+                loggedErrorOnce = true
+                console.warn('[Chat Socket] Connection warning (will retry quietly):', err.message)
+            }
             setConnected(false)
         })
 
@@ -181,14 +191,14 @@ export function useChat({ roomId, typeChat, onRoomUpdated }: UseChatProps) {
         })
 
         socket.on('room_updated', () => {
-            if (onRoomUpdated) {
-                onRoomUpdated()
+            if (onRoomUpdatedRef.current) {
+                onRoomUpdatedRef.current()
             }
         })
 
         socket.on('room_agents_updated', () => {
-            if (onRoomUpdated) {
-                onRoomUpdated()
+            if (onRoomUpdatedRef.current) {
+                onRoomUpdatedRef.current()
             }
         })
 
@@ -208,7 +218,7 @@ export function useChat({ roomId, typeChat, onRoomUpdated }: UseChatProps) {
             socket.disconnect()
             socketRef.current = null
         }
-    }, [roomId, loadChatHistory, onRoomUpdated])
+    }, [roomId, loadChatHistory])
 
     // 3. Hàm gửi tin nhắn (Hỗ trợ đính kèm attachments và phân loại typeChat: team, direct, agent, workflow)
     const sendMessage = async (

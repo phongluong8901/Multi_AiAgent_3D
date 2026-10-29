@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -14,104 +15,40 @@ import (
 )
 
 type NodeRegistry struct {
-	mu       sync.RWMutex
-	nodes    map[string]*models.PartnerNode // Key: NodeID
-	postgres *storage.PostgresStorage
-	redis    *storage.RedisStorage
+	mu           sync.RWMutex
+	nodes        map[string]*models.PartnerNode // Key: NodeID
+	manualPaused map[string]bool                // Key: NodeID -> true nếu người dùng bấm Tạm Dừng trên Web
+	postgres     *storage.PostgresStorage
+	redis        *storage.RedisStorage
 }
 
 func NewNodeRegistry(pg *storage.PostgresStorage, rdb *storage.RedisStorage) *NodeRegistry {
 	nr := &NodeRegistry{
-		nodes:    make(map[string]*models.PartnerNode),
-		postgres: pg,
-		redis:    rdb,
+		nodes:        make(map[string]*models.PartnerNode),
+		manualPaused: make(map[string]bool),
+		postgres:     pg,
+		redis:        rdb,
 	}
 
-	// 1. Nếu có PostgreSQL (Neon DB), nạp danh sách node đã lưu
+	// Nạp danh sách node đã đăng ký từ Neon PostgreSQL (bỏ qua các node seed mẫu cũ và đặt trạng thái mặc định là OFFLINE cho tới khi Electron Worker thực sự kết nối)
 	if pg != nil {
 		dbNodes, err := pg.GetAllNodes()
 		if err == nil && len(dbNodes) > 0 {
-			log.Printf("[NODE REGISTRY] Đã nạp thành công %d node từ Neon PostgreSQL.\n", len(dbNodes))
+			loaded := 0
 			for _, n := range dbNodes {
+				if n.ID == "node-hanoi-cluster" || n.ID == "node-saigon-worker" {
+					continue
+				}
+				n.Status = "OFFLINE"
+				n.LastTelemetry = nil
 				nr.nodes[n.ID] = n
+				loaded++
 			}
-		} else {
-			log.Println("[NODE REGISTRY] Chưa có dữ liệu trên Neon PostgreSQL, khởi tạo node mẫu...")
-			nr.seedInitialNodes()
-			for _, n := range nr.nodes {
-				_ = pg.UpsertNode(n)
-			}
+			log.Printf("[NODE REGISTRY] Đã nạp %d node từ Neon PostgreSQL (chờ Electron Worker kết nối).\n", loaded)
 		}
-	} else {
-		// Fallback in-memory nếu chưa kết nối được DB
-		nr.seedInitialNodes()
 	}
 
 	return nr
-}
-
-func (nr *NodeRegistry) seedInitialNodes() {
-	nr.nodes["node-hanoi-cluster"] = &models.PartnerNode{
-		ID:       "node-hanoi-cluster",
-		UserID:   "usr_hanoi_01",
-		Username: "Hanoi_DeepSeek_Cluster",
-		Email:    "hanoi.cluster@ai.vn",
-		Status:   "IDLE",
-		Hardware: models.HardwareReport{
-			CPUCores:       32,
-			DeviceMemoryGB: 64,
-			HasWebGPU:      true,
-			GPUName:        "NVIDIA RTX 4090 24GB",
-			VRAMGB:         24,
-			OS:             "Windows 11 Pro",
-		},
-		RentConfig: models.RentConfiguration{
-			AllocatedCores:       24,
-			AllocatedRAMGB:       48,
-			EnableGPU:            true,
-			GPUSharePercent:      90,
-			AvailabilitySchedule: "24/7",
-			MinPricePerHourCoin:  150,
-		},
-		CompatibleModels: []string{"deepseek-r1-7b", "llama-3.3-8b", "sdxl-turbo"},
-		ActiveModel:      "deepseek-r1-7b",
-		TotalCoinsEarned: 1420.5,
-		UptimeSeconds:    86400 * 3,
-		AuthToken:        "tok_hanoi_cluster_demo",
-		CreatedAt:        time.Now().Add(-72 * time.Hour),
-		UpdatedAt:        time.Now(),
-	}
-
-	nr.nodes["node-saigon-worker"] = &models.PartnerNode{
-		ID:       "node-saigon-worker",
-		UserID:   "usr_saigon_02",
-		Username: "Saigon_Neural_Worker",
-		Email:    "worker.sg@ai.vn",
-		Status:   "BUSY",
-		Hardware: models.HardwareReport{
-			CPUCores:       16,
-			DeviceMemoryGB: 32,
-			HasWebGPU:      true,
-			GPUName:        "NVIDIA RTX 3080 Ti",
-			VRAMGB:         12,
-			OS:             "Ubuntu 24.04 LTS",
-		},
-		RentConfig: models.RentConfiguration{
-			AllocatedCores:       12,
-			AllocatedRAMGB:       24,
-			EnableGPU:            true,
-			GPUSharePercent:      80,
-			AvailabilitySchedule: "24/7",
-			MinPricePerHourCoin:  100,
-		},
-		CompatibleModels: []string{"deepseek-r1-7b", "mistral-7b-v0.3"},
-		ActiveModel:      "mistral-7b-v0.3",
-		TotalCoinsEarned: 980.0,
-		UptimeSeconds:    86400 * 2,
-		AuthToken:        "tok_saigon_worker_demo",
-		CreatedAt:        time.Now().Add(-48 * time.Hour),
-		UpdatedAt:        time.Now(),
-	}
 }
 
 // GenerateAuthToken tạo token xác thực duy nhất cho Client App
@@ -121,7 +58,7 @@ func GenerateAuthToken() string {
 	return "dist_" + hex.EncodeToString(b)
 }
 
-// RegisterOrUpdateNode đăng ký node mới hoặc cập nhật cấu hình cho thuê
+// RegisterOrUpdateNode đăng ký cấu hình đối tác trên Web (mặc định OFFLINE cho đến khi chạy Electron Worker)
 func (nr *NodeRegistry) RegisterOrUpdateNode(node *models.PartnerNode) *models.PartnerNode {
 	nr.mu.Lock()
 	defer nr.mu.Unlock()
@@ -134,22 +71,32 @@ func (nr *NodeRegistry) RegisterOrUpdateNode(node *models.PartnerNode) *models.P
 		}
 	}
 
-	if node.AuthToken == "" {
-		node.AuthToken = GenerateAuthToken()
-	}
-
-	if node.Status == "" {
-		node.Status = "IDLE"
-	}
-
-	node.UpdatedAt = time.Now()
-	if node.CreatedAt.IsZero() {
+	// Nếu node đã tồn tại và đang có kết nối Worker thực tế thì giữ nguyên trạng thái & telemetry
+	if existing, ok := nr.nodes[node.ID]; ok {
+		if node.AuthToken == "" {
+			node.AuthToken = existing.AuthToken
+		}
+		if existing.LastTelemetry != nil && time.Since(existing.LastTelemetry.Timestamp) <= 15*time.Second && !nr.manualPaused[node.ID] {
+			node.Status = "IDLE"
+			node.LastTelemetry = existing.LastTelemetry
+		} else {
+			node.Status = "OFFLINE"
+		}
+		node.TotalCoinsEarned = existing.TotalCoinsEarned
+		node.UptimeSeconds = existing.UptimeSeconds
+		node.CreatedAt = existing.CreatedAt
+	} else {
+		if node.AuthToken == "" {
+			node.AuthToken = GenerateAuthToken()
+		}
+		// Khi mới đăng ký trên Web và chưa bật Electron Worker -> OFFLINE
+		node.Status = "OFFLINE"
 		node.CreatedAt = time.Now()
 	}
 
+	node.UpdatedAt = time.Now()
 	nr.nodes[node.ID] = node
 
-	// Đồng bộ xuống Neon PostgreSQL
 	if nr.postgres != nil {
 		go func(n *models.PartnerNode) {
 			if err := nr.postgres.UpsertNode(n); err != nil {
@@ -161,132 +108,265 @@ func (nr *NodeRegistry) RegisterOrUpdateNode(node *models.PartnerNode) *models.P
 	return node
 }
 
-// GetNodeByID lấy node theo ID
+// GetNodeByID lấy node theo ID (tự động kiểm tra timeout của Electron Worker)
 func (nr *NodeRegistry) GetNodeByID(nodeID string) (*models.PartnerNode, bool) {
-	nr.mu.RLock()
-	defer nr.mu.RUnlock()
+	nr.mu.Lock()
+	defer nr.mu.Unlock()
 
 	node, exists := nr.nodes[nodeID]
-	return node, exists
+	if !exists {
+		return nil, false
+	}
+	nr.refreshNodeLivenessLocked(node)
+	return node, true
 }
 
 // GetNodeByToken tìm node qua AuthToken
 func (nr *NodeRegistry) GetNodeByToken(token string) (*models.PartnerNode, bool) {
-	nr.mu.RLock()
-	defer nr.mu.RUnlock()
+	nr.mu.Lock()
+	defer nr.mu.Unlock()
 
 	for _, n := range nr.nodes {
 		if n.AuthToken == token {
+			nr.refreshNodeLivenessLocked(n)
 			return n, true
 		}
 	}
 	return nil, false
 }
 
-// GetAllNodes trả về danh sách tất cả các node trong mạng lưới, đối chiếu trạng thái từ Redis
-func (nr *NodeRegistry) GetAllNodes() []*models.PartnerNode {
-	nr.mu.RLock()
-	defer nr.mu.RUnlock()
+func (nr *NodeRegistry) refreshNodeLivenessLocked(n *models.PartnerNode) {
+	if nr.manualPaused[n.ID] {
+		n.Status = "OFFLINE"
+		return
+	}
+	if n.LastTelemetry == nil || time.Since(n.LastTelemetry.Timestamp) > 15*time.Second {
+		n.Status = "OFFLINE"
+	} else if n.Status == "OFFLINE" || n.Status == "REGISTERED" || n.Status == "" {
+		n.Status = "IDLE"
+	}
+}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-	defer cancel()
+// GetAllNodes trả về danh sách tất cả các node, chỉ những node đang chạy Electron Worker mới có Status = IDLE/BUSY
+func (nr *NodeRegistry) GetAllNodes() []*models.PartnerNode {
+	nr.mu.Lock()
+	defer nr.mu.Unlock()
 
 	list := make([]*models.PartnerNode, 0, len(nr.nodes))
 	for _, n := range nr.nodes {
-		// Nếu có Redis, kiểm tra heartbeat thực tế để phản ánh trạng thái chuẩn xác
-		if nr.redis != nil && nr.redis.IsNodeOnline(ctx, n.ID) {
-			if n.Status == "OFFLINE" || n.Status == "REGISTERED" {
-				n.Status = "IDLE"
-			}
+		if n.ID == "node-hanoi-cluster" || n.ID == "node-saigon-worker" {
+			continue
 		}
+		nr.refreshNodeLivenessLocked(n)
 		list = append(list, n)
 	}
 	return list
 }
 
-// UpdateTelemetry cập nhật dữ liệu tài nguyên thực từ Python Worker / Electron
+// UpsertWorkerTelemetry đồng bộ thông số thực tế từ Electron Worker (worker.exe / worker.py)
+func (nr *NodeRegistry) UpsertWorkerTelemetry(
+	rawNodeID string,
+	hostname string,
+	hw *models.HardwareReport,
+	ollamaModels []string,
+	stats models.TelemetryStats,
+) *models.PartnerNode {
+	nr.mu.Lock()
+	defer nr.mu.Unlock()
+
+	var target *models.PartnerNode
+
+	// 1. Tìm đúng theo rawNodeID nếu khớp
+	if rawNodeID != "" && !strings.HasPrefix(rawNodeID, "guest_worker_") {
+		target = nr.nodes[rawNodeID]
+	}
+
+	// 2. Nếu Worker chạy mặc định không truyền token (guest_worker_...), ưu tiên khớp với node đã đăng ký hoặc node theo hostname
+	if target == nil && hostname != "" {
+		hostNodeID := "worker_" + strings.ToLower(strings.ReplaceAll(hostname, " ", "_"))
+		if existingHostNode, ok := nr.nodes[hostNodeID]; ok {
+			target = existingHostNode
+		}
+	}
+
+	// 3. Nếu chỉ có 1 node đối tác đã đăng ký trên hệ thống, gắn luồng Worker vào node đó
+	if target == nil && len(nr.nodes) == 1 {
+		for _, onlyNode := range nr.nodes {
+			target = onlyNode
+			break
+		}
+	}
+
+	// 4. Nếu chưa có bản ghi nào, tự động khởi tạo Node thực tế từ Electron Worker
+	if target == nil {
+		cleanHost := hostname
+		if cleanHost == "" {
+			cleanHost = "Seller_PC"
+		}
+		newID := "worker_" + strings.ToLower(strings.ReplaceAll(cleanHost, " ", "_"))
+		target = &models.PartnerNode{
+			ID:       newID,
+			UserID:   "seller_worker",
+			Username: cleanHost,
+			Email:    "",
+			Status:   "IDLE",
+			Hardware: models.HardwareReport{
+				CPUCores:       8,
+				DeviceMemoryGB: 16,
+				HasWebGPU:      false,
+				GPUName:        "CPU Mode",
+			},
+			RentConfig: models.RentConfiguration{
+				AllocatedCores:       4,
+				AllocatedRAMGB:       8,
+				EnableGPU:            true,
+				GPUSharePercent:      80,
+				AvailabilitySchedule: "24/7",
+				MinPricePerHourCoin:  35,
+			},
+			CompatibleModels: []string{"qwen2.5-coder:1.5b"},
+			ActiveModel:      "qwen2.5-coder:1.5b",
+			AuthToken:        GenerateAuthToken(),
+			CreatedAt:        time.Now(),
+		}
+		nr.nodes[newID] = target
+	}
+
+	// Cập nhật cấu hình phần cứng thực tế từ Electron Worker
+	if hw != nil {
+		if hw.CPUCores > 0 {
+			target.Hardware.CPUCores = hw.CPUCores
+		}
+		if hw.DeviceMemoryGB > 0 {
+			target.Hardware.DeviceMemoryGB = hw.DeviceMemoryGB
+		}
+		if hw.GPUName != "" {
+			target.Hardware.GPUName = hw.GPUName
+			target.Hardware.HasWebGPU = hw.HasWebGPU
+			target.Hardware.VRAMGB = hw.VRAMGB
+		}
+		if hw.OS != "" {
+			target.Hardware.OS = hw.OS
+		}
+	}
+
+	if len(ollamaModels) > 0 {
+		target.CompatibleModels = ollamaModels
+		target.ActiveModel = ollamaModels[0]
+	}
+
+	// Cập nhật trạng thái GPU & LLM từ Telemetry
+	target.HasGPU = stats.HasGPU || target.Hardware.HasWebGPU
+	if stats.GPUName != "" {
+		target.GPUName = stats.GPUName
+		target.Hardware.GPUName = stats.GPUName
+	}
+	if stats.VRAMGB > 0 {
+		target.VRAMGB = stats.VRAMGB
+		target.Hardware.VRAMGB = stats.VRAMGB
+	}
+	target.IsLLMRunning = stats.IsLLMRunning || len(ollamaModels) > 0
+	if stats.LLMProvider != "" {
+		target.LLMProvider = stats.LLMProvider
+	}
+
+	// Nếu máy không có GPU rời, tự động khóa cờ EnableGPU của cấu hình cho thuê
+	if !target.HasGPU {
+		target.RentConfig.EnableGPU = false
+	}
+
+	target.LastTelemetry = &stats
+	if stats.LLMStats != nil {
+		target.LLMStats = stats.LLMStats
+	}
+	target.UpdatedAt = time.Now()
+
+	if nr.manualPaused[target.ID] {
+		target.Status = "OFFLINE"
+	} else if stats.LLMStats != nil && stats.LLMStats.IsBusy {
+		target.Status = "BUSY"
+		target.TotalCoinsEarned += 0.05
+		target.UptimeSeconds += 2
+	} else {
+		target.Status = "IDLE"
+		target.TotalCoinsEarned += 0.02
+		target.UptimeSeconds += 2
+	}
+
+	if nr.redis != nil {
+		go func(nid string, s models.TelemetryStats, online bool) {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			if online {
+				_ = nr.redis.SetNodeOnline(ctx, nid, 20*time.Second)
+			}
+			_ = nr.redis.CacheTelemetry(ctx, nid, s)
+		}(target.ID, stats, target.Status == "IDLE")
+	}
+
+	if nr.postgres != nil {
+		go func(n *models.PartnerNode, s models.TelemetryStats) {
+			_ = nr.postgres.UpsertNode(n)
+			_ = nr.postgres.UpdateTelemetry(n.ID, s)
+		}(target, stats)
+	}
+
+	return target
+}
+
+// UpdateTelemetry giữ tương thích ngược
 func (nr *NodeRegistry) UpdateTelemetry(nodeID string, stats models.TelemetryStats) {
+	nr.UpsertWorkerTelemetry(nodeID, "", nil, nil, stats)
+}
+
+// MarkNodeOffline chuyển trạng thái sang OFFLINE khi đóng Electron Worker hoặc người dùng bấm Tạm Dừng
+func (nr *NodeRegistry) MarkNodeOffline(nodeID string, isManualPause ...bool) {
 	nr.mu.Lock()
 	defer nr.mu.Unlock()
 
-	if node, exists := nr.nodes[nodeID]; exists {
-		node.LastTelemetry = &stats
-		node.UpdatedAt = time.Now()
-		if node.Status == "OFFLINE" || node.Status == "REGISTERED" {
-			node.Status = "IDLE"
-		}
-		// Tích lũy coin nhẹ nhàng khi node duy trì online (0.02 coin / 10s)
-		node.TotalCoinsEarned += 0.02
-		node.UptimeSeconds += 10
+	manual := len(isManualPause) > 0 && isManualPause[0]
 
-		// Cập nhật lên Redis (gia hạn heartbeat 60s và cache stats)
-		if nr.redis != nil {
-			go func(nid string, s models.TelemetryStats) {
-				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-				defer cancel()
-				_ = nr.redis.SetNodeOnline(ctx, nid, 60*time.Second)
-				_ = nr.redis.CacheTelemetry(ctx, nid, s)
-			}(nodeID, stats)
-		}
+	for id, node := range nr.nodes {
+		if id == nodeID || strings.Contains(id, nodeID) || strings.Contains(nodeID, id) {
+			node.Status = "OFFLINE"
+			node.UpdatedAt = time.Now()
+			if manual {
+				nr.manualPaused[id] = true
+			} else {
+				node.LastTelemetry = nil
+			}
 
-		// Cập nhật xuống Neon PostgreSQL
-		if nr.postgres != nil {
-			go func(nid string, s models.TelemetryStats) {
-				if err := nr.postgres.UpdateTelemetry(nid, s); err != nil {
-					log.Printf("[POSTGRES ERROR] UpdateTelemetry thất bại: %v\n", err)
-				}
-			}(nodeID, stats)
+			if nr.redis != nil {
+				go func(nid string) {
+					ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+					defer cancel()
+					_ = nr.redis.SetNodeOffline(ctx, nid)
+				}(id)
+			}
+
+			if nr.postgres != nil {
+				go func(nid string) {
+					_ = nr.postgres.UpdateStatus(nid, "OFFLINE")
+				}(id)
+			}
 		}
 	}
 }
 
-// MarkNodeOffline chuyển trạng thái sang OFFLINE khi mất kết nối WebSocket
-func (nr *NodeRegistry) MarkNodeOffline(nodeID string) {
-	nr.mu.Lock()
-	defer nr.mu.Unlock()
-
-	if node, exists := nr.nodes[nodeID]; exists {
-		node.Status = "OFFLINE"
-		node.UpdatedAt = time.Now()
-
-		if nr.redis != nil {
-			go func(nid string) {
-				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-				defer cancel()
-				_ = nr.redis.SetNodeOffline(ctx, nid)
-			}(nodeID)
-		}
-
-		if nr.postgres != nil {
-			go func(nid string) {
-				_ = nr.postgres.UpdateStatus(nid, "OFFLINE")
-			}(nodeID)
-		}
-	}
-}
-
-// MarkNodeOnline chuyển trạng thái node sang IDLE / ONLINE
+// MarkNodeOnline bỏ trạng thái Tạm Dừng để nhận lại kết nối từ Electron Worker
 func (nr *NodeRegistry) MarkNodeOnline(nodeID string) {
 	nr.mu.Lock()
 	defer nr.mu.Unlock()
 
-	if node, exists := nr.nodes[nodeID]; exists {
-		node.Status = "IDLE"
-		node.UpdatedAt = time.Now()
-
-		if nr.redis != nil {
-			go func(nid string) {
-				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-				defer cancel()
-				_ = nr.redis.SetNodeOnline(ctx, nid, 60*time.Second)
-			}(nodeID)
-		}
-
-		if nr.postgres != nil {
-			go func(nid string) {
-				_ = nr.postgres.UpdateStatus(nid, "IDLE")
-			}(nodeID)
+	for id, node := range nr.nodes {
+		if id == nodeID || strings.Contains(id, nodeID) || strings.Contains(nodeID, id) {
+			delete(nr.manualPaused, id)
+			if node.LastTelemetry != nil && time.Since(node.LastTelemetry.Timestamp) <= 15*time.Second {
+				node.Status = "IDLE"
+			} else {
+				node.Status = "OFFLINE"
+			}
+			node.UpdatedAt = time.Now()
 		}
 	}
 }
-

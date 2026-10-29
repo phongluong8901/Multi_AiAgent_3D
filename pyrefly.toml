@@ -1,0 +1,7 @@
+# Pyrefly configuration for Antigravity Python Language Server
+search-path = [
+    "proj1_MultiAgent/backend-microservices/worker-client",
+    "proj1_MultiAgent/backend-microservices/worker-client/backend_worker",
+    "."
+]
+

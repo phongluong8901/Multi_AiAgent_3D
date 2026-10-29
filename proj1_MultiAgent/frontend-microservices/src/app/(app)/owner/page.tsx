@@ -95,8 +95,6 @@ export default function OwnerAgentRentalPage() {
 
     useEffect(() => {
         loadData()
-        const interval = setInterval(loadData, 8000)
-        return () => clearInterval(interval)
     }, [userLocation.lat, userLocation.lng, userLocation.radiusKm])
 
     const handleGetGPS = () => {

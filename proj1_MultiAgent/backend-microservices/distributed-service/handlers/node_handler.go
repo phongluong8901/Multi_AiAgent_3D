@@ -13,6 +13,7 @@ type NodeHandler struct {
 	registry        *service.NodeRegistry
 	benchmarkEngine *service.BenchmarkEngine
 	distributor     *service.AppDistributor
+	wsHandler       *WSHandler
 }
 
 func NewNodeHandler(registry *service.NodeRegistry, benchmarkEngine *service.BenchmarkEngine, distributor *service.AppDistributor) *NodeHandler {
@@ -23,7 +24,11 @@ func NewNodeHandler(registry *service.NodeRegistry, benchmarkEngine *service.Ben
 	}
 }
 
-// HandleRegisterNode đăng ký đối tác mô hình và cấu hình cho thuê phần cứng
+func (h *NodeHandler) SetWSHandler(ws *WSHandler) {
+	h.wsHandler = ws
+}
+
+// HandleRegisterNode đăng ký đối tác mô hình và cấu hình cho thuê phần cứng (mặc định OFFLINE cho tới khi bật Electron Worker)
 func (h *NodeHandler) HandleRegisterNode(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -74,7 +79,7 @@ func (h *NodeHandler) HandleRegisterNode(w http.ResponseWriter, r *http.Request)
 		Hardware:         req.Hardware,
 		RentConfig:       req.RentConfig,
 		CompatibleModels: compatibleModels,
-		Status:           "IDLE",
+		Status:           "OFFLINE",
 	}
 
 	registeredNode := h.registry.RegisterOrUpdateNode(node)
@@ -82,13 +87,13 @@ func (h *NodeHandler) HandleRegisterNode(w http.ResponseWriter, r *http.Request)
 
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":         true,
-		"message":         "Chúc mừng! Bạn đã đăng ký Đối tác Mô hình thành công.",
-		"node":            registeredNode,
-		"benchmark":       benchResult,
-		"clientApp":       packageInfo,
-		"configFileUrl":   "/api/v1/distributed/app/config-file?nodeId=" + registeredNode.ID,
-		"directSetupUrl":  "/api/v1/distributed/app/download",
+		"success":        true,
+		"message":        "Đã lưu cấu hình Đối tác Mô hình. Hãy mở ứng dụng Go-Python Worker (.exe) để kết nối vào mạng lưới!",
+		"node":           registeredNode,
+		"benchmark":      benchResult,
+		"clientApp":      packageInfo,
+		"configFileUrl":  "/api/v1/distributed/app/config-file?nodeId=" + registeredNode.ID,
+		"directSetupUrl": "/api/v1/distributed/app/download",
 	})
 }
 
@@ -115,13 +120,24 @@ func (h *NodeHandler) HandleGetMyNode(w http.ResponseWriter, r *http.Request) {
 		node, found = h.registry.GetNodeByID("node_" + userID)
 	}
 
+	// Nếu chưa tìm thấy theo userID, kiểm tra xem có Worker thực tế đang kết nối trên máy không
 	if !found || node == nil {
-		// Trả về fallback hoặc thông báo chưa đăng ký
+		allNodes := h.registry.GetAllNodes()
+		for _, n := range allNodes {
+			if n.Status == "IDLE" || n.Status == "BUSY" {
+				node = n
+				found = true
+				break
+			}
+		}
+	}
+
+	if !found || node == nil {
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success":    false,
-			"isPartner":  false,
-			"message":    "Chưa có cấu hình Đối tác Mô hình cho tài khoản này.",
+			"success":   false,
+			"isPartner": false,
+			"message":   "Chưa có Electron Worker nào đang kết nối.",
 		})
 		return
 	}
@@ -134,20 +150,34 @@ func (h *NodeHandler) HandleGetMyNode(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// HandleListNodes liệt kê danh sách các node đối tác đang tham gia cụm phân tán
+// HandleListNodes liệt kê danh sách các node đối tác trong mạng lưới
 func (h *NodeHandler) HandleListNodes(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	nodes := h.registry.GetAllNodes()
+	onlyOnline := r.URL.Query().Get("online") == "true"
+	allNodes := h.registry.GetAllNodes()
+
+	var result []*models.PartnerNode
+	if onlyOnline {
+		result = make([]*models.PartnerNode, 0)
+		for _, n := range allNodes {
+			if n.Status == "IDLE" || n.Status == "BUSY" {
+				result = append(result, n)
+			}
+		}
+	} else {
+		result = allNodes
+	}
+
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
-		"count":   len(nodes),
-		"nodes":   nodes,
+		"count":   len(result),
+		"nodes":   result,
 	})
 }
 
-// HandleToggleNodeStatus cho phép người dùng bật/tắt chia sẻ tài nguyên trực tiếp trên Web hoặc Desktop
+// HandleToggleNodeStatus cho phép người dùng bật/tắt chia sẻ tài nguyên trực tiếp trên Web
 func (h *NodeHandler) HandleToggleNodeStatus(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -172,17 +202,37 @@ func (h *NodeHandler) HandleToggleNodeStatus(w http.ResponseWriter, r *http.Requ
 	}
 
 	if req.Status == "OFFLINE" || req.Status == "PAUSED" {
-		h.registry.MarkNodeOffline(req.NodeID)
+		h.registry.MarkNodeOffline(req.NodeID, true)
+		if h.wsHandler != nil {
+			h.wsHandler.SendMessageToNode(req.NodeID, map[string]interface{}{
+				"type":   "PAUSE_SHARING",
+				"nodeId": req.NodeID,
+				"status": "OFFLINE",
+			})
+		}
 	} else {
 		h.registry.MarkNodeOnline(req.NodeID)
+		if h.wsHandler != nil {
+			h.wsHandler.SendMessageToNode(req.NodeID, map[string]interface{}{
+				"type":   "RESUME_SHARING",
+				"nodeId": req.NodeID,
+				"status": "IDLE",
+			})
+		}
+	}
+
+	node, _ := h.registry.GetNodeByID(req.NodeID)
+	actualStatus := req.Status
+	if node != nil {
+		actualStatus = node.Status
 	}
 
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
 		"nodeId":  req.NodeID,
-		"status":  req.Status,
+		"status":  actualStatus,
+		"node":    node,
 		"message": "Đã cập nhật trạng thái kết nối thành công.",
 	})
 }
-

@@ -1,0 +1,29 @@
+# ====================================================================
+#   DOCKERIGNORE FOR AGENT-FIRMWARE MICROSERVICE
+# ====================================================================
+
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+env/
+.git/
+.gitignore
+.dockerignore
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.vscode/
+.idea/
+*.log
+logs/
+*.sqlite
+*.sqlite3
+*.db
+README.md
+tests/
+

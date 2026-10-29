@@ -68,3 +68,26 @@ class ToolRegistry:
     @classmethod
     def list_tools(cls):
         return list(cls._tools.keys())
+
+    @classmethod
+    def execute(cls, name: str, arguments: dict | None = None) -> str:
+        import json
+        tool = cls.get_tool(name)
+        if not tool:
+            return json.dumps({"success": False, "error": f"Tool '{name}' not found in registry"}, ensure_ascii=False)
+        args = arguments or {}
+        try:
+            res = tool.execute(args)
+            if isinstance(res, str):
+                return res
+            return json.dumps(res, ensure_ascii=False)
+        except TypeError:
+            res = tool.execute(**args)
+            if isinstance(res, str):
+                return res
+            return json.dumps(res, ensure_ascii=False)
+        except Exception as e:
+            return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
+
+
+tool_registry = ToolRegistry()

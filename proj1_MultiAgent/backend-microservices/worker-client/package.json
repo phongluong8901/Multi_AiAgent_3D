@@ -20,14 +20,26 @@
     "directories": {
       "output": "release"
     },
+    "icon": "icon.png",
     "files": [
       "main.js",
-      "frontend/dist/**/*"
+      "frontend/dist/**/*",
+      "worker.py",
+      "backend_worker/**/*",
+      ".env"
     ],
     "extraResources": [
       {
-        "from": "worker.exe",
-        "to": "worker.exe"
+        "from": "worker.py",
+        "to": "worker.py"
+      },
+      {
+        "from": "backend_worker",
+        "to": "backend_worker"
+      },
+      {
+        "from": ".env",
+        "to": ".env"
       }
     ],
     "win": {

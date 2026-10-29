@@ -70,8 +70,6 @@ export default function SellerComputePage() {
 
     useEffect(() => {
         loadDashboard()
-        const interval = setInterval(loadDashboard, 8000)
-        return () => clearInterval(interval)
     }, [currentSellerId])
 
     const handleToggleStatus = async (nodeId: string, currentStatus: string) => {

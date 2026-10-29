@@ -13,7 +13,8 @@ import {
     ArrowRight, ArrowDown, GitBranch, Workflow, ListOrdered, Sliders,
     Download, Server, Key, Eye, EyeOff, RefreshCw, HardDrive, Gauge, Shield, Code,
     RotateCcw, Wifi, MapPin, Star, Home, Factory, Pencil,
-    TrendingUp, ShieldAlert
+    TrendingUp, ShieldAlert, Mic, Volume2, VolumeX, Radio, Database,
+    Bluetooth, Network, LayoutGrid, ChevronRight, History
 } from 'lucide-react'
 
 export interface IconProps extends React.SVGProps<SVGSVGElement> {
@@ -24,6 +25,16 @@ export interface IconProps extends React.SVGProps<SVGSVGElement> {
 // Re-export Lucide icons with uniform names
 export const IconTrendingUp = TrendingUp
 export const IconShieldAlert = ShieldAlert
+export const IconMic = Mic
+export const IconVolume = Volume2
+export const IconVolumeMute = VolumeX
+export const IconRadio = Radio
+export const IconDatabase = Database
+export const IconBluetooth = Bluetooth
+export const IconNetwork = Network
+export const IconLayoutGrid = LayoutGrid
+export const IconChevronRight = ChevronRight
+export const IconHistory = History
 export const IconEdit = Pencil
 export const IconPaperclip = Paperclip
 export const IconLogOut = LogOut

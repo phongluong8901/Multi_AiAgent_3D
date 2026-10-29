@@ -2,6 +2,7 @@ import os
 from .gemini_provider import GeminiProvider
 from .ollama_provider import OllamaProvider
 
+
 class LLMRegistry:
     def __init__(self):
         # Đọc cấu hình provider từ biến môi trường: "gemini" hoặc "local"
@@ -10,13 +11,14 @@ class LLMRegistry:
 
     def _load_provider(self):
         if self.provider_type == "local":
-            print("🚀 [LLM Strategy] Đang khởi chạy mô hình chạy nội bộ: OLLAMA")
+            print("[LLM Strategy] Starting local model: OLLAMA")
             return OllamaProvider()
         else:
-            print("☁️ [LLM Strategy] Đang khởi chạy mô hình Cloud: GOOGLE GEMINI")
+            print("[LLM Strategy] Starting cloud model: GOOGLE GEMINI")
             return GeminiProvider()
 
     def get_client(self):
         return self.provider
+
 
 llm_registry = LLMRegistry()

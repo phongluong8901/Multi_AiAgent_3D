@@ -2,7 +2,7 @@ import json
 import os
 import time
 import urllib.request
-from typing import List, Dict, Any, Generator
+from typing import List, Dict, Any, Generator, Optional
 from google import genai
 from google.genai import types
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, ToolMessage
@@ -28,7 +28,7 @@ class _ToolCallMock:
 
 
 class _MessageMock:
-    def __init__(self, content: str, tool_calls: List[_ToolCallMock] = None):
+    def __init__(self, content: str, tool_calls: Optional[List[_ToolCallMock]] = None):
         self.content = content
         self.tool_calls = tool_calls or []
 
@@ -39,7 +39,7 @@ class _ChoiceMock:
 
 
 class _ResponseMock:
-    def __init__(self, content: str, tool_calls: List[_ToolCallMock] = None):
+    def __init__(self, content: str, tool_calls: Optional[List[_ToolCallMock]] = None):
         self.choices = [_ChoiceMock(_MessageMock(content, tool_calls))]
 
 
@@ -57,15 +57,41 @@ class GeminiProvider(BaseLLMProvider):
         "gemini-2.5-flash-lite",
     ]
 
-    def __init__(self, model_name: str = "gemini-2.5-flash"):
-        raw_keys = settings.GEMINI_API_KEY or ""
-        self.api_keys = [k.strip() for k in raw_keys.split(",") if k.strip()]
+    def __init__(self, model_name: Optional[str] = None):
+        raw_model_key = (
+            os.getenv("GOOGLE_API_KEY_MODEL")
+            or getattr(settings, "GOOGLE_API_KEY_MODEL", "")
+            or ""
+        )
+        raw_fallback_key = (
+            os.getenv("GOOGLE_API_KEY")
+            or getattr(settings, "GOOGLE_API_KEY", "")
+            or os.getenv("GEMINI_API_KEY")
+            or getattr(settings, "GEMINI_API_KEY", "")
+            or ""
+        )
+
+        combined_keys = []
+        for source in (raw_model_key, raw_fallback_key):
+            for k in source.split(","):
+                k_clean = k.strip()
+                if k_clean and k_clean not in combined_keys:
+                    combined_keys.append(k_clean)
+
+        self.api_keys = combined_keys
         if not self.api_keys:
-            raise ValueError("Chưa cấu hình GEMINI_API_KEY trong file .env")
+            raise ValueError(
+                "Chưa cấu hình GOOGLE_API_KEY_MODEL (hoặc GOOGLE_API_KEY) trong file .env"
+            )
 
         self.current_key_index = 0
         self.client = genai.Client(api_key=self.api_keys[self.current_key_index])
-        self.model_name = model_name or "gemini-2.5-flash"
+        default_model = (
+            os.getenv("GEMINI_MODEL")
+            or getattr(settings, "GEMINI_MODEL", "")
+            or "gemini-2.5-flash-lite"
+        )
+        self.model_name = model_name or default_model
         self.openai_api_key = os.getenv("OPENAI_API_KEY", "").strip()
         self.deepseek_api_key = os.getenv("DEEPSEEK_API_KEY", "").strip()
 
@@ -102,7 +128,7 @@ class GeminiProvider(BaseLLMProvider):
         self,
         messages: List[Any],
         temperature: float,
-        tools: List[Dict[str, Any]] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
     ) -> _ResponseMock | None:
         """Nếu model là gpt-* hoặc deepseek-* và có API Key tương ứng, gọi trực tiếp chuẩn OpenAI REST."""
         m_lower = self.model_name.lower()
@@ -229,10 +255,12 @@ class GeminiProvider(BaseLLMProvider):
                 )
                 time.sleep(wait_time)
 
-        raise last_error
+        if last_error is not None:
+            raise last_error
+        raise RuntimeError("Không thể thực thi yêu cầu tới Gemini API sau nhiều lần thử lại.")
 
     def generate_text(
-        self, prompt: str, system_prompt: str = None, temperature: float = 0.7
+        self, prompt: str, system_prompt: Optional[str] = None, temperature: float = 0.7
     ) -> str:
         config = types.GenerateContentConfig(temperature=temperature)
         if system_prompt:
@@ -244,7 +272,7 @@ class GeminiProvider(BaseLLMProvider):
                 contents=prompt,
                 config=config,
             )
-            return response.text
+            return response.text or ""
 
         return self._execute_with_retry(_call)
 
@@ -252,7 +280,7 @@ class GeminiProvider(BaseLLMProvider):
         self,
         messages: List[Any],
         temperature: float = 0.2,
-        tools: List[Dict[str, Any]] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
     ):
         system_instruction = None
         contents = []
@@ -320,9 +348,9 @@ class GeminiProvider(BaseLLMProvider):
 
     def chat_completion(
         self,
-        messages: List[Dict[str, str]],
+        messages: List[Any],
         temperature: float = 0.2,
-        tools: List[Dict[str, Any]] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
     ) -> Any:
         # 1. Thử gọi OpenAI/DeepSeek nếu model tương ứng và có API key
         ext_resp = self._try_openai_compatible_api(messages, temperature, tools)
@@ -366,7 +394,7 @@ class GeminiProvider(BaseLLMProvider):
         self,
         messages: List[Any],
         temperature: float = 0.2,
-        tools: List[Dict[str, Any]] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
     ) -> Generator[str, None, None]:
         contents, config = self._prepare_request(messages, temperature, tools=None)
 

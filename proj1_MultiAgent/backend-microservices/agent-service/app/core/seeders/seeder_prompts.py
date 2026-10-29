@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-from app.models.sql_models import Prompt
+from app.models.prompt import PromptModel
 
 DEFAULT_PROMPTS = [
     {
@@ -92,10 +92,12 @@ DEFAULT_PROMPTS = [
 
 def seed_prompts(db: Session):
     for item in DEFAULT_PROMPTS:
-        existing = db.query(Prompt).filter(Prompt.id == item["id"]).first()
+        title = item.get("title") or item.get("name") or item["id"]
+        content = item.get("content") or item.get("template") or ""
+        existing = db.query(PromptModel).filter(PromptModel.id == item["id"]).first()
         if not existing:
-            db.add(Prompt(**item))
+            db.add(PromptModel(id=item["id"], title=title, content=content))
         else:
-            existing.name = item["name"]
-            existing.template = item["template"]
+            existing.title = title
+            existing.content = content
     db.commit()

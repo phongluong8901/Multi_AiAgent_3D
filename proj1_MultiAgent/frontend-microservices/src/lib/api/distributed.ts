@@ -19,6 +19,24 @@ export type RentConfiguration = {
     availabilitySchedule: string
     minPricePerHourCoin: number
     autoStartWithOS?: boolean
+    maxTokens?: number
+    contextLength?: number
+    temperature?: number
+    defaultModel?: string
+    maxConcurrentTasks?: number
+}
+
+export type LLMActivityStats = {
+    total_requests: number
+    active_requests: number
+    total_tokens: number
+    prompt_tokens: number
+    completion_tokens: number
+    tokens_per_sec: number
+    last_latency_ms: number
+    current_model: string
+    is_busy: boolean
+    status: string
 }
 
 export type ModelRecommendation = {
@@ -92,6 +110,7 @@ export type PartnerNodeData = {
         timestamp: string
     }
     authToken: string
+    llmStats?: LLMActivityStats
     createdAt: string
     updatedAt: string
 }
@@ -193,5 +212,104 @@ export const distributedApi = {
     getDownloadConfigFileUrl: (nodeId: string) => {
         const gatewayUrl = process.env.NEXT_PUBLIC_GATEWAY_URL || 'http://localhost:4000'
         return `${gatewayUrl}/api/v1/distributed/app/config-file?nodeId=${encodeURIComponent(nodeId)}`
+    },
+
+    // URL WebSocket thời gian thực từ Distributed Service (không dùng polling)
+    getDistributedWsUrl: (listenerId: string = 'web_listener_client') => {
+        const gatewayUrl = process.env.NEXT_PUBLIC_GATEWAY_URL || 'http://localhost:4000'
+        const wsBase = gatewayUrl.replace(/^http/, 'ws')
+        return `${wsBase}/api/v1/distributed/ws?nodeId=${encodeURIComponent(listenerId)}`
+    },
+
+    // Kiểm tra và test suy luận trực tiếp xuống máy Seller qua WebSocket/SSE stream
+    testInferenceStream: async (
+        params: {
+            nodeId?: string
+            model?: string
+            prompt: string
+            systemPrompt?: string
+            temperature?: number
+            maxTokens?: number
+        },
+        onChunk: (chunk: string) => void
+    ): Promise<{ success: boolean; output: string; model?: string; error?: string; latencyMs: number }> => {
+        const gatewayUrl = process.env.NEXT_PUBLIC_GATEWAY_URL || 'http://localhost:4000'
+        const startTime = Date.now()
+
+        const res = await fetch(`${gatewayUrl}/api/v1/distributed/inference`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Accept: 'text/event-stream',
+            },
+            body: JSON.stringify({
+                nodeId: params.nodeId || '',
+                model: params.model || 'qwen2.5-coder:1.5b',
+                prompt: params.prompt,
+                systemPrompt: params.systemPrompt || 'Bạn là AI Agent thực thi chuyên nghiệp.',
+                temperature: params.temperature ?? 0.7,
+                maxTokens: params.maxTokens,
+                stream: true,
+            }),
+        })
+
+        if (!res.ok) {
+            const errJson = await res.json().catch(() => ({ message: res.statusText }))
+            throw new Error(errJson.message || `Lỗi kết nối (${res.status})`)
+        }
+
+        const reader = res.body?.getReader()
+        if (!reader) {
+            throw new Error('Trình duyệt không hỗ trợ đọc stream phản hồi')
+        }
+
+        const decoder = new TextDecoder('utf-8')
+        let fullOutput = ''
+        let finalModel = params.model
+        let errorMsg = ''
+
+        while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
+
+            const rawText = decoder.decode(value, { stream: true })
+            const lines = rawText.split('\n')
+
+            for (const line of lines) {
+                const trimmed = line.trim()
+                if (!trimmed || !trimmed.startsWith('data:')) continue
+                const jsonStr = trimmed.replace(/^data:\s*/, '')
+                try {
+                    const data = JSON.parse(jsonStr)
+                    if (data.error) {
+                        errorMsg = data.error
+                    }
+                    if (data.chunk) {
+                        fullOutput += data.chunk
+                        onChunk(data.chunk)
+                    }
+                    if (data.output && !fullOutput) {
+                        fullOutput = data.output
+                    }
+                    if (data.model) {
+                        finalModel = data.model
+                    }
+                } catch {
+                    // Ignore parse error on partial boundary
+                }
+            }
+        }
+
+        const latencyMs = Date.now() - startTime
+        if (errorMsg && !fullOutput) {
+            return { success: false, output: '', error: errorMsg, latencyMs }
+        }
+
+        return {
+            success: true,
+            output: fullOutput,
+            model: finalModel,
+            latencyMs,
+        }
     },
 }

@@ -77,6 +77,11 @@ func (ps *PostgresStorage) initSchema() error {
 		rent_config JSONB,
 		compatible_models JSONB,
 		active_model VARCHAR(100),
+		is_llm_running BOOLEAN DEFAULT FALSE,
+		llm_provider VARCHAR(100) DEFAULT 'ollama',
+		has_gpu BOOLEAN DEFAULT FALSE,
+		gpu_name VARCHAR(255) DEFAULT '',
+		vram_gb DOUBLE PRECISION DEFAULT 0,
 		total_coins_earned DOUBLE PRECISION DEFAULT 0,
 		uptime_seconds BIGINT DEFAULT 0,
 		auth_token VARCHAR(255) UNIQUE,
@@ -85,6 +90,12 @@ func (ps *PostgresStorage) initSchema() error {
 		created_at TIMESTAMPTZ DEFAULT NOW(),
 		updated_at TIMESTAMPTZ DEFAULT NOW()
 	);
+
+	ALTER TABLE partner_nodes ADD COLUMN IF NOT EXISTS is_llm_running BOOLEAN DEFAULT FALSE;
+	ALTER TABLE partner_nodes ADD COLUMN IF NOT EXISTS llm_provider VARCHAR(100) DEFAULT 'ollama';
+	ALTER TABLE partner_nodes ADD COLUMN IF NOT EXISTS has_gpu BOOLEAN DEFAULT FALSE;
+	ALTER TABLE partner_nodes ADD COLUMN IF NOT EXISTS gpu_name VARCHAR(255) DEFAULT '';
+	ALTER TABLE partner_nodes ADD COLUMN IF NOT EXISTS vram_gb DOUBLE PRECISION DEFAULT 0;
 
 	CREATE INDEX IF NOT EXISTS idx_partner_nodes_user_id ON partner_nodes(user_id);
 	CREATE INDEX IF NOT EXISTS idx_partner_nodes_auth_token ON partner_nodes(auth_token);
@@ -114,13 +125,15 @@ func (ps *PostgresStorage) UpsertNode(node *models.PartnerNode) error {
 	INSERT INTO partner_nodes (
 		id, user_id, username, email, status,
 		hardware, rent_config, compatible_models, active_model,
+		is_llm_running, llm_provider, has_gpu, gpu_name, vram_gb,
 		total_coins_earned, uptime_seconds, auth_token,
 		client_app_downloaded, last_telemetry, created_at, updated_at
 	) VALUES (
 		$1, $2, $3, $4, $5,
 		$6, $7, $8, $9,
-		$10, $11, $12,
-		$13, $14, $15, $16
+		$10, $11, $12, $13, $14,
+		$15, $16, $17,
+		$18, $19, $20, $21
 	) ON CONFLICT (id) DO UPDATE SET
 		username = EXCLUDED.username,
 		email = EXCLUDED.email,
@@ -129,8 +142,14 @@ func (ps *PostgresStorage) UpsertNode(node *models.PartnerNode) error {
 		rent_config = EXCLUDED.rent_config,
 		compatible_models = EXCLUDED.compatible_models,
 		active_model = EXCLUDED.active_model,
+		is_llm_running = EXCLUDED.is_llm_running,
+		llm_provider = EXCLUDED.llm_provider,
+		has_gpu = EXCLUDED.has_gpu,
+		gpu_name = EXCLUDED.gpu_name,
+		vram_gb = EXCLUDED.vram_gb,
 		auth_token = EXCLUDED.auth_token,
 		client_app_downloaded = EXCLUDED.client_app_downloaded,
+		last_telemetry = COALESCE(EXCLUDED.last_telemetry, partner_nodes.last_telemetry),
 		updated_at = EXCLUDED.updated_at;
 	`
 
@@ -143,6 +162,7 @@ func (ps *PostgresStorage) UpsertNode(node *models.PartnerNode) error {
 		query,
 		node.ID, node.UserID, node.Username, node.Email, node.Status,
 		string(hwJSON), string(rentJSON), string(modelsJSON), node.ActiveModel,
+		node.IsLLMRunning, node.LLMProvider, node.HasGPU, node.GPUName, node.VRAMGB,
 		node.TotalCoinsEarned, node.UptimeSeconds, node.AuthToken,
 		node.ClientAppDownloaded, telemVal, createdAt, updatedAt,
 	)
@@ -154,6 +174,7 @@ func (ps *PostgresStorage) GetAllNodes() ([]*models.PartnerNode, error) {
 	query := `
 	SELECT id, user_id, username, email, status,
 	       hardware, rent_config, compatible_models, active_model,
+	       is_llm_running, llm_provider, has_gpu, gpu_name, vram_gb,
 	       total_coins_earned, uptime_seconds, auth_token,
 	       client_app_downloaded, last_telemetry, created_at, updated_at
 	FROM partner_nodes
@@ -174,6 +195,7 @@ func (ps *PostgresStorage) GetAllNodes() ([]*models.PartnerNode, error) {
 		err := rows.Scan(
 			&n.ID, &n.UserID, &n.Username, &n.Email, &n.Status,
 			&hwJSON, &rentJSON, &modelsJSON, &n.ActiveModel,
+			&n.IsLLMRunning, &n.LLMProvider, &n.HasGPU, &n.GPUName, &n.VRAMGB,
 			&n.TotalCoinsEarned, &n.UptimeSeconds, &n.AuthToken,
 			&n.ClientAppDownloaded, &telemJSON, &n.CreatedAt, &n.UpdatedAt,
 		)
@@ -215,12 +237,16 @@ func (ps *PostgresStorage) UpdateTelemetry(nodeID string, stats models.Telemetry
 	UPDATE partner_nodes SET
 		last_telemetry = $2,
 		status = CASE WHEN status = 'OFFLINE' OR status = 'REGISTERED' THEN 'IDLE' ELSE status END,
+		is_llm_running = CASE WHEN $3 = TRUE THEN TRUE ELSE is_llm_running END,
+		has_gpu = CASE WHEN $4 = TRUE THEN TRUE ELSE has_gpu END,
+		gpu_name = CASE WHEN $5 != '' THEN $5 ELSE gpu_name END,
+		vram_gb = CASE WHEN $6 > 0 THEN $6 ELSE vram_gb END,
 		total_coins_earned = total_coins_earned + 0.02,
 		uptime_seconds = uptime_seconds + 10,
 		updated_at = NOW()
 	WHERE id = $1;
 	`
-	_, err = ps.db.Exec(query, nodeID, string(telemJSON))
+	_, err = ps.db.Exec(query, nodeID, string(telemJSON), stats.IsLLMRunning, stats.HasGPU, stats.GPUName, stats.VRAMGB)
 	return err
 }
 

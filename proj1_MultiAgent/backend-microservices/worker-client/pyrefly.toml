@@ -1,0 +1,6 @@
+# Pyrefly configuration for Worker Client
+search-path = [
+    ".",
+    "backend_worker"
+]
+

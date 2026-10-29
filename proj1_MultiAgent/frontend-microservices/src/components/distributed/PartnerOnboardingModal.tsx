@@ -10,6 +10,7 @@ import {
     AppPackageInfo,
 } from '@/lib/api/distributed'
 import { sellerApi } from '@/lib/api/seller'
+import { Lightbulb, AlertTriangle, Check } from 'lucide-react'
 
 interface PartnerOnboardingModalProps {
     isOpen: boolean
@@ -140,34 +141,22 @@ export default function PartnerOnboardingModal({
         detectHardware()
     }, [isOpen])
 
-    // 2. Kết nối WebSocket tới Go Server khi đã đăng ký node thành công để theo dõi telemetry
+    // 2. Kết nối WebSocket tới Go Server (với vai trò web_listener) để chờ tín hiệu thực tế từ Electron Worker
     useEffect(() => {
         if (step !== 'download_client' || !registeredNode) return
 
-        const gatewayUrl = process.env.NEXT_PUBLIC_GATEWAY_URL || 'http://localhost:4000'
-        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-        const wsHost = gatewayUrl.replace(/^http:\/\//, '').replace(/^https:\/\//, '')
-        const wsUrl = `${wsProtocol}//${wsHost}/api/v1/distributed/ws?nodeId=${registeredNode.id}&token=${registeredNode.authToken}`
+        const wsUrl = distributedApi.getDistributedWsUrl('web_listener_onboarding')
 
         let ws: WebSocket
         try {
             ws = new WebSocket(wsUrl)
             wsRef.current = ws
 
-            ws.onopen = () => {
-                setLiveTelemetry((prev) => ({ ...prev, connected: true }))
-            }
-
             ws.onmessage = (event) => {
                 try {
                     const data = JSON.parse(event.data)
-                    // Chỉ nhận telemetry của đúng node này hoặc worker trên cùng máy
-                    if (
-                        data.nodeId &&
-                        registeredNode?.id &&
-                        data.nodeId !== registeredNode.id &&
-                        !String(data.nodeId).startsWith('guest_worker_')
-                    ) {
+                    if (data.type === 'WORKER_DISCONNECTED') {
+                        setLiveTelemetry((prev) => ({ ...prev, connected: false }))
                         return
                     }
                     if (data.type === 'HARDWARE_STATS' || data.type === 'SYSTEM_INFO' || data.cpu_percent !== undefined) {
@@ -370,7 +359,7 @@ export default function PartnerOnboardingModal({
 
                                 {benchmark?.summaryAdvice && (
                                     <div className="text-xs text-zinc-400 bg-blue-950/20 border border-blue-500/20 rounded-lg p-3 flex items-start gap-2">
-                                        <span className="text-blue-400 text-sm">💡</span>
+                                        <Lightbulb className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
                                         <span>{benchmark.summaryAdvice}</span>
                                     </div>
                                 )}
@@ -471,7 +460,10 @@ export default function PartnerOnboardingModal({
                                             ) : (
                                                 <div className="mt-2 pt-2 border-t border-zinc-800/60 text-[11px] text-red-400/90 space-y-0.5">
                                                     {model.missingRequirements?.map((req, i) => (
-                                                        <div key={i}>⚠️ {req}</div>
+                                                        <div key={i} className="flex items-center gap-1.5">
+                                                            <AlertTriangle className="w-3 h-3 text-amber-400 shrink-0" />
+                                                            <span>{req}</span>
+                                                        </div>
                                                     ))}
                                                 </div>
                                             )}
@@ -637,7 +629,14 @@ export default function PartnerOnboardingModal({
                                         onClick={copyTokenToClipboard}
                                         className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1 font-semibold"
                                     >
-                                        {copiedToken ? '✓ Đã sao chép' : 'Sao chép Token'}
+                                        {copiedToken ? (
+                                            <>
+                                                <Check className="w-3.5 h-3.5 text-emerald-400" />
+                                                <span className="text-emerald-400">Đã sao chép</span>
+                                            </>
+                                        ) : (
+                                            'Sao chép Token'
+                                        )}
                                     </button>
                                 </div>
                                 <div className="bg-zinc-950 p-2.5 rounded-lg border border-zinc-800 font-mono text-xs text-zinc-200 select-all overflow-x-auto">

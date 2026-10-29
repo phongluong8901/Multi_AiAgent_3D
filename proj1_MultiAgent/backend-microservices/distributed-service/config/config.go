@@ -62,6 +62,9 @@ func LoadConfig() *Config {
 
 	databaseURL := os.Getenv("DATABASE_URL")
 	if databaseURL == "" {
+		databaseURL = os.Getenv("COMPUTE_DATABASE_URL")
+	}
+	if databaseURL == "" {
 		// Mặc định kết nối database riêng distributed_db trên Neon PostgreSQL
 		databaseURL = "postgresql://neondb_owner:npg_nGjr85EBbXPw@ep-fragrant-fire-a1icbw9e-pooler.ap-southeast-1.aws.neon.tech/distributed_db?sslmode=require"
 	}
