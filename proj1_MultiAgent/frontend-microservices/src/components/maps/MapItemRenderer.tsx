@@ -576,8 +576,8 @@ export function MapItemRenderer({ item, isSelected, onSelect }: MapItemRendererP
                         <torusGeometry args={[0.09, 0.015, 12, 24]} />
                         <meshStandardMaterial color="#0284c7" metalness={0.9} roughness={0.1} />
                     </mesh>
-                    <mesh position={[0, 1.15, 0.63]}>
-                        <cylinderGeometry args={[0.01, 0.01, 0.12]} rotation={[0, 0, Math.PI / 2]} />
+                    <mesh position={[0, 1.15, 0.63]} rotation={[0, 0, Math.PI / 2]}>
+                        <cylinderGeometry args={[0.01, 0.01, 0.12]} />
                         <meshStandardMaterial color="#0284c7" metalness={0.9} />
                     </mesh>
 
@@ -714,8 +714,8 @@ export function MapItemRenderer({ item, isSelected, onSelect }: MapItemRendererP
                         <sphereGeometry args={[0.15, 16, 16]} />
                         <meshStandardMaterial color="#020617" roughness={0.1} metalness={0.9} />
                     </mesh>
-                    <mesh position={[0, 1.42, 0.15]}>
-                        <cylinderGeometry args={[0.08, 0.08, 0.06, 16]} rotation={[Math.PI / 4, 0, 0]} />
+                    <mesh position={[0, 1.42, 0.15]} rotation={[Math.PI / 4, 0, 0]}>
+                        <cylinderGeometry args={[0.08, 0.08, 0.06, 16]} />
                         <meshStandardMaterial color="#38bdf8" emissive="#38bdf8" emissiveIntensity={3.5} />
                     </mesh>
                     {/* Chùm sáng quét hình nón xuống mặt đất */}

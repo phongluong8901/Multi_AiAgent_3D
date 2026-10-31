@@ -68,10 +68,27 @@ export class OwnerController {
 
     async runAgentInference(req: Request, res: Response) {
         try {
-            const rentalSessionId = req.body.rentalSessionId || req.body.rentalId || req.body.sessionId || "";
-            const { agentId, prompt, systemPrompt, temperature, maxTokens } = req.body;
+            const rentalSessionId = req.body.rentalSessionId || req.body.rentalId || req.body.sessionId || (req.query.rentalSessionId as string) || (req.query.rentalId as string) || "";
+            const prompt = req.body.prompt || (req.query.prompt as string) || "";
+            const systemPrompt = req.body.systemPrompt || (req.query.systemPrompt as string);
+            const agentId = req.body.agentId || (req.query.agentId as string);
+            const temperature = req.body.temperature ? Number(req.body.temperature) : undefined;
+            const maxTokens = req.body.maxTokens ? Number(req.body.maxTokens) : undefined;
+
             if (!prompt) {
                 return res.status(400).json({ success: false, message: "Prompt không được để trống" });
+            }
+
+            const isSSE = req.headers["accept"] === "text/event-stream" || req.query.stream === "true" || req.body.stream === true;
+            if (isSSE) {
+                return await agentInferenceService.streamInferenceForAgent({
+                    rentalSessionId,
+                    agentId,
+                    prompt,
+                    systemPrompt,
+                    temperature,
+                    maxTokens,
+                }, res);
             }
 
             const result = await agentInferenceService.runInferenceForAgent({

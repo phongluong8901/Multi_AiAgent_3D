@@ -1,5 +1,7 @@
+import { useState } from 'react';
 import type { FC } from 'react';
 import { TabType } from '../types';
+import appIcon from '../assets/app-icon.png';
 import {
   ActivityIcon,
   PlayIcon,
@@ -37,6 +39,7 @@ export const TitleBar: FC<TitleBarProps> = ({
   pingLatency,
   isPinging,
 }) => {
+  const [iconError, setIconError] = useState(false);
   const isWsConnected = wsStatus === 'Connected';
 
   const handleMinimize = () => {
@@ -64,11 +67,20 @@ export const TitleBar: FC<TitleBarProps> = ({
           TIER 1: POSTMAN-STYLE TOP TITLEBAR (AIRY, CLEAN, DRAGGABLE)
           ======================================================== */}
       <div className="h-9 px-3 flex items-center justify-between app-drag border-b border-[#262626]">
-        {/* Left: Postman Brand & Workspace Breadcrumb */}
+        {/* Left: App Brand & Workspace Breadcrumb */}
         <div className="flex items-center space-x-2.5 no-drag">
           {/* Hardware Worker Golden Lightning App Icon */}
-          <div className="w-5 h-5 rounded flex items-center justify-center shadow-sm overflow-hidden bg-amber-500/10 border border-amber-500/30">
-            <img src="/icon.png" alt="App Icon" className="w-4 h-4 object-contain" />
+          <div className="w-5 h-5 rounded flex items-center justify-center shadow-sm overflow-hidden bg-amber-500/10 border border-amber-500/30 flex-shrink-0">
+            {!iconError ? (
+              <img
+                src={appIcon}
+                alt="Hardware Worker Icon"
+                className="w-4 h-4 object-contain select-none"
+                onError={() => setIconError(true)}
+              />
+            ) : (
+              <ZapIcon className="w-3.5 h-3.5 text-amber-400" />
+            )}
           </div>
 
           <div className="flex items-center space-x-2 text-xs">

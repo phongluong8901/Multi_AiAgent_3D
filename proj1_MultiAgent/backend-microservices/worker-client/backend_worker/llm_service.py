@@ -146,7 +146,7 @@ def handle_inference_request(ws, ws_lock, req_data, ollama_url=DEFAULT_OLLAMA_UR
             method="POST",
         )
 
-        with urllib.request.urlopen(req, timeout=60) as resp:
+        with urllib.request.urlopen(req, timeout=180) as resp:
             if is_stream:
                 chunks = []
                 for line in resp:

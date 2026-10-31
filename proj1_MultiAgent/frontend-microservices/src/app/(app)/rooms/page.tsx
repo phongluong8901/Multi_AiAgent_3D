@@ -224,46 +224,46 @@ export default function RoomsHubPage() {
 
             {/* Thanh Thống kê Số lượng Người Online & Offline Toàn Hệ Thống Phòng */}
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                <div className="flex items-center justify-between rounded-2xl border border-zinc-800/80 bg-zinc-900/70 px-5 py-4">
+                <div className="flex items-center justify-between rounded-2xl border border-border bg-card px-5 py-4 shadow-sm">
                     <div>
-                        <p className="text-xs font-medium uppercase tracking-wider text-zinc-400">
+                        <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
                             Tổng Số Phòng
                         </p>
-                        <p className="mt-1 text-2xl font-bold text-white">{rooms.length}</p>
+                        <p className="mt-1 text-2xl font-bold text-foreground">{rooms.length}</p>
                     </div>
-                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                        <Building className="w-5 h-5 text-blue-400" />
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500/10 text-blue-500 dark:text-blue-400 border border-blue-500/20">
+                        <Building className="w-5 h-5" />
                     </div>
                 </div>
 
-                <div className="flex items-center justify-between rounded-2xl border border-emerald-500/30 bg-emerald-950/20 px-5 py-4">
+                <div className="flex items-center justify-between rounded-2xl border border-emerald-500/30 bg-emerald-500/10 dark:bg-emerald-950/20 px-5 py-4 shadow-sm">
                     <div>
-                        <p className="text-xs font-medium uppercase tracking-wider text-emerald-400">
+                        <p className="text-xs font-medium uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
                             Thành Viên Đang Online
                         </p>
                         <div className="mt-1 flex items-baseline gap-2">
-                            <span className="text-2xl font-bold text-emerald-300">
+                            <span className="text-2xl font-bold text-emerald-600 dark:text-emerald-300">
                                 {computedOnline}
                             </span>
-                            <span className="text-xs text-emerald-400/80">người đang hoạt động</span>
+                            <span className="text-xs text-emerald-600/80 dark:text-emerald-400/80">người đang hoạt động</span>
                         </div>
                     </div>
-                    <span className="h-3.5 w-3.5 animate-pulse rounded-full bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.9)]" />
+                    <span className="h-3.5 w-3.5 animate-pulse rounded-full bg-emerald-500 shadow-[0_0_12px_rgba(52,211,153,0.9)]" />
                 </div>
 
-                <div className="flex items-center justify-between rounded-2xl border border-zinc-800/80 bg-zinc-900/70 px-5 py-4">
+                <div className="flex items-center justify-between rounded-2xl border border-border bg-card px-5 py-4 shadow-sm">
                     <div>
-                        <p className="text-xs font-medium uppercase tracking-wider text-zinc-400">
+                        <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
                             Thành Viên Đang Offline
                         </p>
                         <div className="mt-1 flex items-baseline gap-2">
-                            <span className="text-2xl font-bold text-zinc-200">
+                            <span className="text-2xl font-bold text-foreground">
                                 {computedOffline}
                             </span>
-                            <span className="text-xs text-zinc-500">người ngoại tuyến</span>
+                            <span className="text-xs text-muted-foreground">người ngoại tuyến</span>
                         </div>
                     </div>
-                    <span className="h-3.5 w-3.5 rounded-full bg-zinc-600" />
+                    <span className="h-3.5 w-3.5 rounded-full bg-muted-foreground/40" />
                 </div>
             </div>
 
@@ -271,7 +271,7 @@ export default function RoomsHubPage() {
 
             <div className="space-y-4">
                 <div className="flex items-center justify-between">
-                    <h2 className="text-lg font-semibold text-zinc-200">
+                    <h2 className="text-lg font-semibold text-foreground">
                         Các Phòng Đang Hoạt Động ({rooms.length})
                     </h2>
                     <button

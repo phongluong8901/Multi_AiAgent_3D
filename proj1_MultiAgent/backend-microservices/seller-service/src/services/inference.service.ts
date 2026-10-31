@@ -77,7 +77,7 @@ export class InferenceService {
                         temperature: temperature || 0.7,
                         maxTokens: maxTokens || 1024,
                     }),
-                    signal: AbortSignal.timeout(45000), // 45 giây cho worker sinh token thực tế
+                    signal: AbortSignal.timeout(120000), // 120 giây cho worker sinh token thực tế trên CPU/GPU
                 });
 
                 if (wsRelayRes.ok) {
@@ -118,7 +118,7 @@ export class InferenceService {
                                 num_predict: maxTokens || 1024,
                             },
                         }),
-                        signal: AbortSignal.timeout(15000),
+                        signal: AbortSignal.timeout(120000),
                     });
 
                     if (response.ok) {

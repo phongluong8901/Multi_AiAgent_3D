@@ -130,7 +130,7 @@ def _discover_live_local_and_rented_models(existing_ids: set[str]) -> List[Dict[
         pass
 
     # 2. Quét các phiên thuê P2P đang hoạt động từ ower-service
-    owner_url = os.getenv("OWER_SERVICE_URL", "http://ower-service:8084").rstrip("/")
+    owner_url = os.getenv("OWER_SERVICE_URL", "http://ower-service:5012").rstrip("/")
     try:
         req = urllib.request.Request(f"{owner_url}/api/v1/owner/rentals", method="GET")
         with urllib.request.urlopen(req, timeout=1.5) as resp:

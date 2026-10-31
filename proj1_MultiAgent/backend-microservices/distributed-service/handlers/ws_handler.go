@@ -228,7 +228,7 @@ func (h *WSHandler) HandleInferenceRelay(w http.ResponseWriter, r *http.Request)
 		"systemPrompt": req.SystemPrompt,
 		"temperature":  req.Temperature,
 		"maxTokens":    req.MaxTokens,
-		"stream":       isSSE,
+		"stream":       true, // Luôn bật stream để Worker gửi chunk liên tục, chống nghẽn CPU
 	}
 	cmdBytes, _ := json.Marshal(cmdPayload)
 
@@ -250,7 +250,7 @@ func (h *WSHandler) HandleInferenceRelay(w http.ResponseWriter, r *http.Request)
 
 	if isSSE {
 		// Luồng streaming Server-Sent Events (SSE) từng token
-		timeout := time.After(45 * time.Second)
+		timeout := time.After(120 * time.Second)
 		for {
 			select {
 			case resData := <-respChan:
@@ -301,7 +301,7 @@ func (h *WSHandler) HandleInferenceRelay(w http.ResponseWriter, r *http.Request)
 				}
 			case <-timeout:
 				timeoutBytes, _ := json.Marshal(map[string]interface{}{
-					"error":   "Quá thời gian chờ (45s) phản hồi LLM từ Worker.",
+					"error":   "Quá thời gian chờ (120s) phản hồi LLM từ Worker.",
 					"done":    true,
 					"success": false,
 				})
@@ -315,35 +315,61 @@ func (h *WSHandler) HandleInferenceRelay(w http.ResponseWriter, r *http.Request)
 			}
 		}
 	} else {
-		// Non-streaming response
-		select {
-		case resData := <-respChan:
-			errMsg, _ := resData["error"].(string)
-			output, _ := resData["output"].(string)
-			if errMsg != "" && output == "" {
-				w.WriteHeader(http.StatusBadGateway)
+		// Non-streaming response: thu thập toàn bộ chunk cho tới khi Worker hoàn tất
+		timeout := time.After(120 * time.Second)
+		var fullOutput strings.Builder
+		var finalModel string
+		finished := false
+
+		for !finished {
+			select {
+			case resData := <-respChan:
+				mType, _ := resData["type"].(string)
+				errMsg, _ := resData["error"].(string)
+				if errMsg != "" {
+					w.WriteHeader(http.StatusBadGateway)
+					_ = json.NewEncoder(w).Encode(map[string]interface{}{
+						"success": false,
+						"message": errMsg,
+					})
+					return
+				}
+				if mType == "INFERENCE_CHUNK" {
+					if ch, ok := resData["chunk"].(string); ok {
+						fullOutput.WriteString(ch)
+					}
+				}
+				if mType == "INFERENCE_RESPONSE" || resData["done"] == true {
+					if out, ok := resData["output"].(string); ok && out != "" {
+						fullOutput.Reset()
+						fullOutput.WriteString(out)
+					}
+					if m, ok := resData["model"].(string); ok {
+						finalModel = m
+					}
+					finished = true
+				}
+			case <-timeout:
+				w.WriteHeader(http.StatusGatewayTimeout)
 				_ = json.NewEncoder(w).Encode(map[string]interface{}{
 					"success": false,
-					"message": errMsg,
+					"message": "Quá thời gian chờ (120s) phản hồi từ Desktop Worker.",
 				})
 				return
+			case <-r.Context().Done():
+				return
 			}
-			w.WriteHeader(http.StatusOK)
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{
-				"success":      true,
-				"requestId":    requestID,
-				"nodeId":       targetNodeID,
-				"model":        resData["model"],
-				"output":       output,
-				"relayedViaWs": true,
-			})
-		case <-time.After(35 * time.Second):
-			w.WriteHeader(http.StatusGatewayTimeout)
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"message": "Quá thời gian chờ (35s) phản hồi từ Desktop Worker.",
-			})
 		}
+
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":      true,
+			"requestId":    requestID,
+			"nodeId":       targetNodeID,
+			"model":        finalModel,
+			"output":       fullOutput.String(),
+			"relayedViaWs": true,
+		})
 	}
 }
 

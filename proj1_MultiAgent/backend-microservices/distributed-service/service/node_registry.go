@@ -36,7 +36,7 @@ func NewNodeRegistry(pg *storage.PostgresStorage, rdb *storage.RedisStorage) *No
 		if err == nil && len(dbNodes) > 0 {
 			loaded := 0
 			for _, n := range dbNodes {
-				if n.ID == "node-hanoi-cluster" || n.ID == "node-saigon-worker" {
+				if n.ID == "node-hanoi-cluster" || n.ID == "node-saigon-worker" || strings.HasPrefix(n.ID, "node_seller_") {
 					continue
 				}
 				n.Status = "OFFLINE"
@@ -154,7 +154,7 @@ func (nr *NodeRegistry) GetAllNodes() []*models.PartnerNode {
 
 	list := make([]*models.PartnerNode, 0, len(nr.nodes))
 	for _, n := range nr.nodes {
-		if n.ID == "node-hanoi-cluster" || n.ID == "node-saigon-worker" {
+		if n.ID == "node-hanoi-cluster" || n.ID == "node-saigon-worker" || strings.HasPrefix(n.ID, "node_seller_") {
 			continue
 		}
 		nr.refreshNodeLivenessLocked(n)

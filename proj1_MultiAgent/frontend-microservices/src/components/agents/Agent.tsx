@@ -40,7 +40,7 @@ type Props = {
     deskPosition?: [number, number, number]
     color?: string
     name?: string
-    status?: 'idle' | 'working' | 'meeting' | 'blocked' | 'thinking' | 'speaking'
+    status?: 'idle' | 'working' | 'meeting' | 'blocked' | 'thinking' | 'speaking' | 'error' | string
     speech?: string | null
     waypoints?: [number, number, number][]
     speed?: number
@@ -438,7 +438,7 @@ export default function Agent({
                         }`}
                 >
                     {speech && <AgentSpeechBubble text={speech} />}
-                    <AgentNameTag name={name} status={status} ownerName={ownerName} />
+                    <AgentNameTag name={name} status={status as any} ownerName={ownerName} />
                 </div>
             </Html>
         </RigidBody>

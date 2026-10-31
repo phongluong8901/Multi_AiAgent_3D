@@ -213,14 +213,18 @@ export default function ModelsManagementPage() {
         setRunningRentedInference(rId)
         setRentedTestOutput('')
         try {
-            const res = await ownerApi.runInference({
-                rentalId: rId,
-                rentalSessionId: rId,
-                prompt: rentedTestPrompt,
-            })
+            const res = await ownerApi.runInferenceStream(
+                {
+                    rentalId: rId,
+                    rentalSessionId: rId,
+                    prompt: rentedTestPrompt,
+                },
+                (chunk) => {
+                    setRentedTestOutput((prev) => prev + chunk)
+                }
+            )
             if (res.success) {
-                setRentedTestOutput(res.output)
-                toast.success(`Nhận phản hồi từ ${res.nodeName || rental.nodeName} (${res.latencyMs}ms)`)
+                toast.success(`Hoàn tất nhận stream từ ${res.nodeName || rental.nodeName} (${res.latencyMs}ms)`)
                 await loadRentalsAndAgents()
             }
         } catch (err: any) {

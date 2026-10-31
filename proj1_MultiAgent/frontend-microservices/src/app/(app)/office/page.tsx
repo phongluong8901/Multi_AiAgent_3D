@@ -254,8 +254,9 @@ export default function OfficePage() {
                 text,
                 'office',
                 (event) => {
-                    if (event.event === 'status' || event.event === 'thinking') {
-                        const thinkMsg = event.content || event.thought || 'Đang phân tích yêu cầu...'
+                    const eventType = (event as any).event || event.type
+                    if (eventType === 'status' || eventType === 'thinking') {
+                        const thinkMsg = event.content || (event as any).thought || event.message || 'Đang phân tích yêu cầu...'
                         setMessages((prev) =>
                             prev.map((m) =>
                                 m.id === botMsgId
@@ -270,7 +271,7 @@ export default function OfficePage() {
                                     : a
                             )
                         )
-                    } else if (event.event === 'tool_start') {
+                    } else if (eventType === 'tool_start') {
                         const toolName = event.tool || 'công cụ phụ trợ'
                         setMessages((prev) =>
                             prev.map((m) =>
@@ -286,7 +287,7 @@ export default function OfficePage() {
                                     : a
                             )
                         )
-                    } else if (event.event === 'tool_end') {
+                    } else if (eventType === 'tool_end') {
                         setMessages((prev) =>
                             prev.map((m) =>
                                 m.id === botMsgId
@@ -294,7 +295,7 @@ export default function OfficePage() {
                                     : m
                             )
                         )
-                    } else if (event.event === 'token') {
+                    } else if (eventType === 'token') {
                         accumulatedContent += (event.content || '')
                         setMessages((prev) =>
                             prev.map((m) =>
@@ -303,8 +304,8 @@ export default function OfficePage() {
                                     : m
                             )
                         )
-                    } else if (event.event === 'done') {
-                        const finalContent = event.content || accumulatedContent
+                    } else if (eventType === 'done') {
+                        const finalContent = event.answer || event.content || accumulatedContent
                         setMessages((prev) =>
                             prev.map((m) =>
                                 m.id === botMsgId
@@ -335,8 +336,8 @@ export default function OfficePage() {
                                 prev.map((a) => (a.id === target.id ? { ...a, status: 'idle' } : a))
                             )
                         }, 6000)
-                    } else if (event.event === 'error') {
-                        const errorMsg = event.error || event.content || 'Đã xảy ra sự cố trong quá trình phản hồi.'
+                    } else if (eventType === 'error') {
+                        const errorMsg = (event as any).error || event.content || event.message || 'Đã xảy ra sự cố trong quá trình phản hồi.'
                         setMessages((prev) =>
                             prev.map((m) =>
                                 m.id === botMsgId

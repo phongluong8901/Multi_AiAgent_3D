@@ -279,15 +279,15 @@ export default function UserModelsPage() {
             <div className="border-b border-border pb-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
                     <div className="flex items-center gap-2">
-                        <IconGlobe className="w-5 h-5 text-blue-400" />
-                        <h1 className="text-base font-bold text-white">
+                        <IconGlobe className="w-5 h-5 text-blue-500 dark:text-blue-400" />
+                        <h1 className="text-base font-bold text-foreground">
                             Mạng Lưới Đối Tác Mô Hình & Cụm Tính Toán 3D
                         </h1>
                         <span
                             className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
                                 wsConnected
-                                    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                                    : 'bg-zinc-800 text-zinc-400 border-border'
+                                    ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20'
+                                    : 'bg-secondary text-muted-foreground border-border'
                             }`}
                         >
                             {wsConnected ? 'WebSocket Real-time' : 'Đang kết nối WS...'}
@@ -486,10 +486,10 @@ export default function UserModelsPage() {
                 </div>
 
                 {/* KHUNG HIỂN THỊ CHÍNH (TOPO 3D / ĐỊA CẦU 3D / BẢN ĐỒ 2D) */}
-                <div className="w-full min-h-[480px] rounded-xl overflow-hidden bg-zinc-950 border border-border relative">
+                <div className="w-full min-h-[520px] rounded-xl overflow-hidden bg-card border border-border relative">
                     {/* CHẾ ĐỘ 1: TOPO 3D CHIỀU SÂU */}
                     {viewMode === 'topology' && (
-                        <div className="w-full h-[480px]">
+                        <div className="w-full h-[520px]">
                             <ClusterTopology3DView
                                 nodes={cluster3DNodes}
                                 activeModelFilter={selectedModelFilter}
@@ -502,7 +502,7 @@ export default function UserModelsPage() {
 
                     {/* CHẾ ĐỘ 2: ĐỊA CẦU 3D */}
                     {viewMode === 'globe' && (
-                        <div className="w-full h-[480px]">
+                        <div className="w-full h-[520px]">
                             <Globe3DView
                                 nodes={displayGeoNodes}
                                 links={effectiveGeoLinks}
@@ -514,7 +514,7 @@ export default function UserModelsPage() {
 
                     {/* CHẾ ĐỘ 3: BẢN ĐỒ 2D */}
                     {viewMode === 'map2d' && (
-                        <div className="w-full h-[480px]">
+                        <div className="w-full h-[520px]">
                             <WorldMap2DView
                                 nodes={displayGeoNodes}
                                 links={effectiveGeoLinks}
@@ -526,7 +526,7 @@ export default function UserModelsPage() {
                 </div>
 
                 {/* 4. THANH TRẠNG THÁI LIÊN KẾT ĐANG KẾT NỐI */}
-                <div className="p-3.5 rounded-xl bg-zinc-950/80 border border-border text-xs space-y-2">
+                <div className="p-3.5 rounded-xl bg-card/80 border border-border text-xs space-y-2">
                     <div className="flex items-center justify-between text-[11px] text-zinc-400 font-semibold border-b border-border/80 pb-1.5">
                         <span className="flex items-center gap-1.5 text-cyan-400">
                             <IconLink className="w-3.5 h-3.5" />

@@ -60,10 +60,10 @@ export default function Sidebar() {
 
                                 {expanded && item.badge && (
                                     <span className={`px-1.5 py-0.5 text-[9px] font-bold rounded-md border ${item.badge === 'Admin'
-                                            ? 'bg-red-500/20 text-red-300 border-red-400/30'
+                                            ? 'bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/30'
                                             : item.badge === 'Shop'
-                                            ? 'bg-amber-500/20 text-amber-300 border-amber-400/30'
-                                            : 'bg-blue-500/20 text-blue-300 border-blue-400/30'
+                                            ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30'
+                                            : 'bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/30'
                                         }`}>
                                         {item.badge}
                                     </span>

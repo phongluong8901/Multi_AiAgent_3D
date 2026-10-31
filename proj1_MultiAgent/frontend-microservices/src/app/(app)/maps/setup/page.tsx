@@ -44,7 +44,7 @@ import { coinsApi, UserWallet } from '@/lib/api/coins'
 import PlanTasksModal from '@/components/coins/PlanTasksModal'
 import { useConfirm } from '@/context/ConfirmContext'
 
-function renderCatalogIcon(type: PlaceableItemType) {
+function renderCatalogIcon(type: PlaceableItemType | string) {
     switch (type) {
         case 'building':
             return <IconBuilding className="w-5 h-5 text-blue-400" />

@@ -163,6 +163,106 @@ export const ownerApi = {
         })
     },
 
+    // 6b. THỰC THI AI STREAMING: Ghép kênh SSE trực tiếp từ Worker lên UI
+    runInferenceStream: async (
+        payload: {
+            rentalId?: string
+            rentalSessionId?: string
+            agentId?: string
+            prompt: string
+            systemPrompt?: string
+            temperature?: number
+            maxTokens?: number
+        },
+        onChunk: (chunk: string) => void
+    ): Promise<{
+        success: boolean
+        output: string
+        tokens: number
+        latencyMs: number
+        coinsBilled: number
+        nodeName?: string
+        modelName?: string
+    }> => {
+        const rentalSessionId = payload.rentalSessionId || payload.rentalId || ''
+        const gatewayUrl = process.env.NEXT_PUBLIC_GATEWAY_URL || 'http://localhost:4000'
+        const startTime = Date.now()
+
+        const res = await fetch(`${gatewayUrl}/api/v1/owner/agents/inference`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Accept: 'text/event-stream',
+            },
+            body: JSON.stringify({
+                ...payload,
+                rentalId: rentalSessionId,
+                rentalSessionId,
+                stream: true,
+            }),
+        })
+
+        if (!res.ok) {
+            const errJson = await res.json().catch(() => ({ message: res.statusText }))
+            throw new Error(errJson.message || `Lỗi kết nối (${res.status})`)
+        }
+
+        const reader = res.body?.getReader()
+        if (!reader) {
+            throw new Error('Trình duyệt không hỗ trợ đọc stream phản hồi')
+        }
+
+        const decoder = new TextDecoder('utf-8')
+        let fullOutput = ''
+        let nodeName = ''
+        let modelName = ''
+
+        while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
+            const text = decoder.decode(value, { stream: true })
+            const lines = text.split('\n')
+            for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                    try {
+                        const json = JSON.parse(line.slice(6))
+                        if (json.error) {
+                            throw new Error(json.error)
+                        }
+                        if (json.chunk) {
+                            fullOutput += json.chunk
+                            onChunk(json.chunk)
+                        }
+                        if (json.output && !fullOutput) {
+                            fullOutput = json.output
+                            onChunk(json.output)
+                        }
+                        if (json.model) modelName = json.model
+                        if (json.nodeName) nodeName = json.nodeName
+                    } catch (parseErr: any) {
+                        if (parseErr.message && !parseErr.message.includes('Unexpected token')) {
+                            throw parseErr
+                        }
+                    }
+                }
+            }
+        }
+
+        const latencyMs = Date.now() - startTime
+        const tokens = Math.max(1, Math.round(fullOutput.length / 3.8))
+        const coinsBilled = Number(Math.max(0.01, (tokens / 1000) * 0.5).toFixed(4))
+
+        return {
+            success: true,
+            output: fullOutput,
+            tokens,
+            latencyMs,
+            coinsBilled,
+            nodeName,
+            modelName,
+        }
+    },
+
     // 7. Lấy dashboard tổng quan của Owner
     getOwnerDashboard: async (renterId?: string) => {
         const query = renterId

@@ -219,24 +219,43 @@ export default function OwnerAgentRentalPage() {
         }
 
         setInferencing(true)
-        setInferenceOutput(null)
+        setInferenceOutput({
+            output: '',
+            tokens: 0,
+            latencyMs: 0,
+            coinsBilled: 0,
+            nodeName: 'Đang kết nối P2P...',
+            modelName: 'Local AI',
+        })
         try {
-            const res = await ownerApi.runInference({
-                rentalId: effectiveRentalId,
-                rentalSessionId: effectiveRentalId,
-                prompt: promptText,
-                systemPrompt,
-            })
+            const res = await ownerApi.runInferenceStream(
+                {
+                    rentalId: effectiveRentalId,
+                    rentalSessionId: effectiveRentalId,
+                    prompt: promptText,
+                    systemPrompt,
+                },
+                (chunk) => {
+                    setInferenceOutput((prev) => ({
+                        output: (prev?.output || '') + chunk,
+                        tokens: Math.max(1, Math.round(((prev?.output || '').length + chunk.length) / 3.8)),
+                        latencyMs: prev?.latencyMs || 0,
+                        coinsBilled: prev?.coinsBilled || 0,
+                        nodeName: prev?.nodeName || 'Seller Workstation',
+                        modelName: prev?.modelName || 'Local AI',
+                    }))
+                }
+            )
             if (res.success) {
                 setInferenceOutput({
                     output: res.output,
                     tokens: res.tokens,
                     latencyMs: res.latencyMs,
                     coinsBilled: res.coinsBilled,
-                    nodeName: res.nodeName || res.rentalSession?.nodeName || 'Seller Node',
-                    modelName: res.modelName || res.rentalSession?.modelName || 'Local AI',
+                    nodeName: res.nodeName || 'Seller Node',
+                    modelName: res.modelName || 'Local AI',
                 })
-                notify.success('Nhận phản hồi từ Local Model thành công.')
+                notify.success(`Hoàn tất nhận stream từ Local Model (${res.latencyMs}ms).`)
                 await loadData()
             }
         } catch (err: any) {

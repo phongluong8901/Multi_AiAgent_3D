@@ -232,11 +232,18 @@ function stopPythonWorker() {
 }
 
 function createWindow() {
-  const iconPath = path.join(__dirname, 'icon.png');
+  const iconCandidates = [
+    path.join(__dirname, 'icon.png'),
+    path.join(__dirname, 'frontend/public/icon.png'),
+    path.join(process.resourcesPath, 'icon.png'),
+    path.join(app.getAppPath(), 'icon.png'),
+  ];
+  const iconPath = iconCandidates.find((p) => fs.existsSync(p));
   mainWindow = new BrowserWindow({
+    title: 'Hardware Worker Monitor',
     width: 980,
     height: 680,
-    icon: fs.existsSync(iconPath) ? iconPath : undefined,
+    icon: iconPath || undefined,
     frame: false, // Tắt khung viền mặc định để dùng Custom Title Bar
     backgroundColor: '#0e0e0e',
     webPreferences: {

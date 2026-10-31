@@ -19,6 +19,24 @@ export const connectDB = async (maxRetries = 10, delay = 2000): Promise<void> =>
                     if (!names.includes("rental_sessions")) {
                         await db.createCollection("rental_sessions");
                         logger.info("Initialized collection 'rental_sessions' in owner_db");
+                    } else {
+                        // Tự động dọn dẹp các session thuê mẫu ảo cũ
+                        const dummyNodeIds = [
+                            "node_seller_qwen_01",
+                            "node_seller_deepseek_02",
+                            "node_seller_llama_03",
+                            "node-hanoi-cluster",
+                            "node-saigon-worker",
+                        ];
+                        const cleanRes = await db.collection("rental_sessions").deleteMany({
+                            $or: [
+                                { sessionId: "rent_sess_init_01" },
+                                { nodeId: { $in: dummyNodeIds } },
+                            ],
+                        });
+                        if (cleanRes.deletedCount > 0) {
+                            logger.info(`Cleaned up ${cleanRes.deletedCount} legacy dummy rental session(s).`);
+                        }
                     }
                 }
             } catch (initErr: any) {

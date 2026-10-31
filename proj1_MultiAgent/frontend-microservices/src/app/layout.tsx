@@ -29,6 +29,13 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       suppressHydrationWarning
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var t=localStorage.getItem('app-theme')||'dark';var r=document.documentElement;if(t==='system'){t=window.matchMedia('(prefers-color-scheme: light)').matches?'light':'dark';}r.classList.remove('dark','light','theme-cyberpunk');if(t==='dark'){r.classList.add('dark');r.style.colorScheme='dark';}else if(t==='cyberpunk'){r.classList.add('dark','theme-cyberpunk');r.style.colorScheme='dark';}else{r.classList.add('light');r.style.colorScheme='light';}}catch(e){}})();`,
+          }}
+        />
+      </head>
       <body className="min-h-full flex flex-col" suppressHydrationWarning>
         <GoogleOAuthProvider clientId={process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || ""}>
           <LanguageProvider>
@@ -37,15 +44,14 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
                 {children}
               </ConfirmProvider>
               <Toaster
-                theme="dark"
                 position="top-right"
                 richColors
                 closeButton
                 toastOptions={{
                   classNames: {
-                    toast: "bg-zinc-900 border border-zinc-700 text-white",
-                    title: "text-white",
-                    description: "text-zinc-400",
+                    toast: "bg-card border border-border text-foreground shadow-xl",
+                    title: "text-foreground font-semibold",
+                    description: "text-muted-foreground",
                   },
                 }}
               />

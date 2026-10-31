@@ -16,9 +16,8 @@ export interface AgentInferenceParams {
 }
 
 export class AgentInferenceService {
-    async runInferenceForAgent(params: AgentInferenceParams) {
-        const { rentalSessionId, agentId, prompt, systemPrompt, temperature, maxTokens } = params;
-
+    async resolveSession(params: AgentInferenceParams): Promise<any> {
+        const { rentalSessionId, agentId } = params;
         let session: any = null;
 
         // 1. Kiểm tra xem người dùng đang chọn phiên đã thuê hay đang test thử trực tiếp node trên sàn
@@ -113,6 +112,115 @@ export class AgentInferenceService {
             };
         }
 
+        return session;
+    }
+
+    async streamInferenceForAgent(params: AgentInferenceParams, res: any) {
+        const { prompt, systemPrompt, temperature, maxTokens } = params;
+        const session = await this.resolveSession(params);
+
+        res.setHeader("Content-Type", "text/event-stream");
+        res.setHeader("Cache-Control", "no-cache");
+        res.setHeader("Connection", "keep-alive");
+        res.setHeader("X-Accel-Buffering", "no");
+
+        const distUrls = [
+            process.env.DISTRIBUTED_SERVICE_URL || "http://distributed-service:5010",
+            "http://localhost:5010",
+            "http://127.0.0.1:5010",
+            "http://gateway-service:4000",
+            "http://localhost:4000",
+        ];
+
+        let upstreamRes: any = null;
+        for (const dUrl of distUrls) {
+            try {
+                const upstream = await fetch(`${dUrl}/api/v1/distributed/inference`, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        Accept: "text/event-stream",
+                    },
+                    body: JSON.stringify({
+                        nodeId: session?.nodeId || "",
+                        model: session?.modelKey || "qwen2.5-coder:1.5b",
+                        prompt,
+                        systemPrompt: systemPrompt || "Bạn là AI Agent thực thi chuyên nghiệp",
+                        temperature: temperature || 0.7,
+                        maxTokens: maxTokens || 1024,
+                        stream: true,
+                    }),
+                    signal: AbortSignal.timeout(120000),
+                });
+                if (upstream.ok && upstream.body) {
+                    upstreamRes = upstream;
+                    break;
+                }
+            } catch {
+                // Tiếp tục thử URL tiếp theo
+            }
+        }
+
+        if (!upstreamRes || !upstreamRes.body) {
+            const errPayload = JSON.stringify({
+                error: `Không thể kết nối P2P Relay tới máy trạm "${session?.nodeName || session?.nodeId}". Vui lòng đảm bảo Worker đang chạy.`,
+                done: true,
+                success: false,
+            });
+            res.write(`data: ${errPayload}\n\n`);
+            res.end();
+            return;
+        }
+
+        let fullOutput = "";
+        const reader = upstreamRes.body.getReader();
+        const decoder = new TextDecoder("utf-8");
+
+        try {
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                const chunkStr = decoder.decode(value, { stream: true });
+                res.write(chunkStr);
+
+                const lines = chunkStr.split("\n");
+                for (const line of lines) {
+                    if (line.startsWith("data: ")) {
+                        try {
+                            const data = JSON.parse(line.slice(6));
+                            if (data.chunk) fullOutput += data.chunk;
+                            if (data.output && !fullOutput) fullOutput = data.output;
+                        } catch {
+                            // Bỏ qua dòng json chưa hoàn chỉnh
+                        }
+                    }
+                }
+            }
+        } catch (err: any) {
+            res.write(`data: ${JSON.stringify({ error: err.message, done: true })}\n\n`);
+        } finally {
+            res.end();
+        }
+
+        // Cập nhật thống kê và khấu trừ coins sau khi stream hoàn tất
+        if (fullOutput) {
+            const tokens = Math.max(1, Math.round(fullOutput.length / 3.8));
+            const coinsBilled = Number(Math.max(0.01, (tokens / 1000) * (session?.coinsPer1kTokens || 0.5)).toFixed(4));
+
+            if (!session.isTestOnly && session.sessionId) {
+                try {
+                    await rentalSessionRepository.incrementUsage(session.sessionId, tokens, coinsBilled);
+                } catch {
+                    // Ignore
+                }
+            }
+        }
+    }
+
+    async runInferenceForAgent(params: AgentInferenceParams) {
+        const { prompt, systemPrompt, temperature, maxTokens, agentId } = params;
+        const session = await this.resolveSession(params);
+
         // Chuyển tiếp yêu cầu suy luận sang seller-service (thử cả Docker DNS, localhost và Gateway)
         let sellerResult: any = null;
         let lastErr: any = null;
@@ -138,7 +246,7 @@ export class AgentInferenceService {
                         temperature,
                         maxTokens,
                     }),
-                    signal: AbortSignal.timeout(20000),
+                    signal: AbortSignal.timeout(120000),
                 });
 
                 if (res.ok) {
@@ -176,7 +284,7 @@ export class AgentInferenceService {
                             temperature: temperature || 0.7,
                             maxTokens: maxTokens || 1024,
                         }),
-                        signal: AbortSignal.timeout(45000),
+                        signal: AbortSignal.timeout(120000),
                     });
 
                     if (dRes.ok) {
@@ -191,9 +299,50 @@ export class AgentInferenceService {
                             logger.info(`[INFERENCE] Đã thực thi inference trực tiếp qua Distributed Service P2P Relay (${dUrl})`);
                             break;
                         }
+                    } else {
+                        const dErr: any = await dRes.json().catch(() => ({}));
+                        if (dErr?.message) {
+                            lastErr = new Error(dErr.message);
+                        }
                     }
                 } catch {
                     // Ignore
+                }
+            }
+
+            // Fallback: nếu nodeId chỉ định không khớp worker nào, định tuyến tự động tới worker đang online bất kỳ
+            if (!sellerResult || !sellerResult.output) {
+                for (const dUrl of distUrls) {
+                    try {
+                        const anyRes = await fetch(`${dUrl}/api/v1/distributed/inference`, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                                nodeId: "",
+                                model: session.modelKey || "qwen2.5-coder:1.5b",
+                                prompt,
+                                systemPrompt: systemPrompt || "Bạn là AI Agent thực thi chuyên nghiệp",
+                                temperature: temperature || 0.7,
+                                maxTokens: maxTokens || 1024,
+                            }),
+                            signal: AbortSignal.timeout(120000),
+                        });
+                        if (anyRes.ok) {
+                            const anyData: any = await anyRes.json();
+                            if (anyData?.output) {
+                                sellerResult = {
+                                    output: anyData.output,
+                                    tokens: Math.max(1, Math.round(anyData.output.length / 3.8)),
+                                    latencyMs: 1400,
+                                    coinsBilled: 0.1,
+                                };
+                                logger.info(`[INFERENCE] Đã thực thi inference qua worker đang hoạt động (${dUrl})`);
+                                break;
+                            }
+                        }
+                    } catch {
+                        // Ignore
+                    }
                 }
             }
         }

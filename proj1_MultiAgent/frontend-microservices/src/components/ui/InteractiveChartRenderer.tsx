@@ -321,9 +321,10 @@ export default function InteractiveChartRenderer({ config }: InteractiveChartRen
                     </div>
 
                     {summary && (
-                        <p className="w-full text-[11px] leading-relaxed text-amber-300/90 font-medium bg-amber-500/10 border border-amber-500/20 rounded-lg p-2">
-                            💡 <span className="font-bold">Đánh giá nhanh:</span> {summary}
-                        </p>
+                        <div className="w-full text-[11px] leading-relaxed text-amber-600 dark:text-amber-300 font-medium bg-amber-500/10 border border-amber-500/20 rounded-lg p-2 flex items-center gap-1.5">
+                            <Lightbulb className="w-3.5 h-3.5 text-amber-500 dark:text-amber-400 shrink-0" />
+                            <span><strong className="font-bold">Đánh giá nhanh:</strong> {summary}</span>
+                        </div>
                     )}
                 </div>
             </div>

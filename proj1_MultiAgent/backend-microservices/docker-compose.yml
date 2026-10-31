@@ -156,6 +156,8 @@ services:
       - RABBITMQ_URL=amqp://admin:admin123@rabbitmq:5672
       - REDIS_URL=redis://redis:6379/0
       - SANDBOX_SERVICE_URL=http://python-sandbox:5008
+      - DISTRIBUTED_SERVICE_URL=http://distributed-service:5010
+      - OWER_SERVICE_URL=http://ower-service:5012
     ports:
       - "8000:8000"
     depends_on:
@@ -317,6 +319,11 @@ services:
     container_name: ower_service
     env_file:
       - ./ower-service/.env
+    environment:
+      - SELLER_SERVICE_URL=http://seller-service:5011
+      - DISTRIBUTED_SERVICE_URL=http://distributed-service:5010
+      - SAVECOIN_SERVICE_URL=http://savecoin-service:5006
+      - AGENT_SERVICE_URL=http://agent-service:8000
     ports:
       - "5012:5012"
     depends_on:

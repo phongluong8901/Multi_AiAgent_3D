@@ -20,6 +20,21 @@ export const connectDB = async (maxRetries = 10, delay = 2000): Promise<void> =>
                     if (!names.includes("seller_nodes")) {
                         await db.createCollection("seller_nodes");
                         logger.info("Initialized collection 'seller_nodes' in seller_db");
+                    } else {
+                        // Tự động dọn dẹp các node seed mẫu cũ để chỉ hiển thị máy thực tế
+                        const dummyNodeIds = [
+                            "node_seller_qwen_01",
+                            "node_seller_deepseek_02",
+                            "node_seller_llama_03",
+                            "node-hanoi-cluster",
+                            "node-saigon-worker",
+                        ];
+                        const cleanRes = await db.collection("seller_nodes").deleteMany({
+                            nodeId: { $in: dummyNodeIds },
+                        });
+                        if (cleanRes.deletedCount > 0) {
+                            logger.info(`Cleaned up ${cleanRes.deletedCount} legacy dummy seller node(s).`);
+                        }
                     }
                 }
             } catch (initErr: any) {
