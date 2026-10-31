@@ -133,8 +133,7 @@ export default function NodeCheckerPage() {
     // Node chỉ được coi là Đang Trực Tuyến khi Electron Worker thực sự đang kết nối và truyền Telemetry
     const isDesktopConnected =
         targetNode !== null &&
-        (targetNode.status === 'IDLE' || targetNode.status === 'BUSY') &&
-        Boolean(targetNode.lastTelemetry)
+        (targetNode.status === 'IDLE' || targetNode.status === 'BUSY')
 
     const isRegisteredWaitingOrPaused = targetNode !== null && !isDesktopConnected
 

@@ -57,28 +57,43 @@ export function useWorkerNetwork(currentUser?: { id?: string; name?: string; ema
             const rawNodes: PartnerNodeData[] = distRes?.nodes || []
             const nowMs = Date.now()
 
-            const normalized: LiveWorkerNode[] = rawNodes
-                .filter((n) => n.id !== 'node-hanoi-cluster' && n.id !== 'node-saigon-worker')
-                .map((n) => {
-                    // Kiểm tra xem node có thực sự vừa gửi telemetry từ Electron Worker trong 15 giây qua không
-                    const lastTs = n.lastTelemetry?.timestamp ? new Date(n.lastTelemetry.timestamp).getTime() : 0
-                    const isFreshWorker = lastTs > 0 && nowMs - lastTs <= 20000
-                    const effectiveStatus =
-                        isFreshWorker && (n.status === 'IDLE' || n.status === 'BUSY') ? n.status : 'OFFLINE'
+            setAllNodes((prev) => {
+                const map = new Map<string, LiveWorkerNode>()
+                prev.forEach((n) => map.set(n.id, n))
 
-                    return {
-                        ...n,
-                        status: effectiveStatus,
-                        location: DEFAULT_LOCATION,
-                        bandwidthMbps: 1200,
-                        latencyMs: rtt,
-                    }
-                })
+                rawNodes
+                    .filter((n) => n.id !== 'node-hanoi-cluster' && n.id !== 'node-saigon-worker')
+                    .forEach((n) => {
+                        const existing = map.get(n.id)
+                        const lastTs = n.lastTelemetry?.timestamp
+                            ? new Date(n.lastTelemetry.timestamp).getTime()
+                            : existing?.lastTelemetry?.timestamp
+                            ? new Date(existing.lastTelemetry.timestamp).getTime()
+                            : 0
+                        const isFreshWorker = lastTs > 0 && nowMs - lastTs <= 30000
+                        const effectiveStatus =
+                            isFreshWorker && (n.status === 'IDLE' || n.status === 'BUSY')
+                                ? n.status
+                                : existing && (existing.status === 'IDLE' || existing.status === 'BUSY')
+                                ? existing.status
+                                : 'OFFLINE'
 
-            setAllNodes(normalized)
-            if (normalized.some((n) => n.status === 'IDLE' || n.status === 'BUSY')) {
-                setPingLatency(rtt)
-            }
+                        map.set(n.id, {
+                            ...(existing || {}),
+                            ...n,
+                            status: effectiveStatus,
+                            location: DEFAULT_LOCATION,
+                            bandwidthMbps: 1200,
+                            latencyMs: rtt,
+                        })
+                    })
+
+                const result = Array.from(map.values())
+                if (result.some((n) => n.status === 'IDLE' || n.status === 'BUSY')) {
+                    setPingLatency(rtt)
+                }
+                return result
+            })
         } catch (err) {
             console.error('Lỗi đồng bộ danh sách Worker Node:', err)
         } finally {
@@ -118,26 +133,43 @@ export function useWorkerNetwork(currentUser?: { id?: string; name?: string; ema
                     try {
                         const msg = JSON.parse(event.data)
 
-                        // 1. Snapshot gửi xuống ngay khi mở WebSocket
+                        // 1. Snapshot gửi xuống ngay khi mở WebSocket (hợp nhất với dữ liệu đang live, không hạ cấp đột ngột sang OFFLINE)
                         if (msg.type === 'ACTIVE_WORKERS_SNAPSHOT' && Array.isArray(msg.nodes)) {
                             const nowMs = Date.now()
-                            setAllNodes(
+                            setAllNodes((prev) => {
+                                const map = new Map<string, LiveWorkerNode>()
+                                prev.forEach((n) => map.set(n.id, n))
+
                                 msg.nodes
                                     .filter((n: PartnerNodeData) => n.id !== 'node-hanoi-cluster' && n.id !== 'node-saigon-worker')
-                                    .map((n: PartnerNodeData) => {
+                                    .forEach((n: PartnerNodeData) => {
+                                        const existing = map.get(n.id)
                                         const lastTs = n.lastTelemetry?.timestamp
                                             ? new Date(n.lastTelemetry.timestamp).getTime()
+                                            : existing?.lastTelemetry?.timestamp
+                                            ? new Date(existing.lastTelemetry.timestamp).getTime()
                                             : 0
                                         const isFresh = lastTs > 0 && nowMs - lastTs <= 30000
-                                        return {
+                                        const status = isFresh && (n.status === 'IDLE' || n.status === 'BUSY')
+                                            ? n.status
+                                            : existing && (existing.status === 'IDLE' || existing.status === 'BUSY')
+                                            ? existing.status
+                                            : 'OFFLINE'
+
+                                        map.set(n.id, {
+                                            ...(existing || {}),
                                             ...n,
-                                            status: isFresh && (n.status === 'IDLE' || n.status === 'BUSY') ? n.status : 'OFFLINE',
+                                            nodeName: n.nodeName || existing?.nodeName,
+                                            username: n.username || existing?.username,
+                                            status,
                                             location: DEFAULT_LOCATION,
                                             bandwidthMbps: 1200,
                                             latencyMs: 8,
-                                        }
+                                        })
                                     })
-                            )
+
+                                return Array.from(map.values())
+                            })
                             return
                         }
 

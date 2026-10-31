@@ -12,7 +12,7 @@ import productRouter from "./routes/product-proxy.routes";
 import mapRouter from "./routes/map-proxy.routes";
 import coinRouter from "./routes/coin-proxy.routes";
 import rlRouter from "./routes/rl-proxy.routes";
-import distributedRouter from "./routes/distributed-proxy.routes";
+import distributedRouter, { distributedProxy } from "./routes/distributed-proxy.routes";
 import sellerRouter from "./routes/seller-proxy.routes";
 import ownerRouter from "./routes/owner-proxy.routes";
 import firmwareRouter from "./routes/firmware-proxy.routes";
@@ -34,6 +34,16 @@ import http from "http";
 const app = express();
 const server = http.createServer(app);
 const PORT = process.env.PORT || 4000;
+
+// Chuyển tiếp kết nối WebSocket nâng cấp (Upgrade) qua Gateway xuống Distributed Service
+server.on("upgrade", (req, socket, head) => {
+    const url = req.url || "";
+    if (url.startsWith("/api/v1/distributed") || url.startsWith("/api/v1/api/v1/distributed")) {
+        if (typeof (distributedProxy as any).upgrade === "function") {
+            (distributedProxy as any).upgrade(req, socket, head);
+        }
+    }
+});
 
 // Middleware chung
 app.use(

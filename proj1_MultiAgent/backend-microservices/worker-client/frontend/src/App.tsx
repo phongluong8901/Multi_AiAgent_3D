@@ -178,7 +178,7 @@ export default function App() {
     let timer: any = null;
     let isMounted = true;
 
-    const urls = [
+    const baseUrls = [
       config.serverWsUrl || 'ws://localhost:4000/api/v1/distributed/ws',
       'ws://localhost:5010/api/v1/distributed/ws',
     ];
@@ -186,7 +186,9 @@ export default function App() {
 
     const connect = () => {
       if (!isMounted) return;
-      const targetUrl = urls[urlIndex];
+      const rawUrl = baseUrls[urlIndex];
+      const sep = rawUrl.includes('?') ? '&' : '?';
+      const targetUrl = `${rawUrl}${sep}nodeId=web_listener_electron`;
       setWsStatus(`Connecting...`);
 
       try {
@@ -196,7 +198,7 @@ export default function App() {
         ws.onopen = () => {
           if (!isMounted) return;
           setWsStatus('Connected');
-          addLog(`[ONLINE] Kết nối thành công tới ${targetUrl}!`);
+          addLog(`[ONLINE] Kết nối thành công tới ${rawUrl}!`);
         };
 
         ws.onmessage = (event: MessageEvent) => {
@@ -215,7 +217,7 @@ export default function App() {
           if (!isMounted) return;
           setWsStatus('Disconnected');
           wsRef.current = null;
-          urlIndex = (urlIndex + 1) % urls.length;
+          urlIndex = (urlIndex + 1) % baseUrls.length;
           timer = setTimeout(connect, 3000);
         };
 
