@@ -36,31 +36,24 @@ func main() {
 	log.Printf("📦 Đường dẫn Client App: %s\n", cfg.ClientAppPath)
 	log.Println("==================================================")
 
-	// Khởi tạo Storage: Neon PostgreSQL và Redis
+	// Khởi tạo Storage: Neon PostgreSQL (Lưu trữ cấu hình Node vĩnh viễn, fallback in-memory)
 	pgStorage, err := storage.NewPostgresStorage(cfg.DatabaseURL)
 	if err != nil {
-		log.Printf("[CẢNH BÁO] Không thể kết nối Neon PostgreSQL (%v), chuyển sang chế độ in-memory fallback.\n", err)
+		log.Printf("[INFO] Không thể kết nối Neon PostgreSQL (%v), chuyển sang chế độ in-memory hoàn toàn.\n", err)
 	} else {
 		defer pgStorage.Close()
 	}
 
-	redisStorage, err := storage.NewRedisStorage(cfg.RedisURL)
-	if err != nil {
-		log.Printf("[CẢNH BÁO] Không thể kết nối Redis (%v), chuyển sang chế độ local in-memory fallback.\n", err)
-	} else {
-		defer redisStorage.Close()
-	}
-
-	// Khởi tạo các dịch vụ nghiệp vụ (Core Services)
+	// Khởi tạo các dịch vụ nghiệp vụ (Core Services) - Chế độ In-Memory Native Direct WebSocket Routing
 	benchmarkEngine := service.NewBenchmarkEngine()
-	nodeRegistry := service.NewNodeRegistry(pgStorage, redisStorage)
+	nodeRegistry := service.NewNodeRegistry(pgStorage)
 	appDistributor := service.NewAppDistributor(cfg)
 
 	// Khởi tạo các HTTP & WebSocket Handlers
 	benchmarkHandler := handlers.NewBenchmarkHandler(benchmarkEngine)
 	nodeHandler := handlers.NewNodeHandler(nodeRegistry, benchmarkEngine, appDistributor)
 	appHandler := handlers.NewAppHandler(appDistributor, nodeRegistry)
-	wsHandler := handlers.NewWSHandler(nodeRegistry, redisStorage)
+	wsHandler := handlers.NewWSHandler(nodeRegistry)
 	nodeHandler.SetWSHandler(wsHandler)
 
 	// Thiết lập HTTP Router (Mux)

@@ -219,6 +219,8 @@ class OllamaProvider(BaseLLMProvider):
             "http://distributed-service:5010",
             "http://host.docker.internal:5010",
             "http://localhost:5010",
+            "http://gateway-service:4000",
+            "http://localhost:4000",
         ]
         payload = {
             "model": self.model_name,

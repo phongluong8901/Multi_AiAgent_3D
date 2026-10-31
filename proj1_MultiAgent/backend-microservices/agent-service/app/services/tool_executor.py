@@ -6,7 +6,7 @@ import math
 import urllib.request
 import requests
 import datetime
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Union
 from app.core.tools.registry import tool_registry
 
 class ToolExecutor:
@@ -113,11 +113,25 @@ class ToolExecutor:
             })
 
     @classmethod
-    def execute(cls, tool_id: str, arguments: Dict[str, Any], tool_obj: Optional[Any] = None) -> str:
+    def execute(cls, tool_id: str, arguments: Union[Dict[str, Any], str, Any] = None, tool_obj: Optional[Any] = None) -> str:
         """
         Thực thi logic của tool thông qua code tuỳ chỉnh nếu có, hoặc chuyển tiếp tới ToolRegistry.
+        Hỗ trợ nhận Dict[str, Any], chuỗi JSON hoặc đối tượng thô, tự động chuẩn hóa sang dict an toàn.
         """
-        print(f"[ToolExecutor] Executing tool '{tool_id}' with args: {arguments}")
+        if arguments is None:
+            safe_args: Dict[str, Any] = {}
+        elif isinstance(arguments, str):
+            try:
+                parsed = json.loads(arguments)
+                safe_args = parsed if isinstance(parsed, dict) else {"input": str(parsed)}
+            except Exception:
+                safe_args = {"input": arguments}
+        elif isinstance(arguments, dict):
+            safe_args = arguments
+        else:
+            safe_args = {"input": str(arguments)}
+
+        print(f"[ToolExecutor] Executing tool '{tool_id}' with args: {safe_args}")
 
         try:
             # 1. Tự động truy vấn Tool từ Database nếu tool_obj chưa được truyền
@@ -131,12 +145,13 @@ class ToolExecutor:
                     finally:
                         db.close()
                 except Exception as db_err:
-                    print(f"⚠️ [ToolExecutor] Lỗi đọc Tool từ DB: {db_err}")
+                    print(f"[WARN] [ToolExecutor] Lỗi đọc Tool từ DB: {db_err}")
 
             # 2. Nếu tool có custom code lưu trong database, chạy code tuỳ chỉnh kèm API Keys / env_vars
             if tool_obj and getattr(tool_obj, "code", None):
                 env_data = getattr(tool_obj, "env_vars", None)
-                custom_res = cls.execute_custom_code(tool_obj.code, arguments, env_vars=env_data)
+                code_content = str(getattr(tool_obj, "code", "") or "")
+                custom_res = cls.execute_custom_code(code_content, safe_args, env_vars=env_data)
                 # Kiểm tra nếu custom code chạy tốt thì trả về ngay
                 try:
                     parsed = json.loads(custom_res) if isinstance(custom_res, str) else custom_res
@@ -147,24 +162,24 @@ class ToolExecutor:
 
             # 3. Xử lý đồng bộ alias cho summarizer
             if tool_id in ["summarizer_tool", "text_summarizer"]:
-                res = tool_registry.execute("text_summarizer", arguments)
+                res = tool_registry.execute("text_summarizer", safe_args)
                 if "not found" not in res:
                     return res
                 from app.core.tools.text_summarizer import summarize_text_smart
-                text_input = arguments.get("text", "") or arguments.get("input", "")
-                max_len = arguments.get("max_length", 150)
+                text_input = safe_args.get("text", "") or safe_args.get("input", "")
+                max_len = safe_args.get("max_length", 150)
                 return summarize_text_smart(text_input, max_len)
 
             # 4. Gọi các tool hệ thống đã đăng ký (Calculator, Web Search, Web Crawler, PDF Analyzer,...)
-            result_json_str = tool_registry.execute(tool_id, arguments)
+            result_json_str = tool_registry.execute(tool_id, safe_args)
             if "not found in registry" not in result_json_str:
                 return result_json_str
 
             # 5. Fallback thông minh: nếu tool_id chứa từ khóa liên quan đến PDF/tài liệu
             tid_lower = str(tool_id).lower()
             if "pdf" in tid_lower or "ph_n_t" in tid_lower or "document" in tid_lower or "tailieu" in tid_lower:
-                print(f"🔄 [ToolExecutor] Fallback tool '{tool_id}' sang 'pdf_analyzer_tool'")
-                return tool_registry.execute("pdf_analyzer_tool", arguments)
+                print(f"[INFO] [ToolExecutor] Fallback tool '{tool_id}' sang 'pdf_analyzer_tool'")
+                return tool_registry.execute("pdf_analyzer_tool", safe_args)
 
             return result_json_str
         except Exception as e:

@@ -8,9 +8,9 @@ from sqlalchemy.orm import Session
 from app.models.tool import ToolModel
 from app.models.prompt import PromptModel
 from app.models.agent import AgentModel
-from app.schemas.tool_schema import ToolCreate
-from app.schemas.prompt_schema import PromptCreate
-from app.schemas.agent_schema import AgentCreate
+from app.schemas.tool_schema import ToolCreate, ToolUpdate
+from app.schemas.prompt_schema import PromptCreate, PromptUpdate
+from app.schemas.agent_schema import AgentCreate, AgentUpdate
 from app.services.tool_service import tool_service
 from app.services.prompt_service import prompt_service
 from app.services.agent_service import agent_service
@@ -185,7 +185,7 @@ class AgentFileGenerator:
             from app.core.tools.registry import tool_registry
             tool_registry.load_generated_tools()
         except Exception as reg_err:
-            logger.warning(f"⚠️ [AgentFileGenerator] Lỗi nạp động tool vào registry: {reg_err}")
+            logger.warning(f"[WARN] [AgentFileGenerator] Lỗi nạp động tool vào registry: {reg_err}")
 
         # 6. ──── ĐỒNG BỘ VÀO POSTGRESQL DATABASE (ĐỂ HIỆN TRÊN TRANG AGENTS, PROMPTS, TOOLS) ────
         db_records = {}
@@ -210,7 +210,14 @@ class AgentFileGenerator:
                 if not existing_tool:
                     db_records["tool"] = tool_service.create_tool(db, tool_data)
                 else:
-                    db_records["tool"] = tool_service.update_tool(db, tool_id, tool_data)
+                    tool_update_data = ToolUpdate(
+                        name=tool_data.name,
+                        description=tool_data.description,
+                        code=tool_data.code,
+                        parameters=tool_data.parameters,
+                        category=tool_data.category
+                    )
+                    db_records["tool"] = tool_service.update_tool(db, tool_id, tool_update_data)
 
                 # Đồng bộ Prompt vào bảng `prompts`
                 existing_prompt = prompt_repository.get(db, prompt_id)
@@ -222,7 +229,11 @@ class AgentFileGenerator:
                 if not existing_prompt:
                     db_records["prompt"] = prompt_service.create_prompt(db, prompt_data)
                 else:
-                    db_records["prompt"] = prompt_service.update_prompt(db, prompt_id, prompt_data)
+                    prompt_update_data = PromptUpdate(
+                        title=prompt_data.title,
+                        content=prompt_data.content
+                    )
+                    db_records["prompt"] = prompt_service.update_prompt(db, prompt_id, prompt_update_data)
 
                 # Đồng bộ Agent vào bảng `agents`
                 existing_agent = agent_repository.get(db, agent_id)
@@ -253,7 +264,16 @@ class AgentFileGenerator:
                 if not existing_agent:
                     db_records["agent"] = agent_service.create_agent(db, agent_data)
                 else:
-                    db_records["agent"] = agent_service.update_agent(db, agent_id, agent_data)
+                    agent_update_data = AgentUpdate(
+                        name=agent_data.name,
+                        color=agent_data.color,
+                        status=agent_data.status,
+                        speech=agent_data.speech,
+                        model=agent_data.model,
+                        prompt_id=agent_data.prompt_id,
+                        tool_ids=agent_data.tool_ids
+                    )
+                    db_records["agent"] = agent_service.update_agent(db, agent_id, agent_update_data)
 
                 logger.info(f"✅ [AgentFileGenerator] Đồng bộ thành công Agent '{agent_name}' ({agent_id}) vào Database!")
             except Exception as db_err:

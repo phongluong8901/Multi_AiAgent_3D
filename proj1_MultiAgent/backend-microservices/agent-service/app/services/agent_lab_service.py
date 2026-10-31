@@ -20,6 +20,14 @@ from app.repositories.tool_repository import tool_repository
 
 logger = logging.getLogger(__name__)
 
+def _to_str(val: Any, default: str = "") -> str:
+    """Helper chuẩn hóa các giá trị đầu ra từ JSON/LLM về chuỗi an toàn."""
+    if val is None:
+        return default
+    if isinstance(val, list):
+        return "\n".join(str(item) for item in val)
+    return str(val)
+
 class AgentLabService:
     """
     Dịch vụ điều phối chu trình Chế tạo Agent tự động trong Phòng Thí Nghiệm 3D (Agent Lab Foundry).
@@ -80,7 +88,7 @@ class AgentLabService:
         llm_response = None
         data = None
         try:
-            resp = client.chat(messages=messages, model=target_model or "gemini-2.5-flash-lite", temperature=0.2)
+            resp = client.chat_completion(messages=messages, model=target_model or "gemini-2.5-flash-lite", temperature=0.2)
             content = resp.choices[0].message.content if resp.choices else ""
             
             # Làm sạch chuỗi JSON
@@ -98,7 +106,7 @@ class AgentLabService:
             if match:
                 data = json.loads(match.group(0))
         except Exception as e:
-            logger.warning(f"⚠️ [AgentLab] Lỗi parse phản hồi LLM: {e}, kích hoạt bộ sinh thông minh mặc định")
+            logger.warning(f"[WARN] [AgentLab] Lỗi parse phản hồi LLM: {e}, kích hoạt bộ sinh thông minh mặc định")
 
         # Fallback dữ liệu nếu LLM không trả về JSON hợp lệ
         if not data:
@@ -184,13 +192,20 @@ class AgentLabService:
                 "speech_coder": "Đã lập trình xong mã nguồn Python chuẩn PEP8 và chạy thử nghiệm thành công trong Sandbox an toàn!"
             }
 
-        agent_id = data.get("agent_id") or f"agent_gen_{uuid.uuid4().hex[:6]}"
-        agent_name = data.get("name") or "Agent Tự Sinh"
-        tool_id = data.get("tool_id") or f"tool_{agent_id.replace('agent_', '')}"
-        prompt_id = f"prompt_{agent_id.replace('agent_', '')}"
+        raw_agent_id = data.get("agent_id")
+        agent_id: str = _to_str(raw_agent_id) if raw_agent_id else f"agent_gen_{uuid.uuid4().hex[:6]}"
+        agent_name: str = _to_str(data.get("name"), "Agent Tự Sinh")
+        raw_tool_id = data.get("tool_id")
+        tool_id: str = _to_str(raw_tool_id) if raw_tool_id else f"tool_{agent_id.replace('agent_', '')}"
+        prompt_id: str = f"prompt_{agent_id.replace('agent_', '')}"
+
+        system_prompt: str = _to_str(data.get("system_prompt"), "")
+        python_tool_code: str = _to_str(data.get("python_tool_code"), "")
+        tool_parameters_str: str = _to_str(data.get("tool_parameters"), "{}")
 
         # 2. Chạy thử nghiệm trong Python Sandbox
-        sandbox_code = data.get("sandbox_test_code") or (
+        raw_sandbox_code = data.get("sandbox_test_code")
+        sandbox_code: str = _to_str(raw_sandbox_code) if raw_sandbox_code else (
             f"print('Testing Agent tool: {agent_name}')\n"
             f"print('Sandbox status: READY')\n"
         )
@@ -205,7 +220,7 @@ class AgentLabService:
                 "agent_color": "#3b82f6",
                 "role": "Điều phối & Lập kế hoạch",
                 "action": "Tiếp nhận mục tiêu & Phân rã kiến trúc",
-                "speech": data.get("speech_manager", ""),
+                "speech": _to_str(data.get("speech_manager", "")),
                 "status": "completed",
                 "timestamp": "Bước #1"
             },
@@ -216,8 +231,8 @@ class AgentLabService:
                 "agent_color": "#10b981",
                 "role": "Nghiên cứu tài liệu & Thư viện",
                 "action": "Khảo sát thư viện kỹ thuật và thuật toán",
-                "speech": data.get("speech_search", ""),
-                "notes": data.get("search_notes", ""),
+                "speech": _to_str(data.get("speech_search", "")),
+                "notes": _to_str(data.get("search_notes", "")),
                 "libraries": data.get("search_libraries", []),
                 "status": "completed",
                 "timestamp": "Bước #2"
@@ -229,8 +244,8 @@ class AgentLabService:
                 "agent_color": "#f59e0b",
                 "role": "Tổng hợp & Thiết kế",
                 "action": "Soạn thảo System Prompt & Lược đồ Công cụ",
-                "speech": data.get("speech_summarizer", ""),
-                "prompt_preview": data.get("system_prompt", "")[:200] + "...",
+                "speech": _to_str(data.get("speech_summarizer", "")),
+                "prompt_preview": system_prompt[:200] + "...",
                 "status": "completed",
                 "timestamp": "Bước #3"
             },
@@ -241,7 +256,7 @@ class AgentLabService:
                 "agent_color": "#ec4899",
                 "role": "Lập trình & Kiểm thử Sandbox",
                 "action": "Sinh mã Python & Kiểm thử Sandbox Container",
-                "speech": data.get("speech_coder", ""),
+                "speech": _to_str(data.get("speech_coder", "")),
                 "sandbox_output": sandbox_exec.get("output", ""),
                 "sandbox_success": sandbox_exec.get("success", True),
                 "status": "completed",
@@ -267,17 +282,17 @@ class AgentLabService:
             agent_blueprint={
                 "id": agent_id,
                 "name": agent_name,
-                "role": data.get("role") or user_goal,
-                "color": data.get("color", "#8b5cf6"),
-                "model": target_model or data.get("recommended_model", "gemini-2.5-flash-lite"),
+                "role": _to_str(data.get("role")) or user_goal,
+                "color": _to_str(data.get("color"), "#8b5cf6"),
+                "model": target_model or _to_str(data.get("recommended_model"), "gemini-2.5-flash-lite"),
                 "prompt_id": prompt_id,
                 "tool_id": tool_id,
-                "tool_name": data.get("tool_name") or f"Tool {agent_name}",
-                "tool_description": data.get("tool_description") or f"Công cụ cho {agent_name}"
+                "tool_name": _to_str(data.get("tool_name")) or f"Tool {agent_name}",
+                "tool_description": _to_str(data.get("tool_description")) or f"Công cụ cho {agent_name}"
             },
-            system_prompt=data.get("system_prompt", ""),
-            tool_code=data.get("python_tool_code", ""),
-            tool_parameters=str(data.get("tool_parameters", "")),
+            system_prompt=system_prompt,
+            tool_code=python_tool_code,
+            tool_parameters=tool_parameters_str,
             save_to_db=save_to_db
         )
         created_records = sync_result.get("db_records", {})

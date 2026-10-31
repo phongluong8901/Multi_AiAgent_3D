@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -13,7 +12,6 @@ import (
 
 	"distributed-service/models"
 	"distributed-service/service"
-	"distributed-service/storage"
 
 	"github.com/gorilla/websocket"
 )
@@ -24,7 +22,6 @@ var upgrader = websocket.Upgrader{
 
 type WSHandler struct {
 	registry    *service.NodeRegistry
-	redis       *storage.RedisStorage
 	clients     map[*websocket.Conn]string // Conn -> NodeID
 	writeMu     map[*websocket.Conn]*sync.Mutex
 	mu          sync.Mutex
@@ -32,23 +29,13 @@ type WSHandler struct {
 	reqMu       sync.Mutex
 }
 
-func NewWSHandler(registry *service.NodeRegistry, rdb *storage.RedisStorage) *WSHandler {
-	h := &WSHandler{
+func NewWSHandler(registry *service.NodeRegistry) *WSHandler {
+	return &WSHandler{
 		registry:    registry,
-		redis:       rdb,
 		clients:     make(map[*websocket.Conn]string),
 		writeMu:     make(map[*websocket.Conn]*sync.Mutex),
 		pendingReqs: make(map[string]chan map[string]interface{}),
 	}
-
-	// Lắng nghe broadcast từ các Pod khác qua Redis Pub/Sub
-	if rdb != nil {
-		rdb.SubscribeBroadcast(context.Background(), "distributed:broadcast", func(msg []byte) {
-			h.broadcastLocal(websocket.TextMessage, msg)
-		})
-	}
-
-	return h
 }
 
 // SendMessageToNode gửi thông điệp điều khiển xuống kết nối WebSocket của worker cụ thể
@@ -106,15 +93,7 @@ func (h *WSHandler) broadcastJSON(payload map[string]interface{}) {
 	if err != nil {
 		return
 	}
-	if h.redis != nil {
-		go func(m []byte) {
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-			defer cancel()
-			_ = h.redis.PublishBroadcast(ctx, "distributed:broadcast", m)
-		}(b)
-	} else {
-		h.broadcastLocal(websocket.TextMessage, b)
-	}
+	h.broadcastLocal(websocket.TextMessage, b)
 }
 
 // HandleInferenceRelay cho phép đẩy lệnh suy luận qua đường hầm WebSocket xuống máy Seller (hỗ trợ SSE stream hoặc JSON)
@@ -618,15 +597,7 @@ func (h *WSHandler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		// Broadcast gói tin xuống toàn bộ giao diện Web (Kiểm tra Node AI, Đối tác Mô hình, Electron UI)
-		if h.redis != nil {
-			go func(m []byte) {
-				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-				defer cancel()
-				_ = h.redis.PublishBroadcast(ctx, "distributed:broadcast", m)
-			}(msg)
-		} else {
-			h.broadcastLocal(messageType, msg)
-		}
+		// Broadcast gói tin trực tiếp xuống toàn bộ kết nối WebSocket đang mở
+		h.broadcastLocal(messageType, msg)
 	}
 }

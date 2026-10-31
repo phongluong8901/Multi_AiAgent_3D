@@ -93,3 +93,24 @@ AGENT_CONFIGS = {
         "temperature": 0.2,
     },
 }
+
+def get_agent_config(agent_id: str) -> dict:
+    """Lấy cấu hình chi tiết, vai trò và chỉ dẫn riêng cho từng agent theo ID."""
+    cfg = AGENT_CONFIGS.get(agent_id, {})
+    if not cfg:
+        # Fallback thử tìm theo tiền tố hoặc tên gần khớp
+        for k, v in AGENT_CONFIGS.items():
+            if k in agent_id or agent_id in k:
+                cfg = v
+                break
+
+    return {
+        "name": cfg.get("name", agent_id),
+        "role_name": cfg.get("role", cfg.get("name", agent_id)),
+        "system_prompt": cfg.get("system_prompt", ""),
+        "tools": cfg.get("tools", []),
+        "temperature": cfg.get("temperature", 0.2),
+        "guidelines": cfg.get("guidelines", cfg.get("system_prompt", "")),
+        **cfg,
+    }
+

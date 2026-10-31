@@ -1,19 +1,28 @@
 import json
-from typing import TypedDict, Annotated, List, Any, Dict
+from typing import Annotated, List, Any, Dict, Optional
+from pydantic import BaseModel, Field
 from langgraph.graph import StateGraph, END
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, ToolMessage, SystemMessage
 import operator
 
-# Định nghĩa State lưu trữ trong toàn bộ quá trình chạy của Agent
-class AgentState(TypedDict):
-    messages: Annotated[List[Any], operator.add]
-    agent_id: str
-    room_id: str | None
-    model: str | None
-    tool_definitions: List[Dict[str, Any]]
-    tools_used: List[str]
-    llm_client: Any
-    tool_executor: Any
+# Định nghĩa State lưu trữ trong toàn bộ quá trình chạy của Agent kế thừa BaseModel để tương thích hoàn toàn với LangGraph StateLike bound
+class AgentState(BaseModel):
+    messages: Annotated[List[Any], operator.add] = Field(default_factory=list)
+    agent_id: str = ""
+    room_id: Optional[str] = None
+    model: Optional[str] = None
+    tool_definitions: List[Dict[str, Any]] = Field(default_factory=list)
+    tools_used: List[str] = Field(default_factory=list)
+    llm_client: Any = None
+    tool_executor: Any = None
+
+    def __getitem__(self, item: str) -> Any:
+        return getattr(self, item)
+
+    def get(self, item: str, default: Any = None) -> Any:
+        return getattr(self, item, default)
+
+    model_config = {"arbitrary_types_allowed": True}
 
 class AgentWorkflow:
     def __init__(self, llm_client, tool_executor):
@@ -65,11 +74,11 @@ class AgentWorkflow:
     def execute_tools(self, state: AgentState) -> Dict[str, Any]:
         """Node 2: Thực thi các Tool mà LLM yêu cầu gọi"""
         messages = state["messages"]
-        last_message = messages[-1]
-        tool_calls = last_message.tool_calls  # LangChain AIMessage tool_calls: list of dicts
+        last_message = messages[-1] if messages else None
+        tool_calls = getattr(last_message, "tool_calls", []) or []  # LangChain AIMessage tool_calls: list of dicts
         
         new_messages = []
-        tools_used = list(state["tools_used"])
+        tools_used = list(state.get("tools_used") or [])
 
         for tool_call in tool_calls:
             # LangChain format: dict {"id": ..., "name": ..., "args": {...}}
@@ -79,14 +88,15 @@ class AgentWorkflow:
                 tool_call_id = tool_call.get("id", "")
             else:
                 # Fallback cho mock format cũ
-                tool_name = tool_call.function.name
+                tool_name = getattr(getattr(tool_call, "function", None), "name", "") or getattr(tool_call, "name", "")
+                raw_args = getattr(getattr(tool_call, "function", None), "arguments", None) or getattr(tool_call, "args", {})
                 try:
-                    tool_args = json.loads(tool_call.function.arguments) if tool_call.function.arguments else {}
+                    tool_args = json.loads(raw_args) if isinstance(raw_args, str) and raw_args else (raw_args or {})
                 except Exception:
-                    tool_args = {}
-                tool_call_id = tool_call.id
+                    tool_args = {"input": str(raw_args)}
+                tool_call_id = getattr(tool_call, "id", "")
 
-            print(f"🤖 [LangGraph] Calling tool: {tool_name} | args: {tool_args}")
+            print(f"[INFO] [LangGraph] Calling tool: {tool_name} | args: {tool_args}")
             tools_used.append(tool_name)
 
             # Thực thi tool thông qua tool_executor thực tế

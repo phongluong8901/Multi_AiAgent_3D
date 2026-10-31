@@ -70,6 +70,36 @@ class ToolRegistry:
         return list(cls._tools.keys())
 
     @classmethod
+    def load_generated_tools(cls, tools_dir: str | None = None) -> None:
+        """Nạp động các tool được sinh tự động từ thư mục app/generated/tools/ vào registry"""
+        import os
+        import importlib.util
+
+        if tools_dir is None:
+            app_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            tools_dir = os.path.join(app_dir, "generated", "tools")
+
+        if not os.path.exists(tools_dir):
+            return
+
+        for filename in os.listdir(tools_dir):
+            if filename.endswith(".py") and not filename.startswith("__"):
+                tool_id = filename[:-3]
+                filepath = os.path.join(tools_dir, filename)
+                try:
+                    spec = importlib.util.spec_from_file_location(f"app.generated.tools.{tool_id}", filepath)
+                    if spec and spec.loader:
+                        module = importlib.util.module_from_spec(spec)
+                        spec.loader.exec_module(module)
+                        for attr_name in dir(module):
+                            attr = getattr(module, attr_name)
+                            if isinstance(attr, type) and hasattr(attr, "execute") and attr_name.endswith("Tool"):
+                                cls._tools[tool_id] = attr()
+                                break
+                except Exception:
+                    pass
+
+    @classmethod
     def execute(cls, name: str, arguments: dict | None = None) -> str:
         import json
         tool = cls.get_tool(name)

@@ -1,7 +1,6 @@
 package service
 
 import (
-	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
@@ -19,15 +18,13 @@ type NodeRegistry struct {
 	nodes        map[string]*models.PartnerNode // Key: NodeID
 	manualPaused map[string]bool                // Key: NodeID -> true nếu người dùng bấm Tạm Dừng trên Web
 	postgres     *storage.PostgresStorage
-	redis        *storage.RedisStorage
 }
 
-func NewNodeRegistry(pg *storage.PostgresStorage, rdb *storage.RedisStorage) *NodeRegistry {
+func NewNodeRegistry(pg *storage.PostgresStorage) *NodeRegistry {
 	nr := &NodeRegistry{
 		nodes:        make(map[string]*models.PartnerNode),
 		manualPaused: make(map[string]bool),
 		postgres:     pg,
-		redis:        rdb,
 	}
 
 	// Nạp danh sách node đã đăng ký từ Neon PostgreSQL (bỏ qua các node seed mẫu cũ và đặt trạng thái mặc định là OFFLINE cho tới khi Electron Worker thực sự kết nối)
@@ -293,17 +290,6 @@ func (nr *NodeRegistry) UpsertWorkerTelemetry(
 		target.UptimeSeconds += 2
 	}
 
-	if nr.redis != nil {
-		go func(nid string, s models.TelemetryStats, online bool) {
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-			defer cancel()
-			if online {
-				_ = nr.redis.SetNodeOnline(ctx, nid, 20*time.Second)
-			}
-			_ = nr.redis.CacheTelemetry(ctx, nid, s)
-		}(target.ID, stats, target.Status == "IDLE")
-	}
-
 	if nr.postgres != nil {
 		go func(n *models.PartnerNode, s models.TelemetryStats) {
 			_ = nr.postgres.UpsertNode(n)
@@ -334,14 +320,6 @@ func (nr *NodeRegistry) MarkNodeOffline(nodeID string, isManualPause ...bool) {
 				nr.manualPaused[id] = true
 			} else {
 				node.LastTelemetry = nil
-			}
-
-			if nr.redis != nil {
-				go func(nid string) {
-					ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-					defer cancel()
-					_ = nr.redis.SetNodeOffline(ctx, nid)
-				}(id)
 			}
 
 			if nr.postgres != nil {

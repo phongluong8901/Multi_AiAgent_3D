@@ -1,6 +1,6 @@
-from typing import Optional
+from typing import Optional, List, Dict, Any, Generator
 from sqlalchemy.orm import Session
-from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, ToolMessage
+from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, AIMessage, ToolMessage
 
 from app.core.llm.llm_registry import llm_registry
 from app.services.tool_executor import tool_executor
@@ -13,8 +13,9 @@ from app.services.langgraph_flow.agent_graph import AgentWorkflow, AgentState
 class AgentRunner:
     def __init__(self):
         self.llm_client = llm_registry.get_client()
+        self.tool_executor = tool_executor
         # Khởi tạo và biên dịch sẵn LangGraph Workflow
-        self.workflow = AgentWorkflow(self.llm_client, tool_executor).compile()
+        self.workflow = AgentWorkflow(self.llm_client, self.tool_executor).compile()
 
     def _build_tool_definitions(self, agent_tools: list) -> list:
         """Xây dựng OpenAI/Gemini/Local-compatible Function Calling Schema cho tất cả công cụ."""
@@ -349,7 +350,7 @@ class AgentRunner:
                 agent_id=agent_id,
                 agent_name=agent_id,
                 room_id=room_id,
-                answer=f"⚠️ Không tìm thấy agent '{agent_id}' trong hệ thống agent-service.",
+                answer=f"[WARN] Không tìm thấy agent '{agent_id}' trong hệ thống agent-service.",
                 tools_used=[],
                 workflow_trace=None,
                 source=source,
@@ -463,7 +464,7 @@ class AgentRunner:
         tool_definitions = self._build_tool_definitions(agent_tools)
 
         # 6. Xây dựng danh sách messages ban đầu
-        initial_messages = [SystemMessage(content=agent_system_prompt)]
+        initial_messages: List[BaseMessage] = [SystemMessage(content=agent_system_prompt)]
         
         # Chuyển đổi lịch sử short_memory từ dict sang langchain message objects
         for m in short_memory:
@@ -488,7 +489,7 @@ class AgentRunner:
         trace_id = f"trace_{int(start_time * 1000)}"
 
         # Khởi tạo cây thực thi Workflow Trace (Tương tự LangSmith / LangGraph Studio)
-        trace_nodes = [
+        trace_nodes: List[Dict[str, Any]] = [
             {
                 "id": "node_input",
                 "name": "User Input",
@@ -520,16 +521,16 @@ class AgentRunner:
                 or agent_data.get("model")
                 or "gemini-2.5-flash-lite"
             )
-            initial_state: AgentState = {
-                "messages": initial_messages,
-                "agent_id": agent_id,
-                "room_id": room_id,
-                "model": preferred_model,
-                "tool_definitions": tool_definitions,
-                "tools_used": [],
-                "llm_client": self.llm_client,
-                "tool_executor": tool_executor
-            }
+            initial_state = AgentState(
+                messages=initial_messages,
+                agent_id=agent_id,
+                room_id=room_id,
+                model=preferred_model,
+                tool_definitions=tool_definitions,
+                tools_used=[],
+                llm_client=self.llm_client,
+                tool_executor=self.tool_executor
+            )
 
             llm_start_time = time.time()
 
@@ -614,7 +615,7 @@ class AgentRunner:
             end_time = time.time()
             total_latency = round((end_time - start_time) * 1000, 2)
 
-            workflow_trace = {
+            workflow_trace: Dict[str, Any] = {
                 "traceId": trace_id,
                 "agentId": agent_id,
                 "agentName": agent_data.get("name", agent_id),
@@ -671,7 +672,7 @@ class AgentRunner:
                 "latencyMs": round((end_time - start_time) * 1000, 2),
             })
 
-            error_trace = {
+            error_trace: Dict[str, Any] = {
                 "traceId": trace_id,
                 "agentId": agent_id,
                 "agentName": agent_data.get("name", agent_id),
@@ -686,7 +687,7 @@ class AgentRunner:
             }
 
             # Vẫn phát tán trace lỗi lên RabbitMQ để Frontend mở popup chẩn đoán
-            error_answer = f"⚠️ [Lỗi Thực Thi Workflow]: Gặp sự cố tại node xử lý: {error_msg}"
+            error_answer = f"[ERROR] [Lỗi Thực Thi Workflow]: Gặp sự cố tại node xử lý: {error_msg}"
             self._publish_reply(
                 agent_id=agent_id,
                 agent_name=agent_data.get("name", agent_id),
@@ -783,7 +784,7 @@ class AgentRunner:
         tool_definitions = self._build_tool_definitions(agent_tools)
 
         # 4. Messages
-        initial_messages = [SystemMessage(content=agent_system_prompt)]
+        initial_messages: List[BaseMessage] = [SystemMessage(content=agent_system_prompt)]
         for m in short_memory:
             role = m.get("role")
             content = m.get("content", "")
@@ -800,7 +801,7 @@ class AgentRunner:
             or agent_data.get("model")
             or "gemini-2.5-flash-lite"
         )
-        current_messages = list(initial_messages)
+        current_messages: List[BaseMessage] = list(initial_messages)
         tools_used = []
         final_answer = ""
 
@@ -859,7 +860,8 @@ class AgentRunner:
                     yield f"data: {json.dumps({'type': 'tool_start', 'tool': tool_name, 'args': tool_args, 'message': f'Đang gọi công cụ {tool_name}...'}, ensure_ascii=False)}\n\n"
 
                     try:
-                        tool_result = self.tool_executor.execute(tool_name, tool_args)
+                        safe_call_args = tool_args if isinstance(tool_args, dict) else {"input": str(tool_args)}
+                        tool_result = self.tool_executor.execute(tool_name, safe_call_args)
                     except Exception as e:
                         tool_result = f"Error: {str(e)}"
 
