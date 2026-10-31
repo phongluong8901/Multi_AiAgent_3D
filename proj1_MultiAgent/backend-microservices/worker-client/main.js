@@ -16,30 +16,50 @@ function getConfigPath() {
     : path.join(process.resourcesPath, 'worker-config.json');
 }
 
+function ensureDeviceNodeId(cfg) {
+  if (!cfg.nodeId || String(cfg.nodeId).startsWith('guest_')) {
+    const os = require('os');
+    const crypto = require('crypto');
+    const raw = os.hostname() + (os.cpus()[0] ? os.cpus()[0].model : '') + os.totalmem();
+    const hash = crypto.createHash('md5').update(raw).digest('hex').substring(0, 8);
+    cfg.nodeId = `node_${hash}`;
+    writeConfigFile(cfg);
+  }
+  if (!cfg.nodeName) {
+    cfg.nodeName = 'phong 01';
+  }
+}
+
 function readConfigFile() {
+  let cfg = null;
   try {
     const p = getConfigPath();
     if (fs.existsSync(p)) {
-      return JSON.parse(fs.readFileSync(p, 'utf-8'));
+      cfg = JSON.parse(fs.readFileSync(p, 'utf-8'));
     }
   } catch (e) {
     console.error('Lỗi đọc config:', e);
   }
-  return {
-    serverWsUrl: 'ws://localhost:4000/api/v1/distributed/ws',
-    authToken: '',
-    nodeId: '',
-    localEndpoint: 'http://localhost:11434',
-    allocatedCores: 4,
-    allocatedRAMGB: 8,
-    enableGPU: true,
-    gpuSharePercent: 80,
-    maxTokens: 2048,
-    contextLength: 4096,
-    temperature: 0.7,
-    defaultModel: 'qwen2.5-coder:1.5b',
-    maxConcurrentTasks: 2,
-  };
+  if (!cfg) {
+    cfg = {
+      serverWsUrl: 'ws://localhost:4000/api/v1/distributed/ws',
+      authToken: '',
+      nodeId: '',
+      nodeName: 'phong 01',
+      localEndpoint: 'http://localhost:11434',
+      allocatedCores: 4,
+      allocatedRAMGB: 8,
+      enableGPU: true,
+      gpuSharePercent: 80,
+      maxTokens: 2048,
+      contextLength: 4096,
+      temperature: 0.7,
+      defaultModel: 'qwen2.5-coder:1.5b',
+      maxConcurrentTasks: 2,
+    };
+  }
+  ensureDeviceNodeId(cfg);
+  return cfg;
 }
 
 function writeConfigFile(cfg) {

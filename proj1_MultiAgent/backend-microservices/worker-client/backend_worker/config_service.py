@@ -95,13 +95,32 @@ def resolve_connection_info(args=None):
         or ""
     )
 
-    # 3. Node ID
+    # 3. Node ID: Thiết bị tự sinh định danh phần cứng duy nhất (không cần người dùng cấu hình)
     node_id = (
         node_id_arg
         or os.environ.get("NODE_ID")
         or cfg.get("nodeId")
         or cfg.get("node_id")
         or ""
+    )
+    if not node_id or str(node_id).startswith("guest_"):
+        import uuid
+        import hashlib
+        try:
+            mac_hex = hashlib.md5(str(uuid.getnode()).encode()).hexdigest()[:8]
+            node_id = f"node_{mac_hex}"
+        except Exception:
+            node_id = f"node_{uuid.uuid4().hex[:8]}"
+        cfg["nodeId"] = node_id
+        save_config_file(cfg, args.config if args else "worker-config.json")
+        print(f"[DEVICE] Auto-generated persistent device Node ID: {node_id}")
+
+    # 3.1 Node Name: Tên máy do người dùng cấu hình trên Electron để phân biệt giữa các máy trên Web
+    node_name = (
+        os.environ.get("NODE_NAME")
+        or cfg.get("nodeName")
+        or cfg.get("node_name")
+        or "phong 01"
     )
 
     # 4. Ollama / Local LLM Endpoint
@@ -169,13 +188,16 @@ def resolve_connection_info(args=None):
         ),
     }
 
-    # Append token and nodeId to query params if present
+    # Append token, nodeId, and nodeName to query params if present
+    import urllib.parse
     sep = "&" if "?" in ws_url else "?"
     params = []
     if token:
         params.append(f"token={token}")
     if node_id:
         params.append(f"nodeId={node_id}")
+    if node_name:
+        params.append(f"nodeName={urllib.parse.quote(node_name)}")
 
     if params:
         final_ws_url = f"{ws_url}{sep}{'&'.join(params)}"
@@ -187,6 +209,7 @@ def resolve_connection_info(args=None):
         "raw_ws_url": ws_url,
         "token": token,
         "node_id": node_id,
+        "node_name": node_name,
         "ollama_url": ollama_url,
         "config": cfg,
         "rent_config": rent_config,

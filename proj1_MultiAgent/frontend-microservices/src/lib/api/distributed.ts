@@ -94,6 +94,7 @@ export type PartnerNodeData = {
     id: string
     userId?: string
     username?: string
+    nodeName?: string
     email?: string
     status: 'IDLE' | 'BUSY' | 'OFFLINE' | 'REGISTERED'
     hardware: HardwareReport

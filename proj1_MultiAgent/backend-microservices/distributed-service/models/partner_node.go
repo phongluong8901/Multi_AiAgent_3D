@@ -46,6 +46,7 @@ type LLMActivityStats struct {
 
 // TelemetryStats dữ liệu tải động truyền từ Python Worker / Electron Client qua WebSocket
 type TelemetryStats struct {
+	NodeName        string            `json:"nodeName,omitempty"`
 	CPUPercent      float64           `json:"cpu_percent"`
 	RAMPercent      float64           `json:"ram_percent"`
 	DiskPercent     float64           `json:"disk_percent"`
@@ -66,6 +67,7 @@ type PartnerNode struct {
 	ID                  string            `json:"id"`
 	UserID              string            `json:"userId"`
 	Username            string            `json:"username"`
+	NodeName            string            `json:"nodeName,omitempty"`
 	Email               string            `json:"email"`
 	Status              string            `json:"status"` // "IDLE", "BUSY", "OFFLINE", "REGISTERED"
 	Hardware            HardwareReport    `json:"hardware"`

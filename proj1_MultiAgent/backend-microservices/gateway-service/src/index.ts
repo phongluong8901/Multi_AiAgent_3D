@@ -36,7 +36,22 @@ const server = http.createServer(app);
 const PORT = process.env.PORT || 4000;
 
 // Middleware chung
-app.use(cors());
+app.use(
+    cors({
+        origin: (origin, callback) => {
+            callback(null, true);
+        },
+        credentials: true,
+        methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allowedHeaders: ["Content-Type", "Authorization", "x-user-id", "x-device-id"],
+    })
+);
+
+// Hỗ trợ popup Google OAuth & Cross-Origin-Opener-Policy
+app.use((req, res, next) => {
+    res.setHeader("Cross-Origin-Opener-Policy", "same-origin-allow-popups");
+    next();
+});
 
 // Áp dụng Global Rate Limiter cho toàn cổng Gateway
 app.use(globalLimiter);

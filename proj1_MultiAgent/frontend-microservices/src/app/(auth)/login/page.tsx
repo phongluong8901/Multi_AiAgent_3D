@@ -72,7 +72,9 @@ export default function LoginPage() {
                 <div className="flex justify-center w-full [&_div]:w-full">
                     <GoogleLogin
                         onSuccess={handleGoogleSuccess}
-                        onError={() => { }}
+                        onError={() => {
+                            console.error('[GoogleLogin] Đăng nhập Google thất bại hoặc popup bị hủy.');
+                        }}
                         theme="filled_black"
                         shape="rectangular"
                         width="100%"

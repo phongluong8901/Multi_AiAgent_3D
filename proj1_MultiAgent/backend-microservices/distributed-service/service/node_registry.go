@@ -164,6 +164,7 @@ func (nr *NodeRegistry) GetAllNodes() []*models.PartnerNode {
 func (nr *NodeRegistry) UpsertWorkerTelemetry(
 	rawNodeID string,
 	hostname string,
+	nodeName string,
 	hw *models.HardwareReport,
 	ollamaModels []string,
 	stats models.TelemetryStats,
@@ -173,9 +174,19 @@ func (nr *NodeRegistry) UpsertWorkerTelemetry(
 
 	var target *models.PartnerNode
 
-	// 1. Tìm đúng theo rawNodeID nếu khớp
+	// 1. Tìm đúng theo thiết bị định danh phần cứng duy nhất rawNodeID
 	if rawNodeID != "" && !strings.HasPrefix(rawNodeID, "guest_worker_") {
 		target = nr.nodes[rawNodeID]
+	}
+
+	// 2. Nếu chưa khớp ID, kiểm tra theo nodeName đã đăng ký
+	if target == nil && nodeName != "" {
+		for _, n := range nr.nodes {
+			if n.NodeName == nodeName || n.Username == nodeName || n.ID == nodeName {
+				target = n
+				break
+			}
+		}
 	}
 
 	// 2. Nếu Worker chạy mặc định không truyền token (guest_worker_...), ưu tiên khớp với node đã đăng ký hoặc node theo hostname
@@ -200,11 +211,25 @@ func (nr *NodeRegistry) UpsertWorkerTelemetry(
 		if cleanHost == "" {
 			cleanHost = "Seller_PC"
 		}
-		newID := "worker_" + strings.ToLower(strings.ReplaceAll(cleanHost, " ", "_"))
+		displayName := nodeName
+		if displayName == "" && rawNodeID != "" && !strings.HasPrefix(rawNodeID, "guest_worker_") && !strings.HasPrefix(rawNodeID, "node_seller_") {
+			displayName = rawNodeID
+		}
+		if displayName == "" {
+			displayName = cleanHost
+		}
+		newID := nodeName
+		if newID == "" {
+			newID = rawNodeID
+		}
+		if newID == "" || strings.HasPrefix(newID, "guest_worker_") {
+			newID = "worker_" + strings.ToLower(strings.ReplaceAll(displayName, " ", "_"))
+		}
 		target = &models.PartnerNode{
 			ID:       newID,
 			UserID:   "seller_worker",
-			Username: cleanHost,
+			Username: displayName,
+			NodeName: displayName,
 			Email:    "",
 			Status:   "IDLE",
 			Hardware: models.HardwareReport{
@@ -227,6 +252,15 @@ func (nr *NodeRegistry) UpsertWorkerTelemetry(
 			CreatedAt:        time.Now(),
 		}
 		nr.nodes[newID] = target
+	}
+
+	// Luôn cập nhật nodeName và Username theo tên máy từ Electron Worker
+	if nodeName != "" {
+		target.NodeName = nodeName
+		target.Username = nodeName
+	} else if rawNodeID != "" && !strings.HasPrefix(rawNodeID, "guest_worker_") && !strings.HasPrefix(rawNodeID, "node_seller_") {
+		target.NodeName = rawNodeID
+		target.Username = rawNodeID
 	}
 
 	// Cập nhật cấu hình phần cứng thực tế từ Electron Worker
@@ -302,7 +336,7 @@ func (nr *NodeRegistry) UpsertWorkerTelemetry(
 
 // UpdateTelemetry giữ tương thích ngược
 func (nr *NodeRegistry) UpdateTelemetry(nodeID string, stats models.TelemetryStats) {
-	nr.UpsertWorkerTelemetry(nodeID, "", nil, nil, stats)
+	nr.UpsertWorkerTelemetry(nodeID, "", "", nil, nil, stats)
 }
 
 // MarkNodeOffline chuyển trạng thái sang OFFLINE khi đóng Electron Worker hoặc người dùng bấm Tạm Dừng

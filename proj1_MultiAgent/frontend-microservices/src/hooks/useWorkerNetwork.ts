@@ -163,7 +163,16 @@ export function useWorkerNetwork(currentUser?: { id?: string; name?: string; ema
                             msg.cpu_percent !== undefined
                         ) {
                             const serverNode: PartnerNodeData | undefined = msg.node
-                            const hostname = msg.os?.hostname || serverNode?.username || 'Seller_PC'
+                            const incomingNodeName =
+                                msg.nodeName ||
+                                msg.node_name ||
+                                serverNode?.nodeName ||
+                                undefined
+                            const hostname =
+                                incomingNodeName ||
+                                msg.os?.hostname ||
+                                serverNode?.username ||
+                                'Seller_PC'
                             const incomingId =
                                 serverNode?.id ||
                                 (msg.nodeId && !String(msg.nodeId).startsWith('guest_worker_')
@@ -240,20 +249,21 @@ export function useWorkerNetwork(currentUser?: { id?: string; name?: string; ema
                             setPingLatency(8)
 
                             setAllNodes((prev) => {
-                                // Tìm theo ID hoặc khớp node đã đăng ký của user hiện tại
+                                // Tìm đúng theo thiết bị định danh duy nhất (incomingId) hoặc theo nodeName
                                 const matchIdx = prev.findIndex(
                                     (n) =>
                                         n.id === incomingId ||
-                                        (currentUser?.id && n.userId === currentUser.id) ||
-                                        n.username === hostname
+                                        (serverNode?.id && n.id === serverNode.id) ||
+                                        (incomingNodeName && (n.nodeName === incomingNodeName || n.username === incomingNodeName))
                                 )
 
                                 if (matchIdx >= 0) {
                                     const existing = prev[matchIdx]
                                     const updated: LiveWorkerNode = {
                                         ...existing,
-                                        id: serverNode?.id || existing.id,
-                                        username: existing.username || hostname,
+                                        id: existing.id || incomingId,
+                                        nodeName: incomingNodeName || existing.nodeName || hostname,
+                                        username: incomingNodeName || existing.username || hostname,
                                         status: effectiveStatus,
                                         hardware: {
                                             ...existing.hardware,
@@ -284,8 +294,9 @@ export function useWorkerNetwork(currentUser?: { id?: string; name?: string; ema
 
                                 const newNode: LiveWorkerNode = {
                                     id: incomingId,
+                                    nodeName: incomingNodeName || hostname,
                                     userId: currentUser?.id || 'seller_worker',
-                                    username: hostname,
+                                    username: incomingNodeName || hostname,
                                     email: currentUser?.email || '',
                                     status: effectiveStatus,
                                     hardware: {
@@ -395,6 +406,13 @@ export function useWorkerNetwork(currentUser?: { id?: string; name?: string; ema
         return allNodes[0] || null
     }, [allNodes, onlineNodes, currentUser?.id])
 
+    // Danh sách tất cả Node thuộc tài khoản người dùng hiện tại
+    const myNodes = useMemo(() => {
+        if (!currentUser?.id) return allNodes
+        const filtered = allNodes.filter((n) => n.userId === currentUser.id)
+        return filtered.length > 0 ? filtered : allNodes
+    }, [allNodes, currentUser?.id])
+
     const toggleNodeStatus = useCallback(async (nodeId: string, currentStatus: string) => {
         const isOnline = currentStatus === 'IDLE' || currentStatus === 'BUSY'
         const nextStatus = isOnline ? 'OFFLINE' : 'IDLE'
@@ -430,6 +448,7 @@ export function useWorkerNetwork(currentUser?: { id?: string; name?: string; ema
         allNodes,
         onlineNodes,
         myNode,
+        myNodes,
         activeConnections,
         loading,
         wsConnected,

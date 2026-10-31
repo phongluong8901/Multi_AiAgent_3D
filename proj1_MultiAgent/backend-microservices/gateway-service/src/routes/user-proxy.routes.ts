@@ -28,6 +28,11 @@ const USER_BASE_PATHS = [
 
 // Middleware kiểm tra xem request có phải là public path hay không
 const checkAuthIfNeeded = (req: any, res: any, next: any) => {
+    // Luôn cho phép preflight OPTIONS đi qua không cần kiểm tra token
+    if (req.method === "OPTIONS") {
+        return next();
+    }
+
     const rawPath = (req.originalUrl || req.url || "").split("?")[0];
     const fullPath = rawPath.endsWith("/") && rawPath.length > 1 ? rawPath.slice(0, -1) : rawPath;
 

@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useRef, useMemo } from 'react'
-import type MapLibreGL from 'maplibre-gl'
+import type * as MapLibreGL from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { SellerNodeData } from '@/lib/api/seller'
 import {
@@ -146,7 +146,7 @@ export default function Owner3DBuildingsMap({
         let isMounted = true
         import('maplibre-gl').then((mod) => {
             if (isMounted) {
-                setMaplibregl(mod.default || mod)
+                setMaplibregl((mod as any).default || mod)
             }
         })
         return () => {
@@ -249,7 +249,6 @@ export default function Owner3DBuildingsMap({
             zoom: 15.2,
             pitch: is3DMode ? 60 : 0,
             bearing: -20,
-            antialias: true,
             attributionControl: false,
         })
         mapInstanceRef.current = map
@@ -277,7 +276,7 @@ export default function Owner3DBuildingsMap({
             })
 
             // Tương tác nhấp chuột vào tòa nhà 3D
-            map.on('click', '3d-buildings-extrusion-layer', (e) => {
+            map.on('click', '3d-buildings-extrusion-layer', (e: any) => {
                 if (e.features && e.features[0]) {
                     const props = e.features[0].properties
                     setActiveBuildingInfo({

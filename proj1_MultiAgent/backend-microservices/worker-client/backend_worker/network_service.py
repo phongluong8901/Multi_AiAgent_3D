@@ -36,7 +36,7 @@ except ImportError:
         handle_inference_request,
     )
 
-def collect_telemetry(node_id="", ollama_url="http://localhost:11434", rent_config=None):
+def collect_telemetry(node_id="", node_name="", ollama_url="http://localhost:11434", rent_config=None):
     """
     Collect comprehensive hardware metrics, GPU status, LLM availability, and rental configuration.
     """
@@ -68,9 +68,13 @@ def collect_telemetry(node_id="", ollama_url="http://localhost:11434", rent_conf
     if not has_gpu:
         effective_rent_config["enableGPU"] = False
 
+    effective_name = node_name or node_id or "Worker_Node"
     payload = {
         "type": "SYSTEM_INFO",
-        "nodeId": node_id,
+        "nodeId": node_id or effective_name,
+        "nodeName": effective_name,
+        "node_name": effective_name,
+        "username": effective_name,
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "hardware": {
             "cpu": cpu_info,
@@ -152,11 +156,21 @@ class WorkerNetworkClient:
             target_ws_url = self.conn_info["ws_url"]
             token = self.conn_info["token"]
             node_id = self.conn_info["node_id"]
+            node_name = self.conn_info.get("node_name", "")
             ollama_url = self.conn_info["ollama_url"]
             rent_config = self.conn_info["rent_config"]
 
+            import urllib.parse
+            params_list = []
+            if token:
+                params_list.append(f"token={token}")
+            if node_id:
+                params_list.append(f"nodeId={node_id}")
+            if node_name:
+                params_list.append(f"nodeName={urllib.parse.quote(node_name)}")
+            p_str = "&".join(params_list)
+
             sep = "&" if "?" in target_ws_url else "?"
-            p_str = f"token={token}&nodeId={node_id}" if (token or node_id) else ""
             primary_with_params = f"{target_ws_url}{sep}{p_str}" if p_str else target_ws_url
             urls_to_try = [primary_with_params, target_ws_url]
             for f_url in self.fallback_urls:
@@ -181,7 +195,7 @@ class WorkerNetworkClient:
             if not self.ws:
                 # Vẫn đo đạc thông số máy cục bộ để giao diện Desktop hiển thị ngay cả khi chưa thông mạng
                 try:
-                    local_payload = collect_telemetry(node_id=node_id, ollama_url=ollama_url, rent_config=rent_config)
+                    local_payload = collect_telemetry(node_id=node_id, node_name=node_name, ollama_url=ollama_url, rent_config=rent_config)
                     print(f"[LOCAL_TELEMETRY] {json.dumps(local_payload)}", flush=True)
                 except Exception:
                     pass
@@ -235,6 +249,7 @@ class WorkerNetworkClient:
 
                     payload = collect_telemetry(
                         node_id=node_id,
+                        node_name=node_name,
                         ollama_url=ollama_url,
                         rent_config=rent_config,
                     )

@@ -131,6 +131,7 @@ export interface WorkerConfig {
   serverWsUrl: string;
   authToken: string;
   nodeId: string;
+  nodeName?: string;
   localEndpoint: string;
   allocatedCores: number;
   allocatedRAMGB: number;

@@ -34,12 +34,15 @@ import {
     Check,
     Settings2,
     FileDown,
+    Layers,
+    Laptop,
 } from 'lucide-react'
 
 export default function NodeCheckerPage() {
     const { profile } = useUser()
     const {
         myNode: desktopNode,
+        myNodes,
         onlineNodes,
         wsConnected,
         pingLatency,
@@ -53,6 +56,18 @@ export default function NodeCheckerPage() {
 
     const [togglingStatus, setTogglingStatus] = useState(false)
     const [isOnboardingModalOpen, setIsOnboardingModalOpen] = useState(false)
+    const [selectedNodeId, setSelectedNodeId] = useState<string>('')
+    const [generatedNodeId, setGeneratedNodeId] = useState<string>('')
+    const [generatedAuthToken, setGeneratedAuthToken] = useState<string>('')
+
+    // Chọn node cụ thể nếu có nhiều node, mặc định là desktopNode
+    const targetNode = React.useMemo(() => {
+        if (selectedNodeId && myNodes && myNodes.length > 0) {
+            const found = myNodes.find((n) => n.id === selectedNodeId)
+            if (found) return found
+        }
+        return desktopNode
+    }, [selectedNodeId, myNodes, desktopNode])
 
     // State cho cấu hình setup Core, RAM, GPU và Token kết nối Web - Local
     const [allocatedCores, setAllocatedCores] = useState<number>(4)
@@ -69,37 +84,37 @@ export default function NodeCheckerPage() {
     const [isSavingConfig, setIsSavingConfig] = useState(false)
 
     // Xác định xem máy Seller có GPU rời thực tế hay không
-    const hasDetectedGPU = desktopNode
+    const hasDetectedGPU = targetNode
         ? Boolean(
-              (desktopNode as any).hasGPU ||
-              (desktopNode.hardware && desktopNode.hardware.hasWebGPU) ||
-              (desktopNode.hardware?.gpuName && desktopNode.hardware.gpuName !== 'CPU Mode')
+              (targetNode as any).hasGPU ||
+              (targetNode.hardware && targetNode.hardware.hasWebGPU) ||
+              (targetNode.hardware?.gpuName && targetNode.hardware.gpuName !== 'CPU Mode')
           )
         : true
 
-    // Đồng bộ cấu hình đã lưu khi desktopNode tải xong
+    // Đồng bộ cấu hình đã lưu khi targetNode tải xong
     React.useEffect(() => {
-        if (desktopNode) {
-            if (desktopNode.rentConfig) {
-                if (desktopNode.rentConfig.allocatedCores) setAllocatedCores(desktopNode.rentConfig.allocatedCores)
-                if (desktopNode.rentConfig.allocatedRAMGB) setAllocatedRAMGB(desktopNode.rentConfig.allocatedRAMGB)
-                if (desktopNode.rentConfig.enableGPU !== undefined) setEnableGPU(desktopNode.rentConfig.enableGPU)
-                if (desktopNode.rentConfig.gpuSharePercent) setGpuSharePercent(desktopNode.rentConfig.gpuSharePercent)
-                if (desktopNode.rentConfig.minPricePerHourCoin) setMinPricePerHourCoin(desktopNode.rentConfig.minPricePerHourCoin)
-                if (desktopNode.rentConfig.maxTokens) setMaxTokens(desktopNode.rentConfig.maxTokens)
-                if (desktopNode.rentConfig.contextLength) setContextLength(desktopNode.rentConfig.contextLength)
-                if (desktopNode.rentConfig.temperature !== undefined) setTemperature(desktopNode.rentConfig.temperature)
-                if (desktopNode.rentConfig.defaultModel) {
-                    setDefaultModel(desktopNode.rentConfig.defaultModel)
-                    setTestModel(desktopNode.rentConfig.defaultModel)
+        if (targetNode) {
+            if (targetNode.rentConfig) {
+                if (targetNode.rentConfig.allocatedCores) setAllocatedCores(targetNode.rentConfig.allocatedCores)
+                if (targetNode.rentConfig.allocatedRAMGB) setAllocatedRAMGB(targetNode.rentConfig.allocatedRAMGB)
+                if (targetNode.rentConfig.enableGPU !== undefined) setEnableGPU(targetNode.rentConfig.enableGPU)
+                if (targetNode.rentConfig.gpuSharePercent) setGpuSharePercent(targetNode.rentConfig.gpuSharePercent)
+                if (targetNode.rentConfig.minPricePerHourCoin) setMinPricePerHourCoin(targetNode.rentConfig.minPricePerHourCoin)
+                if (targetNode.rentConfig.maxTokens) setMaxTokens(targetNode.rentConfig.maxTokens)
+                if (targetNode.rentConfig.contextLength) setContextLength(targetNode.rentConfig.contextLength)
+                if (targetNode.rentConfig.temperature !== undefined) setTemperature(targetNode.rentConfig.temperature)
+                if (targetNode.rentConfig.defaultModel) {
+                    setDefaultModel(targetNode.rentConfig.defaultModel)
+                    setTestModel(targetNode.rentConfig.defaultModel)
                 }
-                if (desktopNode.rentConfig.maxConcurrentTasks) setMaxConcurrentTasks(desktopNode.rentConfig.maxConcurrentTasks)
-            } else if (desktopNode.hardware) {
-                if (desktopNode.hardware.cpuCores) setAllocatedCores(Math.max(1, Math.round(desktopNode.hardware.cpuCores / 2)))
-                if (desktopNode.hardware.deviceMemoryGB) setAllocatedRAMGB(Math.max(2, Math.round(desktopNode.hardware.deviceMemoryGB / 2)))
+                if (targetNode.rentConfig.maxConcurrentTasks) setMaxConcurrentTasks(targetNode.rentConfig.maxConcurrentTasks)
+            } else if (targetNode.hardware) {
+                if (targetNode.hardware.cpuCores) setAllocatedCores(Math.max(1, Math.round(targetNode.hardware.cpuCores / 2)))
+                if (targetNode.hardware.deviceMemoryGB) setAllocatedRAMGB(Math.max(2, Math.round(targetNode.hardware.deviceMemoryGB / 2)))
             }
         }
-    }, [desktopNode])
+    }, [targetNode])
 
     // State cho tính năng Test Stream LLM xuống máy Seller
     const [testModel, setTestModel] = useState<string>('qwen2.5-coder:1.5b')
@@ -117,19 +132,19 @@ export default function NodeCheckerPage() {
 
     // Node chỉ được coi là Đang Trực Tuyến khi Electron Worker thực sự đang kết nối và truyền Telemetry
     const isDesktopConnected =
-        desktopNode !== null &&
-        (desktopNode.status === 'IDLE' || desktopNode.status === 'BUSY') &&
-        Boolean(desktopNode.lastTelemetry)
+        targetNode !== null &&
+        (targetNode.status === 'IDLE' || targetNode.status === 'BUSY') &&
+        Boolean(targetNode.lastTelemetry)
 
-    const isRegisteredWaitingOrPaused = desktopNode !== null && !isDesktopConnected
+    const isRegisteredWaitingOrPaused = targetNode !== null && !isDesktopConnected
 
     const handleToggleConnection = async () => {
-        if (!desktopNode) return
+        if (!targetNode) return
         setTogglingStatus(true)
         try {
             const isCurrentlyActive = isDesktopConnected
             const nextAction = isCurrentlyActive ? 'OFFLINE' : 'IDLE'
-            const res = await toggleNodeStatus(desktopNode.id, nextAction)
+            const res = await toggleNodeStatus(targetNode.id, nextAction)
             if (res.success) {
                 notify.success(
                     isCurrentlyActive
@@ -158,7 +173,7 @@ export default function NodeCheckerPage() {
         try {
             const res = await distributedApi.testInferenceStream(
                 {
-                    nodeId: desktopNode?.id,
+                    nodeId: targetNode?.id,
                     model: testModel,
                     prompt: testPrompt,
                     temperature,
@@ -195,11 +210,29 @@ export default function NodeCheckerPage() {
         }
     }
 
+    // Tên máy trạm thực tế nhận từ Electron Worker (ưu tiên nodeName, username, hoặc ID định danh)
+    const effectiveNodeName =
+        targetNode?.nodeName ||
+        (targetNode?.username && targetNode.username !== 'Seller Node' && targetNode.username !== 'Seller_PC' ? targetNode.username : '') ||
+        (targetNode?.id && !targetNode.id.startsWith('node_seller_') && !targetNode.id.startsWith('worker_') && !targetNode.id.startsWith('guest_') ? targetNode.id : '')
+
+    const activeNodeName = effectiveNodeName || 'Chờ Electron Worker kết nối'
+
+    const handleGenerateNewCredentials = () => {
+        const randHex1 = Math.random().toString(36).substring(2, 7)
+        const randHex2 = Math.random().toString(36).substring(2, 7)
+        const timestamp = Date.now().toString(36).slice(-4)
+        const newAuthToken = `dist_${randHex1}${randHex2}${timestamp}`
+        setGeneratedAuthToken(newAuthToken)
+        notify.success(`[SUCCESS] Đã sinh Auth Token mới! Hãy cấu hình Tên Máy Trạm trên Electron Worker để kết nối.`)
+    }
+
     const activeAuthToken =
-        desktopNode?.authToken ||
-        'dist_seller_' + (profile?.id ? profile.id.slice(0, 8) : 'demo88')
-    const activeNodeId =
-        desktopNode?.id || (profile?.id ? `node_${profile.id}` : 'node_seller_local')
+        generatedAuthToken ||
+        targetNode?.authToken ||
+        (profile?.id ? `dist_seller_${profile.id.slice(0, 8)}` : 'dist_seller_quickstart')
+
+    const activeNodeId = effectiveNodeName || targetNode?.id || (profile?.id ? `node_${profile.id.slice(0, 8)}` : 'node_seller')
 
     const handleCopyToken = () => {
         navigator.clipboard.writeText(activeAuthToken)
@@ -209,10 +242,11 @@ export default function NodeCheckerPage() {
     }
 
     const handleDownloadConfigFile = () => {
+        const nodeNameToSave = effectiveNodeName || 'phong 01'
         const configData = {
             serverWsUrl: 'ws://localhost:4000/api/v1/distributed/ws',
             authToken: activeAuthToken,
-            nodeId: activeNodeId,
+            nodeName: nodeNameToSave,
             localEndpoint: 'http://localhost:11434',
             allocatedCores,
             allocatedRAMGB,
@@ -233,17 +267,19 @@ export default function NodeCheckerPage() {
         a.click()
         document.body.removeChild(a)
         URL.revokeObjectURL(url)
-        notify.success('Đã tải xuống file worker-config.json! Hãy dán vào thư mục worker hoặc import trên Electron.')
+        notify.success('[SUCCESS] Đã tải xuống file worker-config.json! Tên máy sẽ tự động map lên Web khi Worker chạy.')
     }
 
     const handleSaveRentConfig = async () => {
         setIsSavingConfig(true)
         try {
             const payload = {
-                userId: profile?.id || desktopNode?.userId || 'usr_seller_' + Date.now().toString(36),
-                username: profile?.name || desktopNode?.username || 'Seller Node',
-                email: profile?.email || desktopNode?.email || 'seller@network.ai',
-                hardware: desktopNode?.hardware || {
+                id: activeNodeId,
+                nodeName: effectiveNodeName || 'phong 01',
+                userId: profile?.id || targetNode?.userId || 'usr_seller_' + Date.now().toString(36),
+                username: effectiveNodeName || profile?.name || 'Seller Node',
+                email: profile?.email || targetNode?.email || 'seller@network.ai',
+                hardware: targetNode?.hardware || {
                     cpuCores: navigator.hardwareConcurrency || 8,
                     deviceMemoryGB: 16,
                     hasWebGPU: false,
@@ -271,7 +307,7 @@ export default function NodeCheckerPage() {
             const res = await distributedApi.registerPartnerNode(payload)
             if (res.success && res.node) {
                 upsertRegisteredNode(res.node)
-                notify.success('Đã lưu cấu hình tài nguyên cấp phát & Token kết nối thành công!')
+                notify.success('[SUCCESS] Đã lưu cấu hình tài nguyên cấp phát & Token kết nối thành công!')
             } else {
                 notify.error('Không thể lưu cấu hình: ' + (res.message || 'Lỗi không xác định'))
             }
@@ -282,15 +318,15 @@ export default function NodeCheckerPage() {
         }
     }
 
-    const displayCores = desktopNode?.hardware.cpuCores || 0
-    const displayRAM = desktopNode?.hardware.deviceMemoryGB || 0
+    const displayCores = targetNode?.hardware?.cpuCores || 0
+    const displayRAM = targetNode?.hardware?.deviceMemoryGB || 0
     const displayGPU =
-        desktopNode?.hardware.gpuName && desktopNode.hardware.gpuName !== 'Đang kiểm tra...'
-            ? desktopNode.hardware.gpuName
+        targetNode?.hardware?.gpuName && targetNode.hardware.gpuName !== 'Đang kiểm tra...'
+            ? targetNode.hardware.gpuName
             : 'Chờ ứng dụng Electron Worker quét driver GPU...'
     const detectedModels =
-        desktopNode?.compatibleModels && desktopNode.compatibleModels.length > 0
-            ? desktopNode.compatibleModels
+        targetNode?.compatibleModels && targetNode.compatibleModels.length > 0
+            ? targetNode.compatibleModels
             : ['qwen2.5-coder:1.5b']
 
     return (
@@ -364,18 +400,23 @@ export default function NodeCheckerPage() {
                             }`}
                         />
                         <div>
-                            <h3 className="text-xs font-bold text-foreground uppercase tracking-wider flex items-center gap-2">
-                                <span>
+                            <div className="flex items-center gap-2 flex-wrap">
+                                <h3 className="text-xs font-bold text-foreground uppercase tracking-wider">
                                     {isDesktopConnected
-                                        ? `Electron Worker Đang Kết Nối: ${desktopNode?.username || 'Seller Node'}`
+                                        ? `Electron Worker Đang Kết Nối: ${activeNodeName}`
                                         : isRegisteredWaitingOrPaused
-                                        ? `Đã Đăng Ký (${desktopNode?.username}) — Chờ Chạy Electron Worker`
+                                        ? `Đã Đăng Ký (${activeNodeName}) — Chờ Chạy Electron Worker`
                                         : 'Chưa Kết Nối Electron Desktop Worker'}
-                                </span>
-                            </h3>
+                                </h3>
+                                {effectiveNodeName && (
+                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                                        Tên máy: {effectiveNodeName}
+                                    </span>
+                                )}
+                            </div>
                             <p className="text-[11px] text-muted-foreground mt-0.5">
                                 {isDesktopConnected
-                                    ? 'Máy của bạn đã gia nhập mạng lưới Đối tác Mô hình 3D và sẵn sàng nhận lệnh suy luận AI.'
+                                    ? `Máy [${activeNodeName}] đã gia nhập mạng lưới Đối tác Mô hình 3D và sẵn sàng nhận lệnh suy luận AI.`
                                     : isRegisteredWaitingOrPaused
                                     ? 'Cấu hình đã lưu nhưng chưa nhận được luồng WebSocket từ worker.exe (hoặc đang tạm dừng).'
                                     : 'Hãy chạy ứng dụng Go-Python Worker (.exe) trên máy tính Seller để kết nối vào mạng lưới.'}
@@ -384,7 +425,7 @@ export default function NodeCheckerPage() {
                     </div>
 
                     {/* Công tắc BẬT / TẮT kết nối vào mạng lưới khi có node */}
-                    {desktopNode && (
+                    {targetNode && (
                         <button
                             onClick={handleToggleConnection}
                             disabled={togglingStatus}
@@ -428,8 +469,8 @@ export default function NodeCheckerPage() {
                                 <span className="text-[10px] text-muted-foreground block">Tải CPU Máy Seller</span>
                                 <div className="flex items-baseline gap-1">
                                     <strong className="text-lg font-black text-blue-600 dark:text-blue-400 font-mono">
-                                        {desktopNode?.lastTelemetry?.cpu_percent !== undefined
-                                            ? desktopNode.lastTelemetry.cpu_percent.toFixed(1)
+                                        {targetNode?.lastTelemetry?.cpu_percent !== undefined
+                                            ? targetNode.lastTelemetry.cpu_percent.toFixed(1)
                                             : '0.0'}
                                         %
                                     </strong>
@@ -441,8 +482,8 @@ export default function NodeCheckerPage() {
                                 <span className="text-[10px] text-muted-foreground block">Tải RAM Máy Seller</span>
                                 <div className="flex items-baseline gap-1">
                                     <strong className="text-lg font-black text-indigo-600 dark:text-indigo-400 font-mono">
-                                        {desktopNode?.lastTelemetry?.ram_percent !== undefined
-                                            ? desktopNode.lastTelemetry.ram_percent.toFixed(1)
+                                        {targetNode?.lastTelemetry?.ram_percent !== undefined
+                                            ? targetNode.lastTelemetry.ram_percent.toFixed(1)
                                             : '0.0'}
                                         %
                                     </strong>
@@ -454,7 +495,7 @@ export default function NodeCheckerPage() {
                                 <span className="text-[10px] text-muted-foreground block">SaveCoins Tích Lũy</span>
                                 <div className="flex items-baseline gap-1">
                                     <strong className="text-lg font-black text-amber-600 dark:text-amber-400 font-mono">
-                                        {Number(desktopNode?.totalCoinsEarned || 0).toFixed(2)}
+                                        {Number(targetNode?.totalCoinsEarned || 0).toFixed(2)}
                                     </strong>
                                     <span className="text-[10px] text-amber-600 dark:text-amber-400">Coins</span>
                                 </div>
@@ -471,12 +512,12 @@ export default function NodeCheckerPage() {
                                         Trạng Thái Hoạt Động Của Local LLM (Ollama P2P)
                                     </span>
                                     <span className="text-[11px] text-muted-foreground font-mono">
-                                        [{desktopNode?.llmStats?.current_model || desktopNode?.activeModel || defaultModel}]
+                                        [{targetNode?.llmStats?.current_model || targetNode?.activeModel || defaultModel}]
                                     </span>
                                 </div>
 
                                 <div className="flex items-center gap-2">
-                                    {desktopNode?.llmStats?.is_busy || desktopNode?.status === 'BUSY' ? (
+                                    {targetNode?.llmStats?.is_busy || targetNode?.status === 'BUSY' ? (
                                         <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-600 dark:text-amber-300 text-[11px] font-bold animate-pulse">
                                             <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
                                             <span>ĐANG SINH TOKEN (BUSY)</span>
@@ -495,12 +536,12 @@ export default function NodeCheckerPage() {
                                     <span className="text-[10px] text-muted-foreground block">Tổng Token Xử Lý</span>
                                     <div className="flex items-baseline gap-1">
                                         <strong className="text-base font-black text-amber-600 dark:text-amber-400 font-mono">
-                                            {(desktopNode?.llmStats?.total_tokens ?? 0).toLocaleString()}
+                                            {(targetNode?.llmStats?.total_tokens ?? 0).toLocaleString()}
                                         </strong>
                                         <span className="text-[10px] text-muted-foreground font-mono">tokens</span>
                                     </div>
                                     <span className="text-[9px] text-muted-foreground block">
-                                        Prompt: {(desktopNode?.llmStats?.prompt_tokens ?? 0).toLocaleString()} | Sinh: {(desktopNode?.llmStats?.completion_tokens ?? 0).toLocaleString()}
+                                        Prompt: {(targetNode?.llmStats?.prompt_tokens ?? 0).toLocaleString()} | Sinh: {(targetNode?.llmStats?.completion_tokens ?? 0).toLocaleString()}
                                     </span>
                                 </div>
 
@@ -508,12 +549,12 @@ export default function NodeCheckerPage() {
                                     <span className="text-[10px] text-muted-foreground block">Số Lần Gọi LLM</span>
                                     <div className="flex items-baseline gap-1">
                                         <strong className="text-base font-black text-blue-600 dark:text-blue-400 font-mono">
-                                            {desktopNode?.llmStats?.total_requests ?? 0}
+                                            {targetNode?.llmStats?.total_requests ?? 0}
                                         </strong>
                                         <span className="text-[10px] text-muted-foreground font-mono">calls</span>
                                     </div>
                                     <span className="text-[9px] text-muted-foreground block">
-                                        Đang chạy: {desktopNode?.llmStats?.active_requests ?? 0} tác vụ
+                                        Đang chạy: {targetNode?.llmStats?.active_requests ?? 0} tác vụ
                                     </span>
                                 </div>
 
@@ -521,7 +562,7 @@ export default function NodeCheckerPage() {
                                     <span className="text-[10px] text-muted-foreground block">Tốc Độ Sinh Token</span>
                                     <div className="flex items-baseline gap-1">
                                         <strong className="text-base font-black text-emerald-600 dark:text-emerald-400 font-mono">
-                                            {(desktopNode?.llmStats?.tokens_per_sec ?? 0).toFixed(1)}
+                                            {(targetNode?.llmStats?.tokens_per_sec ?? 0).toFixed(1)}
                                         </strong>
                                         <span className="text-[10px] text-muted-foreground font-mono">tok/s</span>
                                     </div>
@@ -532,7 +573,7 @@ export default function NodeCheckerPage() {
                                     <span className="text-[10px] text-muted-foreground block">Độ Trễ Phản Hồi</span>
                                     <div className="flex items-baseline gap-1">
                                         <strong className="text-base font-black text-purple-600 dark:text-purple-400 font-mono">
-                                            {(desktopNode?.llmStats?.last_latency_ms ?? 0).toFixed(0)}
+                                            {(targetNode?.llmStats?.last_latency_ms ?? 0).toFixed(0)}
                                         </strong>
                                         <span className="text-[10px] text-muted-foreground font-mono">ms</span>
                                     </div>
@@ -564,6 +605,137 @@ export default function NodeCheckerPage() {
                 )}
             </div>
 
+            {/* 2.5 CỤM MÁY TRẠM WORKER CỦA BẠN (MULTI-NODE CLUSTER) */}
+            <div className="rounded-2xl border border-border bg-card/85 backdrop-blur-md p-5 space-y-4 shadow-lg">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border/80 pb-3">
+                    <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 shrink-0">
+                            <Layers className="w-4 h-4" />
+                        </div>
+                        <div>
+                            <div className="flex items-center gap-2">
+                                <h3 className="text-xs font-bold text-foreground uppercase tracking-wider">
+                                    Cụm Máy Trạm Của Bạn ({myNodes?.length || 0} Máy)
+                                </h3>
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/15 text-blue-400 border border-blue-500/30">
+                                    Hỗ trợ 1 user gắn nhiều máy
+                                </span>
+                            </div>
+                            <p className="text-[11px] text-muted-foreground mt-0.5">
+                                Quản lý danh sách các worker đang chạy. Tên máy (Node Name) do bạn đặt trong file cấu hình Electron Worker.
+                            </p>
+                        </div>
+                    </div>
+
+                    <button
+                        type="button"
+                        onClick={handleGenerateNewCredentials}
+                        className="px-3.5 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-500 dark:text-amber-300 border border-amber-500/30 text-xs font-bold transition flex items-center gap-1.5 shadow-sm self-start sm:self-auto shrink-0"
+                        title="Sinh ngẫu nhiên cặp Node ID và Auth Token mới để gắn thêm máy trạm tiếp theo"
+                    >
+                        <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                        <span>Sinh Token Cho Máy Mới</span>
+                    </button>
+                </div>
+
+                {myNodes && myNodes.length > 0 ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                        {myNodes.map((node) => {
+                            const isLive = (node.status === 'IDLE' || node.status === 'BUSY') && Boolean(node.lastTelemetry)
+                            const isSelected = targetNode?.id === node.id
+
+                            return (
+                                <div
+                                    key={node.id}
+                                    onClick={() => setSelectedNodeId(node.id)}
+                                    className={`p-3.5 rounded-xl border transition-all cursor-pointer space-y-3 relative ${
+                                        isSelected
+                                            ? 'bg-blue-950/20 border-blue-500 shadow-md shadow-blue-500/10 ring-1 ring-blue-500/50'
+                                            : 'bg-secondary/30 border-border hover:border-zinc-600 hover:bg-secondary/50'
+                                    }`}
+                                >
+                                    <div className="flex items-start justify-between gap-2">
+                                        <div className="space-y-0.5">
+                                            <div className="flex items-center gap-1.5">
+                                                <Laptop className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                                                <strong className="text-xs font-bold text-foreground truncate max-w-[170px]">
+                                                    {node.nodeName || node.username || 'Máy Trạm Worker'}
+                                                </strong>
+                                            </div>
+                                            <span className="text-[10px] text-muted-foreground font-mono block">
+                                                Thiết bị: {node.id}
+                                            </span>
+                                        </div>
+
+                                        <span
+                                            className={`px-2 py-0.5 rounded-full text-[9px] font-bold border flex items-center gap-1 shrink-0 ${
+                                                isLive
+                                                    ? node.status === 'BUSY'
+                                                        ? 'bg-amber-500/15 text-amber-400 border-amber-500/30'
+                                                        : 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                                                    : 'bg-zinc-800 text-zinc-400 border-zinc-700'
+                                            }`}
+                                        >
+                                            <span
+                                                className={`w-1.5 h-1.5 rounded-full ${
+                                                    isLive
+                                                        ? node.status === 'BUSY'
+                                                            ? 'bg-amber-400 animate-ping'
+                                                            : 'bg-emerald-400 animate-pulse'
+                                                        : 'bg-zinc-500'
+                                                }`}
+                                            />
+                                            <span>{isLive ? node.status : 'OFFLINE'}</span>
+                                        </span>
+                                    </div>
+
+                                    <div className="grid grid-cols-3 gap-1.5 py-1 text-[10px] border-y border-border/60">
+                                        <div>
+                                            <span className="text-muted-foreground block">CPU</span>
+                                            <span className="font-mono font-semibold text-foreground">
+                                                {node.hardware?.cpuCores || 8}C
+                                            </span>
+                                        </div>
+                                        <div>
+                                            <span className="text-muted-foreground block">RAM</span>
+                                            <span className="font-mono font-semibold text-foreground">
+                                                {node.hardware?.deviceMemoryGB || 16}GB
+                                            </span>
+                                        </div>
+                                        <div>
+                                            <span className="text-muted-foreground block">GPU</span>
+                                            <span className="font-mono font-semibold text-foreground truncate block">
+                                                {node.hardware?.gpuName?.replace('NVIDIA GeForce ', '') || 'CPU'}
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex items-center justify-between text-[10px] pt-0.5">
+                                        <span className="text-muted-foreground font-mono truncate max-w-[130px]">
+                                            {node.activeModel || node.compatibleModels?.[0] || 'qwen2.5-coder:1.5b'}
+                                        </span>
+                                        {isSelected ? (
+                                            <span className="text-blue-400 font-bold flex items-center gap-1">
+                                                <CheckCircle2 className="w-3 h-3" />
+                                                <span>Đang Xem</span>
+                                            </span>
+                                        ) : (
+                                            <span className="text-zinc-500 hover:text-foreground">Click để chọn</span>
+                                        )}
+                                    </div>
+                                </div>
+                            )
+                        })}
+                    </div>
+                ) : (
+                    <div className="p-4 rounded-xl border border-dashed border-border bg-secondary/20 text-center space-y-2 text-xs text-muted-foreground">
+                        <p>Chưa có máy trạm nào được kết nối với tài khoản này.</p>
+                        <p className="text-[11px]">
+                            Bấm nút <strong>Sinh Token Cho Máy Mới</strong> bên trên, sau đó tải file <code>worker-config.json</code> và khởi chạy Electron Worker trên các máy để bắt đầu chia sẻ.
+                        </p>
+                    </div>
+                )}
+            </div>
 
             {/* 3. BỐ CỤC ĐA THIẾT BỊ (RESPONSIVE 12-COLUMN GRID TRÊN DESKTOP, STACK TRÊN MOBILE) */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
@@ -600,12 +772,16 @@ export default function NodeCheckerPage() {
 
                 {/* KHỐI AUTH TOKEN & TẢI FILE CONFIG */}
                 <div className="bg-zinc-950/80 border border-border rounded-xl p-3.5 space-y-2.5">
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
                         <label className="text-[11px] font-bold text-zinc-300 flex items-center gap-1.5">
                             <Key className="w-3.5 h-3.5 text-amber-400" />
                             <span>Mã Auth Token Kết Nối Máy Local:</span>
                         </label>
-                        <span className="text-[10px] text-zinc-500 font-mono">Node ID: {activeNodeId}</span>
+                        <div className="flex items-center gap-2 flex-wrap text-[10px]">
+                            <span className="px-2.5 py-0.5 rounded bg-blue-500/10 border border-blue-500/20 text-blue-300 font-mono">
+                                Tên Máy (Node Name): <strong className="text-white">{activeNodeName}</strong>
+                            </span>
+                        </div>
                     </div>
 
                     <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
@@ -634,6 +810,16 @@ export default function NodeCheckerPage() {
 
                         <button
                             type="button"
+                            onClick={handleGenerateNewCredentials}
+                            className="px-3 py-2 rounded-lg bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/40 text-xs font-semibold transition flex items-center justify-center gap-1.5 shrink-0"
+                            title="Sinh ngẫu nhiên cặp Node ID và Token mới để gắn thêm máy trạm mới cho tài khoản"
+                        >
+                            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                            <span>Sinh Token Mới (Generate)</span>
+                        </button>
+
+                        <button
+                            type="button"
                             onClick={handleDownloadConfigFile}
                             className="px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold transition flex items-center justify-center gap-1.5 shadow-md shadow-blue-500/20 shrink-0"
                             title="Tải trực tiếp file worker-config.json đặt vào thư mục chạy worker"
@@ -644,7 +830,7 @@ export default function NodeCheckerPage() {
                     </div>
 
                     <p className="text-[10px] text-zinc-400 leading-relaxed">
-                        <strong className="text-zinc-300">Hướng dẫn kết nối:</strong> Mở ứng dụng Electron Worker trên máy Seller, chuyển sang tab <strong>Config & Token</strong>, dán mã Auth Token này và bấm <em>Lưu</em> (hoặc đặt file <code>worker-config.json</code> vừa tải vào thư mục chạy worker). Ứng dụng sẽ tự động liên kết với tài khoản này.
+                        <strong className="text-zinc-300">Hướng dẫn kết nối & lắp nhiều máy:</strong> Bạn có thể bấm <em>Sinh Token Mới (Generate)</em> để tạo cặp Node ID và Token riêng cho từng máy tính Seller. Cấu hình tên máy (<code>nodeName</code>) trong ứng dụng Electron Worker hoặc file <code>worker-config.json</code>, hệ thống sẽ tự động hiển thị tên máy lên trang kiểm tra này.
                     </p>
                 </div>
 
@@ -973,11 +1159,11 @@ export default function NodeCheckerPage() {
                         >
                             {isDesktopConnected ? displayGPU : 'Chờ ứng dụng Electron Worker kết nối...'}
                         </span>
-                        {desktopNode?.location && isDesktopConnected && (
+                        {targetNode?.location && isDesktopConnected && (
                             <span className="text-[11px] text-cyan-400 flex items-center gap-1 font-mono">
                                 <MapPin className="w-3.5 h-3.5" />
                                 <span>
-                                    {desktopNode.location.city}, {desktopNode.location.country}
+                                    {targetNode.location.city}, {targetNode.location.country}
                                 </span>
                             </span>
                         )}
@@ -1102,7 +1288,7 @@ export default function NodeCheckerPage() {
                         <div className="flex items-center gap-2 text-[11px] text-zinc-400">
                             <Bot className="w-3.5 h-3.5 text-zinc-500" />
                             <span>
-                                Đích đến: <strong className="text-zinc-200 font-mono">{desktopNode?.username || 'Seller Worker'}</strong> (:11434)
+                                Đích đến: <strong className="text-zinc-200 font-mono">{activeNodeName}</strong> (:11434)
                             </span>
                         </div>
 

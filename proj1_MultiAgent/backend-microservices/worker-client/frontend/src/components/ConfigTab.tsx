@@ -58,16 +58,24 @@ export const ConfigTab: FC<ConfigTabProps> = ({
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div>
-            <label className="text-gray-300 font-semibold block mb-1">
-              Node ID (Định danh máy trạm):
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-gray-300 font-semibold block">
+                Tên Máy Trạm (Node Name):
+              </label>
+              <span className="text-[10px] text-gray-400 font-mono">
+                ID thiết bị (tự sinh): {config.nodeId || 'Đang tạo...'}
+              </span>
+            </div>
             <input
               type="text"
-              value={config.nodeId}
-              onChange={(e) => setConfig({ ...config, nodeId: e.target.value.trim() })}
-              placeholder="node_usr_seller_01"
+              value={config.nodeName || ''}
+              onChange={(e) => setConfig({ ...config, nodeName: e.target.value })}
+              placeholder="Ví dụ: phong 01, May_Workstation_RTX..."
               className="w-full bg-[#181818] border border-[#383838] rounded-md px-3 py-2 text-white font-mono text-xs focus:border-[#ff6c37] focus:outline-none transition"
             />
+            <span className="text-[10px] text-gray-500 mt-1 block">
+              Tên này do bạn đặt và sẽ gửi về Web để bạn phân biệt giữa các máy trạm.
+            </span>
           </div>
 
           <div>

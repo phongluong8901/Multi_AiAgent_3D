@@ -361,13 +361,23 @@ func (h *WSHandler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	nodeID := r.URL.Query().Get("nodeId")
+	nodeName := r.URL.Query().Get("nodeName")
 	token := r.URL.Query().Get("token")
 	isWebListener := strings.HasPrefix(nodeID, "web_listener_")
 
 	if !isWebListener && token != "" {
 		if node, found := h.registry.GetNodeByToken(token); found {
-			nodeID = node.ID
+			if nodeName != "" {
+				node.NodeName = nodeName
+				node.Username = nodeName
+			}
+			if nodeID == "" {
+				nodeID = node.ID
+			}
 		}
+	}
+	if nodeID == "" && nodeName != "" {
+		nodeID = nodeName
 	}
 	if nodeID == "" {
 		nodeID = "guest_worker_" + conn.RemoteAddr().String()
@@ -564,7 +574,16 @@ func (h *WSHandler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 
+				nodeName, _ := payload["nodeName"].(string)
+				if nodeName == "" {
+					nodeName, _ = payload["node_name"].(string)
+				}
+				if nodeName == "" {
+					nodeName = r.URL.Query().Get("nodeName")
+				}
+
 				stats := models.TelemetryStats{
+					NodeName:        nodeName,
 					CPUPercent:      cpuP,
 					RAMPercent:      ramP,
 					DiskPercent:     diskP,
@@ -580,7 +599,7 @@ func (h *WSHandler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 					Timestamp:       time.Now(),
 				}
 
-				updatedNode := h.registry.UpsertWorkerTelemetry(nodeID, hostname, hwReport, ollamaModels, stats)
+				updatedNode := h.registry.UpsertWorkerTelemetry(nodeID, hostname, nodeName, hwReport, ollamaModels, stats)
 				if updatedNode != nil {
 					h.mu.Lock()
 					h.clients[conn] = updatedNode.ID
@@ -588,6 +607,9 @@ func (h *WSHandler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 					h.mu.Unlock()
 
 					payload["nodeId"] = updatedNode.ID
+					payload["nodeName"] = updatedNode.NodeName
+					payload["node_name"] = updatedNode.NodeName
+					payload["username"] = updatedNode.Username
 					payload["node"] = updatedNode
 					payload["status"] = updatedNode.Status
 					if enrichedBytes, mErr := json.Marshal(payload); mErr == nil {
