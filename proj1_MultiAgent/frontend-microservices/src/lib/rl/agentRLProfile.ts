@@ -4,7 +4,7 @@ export interface AgentRLConfig {
     agentId: string
     algorithm: RLAlgorithmType
     algorithmName: string
-    mapName: 'office' | 'grid'
+    mapName: string
     policyName?: string
     episodes: number
     learningRate: number
@@ -30,8 +30,12 @@ export const ALGORITHM_LABELS: Record<string, string> = {
 }
 
 export const MAP_LABELS: Record<string, string> = {
-    office: 'Office 3D Room Map',
-    grid: 'Cyber Grid Arena',
+    office: 'Office 3D Room Map (Văn phòng)',
+    grid: 'Cyber Grid Arena (Sa bàn Tọa độ)',
+    industrial_factory: 'Nhà máy Công nghiệp 4.0 & Robotics',
+    smarthome_iot: 'Biệt thự Smart Home IoT & Sân Vườn',
+    smart_city: 'Đô thị Smart City IoT',
+    outdoor: 'Khuôn viên ngoài trời (Outdoor Campus)',
 }
 
 const STORAGE_PREFIX = 'agent_rl_config_'
@@ -76,7 +80,7 @@ export function getAgentRLConfig(agentId: string): AgentRLConfig {
                 agentId,
                 algorithm: algo,
                 algorithmName: ALGORITHM_LABELS[algo] || parsed.algorithmName || algo.toUpperCase(),
-                mapName: parsed.mapName === 'grid' ? 'grid' : 'office',
+                mapName: parsed.mapName || 'office',
             }
         }
     } catch (e) {

@@ -1,6 +1,7 @@
 'use client'
 
-import { IconBot, IconUser, IconDuck, IconAmr, IconDrone, IconHumanoid, IconHardDrive } from '@/components/ui/icons'
+import { IconBot, IconUser, IconDuck, IconAmr, IconDrone, IconHumanoid, IconHardDrive, IconCpu, IconCompass } from '@/components/ui/icons'
+import { getAgentRLConfig } from '@/lib/rl/agentRLProfile'
 
 interface AgentTeamStripProps {
     roomAgents: any[]
@@ -38,6 +39,10 @@ export function AgentTeamStrip({
                 const isSelected = selected3dAgentId === ag.id
                 const form = getAgentForm(ag)
                 const FormIcon = form === 'duck' ? IconDuck : form === 'amr' ? IconAmr : form === 'drone' ? IconDrone : IconHumanoid
+                const localModel = typeof window !== 'undefined' ? localStorage.getItem(`agent_model:${ag.id}`) : null
+                const effectiveModel = localModel || ag.model || 'gemini-2.5-flash-lite'
+                const isRented = effectiveModel.startsWith('rented:') || effectiveModel.startsWith('rental:')
+                const rlCfg = getAgentRLConfig(ag.id)
 
                 return (
                     <button
@@ -63,12 +68,19 @@ export function AgentTeamStrip({
                                 }`}
                         />
                         <span>{ag.name}</span>
-                        {ag.model && (String(ag.model).startsWith('rented:') || String(ag.model).startsWith('rental:')) && (
-                            <span className="text-[9px] bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 px-1 py-0.2 rounded font-bold uppercase font-mono flex items-center gap-0.5" title={"Mô hình chạy trên máy Seller đã thuê: " + ag.model}>
+                        {isRented ? (
+                            <span className="text-[9px] bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 px-1 py-0.2 rounded font-bold uppercase font-mono flex items-center gap-0.5" title={"Mô hình chạy trên máy Seller đã thuê: " + effectiveModel}>
                                 <IconHardDrive className="w-2.5 h-2.5 text-cyan-400" />
                                 <span>P2P AI</span>
                             </span>
+                        ) : (
+                            <span className="text-[9px] bg-purple-500/15 text-purple-300 border border-purple-500/25 px-1 py-0.2 rounded font-mono hidden sm:inline" title={"LLM Model: " + effectiveModel}>
+                                {effectiveModel.replace('gemini-2.5-', '').replace('gemini-', '')}
+                            </span>
                         )}
+                        <span className="text-[9px] bg-blue-500/15 text-blue-300 border border-blue-500/25 px-1 py-0.2 rounded font-mono hidden md:inline" title={"RL Algorithm: " + (rlCfg.algorithmName || rlCfg.algorithm.toUpperCase())}>
+                            RL:{rlCfg.algorithm.toUpperCase()}
+                        </span>
                         {ag.ownerName && (
                             <span className="text-[10px] text-blue-400 bg-blue-950/60 border border-blue-500/30 px-1 rounded flex items-center gap-0.5">
                                 <IconUser className="w-2.5 h-2.5" />

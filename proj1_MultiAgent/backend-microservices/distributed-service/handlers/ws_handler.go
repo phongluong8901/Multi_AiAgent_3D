@@ -403,7 +403,7 @@ func (h *WSHandler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	defer func() {
 		h.mu.Lock()
-		nid := h.clients[conn]
+		nid := strings.TrimSpace(h.clients[conn])
 		delete(h.clients, conn)
 		delete(h.writeMu, conn)
 		h.mu.Unlock()
@@ -412,7 +412,8 @@ func (h *WSHandler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[DISTRIBUTED WS] Client disconnected (NodeID: %s)\n", nid)
 
 		// Chỉ đánh dấu OFFLINE và thông báo cho Web khi chính Electron Worker ngắt kết nối
-		if !strings.HasPrefix(nid, "web_listener_") {
+		// Tuyệt đối không đánh dấu offline khi listener web hoặc chuỗi rỗng ngắt kết nối
+		if nid != "" && !strings.HasPrefix(nid, "web_listener_") && !strings.HasPrefix(nid, "guest_") {
 			h.registry.MarkNodeOffline(nid, false)
 			h.broadcastJSON(map[string]interface{}{
 				"type":   "WORKER_DISCONNECTED",

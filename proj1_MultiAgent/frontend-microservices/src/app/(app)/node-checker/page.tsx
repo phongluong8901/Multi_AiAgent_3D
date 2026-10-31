@@ -232,7 +232,7 @@ export default function NodeCheckerPage() {
         targetNode?.authToken ||
         (profile?.id ? `dist_seller_${profile.id.slice(0, 8)}` : 'dist_seller_quickstart')
 
-    const activeNodeId = effectiveNodeName || targetNode?.id || (profile?.id ? `node_${profile.id.slice(0, 8)}` : 'node_seller')
+    const activeNodeId = targetNode?.id || (profile?.id ? `node_${profile.id.slice(0, 8)}` : 'node_seller')
 
     const handleCopyToken = () => {
         navigator.clipboard.writeText(activeAuthToken)

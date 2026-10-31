@@ -358,6 +358,16 @@ export default function MapSetupPage() {
                     id: res.data.mapId,
                     name: res.data.name,
                 }))
+                if (typeof window !== 'undefined') {
+                    localStorage.setItem(`map_name:${res.data.mapId}`, res.data.name)
+                    window.dispatchEvent(
+                        new CustomEvent('map-created', {
+                            detail: {
+                                map: res.data,
+                            },
+                        })
+                    )
+                }
                 setSaveCloudModalOpen(false)
             }
         } catch (e: any) {

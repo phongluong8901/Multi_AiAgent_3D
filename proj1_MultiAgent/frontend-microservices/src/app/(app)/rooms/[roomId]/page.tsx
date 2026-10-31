@@ -131,6 +131,34 @@ export default function CollaborativeRoomPage() {
         }
     }, [roomId, currentUserId, currentUserName, loadRoomData, setRoom])
 
+    // Lắng nghe sự kiện cấu hình từ trang Agent Setup & RL Training 3D để cập nhật tức thời
+    useEffect(() => {
+        const refreshAgentsList = async () => {
+            try {
+                const fresh = await agentsApi.list()
+                if (fresh && fresh.length > 0) {
+                    setAllAgents(fresh)
+                }
+            } catch (_) {}
+        }
+
+        const handleUpdate = () => {
+            refreshAgentsList()
+        }
+
+        window.addEventListener('agent-updated', handleUpdate)
+        window.addEventListener('agent-rl-updated', handleUpdate)
+        window.addEventListener('storage', handleUpdate)
+        window.addEventListener('focus', handleUpdate)
+
+        return () => {
+            window.removeEventListener('agent-updated', handleUpdate)
+            window.removeEventListener('agent-rl-updated', handleUpdate)
+            window.removeEventListener('storage', handleUpdate)
+            window.removeEventListener('focus', handleUpdate)
+        }
+    }, [])
+
     // Kiểm tra quyền: Bị đá ra khỏi phòng
     useEffect(() => {
         if (!room || !currentUserId) return
@@ -163,9 +191,20 @@ export default function CollaborativeRoomPage() {
                 const found = allAgents.find((a) => a.id === id)
                 const owner = room.userAgents?.find((b) => b.agentId === id)
                 const live = agentStatuses[id]
+                let localModel: string | undefined
+                let localForm: string | undefined
+                let localBodyId: string | undefined
+                if (typeof window !== 'undefined') {
+                    localModel = localStorage.getItem(`agent_model:${id}`) || undefined
+                    localForm = localStorage.getItem(`agent_form:${id}`) || undefined
+                    localBodyId = localStorage.getItem(`agent_body_id:${id}`) || undefined
+                }
                 if (found) {
                     return {
                         ...found,
+                        model: localModel || found.model || 'gemini-2.5-flash-lite',
+                        form: (localForm || found.form || 'humanoid') as any,
+                        body_id: localBodyId || found.body_id,
                         status: (live?.status || found.status || 'idle') as Agent['status'],
                         speech: live?.speech ?? found.speech ?? null,
                         ownerName: owner?.userName,
@@ -175,6 +214,9 @@ export default function CollaborativeRoomPage() {
                     id,
                     name: formatAgentName(id),
                     color: getAgentDefaultColor(id),
+                    model: localModel || 'gemini-2.5-flash-lite',
+                    form: (localForm || 'humanoid') as any,
+                    body_id: localBodyId || null,
                     status: (live?.status || 'idle') as Agent['status'],
                     speech: live?.speech ?? null,
                     position: [0, 0, 0] as [number, number, number],
@@ -235,8 +277,34 @@ export default function CollaborativeRoomPage() {
         setSelected3dAgentId(agentId)
         setTargetAgentId(agentId)
         const found = roomAgents.find((a) => a.id === agentId) || allAgents.find((a) => a.id === agentId)
+        let localModel: string | null = null
+        let localForm: string | null = null
+        let localBodyId: string | null = null
+        if (typeof window !== 'undefined') {
+            localModel = localStorage.getItem(`agent_model:${agentId}`)
+            localForm = localStorage.getItem(`agent_form:${agentId}`)
+            localBodyId = localStorage.getItem(`agent_body_id:${agentId}`)
+        }
         if (found) {
-            setInspectorAgent(found)
+            setInspectorAgent({
+                ...found,
+                model: localModel || found.model || 'gemini-2.5-flash-lite',
+                form: (localForm as any) || found.form || 'humanoid',
+                body_id: localBodyId || found.body_id,
+            })
+            setInspectorOpen(true)
+        } else {
+            setInspectorAgent({
+                id: agentId,
+                name: formatAgentName(agentId),
+                color: getAgentDefaultColor(agentId),
+                model: localModel || 'gemini-2.5-flash-lite',
+                form: (localForm as any) || 'humanoid',
+                body_id: localBodyId || null,
+                status: 'idle',
+                speech: null,
+                position: [0, 0, 0],
+            })
             setInspectorOpen(true)
         }
     }
@@ -455,9 +523,15 @@ export default function CollaborativeRoomPage() {
                 isOpen={inspectorOpen}
                 onClose={() => setInspectorOpen(false)}
                 agent={inspectorAgent}
+                mapName={mapType}
                 onOpenChat={(agId) => {
                     setTargetAgentId(agId)
                     setViewMode('split')
+                }}
+                onAgentUpdated={(updated) => {
+                    setAllAgents((prev) =>
+                        prev.map((a) => (a.id === updated.id ? { ...a, ...updated } : a))
+                    )
                 }}
             />
         </div>

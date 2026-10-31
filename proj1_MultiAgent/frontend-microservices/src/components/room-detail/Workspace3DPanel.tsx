@@ -20,7 +20,9 @@ import {
     IconAmr,
     IconDrone,
     IconHumanoid,
+    IconCpu,
 } from '@/components/ui/icons'
+import { getAgentRLConfig } from '@/lib/rl/agentRLProfile'
 import NvidiaIsaacHud from '@/components/agents/NvidiaIsaacHud'
 
 interface Workspace3DPanelProps {
@@ -62,6 +64,20 @@ export function Workspace3DPanel({
 
     const FormIcon = robotForm === 'duck' ? IconDuck : robotForm === 'amr' ? IconAmr : robotForm === 'drone' ? IconDrone : IconHumanoid
     const formLabel = robotForm === 'duck' ? 'MicroDuck Bipedal' : robotForm === 'amr' ? 'Nova Carter AMR' : robotForm === 'drone' ? 'Cyber Falcon' : 'Project GR00T'
+
+    const agentModelName = useMemo(() => {
+        if (!selectedAgent) return 'gemini-2.5-flash-lite'
+        if (typeof window !== 'undefined' && selectedAgent.id) {
+            const saved = localStorage.getItem(`agent_model:${selectedAgent.id}`)
+            if (saved) return saved
+        }
+        return selectedAgent.model || 'gemini-2.5-flash-lite'
+    }, [selectedAgent])
+
+    const agentRLProfile = useMemo(() => {
+        if (!selected3dAgentId) return null
+        return getAgentRLConfig(selected3dAgentId)
+    }, [selected3dAgentId])
 
     return (
         <div className="relative h-full w-full min-h-0 overflow-hidden">
@@ -145,11 +161,46 @@ export function Workspace3DPanel({
                                         {selectedAgent.ownerName}
                                     </span>
                                 )}
+                                <span
+                                    className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md font-mono font-medium border ${
+                                        agentModelName.startsWith('rented:') || agentModelName.startsWith('rental:')
+                                            ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30'
+                                            : 'bg-purple-500/15 text-purple-300 border-purple-500/30'
+                                    }`}
+                                    title={`Mô hình LLM: ${agentModelName}`}
+                                >
+                                    <IconCpu className="w-3 h-3" />
+                                    <span className="truncate max-w-[120px]">
+                                        {agentModelName.startsWith('rented:') || agentModelName.startsWith('rental:')
+                                            ? 'P2P AI'
+                                            : agentModelName}
+                                    </span>
+                                </span>
+                                {agentRLProfile && (
+                                    <span
+                                        className="hidden md:inline-flex items-center gap-1 text-[10px] bg-blue-500/15 text-blue-300 border border-blue-500/30 px-1.5 py-0.5 rounded-md font-mono font-medium"
+                                        title={`Thuật toán RL Navigation: ${agentRLProfile.algorithmName || agentRLProfile.algorithm.toUpperCase()}`}
+                                    >
+                                        <IconCompass className="w-3 h-3 text-blue-400" />
+                                        <span>RL: {agentRLProfile.algorithm.toUpperCase()}</span>
+                                    </span>
+                                )}
                             </div>
                         </div>
-                        <div className="hidden shrink-0 items-center gap-1 rounded-full border border-[#76b900]/30 bg-[#76b900]/10 px-2 py-0.5 font-mono text-[10px] text-[#76b900] sm:flex">
-                            <IconGameController className="h-3 w-3" />
-                            WASD DRIVE
+                        <div className="flex items-center gap-2 shrink-0">
+                            <button
+                                type="button"
+                                onClick={() => handleSelectAgent(selected3dAgentId)}
+                                className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 hover:text-white text-[11px] font-medium transition"
+                                title="Xem toàn bộ thông số Model, Prompt, Tools & RL Navigation"
+                            >
+                                <IconActivity className="w-3 h-3 text-[#76b900]" />
+                                <span>Chi tiết</span>
+                            </button>
+                            <div className="hidden shrink-0 items-center gap-1 rounded-full border border-[#76b900]/30 bg-[#76b900]/10 px-2 py-0.5 font-mono text-[10px] text-[#76b900] sm:flex">
+                                <IconGameController className="h-3 w-3" />
+                                WASD DRIVE
+                            </div>
                         </div>
                     </div>
 

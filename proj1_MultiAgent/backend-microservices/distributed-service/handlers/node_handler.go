@@ -210,6 +210,15 @@ func (h *NodeHandler) HandleToggleNodeStatus(w http.ResponseWriter, r *http.Requ
 				"status": "OFFLINE",
 			})
 		}
+	} else if req.Status == "BUSY" || req.Status == "RENTED" {
+		h.registry.MarkNodeBusy(req.NodeID)
+		if h.wsHandler != nil {
+			h.wsHandler.SendMessageToNode(req.NodeID, map[string]interface{}{
+				"type":   "NODE_BUSY",
+				"nodeId": req.NodeID,
+				"status": "BUSY",
+			})
+		}
 	} else {
 		h.registry.MarkNodeOnline(req.NodeID)
 		if h.wsHandler != nil {

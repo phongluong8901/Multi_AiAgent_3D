@@ -67,7 +67,8 @@ def env_reset():
 
 @router.post("/env/map")
 def set_env_map(req: SetMapRequest):
-    return trainer.set_map(req.map_name)
+    obs_list = [o.dict() for o in req.obstacles] if req.obstacles else None
+    return trainer.set_map(req.map_name, obstacles=obs_list, arena_size=req.arena_size)
 
 @router.get("/policies")
 def list_policies():

@@ -253,6 +253,19 @@ export default function AgentDetailPage() {
                     localStorage.setItem(`agent_body_id:${id}`, bodyId)
                 }
                 localStorage.setItem(`agent_model:${id}`, chosenModel)
+                window.dispatchEvent(
+                    new CustomEvent('agent-updated', {
+                        detail: {
+                            id,
+                            model: chosenModel,
+                            form: agentForm,
+                            bodyId: agentForm === 'custom' ? bodyId : null,
+                            name: name.trim(),
+                            promptId,
+                            selectedTools,
+                        },
+                    })
+                )
             }
 
             setSuccessMessage('Đã lưu cấu hình Agent thành công!')

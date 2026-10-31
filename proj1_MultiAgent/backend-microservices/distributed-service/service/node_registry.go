@@ -218,12 +218,13 @@ func (nr *NodeRegistry) UpsertWorkerTelemetry(
 		if displayName == "" {
 			displayName = cleanHost
 		}
-		newID := nodeName
-		if newID == "" {
-			newID = rawNodeID
-		}
+		newID := rawNodeID
 		if newID == "" || strings.HasPrefix(newID, "guest_worker_") {
-			newID = "worker_" + strings.ToLower(strings.ReplaceAll(displayName, " ", "_"))
+			if nodeName != "" {
+				newID = nodeName
+			} else {
+				newID = "worker_" + strings.ToLower(strings.ReplaceAll(displayName, " ", "_"))
+			}
 		}
 		target = &models.PartnerNode{
 			ID:       newID,
@@ -341,13 +342,18 @@ func (nr *NodeRegistry) UpdateTelemetry(nodeID string, stats models.TelemetrySta
 
 // MarkNodeOffline chuyển trạng thái sang OFFLINE khi đóng Electron Worker hoặc người dùng bấm Tạm Dừng
 func (nr *NodeRegistry) MarkNodeOffline(nodeID string, isManualPause ...bool) {
+	nodeID = strings.TrimSpace(nodeID)
+	if nodeID == "" || strings.HasPrefix(nodeID, "web_listener_") {
+		return
+	}
+
 	nr.mu.Lock()
 	defer nr.mu.Unlock()
 
 	manual := len(isManualPause) > 0 && isManualPause[0]
 
 	for id, node := range nr.nodes {
-		if id == nodeID || strings.Contains(id, nodeID) || strings.Contains(nodeID, id) {
+		if id == nodeID || (len(nodeID) > 5 && (strings.Contains(id, nodeID) || strings.Contains(nodeID, id))) {
 			node.Status = "OFFLINE"
 			node.UpdatedAt = time.Now()
 			if manual {
@@ -367,17 +373,41 @@ func (nr *NodeRegistry) MarkNodeOffline(nodeID string, isManualPause ...bool) {
 
 // MarkNodeOnline bỏ trạng thái Tạm Dừng để nhận lại kết nối từ Electron Worker
 func (nr *NodeRegistry) MarkNodeOnline(nodeID string) {
+	nodeID = strings.TrimSpace(nodeID)
+	if nodeID == "" {
+		return
+	}
+
 	nr.mu.Lock()
 	defer nr.mu.Unlock()
 
 	for id, node := range nr.nodes {
-		if id == nodeID || strings.Contains(id, nodeID) || strings.Contains(nodeID, id) {
+		if id == nodeID || (len(nodeID) > 5 && (strings.Contains(id, nodeID) || strings.Contains(nodeID, id))) {
 			delete(nr.manualPaused, id)
-			if node.LastTelemetry != nil && time.Since(node.LastTelemetry.Timestamp) <= 15*time.Second {
+			if node.LastTelemetry != nil && time.Since(node.LastTelemetry.Timestamp) <= 30*time.Second {
 				node.Status = "IDLE"
 			} else {
-				node.Status = "OFFLINE"
+				node.Status = "IDLE"
 			}
+			node.UpdatedAt = time.Now()
+		}
+	}
+}
+
+// MarkNodeBusy đặt trạng thái Node sang BUSY khi đang có người dùng thuê hoặc suy luận P2P
+func (nr *NodeRegistry) MarkNodeBusy(nodeID string) {
+	nodeID = strings.TrimSpace(nodeID)
+	if nodeID == "" {
+		return
+	}
+
+	nr.mu.Lock()
+	defer nr.mu.Unlock()
+
+	for id, node := range nr.nodes {
+		if id == nodeID || (len(nodeID) > 5 && (strings.Contains(id, nodeID) || strings.Contains(nodeID, id))) {
+			delete(nr.manualPaused, id)
+			node.Status = "BUSY"
 			node.UpdatedAt = time.Now()
 		}
 	}

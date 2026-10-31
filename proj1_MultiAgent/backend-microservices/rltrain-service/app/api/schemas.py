@@ -29,7 +29,9 @@ class LoadPolicyRequest(BaseModel):
     policy_name: str
 
 class SetMapRequest(BaseModel):
-    map_name: str = Field(default="office", description="Tên map: 'office' hoặc 'grid'")
+    map_name: str = Field(default="office", description="Tên map: 'office', 'grid' hoặc Studio Map ID")
+    obstacles: Optional[List[ObstacleModel]] = None
+    arena_size: Optional[float] = None
 
 class SetAlgorithmRequest(BaseModel):
     algorithm: str = Field(default="ppo", description="Thuật toán: 'ppo', 'sac', 'sac2', 'dreamer', 'muzero', 'dqn', 'q_learning'")

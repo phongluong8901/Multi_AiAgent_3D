@@ -200,10 +200,17 @@ class RLTrainer:
             "message": f"Đã reset toàn bộ thông số huấn luyện (Thuật toán hiện tại: {self.get_algorithm_name()})!"
         }
 
-    def set_map(self, map_name: str) -> Dict[str, Any]:
+    def set_map(self, map_name: str, obstacles: Optional[List[Dict[str, float]]] = None, arena_size: Optional[float] = None) -> Dict[str, Any]:
         """Chuyển đổi bản đồ tức thì và cập nhật lại live_state"""
         self.pause_training()
         self.env.set_map(map_name)
+        if arena_size:
+            self.env.arena_size = float(arena_size)
+            self.env.half_x = float(arena_size) / 2.0 - 0.4
+            self.env.half_z = float(arena_size) / 2.0 - 0.4
+            self.env.half_size = float(arena_size) / 2.0 - 0.4
+        if obstacles is not None:
+            self.env.set_custom_obstacles(obstacles)
         obs = self.env.reset()
         self.live_state = obs
         self.latest_trajectory = []

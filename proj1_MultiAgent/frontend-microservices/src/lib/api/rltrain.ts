@@ -134,10 +134,10 @@ export const rlApi = {
             method: 'POST',
         }),
 
-    setMap: (map_name: 'office' | 'grid') =>
+    setMap: (map_name: string, obstacles?: Obstacle[], arena_size?: number) =>
         request<{ success: boolean; message: string; map_name: string; live_state: any }>('/rl/env/map', {
             method: 'POST',
-            body: JSON.stringify({ map_name }),
+            body: JSON.stringify({ map_name, obstacles, arena_size }),
         }),
 
     listPolicies: () =>

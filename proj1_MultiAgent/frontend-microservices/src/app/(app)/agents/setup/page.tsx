@@ -189,6 +189,19 @@ export default function SetupAgentPage() {
                 if (agentForm === 'custom' && bodyId) {
                     localStorage.setItem(`agent_body_id:${agentId}`, bodyId)
                 }
+                window.dispatchEvent(
+                    new CustomEvent('agent-updated', {
+                        detail: {
+                            id: agentId,
+                            model: chosenModel,
+                            form: agentForm,
+                            bodyId: agentForm === 'custom' ? bodyId : undefined,
+                            name: name.trim(),
+                            promptId,
+                            selectedTools,
+                        },
+                    })
+                )
             }
 
             router.push('/agents')

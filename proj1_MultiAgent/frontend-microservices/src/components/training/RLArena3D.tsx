@@ -5,6 +5,8 @@ import { Canvas, useFrame } from '@react-three/fiber'
 import { OrbitControls, Text, Float, Grid } from '@react-three/drei'
 import * as THREE from 'three'
 import { TrajectoryStep, Obstacle } from '@/lib/api'
+import { MapItemRenderer } from '@/components/maps/MapItemRenderer'
+import { MapObjectItem } from '@/lib/maps/mapEditorTypes'
 
 type RLArena3DProps = {
     agentState: {
@@ -26,7 +28,9 @@ type RLArena3DProps = {
     agentColor?: string
     agentName?: string
     arenaSize?: number
-    mapName?: 'office' | 'grid'
+    mapName?: string
+    mapDisplayName?: string
+    customMapItems?: MapObjectItem[]
 }
 
 /** 1. Mô hình Agent 3D với hướng di chuyển và vòng hào quang */
@@ -207,8 +211,32 @@ function Goal3D({ goalState }: { goalState: { x: number; z: number } }) {
     )
 }
 
-/** 4. Các chướng ngại vật trên sàn đấu (Hỗ trợ cả Nội thất Văn phòng 3D thật và Trụ Cyber) */
-function Obstacles3D({ obstacles }: { obstacles: Obstacle[] }) {
+/** 4. Các chướng ngại vật trên sàn đấu (Hỗ trợ cả Nội thất Văn phòng 3D, Trụ Cyber và Studio Map 3D) */
+function Obstacles3D({ obstacles, customMapItems }: { obstacles: Obstacle[]; customMapItems?: MapObjectItem[] }) {
+    if (customMapItems && customMapItems.length > 0) {
+        return (
+            <group>
+                {/* 1. Đối tượng 3D từ Studio Map */}
+                {customMapItems.map((item, idx) => (
+                    <MapItemRenderer
+                        key={item.id || idx}
+                        item={item}
+                        isSelected={false}
+                        onSelect={() => {}}
+                    />
+                ))}
+
+                {/* 2. Vòng phát sáng cảm biến va chạm xung quanh các vật cản */}
+                {obstacles.map((obs: any, idx) => (
+                    <mesh key={idx} position={[obs.x, 0.05, obs.z]} rotation={[-Math.PI / 2, 0, 0]}>
+                        <ringGeometry args={[obs.radius * 0.88, obs.radius, 32]} />
+                        <meshBasicMaterial color="#38bdf8" transparent opacity={0.3} />
+                    </mesh>
+                ))}
+            </group>
+        )
+    }
+
     return (
         <group>
             {obstacles.map((obs: any, idx) => {
@@ -521,11 +549,13 @@ export default function RLArena3D({
     trajectory,
     agentColor = '#3b82f6',
     agentName = 'Agent RL',
-    arenaSize = 20,
-    mapName = 'office'
+    arenaSize,
+    mapName = 'office',
+    mapDisplayName,
+    customMapItems,
 }: RLArena3DProps) {
-    const size = arenaSize || (mapName === 'office' ? 28 : 20)
     const isOffice = mapName === 'office'
+    const size = arenaSize || (isOffice ? 28 : 24)
 
     return (
         <div className="relative w-full h-[520px] rounded-2xl overflow-hidden bg-gradient-to-b from-zinc-950 via-slate-950 to-zinc-900 border border-zinc-800 shadow-2xl">
@@ -533,7 +563,7 @@ export default function RLArena3D({
             <div className="absolute top-3 left-3 z-10 flex items-center gap-2 bg-zinc-900/80 backdrop-blur-md px-3 py-1.5 rounded-xl border border-zinc-700/60 text-xs text-zinc-300">
                 <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
                 <span className="font-semibold text-white">
-                    {isOffice ? '[OFFICE] 3D Office Arena' : '[TARGET] Cyber Grid Arena'}
+                    {mapDisplayName || (isOffice ? '[OFFICE] 3D Office Arena' : `[MAP] ${mapName.toUpperCase()}`)}
                 </span>
                 <span className="text-zinc-500">|</span>
                 <span>Toạ độ Agent: [{agentState.x}, {agentState.z}]</span>
@@ -547,13 +577,13 @@ export default function RLArena3D({
             <Canvas
                 shadows
                 camera={{
-                    position: isOffice ? [0, 24, 18] : [0, 18, 14],
+                    position: isOffice ? [0, 24, 18] : [0, size * 0.9, size * 0.7],
                     fov: isOffice ? 50 : 45
                 }}
                 className="w-full h-full"
             >
                 <color attach="background" args={['#030712']} />
-                <fog attach="fog" args={['#030712', 25, 55]} />
+                <fog attach="fog" args={['#030712', 25, Math.max(55, size * 2)]} />
 
                 <ambientLight intensity={0.7} />
                 <directionalLight
@@ -564,7 +594,7 @@ export default function RLArena3D({
                 />
                 <pointLight position={[goalState.x, 3, goalState.z]} color="#10b981" intensity={2} distance={8} />
 
-                {/* Lưới sàn đấu Cyber Grid / Office Floor */}
+                {/* Lưới sàn đấu Cyber Grid / Office Floor / Studio Ground */}
                 <Grid
                     position={[0, 0, 0]}
                     args={isOffice ? [28, 22] : [size, size]}
@@ -574,7 +604,7 @@ export default function RLArena3D({
                     sectionSize={isOffice ? 4 : 5}
                     sectionThickness={1.5}
                     sectionColor={isOffice ? '#0284c7' : '#3b82f6'}
-                    fadeDistance={40}
+                    fadeDistance={Math.max(40, size * 1.5)}
                     fadeStrength={1.2}
                 />
 
@@ -585,7 +615,7 @@ export default function RLArena3D({
                 </mesh>
 
                 {/* Chướng ngại vật */}
-                <Obstacles3D obstacles={obstacles} />
+                <Obstacles3D obstacles={obstacles} customMapItems={customMapItems} />
 
                 {/* Đích đến */}
                 <Goal3D goalState={goalState} />

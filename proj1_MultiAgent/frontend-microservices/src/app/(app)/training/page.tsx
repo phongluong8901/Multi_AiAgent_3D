@@ -26,13 +26,62 @@ import {
     BarChart3,
     Building2,
     Target,
-    Cpu
+    Cpu,
+    Map as MapIcon,
+    ExternalLink,
+    RefreshCw
 } from 'lucide-react'
 import RLArena3D from '@/components/training/RLArena3D'
 import AgentInspectorModal from '@/components/agents/AgentInspectorModal'
 import { rlApi, RLTrainingStatus, RLAlgorithmType, agentsApi, Agent } from '@/lib/api'
 import { OFFICE_OBSTACLES } from '@/lib/rl/rlNavigator'
-import { getAgentRLConfig, saveAgentRLConfig, ALGORITHM_LABELS } from '@/lib/rl/agentRLProfile'
+import { getAgentRLConfig, saveAgentRLConfig, ALGORITHM_LABELS, MAP_LABELS } from '@/lib/rl/agentRLProfile'
+import { mapsApi, CloudMapDesign } from '@/lib/api/maps'
+import { DEFAULT_MAP_PRESETS, MapObjectItem } from '@/lib/maps/mapEditorTypes'
+
+function convertMapItemsToObstacles(items: MapObjectItem[]): any[] {
+    const obstacles: any[] = []
+    for (const item of items) {
+        if (item.type === 'road' || item.type === 'crossroad') continue
+        let radius = 1.2
+        if (item.type === 'building') {
+            const w = item.width || 5
+            const d = item.depth || 5
+            radius = Math.hypot(w, d) / 2.2
+        } else if (item.type === 'industrial') {
+            radius = 3.2
+        } else if (item.type === 'house') {
+            radius = 2.4
+        } else if (item.type === 'tree') {
+            radius = 1.0
+        } else if (item.type === 'conveyor') {
+            radius = 1.8
+        } else if (item.type === 'robot_arm') {
+            radius = 1.2
+        } else if (item.type === 'industrial_fan' || item.type === 'industrial_lamp') {
+            radius = 0.8
+        } else if (item.type === 'desk') {
+            radius = 1.1
+        } else if (item.type === 'bench') {
+            radius = 0.9
+        } else if (item.type === 'streetlight') {
+            radius = 0.6
+        }
+
+        obstacles.push({
+            x: Number(item.position[0].toFixed(2)),
+            z: Number(item.position[2].toFixed(2)),
+            radius: Number(radius.toFixed(2)),
+            type: item.type,
+            name: item.name,
+            width: item.width,
+            height: item.height,
+            depth: item.depth,
+            color: item.color,
+        })
+    }
+    return obstacles
+}
 import { toast } from 'sonner'
 
 const CYBER_GRID_OBSTACLES = [
@@ -64,7 +113,9 @@ export default function RLTrainingPage() {
     const [status, setStatus] = useState<RLTrainingStatus | null>(null)
     const [loading, setLoading] = useState<boolean>(false)
     const [isTestMode, setIsTestMode] = useState<boolean>(false)
-    const [selectedMap, setSelectedMap] = useState<'office' | 'grid'>('office')
+    const [selectedMap, setSelectedMap] = useState<string>('office')
+    const [cloudMaps, setCloudMaps] = useState<CloudMapDesign[]>([])
+    const [isFetchingMaps, setIsFetchingMaps] = useState<boolean>(false)
     const [inspectorOpen, setInspectorOpen] = useState(false)
     const [policyName, setPolicyName] = useState<string>('policy_rl_v1')
     const [savedPolicies, setSavedPolicies] = useState<Array<{ name: string; episodes: number; states: number; algorithm?: string }>>([])
@@ -94,7 +145,7 @@ export default function RLTrainingPage() {
                     // Nạp cấu hình RL đã lưu của Agent này
                     const cfg = getAgentRLConfig(targetId)
                     setSelectedAlgorithm(cfg.algorithm)
-                    setSelectedMap(cfg.mapName)
+                    setSelectedMap(cfg.mapName || 'office')
                     setEpisodes(cfg.episodes || 300)
                     setLearningRate(cfg.learningRate || 0.003)
                     setDiscountFactor(cfg.discountFactor || 0.99)
@@ -115,7 +166,7 @@ export default function RLTrainingPage() {
 
         const cfg = getAgentRLConfig(agentId)
         setSelectedAlgorithm(cfg.algorithm)
-        setSelectedMap(cfg.mapName)
+        setSelectedMap(cfg.mapName || 'office')
         setEpisodes(cfg.episodes || 300)
         setLearningRate(cfg.learningRate || 0.003)
         setDiscountFactor(cfg.discountFactor || 0.99)
@@ -142,13 +193,17 @@ export default function RLTrainingPage() {
             status: 'active'
         })
 
+        if (typeof window !== 'undefined') {
+            localStorage.setItem(`agent_policy:${selectedAgentId}`, policyName.trim() || `policy_${selectedAgentId}_v1`)
+        }
+
         try {
             if (policyName.trim()) {
                 await rlApi.savePolicy(policyName.trim(), selectedAgentId)
             }
         } catch (_) {}
 
-        toast.success(`[SUCCESS] Đã nạp thành công thông số RL (${selectedAlgorithm.toUpperCase()} • ${selectedMap === 'grid' ? 'Cyber Grid' : 'Office 3D'}) vào robot ${agentName}!`)
+        toast.success(`[SUCCESS] Đã nạp thành công thông số RL (${selectedAlgorithm.toUpperCase()} • ${selectedMapDisplayName}) vào robot ${agentName}!`)
     }
 
     useEffect(() => {
@@ -318,6 +373,9 @@ export default function RLTrainingPage() {
                     successRate: status?.success_rate_30 ? Math.round(status.success_rate_30 * 100) : 95,
                     bestReward: status?.best_reward || 0,
                 })
+                if (typeof window !== 'undefined') {
+                    localStorage.setItem(`agent_policy:${selectedAgentId}`, policyName)
+                }
                 toast.success(`Đã lưu Policy "${policyName}" thành công!`)
                 loadPolicies()
             }
@@ -330,6 +388,18 @@ export default function RLTrainingPage() {
         try {
             const res = await rlApi.loadPolicy(name)
             if (res.success) {
+                setPolicyName(name)
+                const polData = res.data || {}
+                const polAlgo = polData.algorithm || selectedAlgorithm
+                saveAgentRLConfig(selectedAgentId, {
+                    policyName: name,
+                    algorithm: polAlgo as any,
+                    episodes: polData.episodes_trained || episodes,
+                    statesLearned: polData.policy?.states_learned || polData.policy?.training_steps || 1420,
+                })
+                if (typeof window !== 'undefined') {
+                    localStorage.setItem(`agent_policy:${selectedAgentId}`, name)
+                }
                 toast.success(res.message)
                 fetchStatus()
             }
@@ -338,7 +408,85 @@ export default function RLTrainingPage() {
         }
     }
 
-    // Danh sách vật cản hiện tại tương ứng với môi trường đã chọn
+    // Tải và đồng bộ toàn bộ danh sách bản đồ từ Studio Map 3D (Cloud & Local)
+    const loadAllMaps = async () => {
+        setIsFetchingMaps(true)
+        try {
+            const res = await mapsApi.getMaps()
+            if (res?.success && Array.isArray(res.data)) {
+                setCloudMaps(res.data)
+            }
+        } catch (e) {
+            console.warn('[RL_TRAIN] Khong the tai danh sach maps:', e)
+        } finally {
+            setIsFetchingMaps(false)
+        }
+    }
+
+    useEffect(() => {
+        loadAllMaps()
+
+        const handleMapCreated = () => {
+            loadAllMaps()
+        }
+
+        const handleStorage = (e: StorageEvent) => {
+            if (e.key?.startsWith('map_')) {
+                loadAllMaps()
+            }
+        }
+
+        const handleFocus = () => {
+            loadAllMaps()
+        }
+
+        window.addEventListener('map-created', handleMapCreated)
+        window.addEventListener('storage', handleStorage)
+        window.addEventListener('focus', handleFocus)
+
+        return () => {
+            window.removeEventListener('map-created', handleMapCreated)
+            window.removeEventListener('storage', handleStorage)
+            window.removeEventListener('focus', handleFocus)
+        }
+    }, [])
+
+    // Toàn bộ các map có thể chọn: Presets Studio Map + Bản đồ Cloud người dùng thiết kế
+    const allMapOptions = useMemo(() => {
+        const presets = [
+            { id: 'office', name: 'Office 3D Room • Văn phòng Thực tế' },
+            { id: 'grid', name: 'Cyber Grid Arena • Sa bàn Lưới Tọa độ' },
+            { id: 'industrial_factory', name: 'Nhà máy Công nghiệp 4.0 & Robotics (Studio Preset)' },
+            { id: 'smarthome_iot', name: 'Biệt thự Smart Home IoT & Sân Vườn (Studio Preset)' },
+            { id: 'smart_city', name: 'Đô thị Smart City IoT (Studio Preset)' },
+        ]
+        const customs = cloudMaps.map((m) => ({
+            id: m.mapId || (m as any).id,
+            name: `${m.name} • Studio Map 3D`,
+        }))
+        return { presets, customs }
+    }, [cloudMaps])
+
+    // Thiết kế chi tiết của map hiện tại (nếu thuộc Studio Map)
+    const currentStudioMapDesign = useMemo(() => {
+        if (DEFAULT_MAP_PRESETS[selectedMap]) {
+            return DEFAULT_MAP_PRESETS[selectedMap]
+        }
+        const found = cloudMaps.find((m) => (m.mapId || (m as any).id) === selectedMap)
+        if (found) return found
+        return null
+    }, [selectedMap, cloudMaps])
+
+    // Tên hiển thị đầy đủ của bản đồ đang chọn
+    const selectedMapDisplayName = useMemo(() => {
+        if (MAP_LABELS[selectedMap]) return MAP_LABELS[selectedMap]
+        if (DEFAULT_MAP_PRESETS[selectedMap]) return DEFAULT_MAP_PRESETS[selectedMap].name
+        const found = cloudMaps.find((m) => (m.mapId || (m as any).id) === selectedMap)
+        if (found) return found.name
+        return selectedMap
+    }, [selectedMap, cloudMaps])
+
+    // Danh sách vật cản (Obstacles) tương ứng cho thuật toán RL và cảm biến LIDAR
     const currentObstacles = useMemo(() => {
         if (selectedMap === 'office') {
             if (
@@ -350,31 +498,61 @@ export default function RLTrainingPage() {
             }
             return OFFICE_OBSTACLES
         }
+        if (selectedMap === 'grid') {
+            return CYBER_GRID_OBSTACLES
+        }
+
+        if (currentStudioMapDesign && currentStudioMapDesign.items) {
+            return convertMapItemsToObstacles(currentStudioMapDesign.items)
+        }
+
         return CYBER_GRID_OBSTACLES
-    }, [selectedMap, status?.live_state?.obstacles])
+    }, [selectedMap, currentStudioMapDesign, status?.live_state?.obstacles])
+
+    // Kích thước sa bàn phù hợp theo từng map
+    const currentArenaSize = useMemo(() => {
+        if (selectedMap === 'office') return 28
+        if (selectedMap === 'grid') return 20
+        if (currentStudioMapDesign?.groundSize) {
+            return Math.max(currentStudioMapDesign.groundSize[0], currentStudioMapDesign.groundSize[1])
+        }
+        return 28
+    }, [selectedMap, currentStudioMapDesign])
 
     // Chuyển đổi môi trường trực tiếp trên cả giao diện và gọi BE
-    const handleMapChange = async (newMap: 'office' | 'grid') => {
+    const handleMapChange = async (newMap: string) => {
         setSelectedMap(newMap)
+        const mapMetaName =
+            MAP_LABELS[newMap] ||
+            DEFAULT_MAP_PRESETS[newMap]?.name ||
+            cloudMaps.find((m) => (m.mapId || (m as any).id) === newMap)?.name ||
+            newMap
+
         saveAgentRLConfig(selectedAgentId, {
-            mapName: newMap
+            mapName: newMap,
         })
+        if (typeof window !== 'undefined') {
+            localStorage.setItem(`map_name:${newMap}`, mapMetaName)
+        }
+
+        let obsToSend: any[] = []
+        let design = DEFAULT_MAP_PRESETS[newMap] || cloudMaps.find((m) => (m.mapId || (m as any).id) === newMap)
+        if (design && design.items) {
+            obsToSend = convertMapItemsToObstacles(design.items)
+        } else if (newMap === 'office') {
+            obsToSend = OFFICE_OBSTACLES as any
+        } else {
+            obsToSend = CYBER_GRID_OBSTACLES as any
+        }
+
         try {
-            const res = await rlApi.setMap(newMap)
+            const res = await rlApi.setMap(newMap, obsToSend)
             if (res.success) {
-                toast.success(
-                    newMap === 'office'
-                        ? '[OFFICE] Đã chuyển sang sa bàn: Văn phòng Thực tế (Office 3D Room)'
-                        : '[TARGET] Đã chuyển sang sa bàn: Cyber Grid Arena'
-                )
+                toast.success(`[MAP] Đã chuyển sang sa bàn: ${mapMetaName}`)
                 fetchStatus()
             }
         } catch {
-            toast.info(
-                newMap === 'office'
-                    ? '[OFFICE] Chuyển sang mô hình Văn phòng 3D'
-                    : '[TARGET] Chuyển sang Sa bàn Cyber'
-            )
+            toast.info(`Chuyển sang sa bàn: ${mapMetaName}`)
         }
     }
 
@@ -384,7 +562,7 @@ export default function RLTrainingPage() {
         goal: status?.live_state?.goal || { x: 0, z: 6, distance: 11 },
         lidar: status?.live_state?.lidar || [8, 8, 8, 8, 8, 8, 8, 8],
         obstacles: currentObstacles,
-        arena_size: selectedMap === 'office' ? 28 : 20,
+        arena_size: currentArenaSize,
         step: status?.live_state?.step || 0,
     }
 
@@ -484,19 +662,51 @@ export default function RLTrainingPage() {
                         </select>
                     </div>
 
-                    <div className="flex items-center gap-2 bg-zinc-900/90 border border-zinc-800 p-2 rounded-2xl">
-                        <span className="text-xs text-zinc-400 pl-2 flex items-center gap-1.5">
+                    <div className="flex items-center gap-2 bg-zinc-900/90 border border-zinc-800 p-2 rounded-2xl flex-wrap sm:flex-nowrap">
+                        <span className="text-xs text-zinc-400 pl-2 flex items-center gap-1.5 shrink-0">
                             <Building2 className="w-3.5 h-3.5 text-indigo-400" />
                             Môi trường:
                         </span>
                         <select
                             value={selectedMap}
-                            onChange={(e) => handleMapChange(e.target.value as any)}
-                            className="bg-zinc-800 border border-zinc-700 text-xs rounded-xl px-3 py-1.5 text-white font-medium focus:outline-none focus:border-blue-500 cursor-pointer"
+                            onChange={(e) => handleMapChange(e.target.value)}
+                            className="bg-zinc-800 border border-zinc-700 text-xs rounded-xl px-3 py-1.5 text-white font-medium focus:outline-none focus:border-blue-500 cursor-pointer max-w-[240px] truncate"
                         >
-                            <option value="office">Office 3D Room • Văn phòng Thực tế</option>
-                            <option value="grid">Cyber Grid Arena • Sa bàn Lưới Tọa độ</option>
+                            <optgroup label="Bản đồ mặc định (Built-in Studio Presets)">
+                                {allMapOptions.presets.map((p) => (
+                                    <option key={p.id} value={p.id} className="bg-zinc-900 text-white">
+                                        {p.name}
+                                    </option>
+                                ))}
+                            </optgroup>
+                            {allMapOptions.customs.length > 0 && (
+                                <optgroup label="Bản đồ Studio Map 3D (Tự thiết kế / Cloud)">
+                                    {allMapOptions.customs.map((c) => (
+                                        <option key={c.id} value={c.id} className="bg-zinc-900 text-white">
+                                            {c.name}
+                                        </option>
+                                    ))}
+                                </optgroup>
+                            )}
                         </select>
+                        <button
+                            type="button"
+                            onClick={loadAllMaps}
+                            disabled={isFetchingMaps}
+                            className="p-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 hover:text-white transition disabled:opacity-50 shrink-0"
+                            title="Làm mới & đồng bộ toàn bộ map từ Studio Map 3D"
+                        >
+                            <RefreshCw className={`w-3.5 h-3.5 ${isFetchingMaps ? 'animate-spin text-blue-400' : ''}`} />
+                        </button>
+                        <Link
+                            href="/maps/setup"
+                            className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/40 text-indigo-300 text-xs font-semibold transition shrink-0"
+                            title="Mở Studio Map 3D để thiết kế bản đồ mới"
+                        >
+                            <MapIcon className="w-3.5 h-3.5 text-indigo-400" />
+                            <span className="hidden xl:inline">Studio Map 3D</span>
+                            <ExternalLink className="w-3 h-3 text-indigo-400" />
+                        </Link>
                     </div>
 
                     <div className="flex items-center gap-2 bg-zinc-900/90 border border-zinc-800 p-2 rounded-2xl">
@@ -712,7 +922,9 @@ export default function RLTrainingPage() {
                             agentColor={selectedAgent?.color || '#3b82f6'}
                             agentName={selectedAgent?.name || 'Agent'}
                             mapName={selectedMap}
-                            arenaSize={liveState.arena_size}
+                            mapDisplayName={selectedMapDisplayName}
+                            arenaSize={currentArenaSize}
+                            customMapItems={currentStudioMapDesign?.items}
                         />
 
                         {/* Overlay định danh con Robot đang được nạp tri thức */}

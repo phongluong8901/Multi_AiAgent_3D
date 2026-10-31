@@ -94,9 +94,10 @@ export function useWorkerNetwork(currentUser?: { id?: string; name?: string; ema
         let staleTimer: ReturnType<typeof setInterval> | null = null
         let isMounted = true
 
+        const randomListenerId = 'web_listener_' + Math.random().toString(36).substring(2, 9)
         const wsCandidates = [
-            distributedApi.getDistributedWsUrl('web_listener_sync'),
-            'ws://localhost:5010/api/v1/distributed/ws?nodeId=web_listener_sync',
+            distributedApi.getDistributedWsUrl(randomListenerId),
+            `ws://localhost:5010/api/v1/distributed/ws?nodeId=${randomListenerId}`,
         ]
         let urlIdx = 0
 
@@ -127,7 +128,7 @@ export function useWorkerNetwork(currentUser?: { id?: string; name?: string; ema
                                         const lastTs = n.lastTelemetry?.timestamp
                                             ? new Date(n.lastTelemetry.timestamp).getTime()
                                             : 0
-                                        const isFresh = lastTs > 0 && nowMs - lastTs <= 20000
+                                        const isFresh = lastTs > 0 && nowMs - lastTs <= 30000
                                         return {
                                             ...n,
                                             status: isFresh && (n.status === 'IDLE' || n.status === 'BUSY') ? n.status : 'OFFLINE',
@@ -142,13 +143,12 @@ export function useWorkerNetwork(currentUser?: { id?: string; name?: string; ema
 
                         // 2. Sự kiện Electron Worker ngắt kết nối hoặc tạm dừng chia sẻ
                         if (msg.type === 'WORKER_DISCONNECTED' || msg.type === 'PAUSE_SHARING') {
-                            const disconnectedId = String(msg.nodeId || '')
+                            const disconnectedId = String(msg.nodeId || '').trim()
+                            if (!disconnectedId) return
                             setAllNodes((prev) =>
                                 prev.map((n) =>
-                                    !disconnectedId ||
                                     n.id === disconnectedId ||
-                                    disconnectedId.includes(n.id) ||
-                                    n.id.includes(disconnectedId)
+                                    (disconnectedId.length > 5 && (disconnectedId.includes(n.id) || n.id.includes(disconnectedId)))
                                         ? { ...n, status: 'OFFLINE' }
                                         : n
                                 )
@@ -358,7 +358,7 @@ export function useWorkerNetwork(currentUser?: { id?: string; name?: string; ema
 
         connectWs()
 
-        // Bộ kiểm tra timeout cục bộ: nếu quá 12 giây không nhận được gói tin WebSocket nào từ Worker thì tự đánh dấu OFFLINE
+        // Bộ kiểm tra timeout cục bộ: nếu quá 30 giây không nhận được gói tin WebSocket nào từ Worker thì tự đánh dấu OFFLINE
         staleTimer = setInterval(() => {
             const nowMs = Date.now()
             setAllNodes((prev) =>
@@ -367,13 +367,13 @@ export function useWorkerNetwork(currentUser?: { id?: string; name?: string; ema
                     const lastTs = n.lastTelemetry?.timestamp
                         ? new Date(n.lastTelemetry.timestamp).getTime()
                         : 0
-                    if (!lastTs || nowMs - lastTs > 12000) {
+                    if (!lastTs || nowMs - lastTs > 30000) {
                         return { ...n, status: 'OFFLINE' }
                     }
                     return n
                 })
             )
-        }, 4000)
+        }, 5000)
 
         return () => {
             isMounted = false
