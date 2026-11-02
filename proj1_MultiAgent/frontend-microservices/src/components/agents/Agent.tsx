@@ -9,7 +9,7 @@ import AgentSpeechBubble from './AgentSpeechBubble'
 import AgentNameTag from './AgentNameTag'
 import AgentBody from './AgentBody'
 import { AgentFormType } from './NvidiaRobots'
-import { computeRLNavigationVelocity, getOfficeWaypoints } from '@/lib/rl/rlNavigator'
+import { computeRLNavigationVelocity, getOfficeWaypoints, Obstacle2D, OFFICE_OBSTACLES } from '@/lib/rl/rlNavigator'
 
 export type AgentAction =
     | 'desk'
@@ -33,6 +33,12 @@ export type AgentAction =
     | 'roam'
     | 'manual'
     | 'custom'
+    | 'town_square'
+    | 'tool_academy'
+    | 'wisdom_library'
+    | 'residences'
+    | 'coffee_kiosk'
+    | 'workshop'
 
 type Props = {
     id?: string
@@ -52,6 +58,10 @@ type Props = {
     form?: AgentFormType
     bodyId?: string | null
     useRL?: boolean
+    /** 'office' = định tuyến qua cửa phòng; 'direct' = đi thẳng tới đích (bản đồ mở) */
+    navMode?: 'office' | 'direct'
+    /** Danh sách chướng ngại vật dùng cho thuật toán né tránh RL */
+    navObstacles?: Obstacle2D[]
 }
 
 // Vector pool dùng chung cho useFrame nhằm triệt tiêu hoàn toàn rác bộ nhớ (Zero Garbage Collection)
@@ -78,6 +88,8 @@ export default function Agent({
     form,
     bodyId,
     useRL = true,
+    navMode = 'office',
+    navObstacles = OFFICE_OBSTACLES,
 }: Props) {
     const body = useRef<RapierRigidBody>(null)
     const currentIndex = useRef(0)
@@ -152,6 +164,15 @@ export default function Agent({
         targetAction === 'picnic' ||
         (!targetAction && (status === 'working' || status === 'blocked'))
 
+    // Lập lộ trình theo chế độ điều hướng của bản đồ
+    const planRoute = (
+        start: [number, number, number],
+        target: [number, number, number]
+    ): [number, number, number][] => {
+        if (navMode === 'direct') return [[target[0], 0, target[2]]]
+        return getOfficeWaypoints(start, target)
+    }
+
     useFrame((state, delta) => {
         if (!body.current) return
 
@@ -191,7 +212,7 @@ export default function Agent({
             // Nếu đổi mục tiêu mới hoặc chưa lập lộ trình, tính toán chuỗi trạm Waypoints xuyên phòng
             if (prevTargetKeyRef.current !== targetKey) {
                 prevTargetKeyRef.current = targetKey
-                officeWaypointsRef.current = getOfficeWaypoints(
+                officeWaypointsRef.current = planRoute(
                     [currentPos.x, 0, currentPos.z],
                     targetPosition
                 )
@@ -220,7 +241,8 @@ export default function Agent({
                     { x: currentPos.x, z: currentPos.z },
                     { x: currentWp[0], z: currentWp[2] },
                     currentHeadingRef.current,
-                    speed
+                    speed,
+                    navObstacles
                 )
 
                 body.current.setLinvel(
@@ -253,7 +275,7 @@ export default function Agent({
 
             if (prevTargetKeyRef.current !== targetKey) {
                 prevTargetKeyRef.current = targetKey
-                officeWaypointsRef.current = getOfficeWaypoints(
+                officeWaypointsRef.current = planRoute(
                     [currentPos.x, 0, currentPos.z],
                     desk
                 )
@@ -282,7 +304,8 @@ export default function Agent({
                     { x: currentPos.x, z: currentPos.z },
                     { x: currentWp[0], z: currentWp[2] },
                     currentHeadingRef.current,
-                    speed * 0.95
+                    speed * 0.95,
+                    navObstacles
                 )
 
                 body.current.setLinvel(
@@ -336,7 +359,8 @@ export default function Agent({
                 { x: currentPos.x, z: currentPos.z },
                 { x: wp[0], z: wp[2] },
                 currentHeadingRef.current,
-                speed
+                speed,
+                navObstacles
             )
 
             body.current.setLinvel(

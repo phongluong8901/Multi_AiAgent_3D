@@ -10,7 +10,7 @@ class ShortMemoryMessage(BaseModel):
 
 class MemoryAddRequest(BaseModel):
     room_id: Optional[str] = None
-    memory_type: Literal["fact", "summary", "preference"] = "fact"
+    memory_type: str = "fact"
     content: str
 
 

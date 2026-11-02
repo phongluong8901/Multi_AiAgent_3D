@@ -8,19 +8,21 @@ type Props = {
     position: [number, number, number]
     height?: number
     intensity?: number
+    lightColor?: string
 }
 
 export default function StreetLight({
     position,
     height = 5.5,
     intensity = 1.2,
+    lightColor = '#fef3c7',
 }: Props) {
     const lightRef = useRef<THREE.PointLight>(null)
 
-    // Nhấp nháy nhẹ cho sinh động (optional)
+    // Nhấp nháy nhẹ cho sinh động
     useFrame((state) => {
-        if (lightRef.current) {
-            lightRef.current.intensity = intensity + Math.sin(state.clock.elapsedTime * 2) * 0.08
+        if (lightRef.current && intensity > 0.1) {
+            lightRef.current.intensity = intensity + Math.sin(state.clock.elapsedTime * 2.5) * 0.08
         }
     })
 
@@ -44,14 +46,14 @@ export default function StreetLight({
                 <meshStandardMaterial color="#0f172a" />
             </mesh>
 
-            {/* Ánh sáng */}
+            {/* Ánh sáng điểm */}
             <pointLight
                 ref={lightRef}
                 position={[1.15, height - 0.6, 0]}
                 intensity={intensity}
                 distance={18}
                 decay={2}
-                color="#fef3c7"
+                color={lightColor}
                 castShadow
             />
 
@@ -59,9 +61,9 @@ export default function StreetLight({
             <mesh position={[1.15, height - 0.55, 0]}>
                 <sphereGeometry args={[0.15, 12, 12]} />
                 <meshStandardMaterial
-                    color="#fef3c7"
-                    emissive="#fde68a"
-                    emissiveIntensity={1.5}
+                    color={lightColor}
+                    emissive={lightColor}
+                    emissiveIntensity={intensity > 0.2 ? 1.6 : 0.2}
                     transparent
                     opacity={0.9}
                 />

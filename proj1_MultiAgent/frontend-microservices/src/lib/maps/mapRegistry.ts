@@ -34,9 +34,9 @@ export const MAP_CONFIGS: Record<MapType, MapMetadata> = {
     },
     outdoor: {
         id: 'outdoor',
-        name: 'Khuôn viên ngoài trời (Outdoor Campus)',
-        shortName: 'Outdoor',
-        description: 'Công viên mở sinh thái với thảm cỏ, đài phun nước, chòi nghỉ ngơi và khu dã ngoại.',
+        name: 'Khu Làng Tác Tử AI (Autonomous AI Village & Campus)',
+        shortName: 'AI Village',
+        description: 'Khu làng 3D mở nơi các Agent sinh sống, tự do giao tiếp, rèn luyện kỹ năng công cụ và tích lũy bộ nhớ tiến hóa.',
         badgeColor: 'text-emerald-400 bg-emerald-950/60 border-emerald-500/30',
         themeColor: '#10b981',
         cameraPosition: [18, 18, 18],
@@ -92,11 +92,12 @@ export function resolveTargetPositionForAction(
         }
         if (action === 'roam') return [Math.random() * 8 - 4, 0, Math.random() * 8 - 4]
     } else if (mapType === 'outdoor') {
-        if (action === 'picnic') return OUTDOOR_ACTION_SPOTS.picnic1
-        if (action === 'bench') return OUTDOOR_ACTION_SPOTS.bench1
-        if (action === 'gazebo') return OUTDOOR_ACTION_SPOTS.gazebo
-        if (action === 'fountain') return OUTDOOR_ACTION_SPOTS.fountain
-        if (action === 'coffee') return OUTDOOR_ACTION_SPOTS.coffee
+        if (action === 'picnic' || action === 'tool_academy') return [-6, 0, 8]
+        if (action === 'bench' || action === 'residences') return [6, 0, -3.8]
+        if (action === 'gazebo' || action === 'wisdom_library') return [8, 0, 8]
+        if (action === 'fountain' || action === 'town_square') return [0, 0, 3.2]
+        if (action === 'coffee' || action === 'coffee_kiosk') return [0, 0, -6.5]
+        if (action === 'workshop') return [-6, 0, -3.8]
         if (action === 'roam') return [Math.random() * 20 - 10, 0, Math.random() * 20 - 10]
     } else if (mapType === 'iot') {
         if (action === 'building') return SMART_CITY_ACTION_SPOTS.building
