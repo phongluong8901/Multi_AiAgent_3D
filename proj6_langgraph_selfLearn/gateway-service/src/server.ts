@@ -52,6 +52,16 @@ app.post("/api/internal/memory-updated", async (_req: Request, res: Response) =>
   }
 });
 
+app.post("/api/memory-consolidation", async (_req: Request, res: Response) => {
+  try {
+    const response = await axios.post(`${AI_CORE_URL}/api/v1/memory-consolidation`);
+    await broadcastMemoryUpdated();
+    res.json(response.data);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // REST Proxy để Frontend lấy dữ liệu ban đầu
 app.get("/api/memory-stats", async (_req: Request, res: Response) => {
   try {
@@ -80,6 +90,90 @@ app.get("/api/memory-items", async (req: Request, res: Response) => {
     const response = await axios.get(`${AI_CORE_URL}/api/v1/memory-items`, {
       params: { limit: req.query.limit },
     });
+    res.json(response.data);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Knowledge Synthesis Engine Endpoints
+app.post("/api/synthesis/run-multihop", async (req: Request, res: Response) => {
+  try {
+    const response = await axios.post(
+      `${AI_CORE_URL}/api/v1/synthesis/run-multihop`,
+      req.body
+    );
+    await broadcastMemoryUpdated();
+    res.json(response.data);
+  } catch (error: any) {
+    const status = error?.response?.status || 500;
+    const detail = error?.response?.data?.detail || error.message;
+    res.status(status).json({ error: detail });
+  }
+});
+
+app.post("/api/synthesis/sleep-phase-discovery", async (_req: Request, res: Response) => {
+  try {
+    const response = await axios.post(
+      `${AI_CORE_URL}/api/v1/synthesis/sleep-phase-discovery`
+    );
+    await broadcastMemoryUpdated();
+    res.json(response.data);
+  } catch (error: any) {
+    const status = error?.response?.status || 500;
+    const detail = error?.response?.data?.detail || error.message;
+    res.status(status).json({ error: detail });
+  }
+});
+
+app.get("/api/synthesis/tiered-stats", async (_req: Request, res: Response) => {
+  try {
+    const response = await axios.get(`${AI_CORE_URL}/api/v1/synthesis/tiered-stats`);
+    res.json(response.data);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/synthesis/insights", async (req: Request, res: Response) => {
+  try {
+    const response = await axios.get(`${AI_CORE_URL}/api/v1/synthesis/insights`, {
+      params: { limit: req.query.limit },
+    });
+    res.json(response.data);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/synthesis/bridges", async (req: Request, res: Response) => {
+  try {
+    const response = await axios.get(`${AI_CORE_URL}/api/v1/synthesis/bridges`, {
+      params: { limit: req.query.limit },
+    });
+    res.json(response.data);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/synthesis/falsified", async (req: Request, res: Response) => {
+  try {
+    const response = await axios.get(`${AI_CORE_URL}/api/v1/synthesis/falsified`, {
+      params: { limit: req.query.limit },
+    });
+    res.json(response.data);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/synthesis/run-sandbox", async (req: Request, res: Response) => {
+  try {
+    const response = await axios.post(
+      `${AI_CORE_URL}/api/v1/synthesis/run-sandbox`,
+      req.body
+    );
     res.json(response.data);
   } catch (error: any) {
     res.status(500).json({ error: error.message });

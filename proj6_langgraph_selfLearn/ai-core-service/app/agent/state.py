@@ -10,4 +10,7 @@ class AgentState(TypedDict, total=False):
     search_queries: list[str]
     web_results: str
     final_answer: str
-    reasoning_trace: list[str]  # Luu lai dau vet suy nghi de hien thi len UI
+    critique_score: int          # Điểm tự phản biện (1-10)
+    critique_feedback: str       # Nhận xét đánh giá câu trả lời
+    iteration_count: int         # Đếm số lần tự sửa câu trả lời
+    reasoning_trace: list[str]   # Dấu vết chuỗi suy luận hiển thị lên UI realtime

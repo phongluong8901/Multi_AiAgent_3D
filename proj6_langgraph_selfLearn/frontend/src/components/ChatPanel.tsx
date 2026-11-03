@@ -1,28 +1,21 @@
 import { useEffect, useRef, type FormEvent } from 'react';
-import { Globe, Send, Sparkles } from 'lucide-react';
-import AppHeader from './AppHeader';
+import { Globe, Send, Sparkles, MessageSquare } from 'lucide-react';
 import type { ChatMessage } from '../types';
 
 interface ChatPanelProps {
   messages: ChatMessage[];
   input: string;
   isProcessing: boolean;
-  status: string;
-  sessionId: string;
   onInputChange: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
-  onNewSession: () => void;
 }
 
 export default function ChatPanel({
   messages,
   input,
   isProcessing,
-  status,
-  sessionId,
   onInputChange,
   onSubmit,
-  onNewSession,
 }: ChatPanelProps) {
   const chatEndRef = useRef<HTMLDivElement>(null);
 
@@ -32,11 +25,13 @@ export default function ChatPanel({
 
   return (
     <section className="flex flex-1 flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-900 shadow-xl">
-      <AppHeader
-        status={status}
-        sessionId={sessionId}
-        onNewSession={onNewSession}
-      />
+      <div className="flex items-center justify-between border-b border-slate-800 bg-slate-900/60 px-6 py-3">
+        <div className="flex items-center gap-2">
+          <MessageSquare className="h-4 w-4 text-emerald-400" />
+          <span className="text-xs font-semibold text-white">Khung Trò chuyện & Truy xuất Tri thức</span>
+        </div>
+        <span className="text-[11px] text-slate-400">Tự động kết hợp Redis + Qdrant Long-Term Memory</span>
+      </div>
 
       <div className="flex-1 space-y-4 overflow-y-auto p-6">
         {messages.length === 0 && (
@@ -51,33 +46,28 @@ export default function ChatPanel({
           </div>
         )}
 
-        {messages.map((message) => (
+        {messages.map((msg) => (
           <div
-            key={message.id}
-            className={`flex flex-col ${
-              message.role === 'user' ? 'items-end' : 'items-start'
-            }`}
+            key={msg.id}
+            className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'
+              }`}
           >
             <div
-              className={`max-w-2xl whitespace-pre-wrap rounded-2xl px-4 py-3 text-sm ${
-                message.role === 'user'
-                  ? 'rounded-br-none bg-emerald-600 text-white'
-                  : message.role === 'system'
-                    ? 'border border-indigo-700/60 bg-indigo-950/80 text-indigo-200'
-                    : 'rounded-bl-none border border-slate-700 bg-slate-800 text-slate-100'
-              }`}
+              className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${msg.role === 'user'
+                  ? 'bg-emerald-600 text-white rounded-br-none'
+                  : 'bg-slate-800/90 text-slate-200 rounded-bl-none border border-slate-700/60'
+                }`}
             >
-              {message.usedWebSearch && (
-                <div className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-sky-400">
-                  <Globe className="h-3.5 w-3.5" />
-                  Đã tự động tìm kiếm Internet và nạp vào bộ nhớ
+              <div className="whitespace-pre-wrap">{msg.content}</div>
+
+              {msg.usedWebSearch && (
+                <div className="mt-2 flex items-center gap-1 text-[11px] text-emerald-300">
+                  <Globe className="h-3 w-3" />
+                  <span>Đã tra cứu dữ liệu thời gian thực từ Web</span>
                 </div>
               )}
-              {message.content}
             </div>
-            <span className="mt-1 px-1 text-[10px] text-slate-500">
-              {message.timestamp}
-            </span>
+            <span className="mt-1 text-[10px] text-slate-500">{msg.timestamp}</span>
           </div>
         ))}
         <div ref={chatEndRef} />
@@ -85,20 +75,20 @@ export default function ChatPanel({
 
       <form
         onSubmit={onSubmit}
-        className="flex gap-3 border-t border-slate-800 bg-slate-900 p-4"
+        className="flex items-center gap-2 border-t border-slate-800 bg-slate-900/80 p-4"
       >
         <input
           type="text"
           value={input}
-          onChange={(event) => onInputChange(event.target.value)}
+          onChange={(e) => onInputChange(e.target.value)}
+          placeholder="Nhập tin nhắn để trò chuyện hoặc dạy kiến thức mới..."
           disabled={isProcessing}
-          placeholder="Nhập câu hỏi hoặc dạy kiến thức mới cho AI..."
-          className="flex-1 rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm focus:border-emerald-500 focus:outline-none disabled:opacity-50"
+          className="flex-1 rounded-xl border border-slate-700 bg-slate-950 px-4 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:border-emerald-500 focus:outline-none"
         />
         <button
           type="submit"
           disabled={isProcessing || !input.trim()}
-          className="flex items-center gap-2 rounded-xl bg-emerald-600 px-6 py-3 text-sm font-medium transition hover:bg-emerald-500 disabled:opacity-50"
+          className="flex items-center gap-2 rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-50"
         >
           <Send className="h-4 w-4" />
           Gửi

@@ -9,9 +9,15 @@ from ..memory.short_term import short_memory
 llm = ChatGoogleGenerativeAI(model=settings.FAST_MODEL, google_api_key=settings.GOOGLE_API_KEY, temperature=0.1)
 
 class ExtractedLearning(BaseModel):
-    facts_to_remember: list[str] = Field(description="Các sự kiện, kiến thức thực tế, thông tin cá nhân của user đáng lưu trữ lâu dài (Viết thành câu khẳng định độc lập, rõ nghĩa).")
-    topic: str = Field(description="Chủ đề chính của kiến thức này")
-    self_improvement_lesson: str = Field(description="Bài học rút ra về cách giải quyết yêu cầu này hoặc cách đặt từ khóa tìm kiếm tốt hơn cho lần sau (Bỏ trống nếu câu hỏi quá đơn giản).")
+    facts_to_remember: list[str] = Field(
+        default_factory=list,
+        description="Danh sách dữ kiện, số liệu, thông tin cá nhân thực sự mới đáng lưu. Nếu không có gì mới hoặc chỉ là chào hỏi/xã giao thì trả về danh sách rỗng []."
+    )
+    topic: str = Field(default="", description="Chủ đề chính của kiến thức này")
+    self_improvement_lesson: str = Field(
+        default="",
+        description="Bài học rút ra về cách đặt từ khóa hoặc cách giải quyết vấn đề. Bỏ trống nếu không có bài học thực sự giá trị."
+    )
 
 async def notify_gateway_memory_updated():
     """Gửi webhook tới Gateway để Socket.IO phát sóng realtime tới tất cả Frontend clients"""
@@ -23,20 +29,29 @@ async def notify_gateway_memory_updated():
         pass
 
 async def background_continual_learning(session_id: str, query: str, web_results: str, final_answer: str):
-    """Hàm chạy ngầm sau khi đã trả lời user để AI tự tiêu hóa kiến thức"""
+    """Hàm chạy ngầm sau khi đã trả lời user để AI tự tiêu hóa kiến thức có chọn lọc"""
     # 1. Lưu vào bộ nhớ ngắn hạn (Redis)
     await short_memory.add_message(session_id, "user", query)
     await short_memory.add_message(session_id, "assistant", final_answer)
 
-    # 2. Dùng Gemini trích xuất tinh hoa (Tri thức + Kinh nghiệm) để đưa vào Qdrant
+    # 2. Dùng Gemini trích xuất tinh hoa với quy tắc lọc chống trùng lặp nghiêm ngặt
     extractor = llm.with_structured_output(ExtractedLearning)
     prompt = f"""
-    Phân tích ca làm việc vừa rồi của AI để trích xuất kiến thức lưu vào Bộ nhớ dài hạn:
-    - Câu hỏi của User: {query}
-    - Thông tin tìm được từ Web: {web_results}
-    - Câu trả lời của AI: {final_answer}
+    Bạn là bộ phận quản lý tri thức dài hạn của AI Agent.
+    Nhiệm vụ: Phân tích ca làm việc vừa rồi để xem có thông tin THỰC SỰ MỚI đáng lưu vào Qdrant hay không:
+    - Câu hỏi của User: "{query}"
+    - Dữ liệu mới tìm từ Web: "{web_results if web_results else 'Không có (AI dùng tri thức sẵn có)'}"
+    - Câu trả lời của AI: "{final_answer}"
     
-    Chỉ trích xuất những thông tin thực sự có giá trị sử dụng lại trong tương lai (sự kiện, số liệu, định nghĩa, hoặc sở thích/thông tin của chính user).
+    QUY TẮC LỌC NGHIÊM NGẶT ĐỂ CHỐNG TRÙNG LẶP VÀ RÁC BỘ NHỚ:
+    1. BỎ QUA HOÀN TOÀN (trả về facts_to_remember = []):
+       - Các câu chào hỏi xã giao, cảm ơn, đùa vui, câu hỏi thông thường.
+       - Các câu hỏi mà AI trả lời dựa trên tri thức sẵn có trong bộ nhớ (tránh việc AI tự học lại chính câu trả lời của mình gây lặp kiến thức).
+    2. CHỈ TRÍCH XUẤT KHI:
+       - User chia sẻ thông tin cá nhân/sở thích/thông tin công việc hoặc quy định riêng của họ (ví dụ: "tôi tên là...", "dự án của tôi dùng...", "tôi thích...").
+       - Có dữ liệu mới thực sự được thu thập từ Web Search.
+    3. ĐẶC BIỆT: Không lặp lại các kiến thức đã nói ở câu trước nếu không có chi tiết mới.
+    4. Bài học kinh nghiệm (self_improvement_lesson): Chỉ ghi nhận khi có kinh nghiệm tối ưu từ khóa tìm kiếm hoặc kỹ thuật xử lý phức tạp. Nếu câu hỏi đơn giản -> để trống hoàn toàn.
     """
     try:
         raw_learned = await extractor.ainvoke(prompt)
@@ -47,14 +62,21 @@ async def background_continual_learning(session_id: str, query: str, web_results
         else:
             learned = cast(ExtractedLearning, raw_learned)
         
-        for fact in learned.facts_to_remember:
-            long_memory.upsert_knowledge(fact=fact, topic=learned.topic, source="continual_learning")
+        has_new_updates = False
+
+        if learned.facts_to_remember:
+            for fact in learned.facts_to_remember:
+                if fact and len(fact.strip()) > 8:
+                    long_memory.upsert_knowledge(fact=fact.strip(), topic=learned.topic or "Tri thức chung", source="continual_learning")
+                    has_new_updates = True
             
-        if learned.self_improvement_lesson and len(learned.self_improvement_lesson) > 15:
-            long_memory.save_experience(lesson=learned.self_improvement_lesson, task_type=learned.topic)
+        if learned.self_improvement_lesson and len(learned.self_improvement_lesson.strip()) > 15:
+            long_memory.save_experience(lesson=learned.self_improvement_lesson.strip(), task_type=learned.topic or "Kinh nghiệm chung")
+            has_new_updates = True
             
-        # Thông báo tới Gateway qua Socket.IO để tự động cập nhật UI realtime
-        await notify_gateway_memory_updated()
+        # Chỉ bắn webhook Socket.IO khi thực sự có tri thức/kinh nghiệm mới được lưu
+        if has_new_updates:
+            await notify_gateway_memory_updated()
             
     except Exception as e:
         print(f"[Self-Learning Error]: {e}")

@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import AppHeader from './components/AppHeader';
-import AutonomousLearningPanel from './components/AutonomousLearningPanel';
+import AutonomousLearningPanel, {
+  type AutonomousLearningResult,
+} from './components/AutonomousLearningPanel';
 import ChatPanel from './components/ChatPanel';
 import LearnedKnowledgeTable from './components/LearnedKnowledgeTable';
 import MemoryStatsPanel from './components/MemoryStatsPanel';
 import ReasoningTracePanel from './components/ReasoningTracePanel';
+import KnowledgeSynthesisPage from './components/KnowledgeSynthesisPage';
 import type {
   AICoreChatResponse,
   ChatMessage,
@@ -16,6 +19,7 @@ import type {
 const GATEWAY_URL = import.meta.env.VITE_GATEWAY_URL || 'http://localhost:4000';
 
 export default function App() {
+  const [activeTab, setActiveTab] = useState<'chat' | 'synthesis'>('chat');
   const [socket, setSocket] = useState<Socket | null>(null);
   const [sessionId, setSessionId] = useState<string>('session_phong_01');
   const [input, setInput] = useState<string>('');
@@ -27,6 +31,8 @@ export default function App() {
   const [learnedItems, setLearnedItems] = useState<LearnedMemoryItem[]>([]);
   const [isLoadingItems, setIsLoadingItems] = useState<boolean>(false);
   const [itemsError, setItemsError] = useState<string | null>(null);
+  const [latestAutonomousResult, setLatestAutonomousResult] =
+    useState<AutonomousLearningResult | null>(null);
   const [stats, setStats] = useState<MemoryStats>({
     total_knowledge_facts: 0,
     total_experiences: 0,
@@ -93,18 +99,15 @@ export default function App() {
       setStatus('Bộ nhớ Qdrant & danh sách tri thức đã được cập nhật realtime!');
     });
 
+    // Tách riêng luồng Tự học chủ động: Không in vào khung chat mà lưu vào panel bên phải
     newSocket.on('autonomous_learned', (data: { topic: string; summary: string }) => {
       setIsProcessing(false);
-      setMessages((previous) => [
-        ...previous,
-        {
-          id: Date.now().toString(),
-          role: 'system',
-          content: `[AI Tự Học Chủ Động - Chủ đề: ${data.topic}]\n${data.summary}`,
-          timestamp: new Date().toLocaleTimeString(),
-        },
-      ]);
-      setStatus('Hoàn tất tự học chủ đề mới!');
+      setLatestAutonomousResult({
+        topic: data.topic,
+        summary: data.summary,
+        timestamp: new Date().toLocaleTimeString(),
+      });
+      setStatus(`Đã tự học xong chủ đề: "${data.topic}"!`);
     });
 
     newSocket.on('agent_error', (data: { error: string }) => {
@@ -151,34 +154,51 @@ export default function App() {
   };
 
   return (
-    <main className="flex h-screen gap-4 bg-slate-950 p-4 font-sans text-slate-100">
-      <ChatPanel
-        messages={messages}
-        input={input}
-        isProcessing={isProcessing}
+    <div className="flex h-screen flex-col bg-slate-950 font-sans text-slate-100 overflow-hidden">
+      {/* Top Application Navbar */}
+      <AppHeader
         status={status}
         sessionId={sessionId}
-        onInputChange={setInput}
-        onSubmit={handleSendMessage}
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
         onNewSession={handleNewSession}
       />
 
-      <aside className="flex w-96 flex-col gap-4 overflow-y-auto">
-        <MemoryStatsPanel stats={stats} onRefresh={fetchMemoryStats} />
-        <LearnedKnowledgeTable
-          items={learnedItems}
-          isLoading={isLoadingItems}
-          error={itemsError}
-          onRefresh={fetchLearnedItems}
-        />
-        <AutonomousLearningPanel
-          topic={learnTopic}
-          isProcessing={isProcessing}
-          onTopicChange={setLearnTopic}
-          onLearn={handleTriggerAutonomousLearn}
-        />
-        <ReasoningTracePanel traces={traces} />
-      </aside>
-    </main>
+      {/* Main Content Area based on Active Tab */}
+      {activeTab === 'chat' ? (
+        <main className="flex flex-1 gap-4 overflow-hidden p-4">
+          <ChatPanel
+            messages={messages}
+            input={input}
+            isProcessing={isProcessing}
+            onInputChange={setInput}
+            onSubmit={handleSendMessage}
+          />
+
+          <aside className="flex w-96 shrink-0 flex-col gap-4 overflow-y-auto">
+            <MemoryStatsPanel stats={stats} onRefresh={fetchMemoryStats} />
+            <LearnedKnowledgeTable
+              items={learnedItems}
+              isLoading={isLoadingItems}
+              error={itemsError}
+              onRefresh={fetchLearnedItems}
+            />
+            <AutonomousLearningPanel
+              topic={learnTopic}
+              isProcessing={isProcessing}
+              latestResult={latestAutonomousResult}
+              onTopicChange={setLearnTopic}
+              onLearn={handleTriggerAutonomousLearn}
+              onDismissResult={() => setLatestAutonomousResult(null)}
+            />
+            <ReasoningTracePanel traces={traces} />
+          </aside>
+        </main>
+      ) : (
+        <main className="flex flex-1 overflow-hidden">
+          <KnowledgeSynthesisPage gatewayUrl={GATEWAY_URL} />
+        </main>
+      )}
+    </div>
   );
 }

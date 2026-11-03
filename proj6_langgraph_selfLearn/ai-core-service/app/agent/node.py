@@ -1,4 +1,4 @@
-from typing import cast
+from typing import cast, Optional
 from pydantic import BaseModel, Field
 from langchain_google_genai import ChatGoogleGenerativeAI
 from ..core.config import settings
@@ -18,6 +18,13 @@ class KnowledgeEvaluation(BaseModel):
     search_queries: list[str] = Field(description="Tối đa 2 câu lệnh tìm kiếm ngắn gọn bằng tiếng Việt hoặc Anh nếu needs_search=True")
     reason: str = Field(description="Lý do vì sao đủ hoặc thiếu kiến thức")
 
+class ResponseCritique(BaseModel):
+    score: int = Field(ge=1, le=10, description="Điểm đánh giá chất lượng câu trả lời từ 1 đến 10.")
+    is_grounded: bool = Field(description="True nếu thông tin trung thực, không bịa đặt hoặc mâu thuẫn với tài liệu nguồn.")
+    is_relevant: bool = Field(description="True nếu trả lời trực diện câu hỏi của người dùng.")
+    critique_reason: str = Field(description="Nhận xét ngắn gọn về chất lượng câu trả lời.")
+    refined_answer: Optional[str] = Field(default=None, description="Câu trả lời đã được tinh chỉnh nếu score < 7 hoặc có chi tiết cần sửa.")
+
 async def recall_memory_node(state: AgentState) -> dict:
     query = state["query"]
     history = await short_memory.get_history(state["session_id"])
@@ -31,7 +38,8 @@ async def recall_memory_node(state: AgentState) -> dict:
         "chat_history": history,
         "recalled_knowledge": knowledge,
         "recalled_experiences": experiences,
-        "reasoning_trace": trace
+        "reasoning_trace": trace,
+        "iteration_count": 0
     }
 
 async def evaluate_knowledge_node(state: AgentState) -> dict:
@@ -97,5 +105,50 @@ async def synthesize_response_node(state: AgentState) -> dict:
     """
     response = await llm.ainvoke(prompt)
     trace = state["reasoning_trace"]
-    trace.append("[Respond] Đã tổng hợp câu trả lời hoàn chỉnh.")
+    trace.append("[Respond] Đã tạo bản nháp câu trả lời ban đầu.")
     return {"final_answer": response.content, "reasoning_trace": trace}
+
+async def critique_response_node(state: AgentState) -> dict:
+    """Node tự phản biện (Self-Correction & CRAG Critic) kiểm định câu trả lời trước khi xuất xưởng"""
+    structured_critic = llm.with_structured_output(ResponseCritique)
+    prompt = f"""
+    Bạn là bộ phận phản biện và kiểm định chất lượng câu trả lời của AI Agent (Self-Correction Critic).
+    
+    Câu hỏi người dùng: "{state['query']}"
+    Tri thức từ Qdrant: {state.get('recalled_knowledge', [])}
+    Dữ liệu Web search: {state.get('web_results', 'Không có')}
+    Câu trả lời vừa tạo: "{state.get('final_answer', '')}"
+    
+    Nhiệm vụ kiểm định:
+    1. is_grounded: Câu trả lời có trung thực bám sát nguồn tài liệu không? Có chi tiết nào bịa đặt không?
+    2. is_relevant: Câu trả lời có giải quyết trực diện câu hỏi không?
+    3. score: Chấm điểm từ 1 đến 10.
+    4. Nếu score < 7: Hãy viết lại refined_answer thật hoàn chỉnh, sắc bén, loại bỏ lỗi logic và trả lời trực diện.
+    """
+    try:
+        raw_critic = await structured_critic.ainvoke(prompt)
+        if isinstance(raw_critic, ResponseCritique):
+            critic = raw_critic
+        elif isinstance(raw_critic, dict):
+            critic = ResponseCritique.model_validate(raw_critic)
+        else:
+            critic = cast(ResponseCritique, raw_critic)
+    except Exception as e:
+        # Fallback an toàn nếu LLM gặp lỗi cú pháp
+        critic = ResponseCritique(score=8, is_grounded=True, is_relevant=True, critique_reason=f"Mặc định đạt (fallback: {e})")
+        
+    trace = state.get("reasoning_trace", [])
+    trace.append(f"[Critique] Tự phản biện chất lượng: {critic.score}/10 điểm ({critic.critique_reason}).")
+    
+    final_ans = state.get("final_answer", "")
+    if critic.score < 7 and critic.refined_answer:
+        final_ans = critic.refined_answer
+        trace.append("[Self-Correction] Đã tự động hiệu chỉnh và nâng cao độ chính xác của câu trả lời.")
+        
+    return {
+        "final_answer": final_ans,
+        "critique_score": critic.score,
+        "critique_feedback": critic.critique_reason,
+        "reasoning_trace": trace,
+        "iteration_count": state.get("iteration_count", 0) + 1
+    }
