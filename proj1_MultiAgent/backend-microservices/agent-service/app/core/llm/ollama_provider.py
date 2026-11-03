@@ -17,6 +17,7 @@ class _FunctionMock:
 class _ToolCallMock:
     def __init__(self, call_id: str, name: str, arguments: Dict[str, Any]):
         self.id = call_id
+        self.name = name
         self.type = "function"
         self.function = _FunctionMock(
             name=name,
@@ -79,19 +80,26 @@ class OllamaProvider(BaseLLMProvider):
         ).rstrip("/")
 
     def _build_tool_calling_instruction(self, tools: List[Dict[str, Any]]) -> str:
-        """Tạo hướng dẫn gọi công cụ JSON nhỏ gọn cho Local LLM."""
+        """Tạo hướng dẫn gọi công cụ có ví dụ cụ thể (Few-shot) tối ưu cho Local LLM."""
         if not tools:
             return ""
         compact_tools = []
+        has_search = False
+        has_calc = False
         for t in tools:
             fn = t.get("function", {}) if isinstance(t, dict) else {}
-            if not fn.get("name"):
+            name = fn.get("name", "")
+            if not name:
                 continue
+            if "search" in name.lower() or "wiki" in name.lower():
+                has_search = True
+            if "calc" in name.lower() or "math" in name.lower():
+                has_calc = True
             props = fn.get("parameters", {}).get("properties", {})
             param_desc = {k: v.get("description", v.get("type", "string")) for k, v in props.items()}
             compact_tools.append(
                 {
-                    "name": fn["name"],
+                    "name": name,
                     "description": fn.get("description", ""),
                     "arguments": param_desc,
                 }
@@ -100,22 +108,39 @@ class OllamaProvider(BaseLLMProvider):
             return ""
 
         tools_json = json.dumps(compact_tools, ensure_ascii=False)
+        examples = []
+        if has_search:
+            examples.append(
+                'Người dùng: thời tiết Hà Nội hôm nay thế nào?\n'
+                'Trợ lý: <tool_call>{"name": "web_search_tool", "arguments": {"query": "thời tiết Hà Nội hôm nay"}}</tool_call>'
+            )
+        if has_calc:
+            examples.append(
+                'Người dùng: tính 125 * 45 + sqrt(144)\n'
+                'Trợ lý: <tool_call>{"name": "calculator_tool", "arguments": {"expression": "125 * 45 + sqrt(144)"}}</tool_call>'
+            )
+        examples_str = "\n\n".join(examples) if examples else ""
+
         return (
-            "\n\n[CÔNG CỤ HỖ TRỢ (FUNCTION CALLING)]\n"
-            f"Danh sách công cụ của bạn: {tools_json}\n"
-            "Nếu bạn CẦN gọi công cụ để lấy số liệu/tính toán/tra cứu thực tế trước khi trả lời, "
-            "hãy xuất DUY NHẤT thẻ sau (không viết thêm lời giải thích trước khi có kết quả công cụ):\n"
-            '<tool_call>{"name": "tên_công_cụ", "arguments": {"tham_số": "giá_trị"}}</tool_call>\n'
-            "Nếu câu hỏi chỉ là trò chuyện thông thường hoặc ĐÃ CÓ kết quả công cụ ở bên dưới, "
-            "TUYỆT ĐỐI KHÔNG xuất thẻ <tool_call> nữa mà hãy trả lời trực tiếp cho người dùng bằng tiếng Việt."
+            "\n\n[CÔNG CỤ HỖ TRỢ (FUNCTION CALLING) - QUY TẮC BẮT BUỘC]\n"
+            f"Danh sách công cụ khả dụng của bạn: {tools_json}\n\n"
+            "QUY TẮC:\n"
+            "1. Khi người dùng hỏi thông tin cần tra cứu dữ liệu thực tế (thời tiết, tin tức, sự kiện, giá cả, thời sự) hoặc tính toán:\n"
+            "   TUYỆT ĐỐI KHÔNG từ chối rằng 'tôi không có khả năng tra cứu' hay 'tôi không có kết nối internet'.\n"
+            "   Bạn BẮT BUỘC PHẢI xuất DUY NHẤT một thẻ <tool_call>.\n"
+            "2. Định dạng xuất duy nhất:\n"
+            '<tool_call>{"name": "tên_công_cụ", "arguments": {"tham_số": "giá_trị"}}</tool_call>\n\n'
+            + (f"VÍ DỤ MẪU BẮT BUỘC:\n{examples_str}\n\n" if examples_str else "")
+            + "3. Nếu đã có [Kết quả thực thi Công cụ] ở bên dưới, hãy tổng hợp dữ liệu và trả lời trực tiếp cho Người dùng bằng tiếng Việt (TUYỆT ĐỐI KHÔNG xuất lại thẻ <tool_call>)."
         )
 
     def _extract_prompts(
         self, messages: List[Any], tools: Optional[List[Dict[str, Any]]] = None
-    ) -> tuple[str, str, int]:
+    ) -> tuple[str, str, int, str]:
         system_parts = []
         conversation_parts = []
         tool_result_count = 0
+        last_user_query = ""
 
         for m in messages:
             content = (
@@ -133,7 +158,9 @@ class OllamaProvider(BaseLLMProvider):
             if isinstance(m, SystemMessage) or role == "system" or cls_name == "SystemMessage":
                 system_parts.append(str(content))
             elif isinstance(m, HumanMessage) or role == "user" or cls_name == "HumanMessage":
-                conversation_parts.append(f"Người dùng: {content}")
+                clean_msg = re.sub(r"^@[\w\-]+\s*", "", str(content).strip())
+                last_user_query = clean_msg or str(content).strip()
+                conversation_parts.append(f"Người dùng: {clean_msg}")
             elif isinstance(m, AIMessage) or role == "assistant" or cls_name == "AIMessage":
                 if content:
                     conversation_parts.append(f"Trợ lý: {content}")
@@ -144,7 +171,7 @@ class OllamaProvider(BaseLLMProvider):
                 conversation_parts.append(str(content))
 
         system_prompt = "\n".join(system_parts).strip()
-        # Chỉ đính kèm hướng dẫn gọi tool khi chưa vượt quá 2 vòng gọi tool để tránh lặp vô hạn trên model nhỏ
+        # Chỉ đính kèm hướng dẫn gọi tool khi chưa có kết quả công cụ
         if tools and tool_result_count == 0:
             system_prompt += self._build_tool_calling_instruction(tools)
         elif tool_result_count > 0:
@@ -154,10 +181,13 @@ class OllamaProvider(BaseLLMProvider):
             )
 
         user_prompt = "\n\n".join(conversation_parts).strip()
-        return system_prompt, user_prompt, tool_result_count
+        return system_prompt, user_prompt, tool_result_count, last_user_query
 
     def _parse_tool_calls_from_text(
-        self, text: str, allowed_tools: Optional[List[Dict[str, Any]]] = None
+        self,
+        text: str,
+        allowed_tools: Optional[List[Dict[str, Any]]] = None,
+        last_user_query: str = "",
     ) -> tuple[str, List[_ToolCallMock]]:
         """Trích xuất lệnh gọi công cụ từ thẻ <tool_call>...</tool_call> hoặc JSON block của Local LLM."""
         if not text:
@@ -170,44 +200,146 @@ class OllamaProvider(BaseLLMProvider):
                 if fn.get("name"):
                     allowed_names.add(fn["name"])
 
+        # Ánh xạ bí danh công cụ (aliases) thông dụng để model nhỏ gọi đúng tool
+        alias_map = {
+            "duck-search": "web_search_tool",
+            "duck_search": "web_search_tool",
+            "ducksearch": "web_search_tool",
+            "web_search": "web_search_tool",
+            "google_search": "google_search_tool",
+            "google_custom_search": "google_search_tool",
+            "calculator": "calculator_tool",
+            "calc": "calculator_tool",
+            "summarizer": "summarizer_tool",
+            "text_summarizer": "summarizer_tool",
+            "python_sandbox": "python_sandbox_tool",
+            "python_code_generator": "python_code_generator_tool",
+            "financial_market": "financial_market_tool",
+            "data_analysis": "data_analysis_tool",
+            "csv_analyzer": "csv_analyzer_tool",
+        }
+
         # Loại bỏ phần <think>...</think> của DeepSeek-R1 khi dò tìm JSON tool_call
         cleaned_for_parse = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
 
         tool_calls: List[_ToolCallMock] = []
-        patterns = [
-            r"<tool_call>\s*(\{.*?\})\s*</tool_call>",
-            r"```(?:json)?\s*(\{\s*\"name\"\s*:.*?\})\s*```",
-        ]
+        raw_json_candidates = []
 
-        for pat in patterns:
-            matches = re.findall(pat, cleaned_for_parse, flags=re.DOTALL)
-            for idx, raw_json in enumerate(matches):
-                try:
-                    data = json.loads(raw_json.strip())
-                    fn_name = data.get("name") or data.get("tool") or data.get("tool_id")
-                    args = data.get("arguments") or data.get("parameters") or data.get("args") or {}
-                    if isinstance(args, str):
-                        try:
-                            args = json.loads(args)
-                        except Exception:
-                            args = {"input": args}
-                    if fn_name and (not allowed_names or fn_name in allowed_names):
-                        tool_calls.append(
-                            _ToolCallMock(
-                                call_id=f"ollama_call_{idx + 1}",
-                                name=fn_name,
-                                arguments=args if isinstance(args, dict) else {"input": args},
-                            )
-                        )
-                except Exception:
+        # 1. Trích xuất từ thẻ <tool_call>...</tool_call>
+        for match in re.finditer(r"<tool_call>\s*(.*?)\s*</tool_call>", cleaned_for_parse, flags=re.DOTALL):
+            raw_json_candidates.append(match.group(1))
+
+        # 2. Nếu chưa có, trích xuất từ khối code markdown ```json ... ```
+        if not raw_json_candidates:
+            for match in re.finditer(r"```(?:json)?\s*(\{\s*[\"'](?:name|tool|function|tool_id)[\"'].*?\})\s*```", cleaned_for_parse, flags=re.DOTALL):
+                raw_json_candidates.append(match.group(1))
+
+        # 3. Nếu vẫn chưa có, dò tìm JSON thô dạng nhúng bất kỳ bằng JSONDecoder
+        if not raw_json_candidates:
+            decoder = json.JSONDecoder()
+            for idx_char, ch in enumerate(cleaned_for_parse):
+                if ch == "{":
+                    try:
+                        obj, _ = decoder.raw_decode(cleaned_for_parse[idx_char:])
+                        if isinstance(obj, dict) and any(k in obj for k in ["name", "tool", "function", "tool_id"]):
+                            raw_json_candidates.append(json.dumps(obj, ensure_ascii=False))
+                            break
+                    except Exception:
+                        pass
+
+        call_idx = 1
+        for raw_json in raw_json_candidates:
+            try:
+                data = json.loads(raw_json.strip()) if isinstance(raw_json, str) else raw_json
+                if not isinstance(data, dict):
                     continue
-            if tool_calls:
-                break
+                fn_name = data.get("name") or data.get("tool") or data.get("tool_id") or data.get("function")
+                args = data.get("arguments") or data.get("parameters") or data.get("args") or {}
+                if isinstance(args, str):
+                    try:
+                        args = json.loads(args)
+                    except Exception:
+                        args = {"input": args}
+
+                # Chuẩn hóa tên tool theo alias
+                fn_name_lower = str(fn_name).lower() if fn_name else ""
+                if fn_name_lower in alias_map:
+                    mapped_name = alias_map[fn_name_lower]
+                    if not allowed_names or mapped_name in allowed_names:
+                        fn_name = mapped_name
+
+                # Nếu khớp với tool trong danh sách cho phép (hoặc danh sách cho phép rỗng)
+                if fn_name and (not allowed_names or fn_name in allowed_names):
+                    tool_calls.append(
+                        _ToolCallMock(
+                            call_id=f"ollama_call_{call_idx}",
+                            name=fn_name,
+                            arguments=args if isinstance(args, dict) else {"input": args},
+                        )
+                    )
+                    call_idx += 1
+            except Exception:
+                continue
 
         if tool_calls:
             # Xóa thẻ <tool_call> khỏi nội dung hiển thị
             cleaned_content = re.sub(r"<tool_call>.*?</tool_call>", "", cleaned_for_parse, flags=re.DOTALL).strip()
             return cleaned_content, tool_calls
+
+        # --- BỘ CHẮN & KÍCH HOẠT DỰ PHÒNG THÔNG MINH (REFUSAL INTERCEPTOR) ---
+        # Khi model local nhỏ (1.5B/3B) trả lời theo phản xạ từ chối (không có khả năng tra cứu, không có internet...)
+        # nhưng Agent THỰC SỰ đã được gán công cụ tra cứu/tính toán -> Hệ thống tự động kích hoạt Tool giúp người dùng!
+        refusal_markers = [
+            "không có khả năng tra cứu",
+            "không thể tra cứu",
+            "không có quyền truy cập internet",
+            "không có kết nối internet",
+            "không thể truy cập internet",
+            "không có khả năng tìm kiếm",
+            "xin lỗi vì sự không tiện",
+            "tôi không có khả năng",
+            "tôi là mô hình ngôn ngữ",
+            "tôi là một mô hình ngôn ngữ",
+            "bạn có thể sử dụng công cụ tìm kiếm",
+            "bạn có thể tra cứu trên",
+            "không thể biết thời tiết",
+            "không thể xem thời tiết",
+        ]
+        lower_output = cleaned_for_parse.lower()
+        is_refusal = any(marker in lower_output for marker in refusal_markers)
+
+        if is_refusal and allowed_names:
+            search_tool_id = next(
+                (name for name in ["web_search_tool", "google_search_tool", "wikipedia_tool"] if name in allowed_names),
+                None
+            )
+            calc_tool_id = "calculator_tool" if "calculator_tool" in allowed_names else None
+
+            # 1. Tự động chuyển hướng sang Web Search nếu câu hỏi cần tra cứu
+            if search_tool_id and last_user_query:
+                clean_query = re.sub(r"^@[\w\-]+\s*", "", last_user_query).strip()
+                clean_query = re.sub(r"^(xin hỏi|hãy cho biết|cho tôi biết|tìm kiếm|tra cứu)\s+", "", clean_query, flags=re.IGNORECASE).strip()
+                safe_q = clean_query.encode("ascii", errors="replace").decode("ascii")
+                print(f"[INFO] [OllamaProvider Interceptor] Detected refusal: Auto-triggering {search_tool_id} with query: '{safe_q}'")
+                return "", [
+                    _ToolCallMock(
+                        call_id="interceptor_search_1",
+                        name=search_tool_id,
+                        arguments={"query": clean_query or last_user_query, "input": clean_query or last_user_query},
+                    )
+                ]
+
+            # 2. Tự động chuyển hướng sang Calculator nếu có phép tính
+            if calc_tool_id and last_user_query and any(op in last_user_query for op in ["+", "-", "*", "/", "sqrt", "tính"]):
+                safe_q = last_user_query.encode("ascii", errors="replace").decode("ascii")
+                print(f"[INFO] [OllamaProvider Interceptor] Auto-triggering {calc_tool_id} for expression: '{safe_q}'")
+                return "", [
+                    _ToolCallMock(
+                        call_id="interceptor_calc_1",
+                        name=calc_tool_id,
+                        arguments={"expression": last_user_query, "input": last_user_query},
+                    )
+                ]
 
         return cleaned_for_parse or text, []
 
@@ -366,7 +498,7 @@ class OllamaProvider(BaseLLMProvider):
         raise RuntimeError(f"Không thể kết nối tới ower-service cho phiên thuê '{self.rental_session_id}'")
 
     def _execute(self, messages: List[Any], temperature: float = 0.2, tools: Optional[List[Dict[str, Any]]] = None) -> tuple[str, List[_ToolCallMock]]:
-        system_prompt, user_prompt, tool_result_count = self._extract_prompts(messages, tools=tools)
+        system_prompt, user_prompt, tool_result_count, last_user_query = self._extract_prompts(messages, tools=tools)
 
         raw_text = ""
         # 1. Nếu có phiên thuê từ máy Seller -> Gọi ower-service P2P Relay
@@ -401,7 +533,7 @@ class OllamaProvider(BaseLLMProvider):
                 )
 
         if tools and tool_result_count == 0:
-            cleaned_text, parsed_calls = self._parse_tool_calls_from_text(raw_text, allowed_tools=tools)
+            cleaned_text, parsed_calls = self._parse_tool_calls_from_text(raw_text, allowed_tools=tools, last_user_query=last_user_query)
             return cleaned_text, parsed_calls
 
         # Làm sạch thẻ <think> nếu có trên DeepSeek-R1
@@ -454,7 +586,7 @@ class OllamaProvider(BaseLLMProvider):
 
         # Gọi trực tiếp Ollama cục bộ: stream token theo thời gian thực
         try:
-            system_prompt, user_prompt, _ = self._extract_prompts(messages, tools=None)
+            system_prompt, user_prompt, _, _ = self._extract_prompts(messages, tools=None)
             for token in self._call_direct_ollama_stream(user_prompt, system_prompt, temperature):
                 yield {"type": "token", "content": token}
         except Exception:

@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useMemo } from 'react'
-import { toolsApi, Tool } from '@/lib/api'
+import { toolsApi, Tool, ToolTestResult } from '@/lib/api'
 import { toast } from 'sonner'
 import { useConfirm } from '@/context/ConfirmContext'
 import {
@@ -13,24 +13,55 @@ import {
     IconPlay,
     IconRefreshCw,
     IconCheck,
+    IconCheckCircle,
     IconAlertCircle,
     IconSearch,
     IconTerminal,
     IconSparkles,
-    IconFileText,
     IconX,
     IconCopy,
-    IconLayers,
     IconKey,
     IconEye,
     IconEyeOff,
     IconShield,
+    IconActivity,
+    IconRotateCcw,
 } from '@/components/ui/icons'
 
 type ApiKeyEntry = {
     key: string
     value: string
     show?: boolean
+}
+
+// Bảng tham số mẫu thông minh cho từng loại Tool hệ thống & tùy chỉnh
+const TOOL_DEFAULT_SAMPLES: Record<string, Record<string, unknown>> = {
+    calculator_tool: { expression: '25 * 4 + 10' },
+    scientific_calculator: { expression: 'sqrt(144) + 10' },
+    web_search_tool: { query: 'LangGraph multi-agent architecture 2026' },
+    google_search_tool: { query: 'LangGraph multi-agent architecture 2026' },
+    wikipedia_tool: { query: 'Artificial Intelligence' },
+    web_crawler_tool: { url: 'https://example.com' },
+    data_visualization_tool: { data: [15, 30, 45, 60], type: 'bar', title: 'Thử nghiệm biểu đồ' },
+    pdf_analyzer_tool: { text: 'Báo cáo thử nghiệm hệ thống Multi-Agent AI năm 2026.' },
+    financial_market_tool: { operation: 'cagr', initial_value: 1000, final_value: 2000, periods: 3 },
+    data_analysis_tool: { numbers: [10, 20, 30, 40, 50] },
+    csv_analyzer_tool: { csv_content: 'id,name,role\n1,Alpha,Worker\n2,Beta,Supervisor' },
+    json_data_transformer_tool: { json_str: '{"status": "ok", "service": "agent-service"}' },
+    sentiment_analysis_tool: { text: 'Hệ thống hoạt động rất mượt mà và ổn định!' },
+    sentiment_tool: { text: 'Hệ thống hoạt động rất mượt mà và ổn định!' },
+    summarizer_tool: { text: 'Hệ thống Multi-Agent phân tán kết hợp microservices giúp xử lý các tác vụ tự động hóa.', max_length: 60 },
+    text_summarizer_tool: { text: 'Hệ thống Multi-Agent phân tán kết hợp microservices giúp xử lý các tác vụ tự động hóa.', max_length: 60 },
+    text_summarizer: { text: 'Hệ thống Multi-Agent phân tán kết hợp microservices giúp xử lý các tác vụ tự động hóa.', max_length: 60 },
+    workflow_planner_tool: { task: 'Lập kế hoạch phân tích dữ liệu tự động và xuất báo cáo' },
+    system_health_tool: {},
+    system_control_tool: {},
+    python_code_generator_tool: { prompt: 'Hàm tính tổng hai số nguyên a và b' },
+    python_sandbox_tool: { code: 'result = 12 * 8\nprint(f"Ket qua: {result}")' },
+    sql_query_generator_tool: { prompt: 'Lấy danh sách người dùng đăng ký trong tháng 11' },
+    security_code_auditor_tool: { code: 'def run_query(param):\n    return eval(param)' },
+    ml_evaluator_tool: { y_true: [1, 0, 1, 1], y_pred: [1, 0, 1, 0] },
+    image_analyzer_tool: { task: 'info', image_url: 'https://images.unsplash.com/photo-1554224155-8d04cb21cd6c?w=800' },
 }
 
 // Các mẫu code Python khởi điểm kèm cấu hình API Keys để người dùng chọn nhanh
@@ -43,7 +74,7 @@ const CODE_TEMPLATES = [
         defaultKeys: [] as ApiKeyEntry[],
         defaultArgs: JSON.stringify(
             {
-                text: 'Trí tuệ nhân tạo (AI) đang phát triển với tốc độ chóng mặt trên toàn cầu. Các hệ thống đa tác nhân (Multi-Agent Systems) cho phép nhiều mô hình AI chuyên biệt phối hợp cùng nhau để giải quyết các bài toán kỹ thuật phức tạp mà một mô hình đơn lẻ khó lòng đáp ứng. Việc tích hợp các công cụ mở rộng (Tools) giúp Agent có thể tự động duyệt web, tính toán dữ liệu, tóm tắt báo cáo và tương tác với các hệ vi dịch vụ một cách liền mạch.',
+                text: 'Trí tuệ nhân tạo (AI) đang phát triển với tốc độ chóng mặt trên toàn cầu. Các hệ thống đa tác nhân (Multi-Agent Systems) cho phép nhiều mô hình AI chuyên biệt phối hợp cùng nhau để giải quyết các bài toán kỹ thuật phức tạp mà một mô hình đơn lẻ khó lòng đáp ứng.',
                 max_length: 120,
             },
             null,
@@ -314,15 +345,13 @@ def execute(arguments: dict) -> str:
         defaultKeys: [] as ApiKeyEntry[],
         defaultArgs: JSON.stringify(
             {
-                code: "import math\\nprint('Fibonacci series:')\\na, b = 0, 1\\nfor _ in range(10):\\n    print(a, end=' ')\\n    a, b = b, a + b\\nprint()",
+                code: "import math\nprint('Fibonacci series:')\na, b = 0, 1\nfor _ in range(10):\n    print(a, end=' ')\n    a, b = b, a + b\nprint()",
                 timeout_seconds: 10,
             },
             null,
             2
         ),
         code: `import json
-import subprocess
-import sys
 
 def execute(arguments: dict) -> str:
     """Thực thi Python code an toàn trong môi trường Sandbox"""
@@ -342,8 +371,28 @@ export default function ToolsStudioPage() {
     const [loading, setLoading] = useState(true)
     const [searchQuery, setSearchQuery] = useState('')
     const [categoryFilter, setCategoryFilter] = useState<string>('all')
+    const [healthFilter, setHealthFilter] = useState<'all' | 'healthy' | 'error' | 'untested'>('all')
 
-    // Modal Studio Editor
+    // Trạng thái kiểm tra sức khỏe của từng Tool (Health Map)
+    const [healthStatusMap, setHealthStatusMap] = useState<
+        Record<string, { success: boolean; status: 'healthy' | 'error'; latency_ms: number; error?: string | null }>
+    >({})
+    const [isBatchChecking, setIsBatchChecking] = useState(false)
+    const [batchCheckSummary, setBatchCheckSummary] = useState<{
+        total: number
+        healthy_count: number
+        error_count: number
+    } | null>(null)
+
+    // Modal Test Tool chuyên dụng
+    const [testModalOpen, setTestModalOpen] = useState(false)
+    const [testingTool, setTestingTool] = useState<Tool | null>(null)
+    const [testArgs, setTestArgs] = useState('{}')
+    const [isTestingSingle, setIsTestingSingle] = useState(false)
+    const [singleTestResult, setSingleTestResult] = useState<ToolTestResult | null>(null)
+    const [testViewMode, setTestViewMode] = useState<'json' | 'raw'>('json')
+
+    // Modal Studio Editor (Tạo / Sửa code & nạp API Keys)
     const [editorOpen, setEditorOpen] = useState(false)
     const [editingToolId, setEditingToolId] = useState<string | null>(null)
     const [idInput, setIdInput] = useState('')
@@ -365,7 +414,7 @@ export default function ToolsStudioPage() {
             const data = await toolsApi.list()
             setTools(data ?? [])
         } catch (err: any) {
-            console.error('Lỗi tải danh sách tools:', err)
+            console.error('[ERROR] Lỗi tải danh sách tools:', err)
         } finally {
             setLoading(false)
         }
@@ -374,6 +423,160 @@ export default function ToolsStudioPage() {
     useEffect(() => {
         loadTools()
     }, [])
+
+    // Mở Modal Test Tool trực tiếp từ Card
+    const handleOpenTestModal = (tool: Tool) => {
+        setTestingTool(tool)
+        setSingleTestResult(null)
+        setTestViewMode('json')
+
+        // Phân giải tham số mẫu: parameters trong DB -> TOOL_DEFAULT_SAMPLES -> template -> mẫu mặc định
+        let initialArgs = '{}'
+        if (tool.parameters) {
+            try {
+                const parsed = JSON.parse(tool.parameters)
+                if (typeof parsed === 'object' && parsed !== null) {
+                    initialArgs = JSON.stringify(parsed, null, 2)
+                } else {
+                    initialArgs = tool.parameters
+                }
+            } catch {
+                initialArgs = tool.parameters
+            }
+        } else if (TOOL_DEFAULT_SAMPLES[tool.id]) {
+            initialArgs = JSON.stringify(TOOL_DEFAULT_SAMPLES[tool.id], null, 2)
+        } else {
+            initialArgs = JSON.stringify({ input: 'test_value' }, null, 2)
+        }
+
+        setTestArgs(initialArgs)
+        setTestModalOpen(true)
+    }
+
+    // Thực thi test Tool riêng lẻ
+    const handleRunSingleTest = async () => {
+        if (!testingTool) return
+        setIsTestingSingle(true)
+        setSingleTestResult(null)
+
+        let parsedArgs: Record<string, unknown> = {}
+        if (testArgs.trim()) {
+            try {
+                parsedArgs = JSON.parse(testArgs)
+            } catch {
+                toast.error('Tham số đầu vào Arguments phải là định dạng JSON hợp lệ.')
+                setIsTestingSingle(false)
+                return
+            }
+        }
+
+        try {
+            const res = await toolsApi.test(testingTool.id, parsedArgs)
+            setSingleTestResult(res)
+
+            // Cập nhật health map
+            setHealthStatusMap((prev) => ({
+                ...prev,
+                [testingTool.id]: {
+                    success: res.success,
+                    status: res.status,
+                    latency_ms: res.latency_ms,
+                    error: res.error,
+                },
+            }))
+
+            if (res.success) {
+                toast.success(`[SUCCESS] Tool '${testingTool.name}' hoạt động tốt (${res.latency_ms}ms)`)
+            } else {
+                toast.error(`[ERROR] Tool '${testingTool.name}' báo lỗi: ${res.error || 'Thực thi thất bại'}`)
+            }
+        } catch (err: any) {
+            const errorMsg = err.message || 'Lỗi kết nối khi gọi tool'
+            const errorResult: ToolTestResult = {
+                tool_id: testingTool.id,
+                tool_name: testingTool.name,
+                success: false,
+                status: 'error',
+                latency_ms: 0,
+                error: errorMsg,
+                execution_result: null,
+            }
+            setSingleTestResult(errorResult)
+            setHealthStatusMap((prev) => ({
+                ...prev,
+                [testingTool.id]: {
+                    success: false,
+                    status: 'error',
+                    latency_ms: 0,
+                    error: errorMsg,
+                },
+            }))
+            toast.error(`[ERROR] Gọi tool thất bại: ${errorMsg}`)
+        } finally {
+            setIsTestingSingle(false)
+        }
+    }
+
+    // Chạy kiểm tra hàng loạt (Batch Health Check All Tools)
+    const handleRunBatchCheck = async () => {
+        setIsBatchChecking(true)
+        try {
+            const res = await toolsApi.testAll()
+            setBatchCheckSummary({
+                total: res.total,
+                healthy_count: res.healthy_count,
+                error_count: res.error_count,
+            })
+
+            const newMap: Record<string, { success: boolean; status: 'healthy' | 'error'; latency_ms: number; error?: string | null }> = {}
+            res.results.forEach((item) => {
+                newMap[item.id] = {
+                    success: item.success,
+                    status: item.status,
+                    latency_ms: item.latency_ms,
+                    error: item.error,
+                }
+            })
+            setHealthStatusMap((prev) => ({ ...prev, ...newMap }))
+
+            if (res.error_count === 0) {
+                toast.success(`[HEALTHY] Toàn bộ ${res.total} công cụ hoạt động sẵn sàng!`)
+            } else {
+                toast.warning(`[DIAGNOSTICS] ${res.healthy_count}/${res.total} công cụ hoạt động tốt, ${res.error_count} công cụ gặp sự cố.`)
+            }
+        } catch (err: any) {
+            toast.error(`[ERROR] Kiểm tra hàng loạt thất bại: ${err.message}`)
+        } finally {
+            setIsBatchChecking(false)
+        }
+    }
+
+    // Format JSON trong Test modal
+    const handleFormatTestArgs = () => {
+        try {
+            const parsed = JSON.parse(testArgs)
+            setTestArgs(JSON.stringify(parsed, null, 2))
+        } catch {
+            toast.error('JSON không hợp lệ để định dạng.')
+        }
+    }
+
+    // Khôi phục tham số mẫu trong Test modal
+    const handleResetTestArgs = () => {
+        if (!testingTool) return
+        if (testingTool.parameters) {
+            try {
+                const parsed = JSON.parse(testingTool.parameters)
+                setTestArgs(JSON.stringify(parsed, null, 2))
+                return
+            } catch {}
+        }
+        if (TOOL_DEFAULT_SAMPLES[testingTool.id]) {
+            setTestArgs(JSON.stringify(TOOL_DEFAULT_SAMPLES[testingTool.id], null, 2))
+            return
+        }
+        setTestArgs(JSON.stringify({ input: 'test_sample' }, null, 2))
+    }
 
     // Mở editor tạo mới
     const handleOpenCreate = () => {
@@ -437,7 +640,7 @@ export default function ToolsStudioPage() {
         }
     }
 
-    // Quản lý API Keys trong modal
+    // Quản lý API Keys trong modal Studio
     const handleAddApiKey = (keyName = '', defaultValue = '') => {
         setApiKeysList((prev) => [...prev, { key: keyName, value: defaultValue, show: false }])
     }
@@ -462,7 +665,7 @@ export default function ToolsStudioPage() {
         setApiKeysList((prev) => prev.filter((_, i) => i !== index))
     }
 
-    // Chạy thử code trên UI (Live Testing)
+    // Chạy thử code trên UI (Live Testing trong Studio Modal)
     const handleRunCodeTest = async () => {
         setTestingCode(true)
         setTestResult(null)
@@ -474,7 +677,6 @@ export default function ToolsStudioPage() {
                 throw new Error('Dữ liệu test arguments phải là định dạng JSON hợp lệ.')
             }
 
-            // Chuyển danh sách API Keys thành dictionary { KEY: VALUE }
             const envVarsObj: Record<string, string> = {}
             apiKeysList.forEach((item) => {
                 const k = item.key.trim()
@@ -497,9 +699,9 @@ export default function ToolsStudioPage() {
                 formatted = JSON.stringify(res.execution_result, null, 2)
             }
 
-            setTestResult(`// Kết quả thực thi thành công (Thời gian: ${duration}ms):\n${formatted}`)
+            setTestResult(`// [SUCCESS] Thực thi thành công (Thời gian: ${duration}ms):\n${formatted}`)
         } catch (err: any) {
-            setTestResult(`// Lỗi khi chạy thử nghiệm:\n${err.message}`)
+            setTestResult(`// [ERROR] Lỗi khi chạy thử nghiệm:\n${err.message}`)
         } finally {
             setTestingCode(false)
         }
@@ -516,7 +718,6 @@ export default function ToolsStudioPage() {
         try {
             const toolId = editingToolId || idInput.trim().toLowerCase().replace(/\s+/g, '_')
 
-            // Đóng gói API Keys thành chuỗi JSON
             const envVarsObj: Record<string, string> = {}
             apiKeysList.forEach((item) => {
                 const k = item.key.trim()
@@ -583,14 +784,23 @@ export default function ToolsStudioPage() {
                 t.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
                 t.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
                 (t.description || '').toLowerCase().includes(searchQuery.toLowerCase())
+
             const matchCat =
                 categoryFilter === 'all' ||
                 (categoryFilter === 'custom' && !!t.code) ||
                 (categoryFilter === 'builtin' && !t.code) ||
                 t.category === categoryFilter
-            return matchSearch && matchCat
+
+            const health = healthStatusMap[t.id]
+            const matchHealth =
+                healthFilter === 'all' ||
+                (healthFilter === 'healthy' && health?.success === true) ||
+                (healthFilter === 'error' && health?.success === false) ||
+                (healthFilter === 'untested' && !health)
+
+            return matchSearch && matchCat && matchHealth
         })
-    }, [tools, searchQuery, categoryFilter])
+    }, [tools, searchQuery, categoryFilter, healthFilter, healthStatusMap])
 
     return (
         <div className="space-y-6 max-w-7xl mx-auto pb-12">
@@ -602,26 +812,90 @@ export default function ToolsStudioPage() {
                         <span>Tools &amp; Code Studio</span>
                     </h1>
                     <p className="text-xs sm:text-sm text-zinc-400 mt-1 max-w-2xl leading-relaxed">
-                        Tự tạo mới, nạp và chỉnh sửa mã nguồn Python của các Tools trực tiếp trên giao diện,
-                        kết hợp nạp API Keys bảo mật để trang bị siêu năng lực cho các Agent.
+                        Quản lý, nạp mã nguồn Python, cấu hình API Keys và kiểm tra trực tiếp tính sẵn sàng của toàn bộ công cụ.
                     </p>
                 </div>
 
-                <div className="flex items-center gap-2.5">
+                <div className="flex flex-wrap items-center gap-2.5">
+                    {/* Nút Kiểm Tra Toàn Bộ Tool */}
+                    <button
+                        onClick={handleRunBatchCheck}
+                        disabled={isBatchChecking || tools.length === 0}
+                        className="px-3.5 py-2.5 rounded-2xl bg-zinc-800 hover:bg-zinc-750 border border-zinc-700 text-zinc-200 hover:text-white font-bold text-xs sm:text-sm transition flex items-center gap-2 active:scale-95 disabled:opacity-50 shadow-sm"
+                        title="Kiểm tra hàng loạt sức khỏe và độ sẵn sàng của tất cả Tools"
+                    >
+                        {isBatchChecking ? (
+                            <IconRefreshCw className="w-4 h-4 animate-spin text-emerald-400" />
+                        ) : (
+                            <IconActivity className="w-4 h-4 text-emerald-400" />
+                        )}
+                        <span>
+                            {isBatchChecking
+                                ? 'Đang kiểm tra...'
+                                : `Kiểm Tra Toàn Bộ (${tools.length})`}
+                        </span>
+                    </button>
+
+                    {/* Nút Tạo Mới Tool */}
                     <button
                         onClick={handleOpenCreate}
                         className="px-4 py-2.5 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs sm:text-sm transition flex items-center gap-2 shadow-lg shadow-blue-600/20 active:scale-95"
                     >
                         <IconPlus className="w-4 h-4" />
-                        <span>Tạo Tool Mới (Nạp Code &amp; API Key)</span>
+                        <span>Tạo Tool Mới</span>
                     </button>
                 </div>
             </div>
 
+            {/* Banner Tóm Tắt Kết Quả Chẩn Đoán (Batch Diagnostics) */}
+            {batchCheckSummary && (
+                <div className="p-3.5 rounded-2xl bg-zinc-900/90 border border-zinc-800 flex flex-wrap items-center justify-between gap-3 text-xs animate-in fade-in duration-200">
+                    <div className="flex flex-wrap items-center gap-2.5">
+                        <span className="font-semibold text-white flex items-center gap-1.5">
+                            <IconActivity className="w-4 h-4 text-emerald-400" />
+                            <span>Báo Cáo Sức Khỏe Tools:</span>
+                        </span>
+                        <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 font-mono text-[11px] flex items-center gap-1">
+                            <IconCheckCircle className="w-3 h-3 text-emerald-400" />
+                            <span>{batchCheckSummary.healthy_count}/{batchCheckSummary.total} Hoạt động tốt</span>
+                        </span>
+                        {batchCheckSummary.error_count > 0 && (
+                            <span className="px-2.5 py-0.5 rounded-full bg-rose-500/10 text-rose-300 border border-rose-500/30 font-mono text-[11px] flex items-center gap-1">
+                                <IconAlertCircle className="w-3 h-3 text-rose-400" />
+                                <span>{batchCheckSummary.error_count} Bị lỗi / Cần sửa</span>
+                            </span>
+                        )}
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                        {batchCheckSummary.error_count > 0 && (
+                            <button
+                                onClick={() => setHealthFilter(healthFilter === 'error' ? 'all' : 'error')}
+                                className={`px-2.5 py-1 rounded-xl text-xs font-medium border transition ${
+                                    healthFilter === 'error'
+                                        ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                                        : 'bg-zinc-800 text-zinc-300 border-zinc-700 hover:bg-zinc-700'
+                                }`}
+                            >
+                                {healthFilter === 'error' ? 'Hiện tất cả' : 'Chỉ xem Tool lỗi'}
+                            </button>
+                        )}
+                        {healthFilter !== 'all' && (
+                            <button
+                                onClick={() => setHealthFilter('all')}
+                                className="text-zinc-400 hover:text-white text-xs underline px-1"
+                            >
+                                Xóa bộ lọc
+                            </button>
+                        )}
+                    </div>
+                </div>
+            )}
+
             {/* Bộ Lọc & Tìm Kiếm */}
             <div className="flex flex-col sm:flex-row items-center justify-between gap-3 p-3 rounded-2xl bg-zinc-900/60 border border-zinc-800">
-                <div className="flex items-center gap-2 w-full sm:w-auto">
-                    <div className="relative flex-1 sm:w-72">
+                <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+                    <div className="relative flex-1 sm:w-64">
                         <IconSearch className="w-3.5 h-3.5 absolute left-3 top-3 text-zinc-500" />
                         <input
                             type="text"
@@ -632,12 +906,13 @@ export default function ToolsStudioPage() {
                         />
                     </div>
 
+                    {/* Lọc Category */}
                     <select
                         value={categoryFilter}
                         onChange={(e) => setCategoryFilter(e.target.value)}
                         className="px-3 py-2 rounded-xl border border-zinc-700 bg-zinc-950 text-xs text-white outline-none focus:border-blue-500"
                     >
-                        <option value="all">Tất cả Tool ({tools.length})</option>
+                        <option value="all">Tất cả danh mục ({tools.length})</option>
                         <option value="custom">Tool Tự Viết Code</option>
                         <option value="builtin">Tool Hệ Thống Tích Hợp</option>
                         <option value="nlp">NLP / Tóm Tắt</option>
@@ -645,11 +920,23 @@ export default function ToolsStudioPage() {
                         <option value="data">Data &amp; Phân Tích</option>
                         <option value="utility">Tiện Ích &amp; Tính Toán</option>
                     </select>
+
+                    {/* Lọc Trạng Thái Kiểm Tra */}
+                    <select
+                        value={healthFilter}
+                        onChange={(e) => setHealthFilter(e.target.value as any)}
+                        className="px-3 py-2 rounded-xl border border-zinc-700 bg-zinc-950 text-xs text-white outline-none focus:border-blue-500"
+                    >
+                        <option value="all">Trạng thái: Tất cả</option>
+                        <option value="healthy">Hoạt động tốt</option>
+                        <option value="error">Bị lỗi</option>
+                        <option value="untested">Chưa kiểm tra</option>
+                    </select>
                 </div>
 
                 <div className="text-xs text-zinc-500 flex items-center gap-1.5 self-end sm:self-auto">
                     <IconSparkles className="w-3.5 h-3.5 text-blue-400" />
-                    <span>Agent trong phòng tự động gọi Tool dựa trên mô tả nhiệm vụ</span>
+                    <span>Agent tự động phân bổ và gọi tool dựa trên ngữ cảnh nhiệm vụ</span>
                 </div>
             </div>
 
@@ -666,7 +953,7 @@ export default function ToolsStudioPage() {
                     </div>
                     <div className="text-sm font-semibold text-white">Chưa tìm thấy Tool phù hợp</div>
                     <p className="text-xs text-zinc-500 max-w-sm mx-auto">
-                        Hãy nhấn vào nút <strong>Tạo Tool Mới (Nạp Code &amp; API Key)</strong> để bắt đầu.
+                        Hãy thay đổi điều kiện tìm kiếm hoặc nhấn nút <strong>Tạo Tool Mới</strong> để bắt đầu.
                     </p>
                 </div>
             ) : (
@@ -680,10 +967,18 @@ export default function ToolsStudioPage() {
                             } catch {}
                         }
 
+                        const health = healthStatusMap[t.id]
+
                         return (
                             <div
                                 key={t.id}
-                                className="p-4 rounded-3xl border border-zinc-800 bg-zinc-900/70 hover:border-zinc-700 transition flex flex-col justify-between gap-4 shadow-sm"
+                                className={`p-4 rounded-3xl border bg-zinc-900/70 transition flex flex-col justify-between gap-4 shadow-sm hover:border-zinc-700 ${
+                                    health && !health.success
+                                        ? 'border-rose-500/40 bg-rose-950/10'
+                                        : health?.success
+                                        ? 'border-emerald-500/30'
+                                        : 'border-zinc-800'
+                                }`}
                             >
                                 <div className="space-y-2.5">
                                     <div className="flex items-start justify-between gap-2">
@@ -733,6 +1028,31 @@ export default function ToolsStudioPage() {
                                     <p className="text-[11px] text-zinc-400 line-clamp-2 leading-relaxed">
                                         {t.description || 'Chưa có mô tả chi tiết cho công cụ này.'}
                                     </p>
+
+                                    {/* Huy hiệu trạng thái kiểm tra (Health Status Badge) */}
+                                    <div className="pt-1">
+                                        {health ? (
+                                            health.success ? (
+                                                <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[10px] font-mono">
+                                                    <IconCheckCircle className="w-3 h-3 text-emerald-400 shrink-0" />
+                                                    <span>Sẵn sàng ({health.latency_ms}ms)</span>
+                                                </div>
+                                            ) : (
+                                                <div
+                                                    onClick={() => handleOpenTestModal(t)}
+                                                    className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-rose-500/10 border border-rose-500/30 text-rose-300 text-[10px] font-mono cursor-pointer hover:bg-rose-500/20 transition max-w-full"
+                                                    title={health.error || 'Lỗi khi gọi tool, bấm để xem chi tiết'}
+                                                >
+                                                    <IconAlertCircle className="w-3 h-3 text-rose-400 shrink-0" />
+                                                    <span className="truncate">Lỗi: {health.error || 'Thực thi thất bại'}</span>
+                                                </div>
+                                            )
+                                        ) : (
+                                            <span className="text-[10px] text-zinc-500 font-mono px-2 py-0.5 rounded-full border border-zinc-800 bg-zinc-950/50">
+                                                Chưa test
+                                            </span>
+                                        )}
+                                    </div>
                                 </div>
 
                                 <div className="flex items-center justify-between pt-2 border-t border-zinc-800/80">
@@ -741,6 +1061,18 @@ export default function ToolsStudioPage() {
                                     </span>
 
                                     <div className="flex items-center gap-1.5">
+                                        {/* Nút Kiểm Tra Tool */}
+                                        <button
+                                            type="button"
+                                            onClick={() => handleOpenTestModal(t)}
+                                            className="px-2.5 py-1.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/25 text-emerald-300 text-xs font-medium transition flex items-center gap-1 active:scale-95 shadow-sm"
+                                            title="Kiểm tra trực tiếp xem tool có hoạt động và gọi được không"
+                                        >
+                                            <IconPlay className="w-3.5 h-3.5 text-emerald-400" />
+                                            <span>Kiểm Tra</span>
+                                        </button>
+
+                                        {/* Nút Sửa Code */}
                                         <button
                                             type="button"
                                             onClick={() => handleOpenEdit(t)}
@@ -748,9 +1080,10 @@ export default function ToolsStudioPage() {
                                             title="Mở trình soạn thảo mã nguồn & API Key của Tool"
                                         >
                                             <IconCode className="w-3.5 h-3.5 text-blue-400" />
-                                            <span>Sửa Code</span>
+                                            <span>Sửa</span>
                                         </button>
 
+                                        {/* Nút Xóa Tool */}
                                         <button
                                             type="button"
                                             onClick={() => handleDeleteTool(t.id)}
@@ -764,6 +1097,236 @@ export default function ToolsStudioPage() {
                             </div>
                         )
                     })}
+                </div>
+            )}
+
+            {/* ====================================================================== */}
+            {/* MODAL KIỂM TRA TOOL (TOOL TEST RUNNER & DIAGNOSTICS)                   */}
+            {/* ====================================================================== */}
+            {testModalOpen && testingTool && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/80 backdrop-blur-md animate-in fade-in duration-150">
+                    <div className="w-full max-w-3xl rounded-3xl bg-zinc-900 border border-zinc-800 shadow-2xl flex flex-col max-h-[92vh] overflow-hidden">
+                        {/* Header Modal Test */}
+                        <div className="flex items-center justify-between p-4 sm:p-5 border-b border-zinc-800 shrink-0 bg-zinc-950/60">
+                            <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-2xl bg-emerald-600/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+                                    <IconTerminal className="w-5 h-5" />
+                                </div>
+                                <div>
+                                    <h2 className="text-sm font-bold text-white flex items-center gap-2">
+                                        <span>Kiểm Tra Tool: {testingTool.name}</span>
+                                        <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400 border border-zinc-700">
+                                            {testingTool.code ? 'Custom Code' : 'Built-in'}
+                                        </span>
+                                    </h2>
+                                    <p className="text-xs text-zinc-400 font-mono">
+                                        ID: {testingTool.id} | Danh mục: {testingTool.category || 'general'}
+                                    </p>
+                                </div>
+                            </div>
+
+                            <button
+                                type="button"
+                                onClick={() => setTestModalOpen(false)}
+                                className="w-8 h-8 rounded-full bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white flex items-center justify-center transition"
+                            >
+                                <IconX className="w-4 h-4" />
+                            </button>
+                        </div>
+
+                        {/* Nội dung Modal Test */}
+                        <div className="p-4 sm:p-6 overflow-y-auto space-y-5 flex-1">
+                            {/* Mô tả tool */}
+                            <div className="p-3 rounded-2xl bg-zinc-950/60 border border-zinc-800 text-xs text-zinc-300 leading-relaxed">
+                                <span className="text-zinc-500 font-semibold block mb-0.5">Mô tả công cụ:</span>
+                                {testingTool.description || 'Chưa có mô tả chi tiết.'}
+                            </div>
+
+                            {/* Khu vực nhập Arguments JSON */}
+                            <div className="space-y-2">
+                                <div className="flex items-center justify-between">
+                                    <label className="text-xs font-bold text-white flex items-center gap-1.5">
+                                        <IconPlay className="w-3.5 h-3.5 text-emerald-400" />
+                                        <span>Tham Số Thử Nghiệm (JSON Test Arguments)</span>
+                                    </label>
+
+                                    <div className="flex items-center gap-1.5">
+                                        <button
+                                            type="button"
+                                            onClick={handleFormatTestArgs}
+                                            className="px-2.5 py-1 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-[11px] font-mono transition"
+                                        >
+                                            Beautify JSON
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={handleResetTestArgs}
+                                            className="px-2.5 py-1 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-[11px] font-mono transition flex items-center gap-1"
+                                        >
+                                            <IconRotateCcw className="w-3 h-3 text-zinc-400" />
+                                            <span>Mẫu mặc định</span>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setTestArgs('{}')}
+                                            className="px-2.5 py-1 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 text-[11px] font-mono transition"
+                                        >
+                                            Xóa trắng
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <textarea
+                                    value={testArgs}
+                                    onChange={(e) => setTestArgs(e.target.value)}
+                                    rows={4}
+                                    placeholder='{"expression": "25 * 4"}'
+                                    className="w-full p-3 rounded-2xl border border-zinc-800 bg-zinc-950 text-xs text-white font-mono outline-none focus:border-emerald-500 transition leading-relaxed"
+                                    spellCheck={false}
+                                />
+                            </div>
+
+                            {/* Nút Thực thi Test */}
+                            <div className="flex items-center justify-between pt-1">
+                                <button
+                                    type="button"
+                                    onClick={handleRunSingleTest}
+                                    disabled={isTestingSingle}
+                                    className="px-5 py-2.5 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-50 text-white font-bold text-xs sm:text-sm transition flex items-center gap-2 shadow-lg shadow-emerald-600/20 active:scale-95"
+                                >
+                                    {isTestingSingle ? (
+                                        <IconRefreshCw className="w-4 h-4 animate-spin" />
+                                    ) : (
+                                        <IconPlay className="w-4 h-4" />
+                                    )}
+                                    <span>{isTestingSingle ? 'Đang thực thi...' : 'Chạy Thử Nghiệm Ngay'}</span>
+                                </button>
+
+                                {singleTestResult && (
+                                    <span className="text-xs font-mono text-zinc-400">
+                                        Thời gian: <strong className="text-white">{singleTestResult.latency_ms}ms</strong>
+                                    </span>
+                                )}
+                            </div>
+
+                            {/* Bảng Hiển Thị Kết Quả Kiểm Tra */}
+                            {singleTestResult && (
+                                <div className="space-y-3 pt-2">
+                                    {/* Alert kết quả */}
+                                    <div
+                                        className={`p-3.5 rounded-2xl border text-xs flex items-start gap-3 ${
+                                            singleTestResult.success
+                                                ? 'bg-emerald-950/30 border-emerald-500/40 text-emerald-200'
+                                                : 'bg-rose-950/30 border-rose-500/40 text-rose-200'
+                                        }`}
+                                    >
+                                        {singleTestResult.success ? (
+                                            <IconCheckCircle className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+                                        ) : (
+                                            <IconAlertCircle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+                                        )}
+                                        <div className="flex-1 space-y-1">
+                                            <div className="font-bold">
+                                                {singleTestResult.success
+                                                    ? '[SUCCESS] Tool hoạt động chính xác và phản hồi tốt'
+                                                    : '[ERROR] Tool báo lỗi khi thực thi'}
+                                            </div>
+                                            {!singleTestResult.success && singleTestResult.error && (
+                                                <p className="text-[11px] font-mono whitespace-pre-wrap text-rose-300">
+                                                    Chi tiết: {singleTestResult.error}
+                                                </p>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* Output Details Box */}
+                                    <div className="rounded-2xl border border-zinc-800 bg-zinc-950 overflow-hidden">
+                                        <div className="flex items-center justify-between px-3.5 py-2 border-b border-zinc-800 bg-zinc-900/60 text-xs">
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-zinc-400 font-semibold">Kết quả trả về:</span>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setTestViewMode('json')}
+                                                    className={`px-2 py-0.5 rounded-lg text-[10px] font-mono transition ${
+                                                        testViewMode === 'json'
+                                                            ? 'bg-blue-600/20 text-blue-300 border border-blue-500/30'
+                                                            : 'text-zinc-400 hover:text-white'
+                                                    }`}
+                                                >
+                                                    JSON
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setTestViewMode('raw')}
+                                                    className={`px-2 py-0.5 rounded-lg text-[10px] font-mono transition ${
+                                                        testViewMode === 'raw'
+                                                            ? 'bg-blue-600/20 text-blue-300 border border-blue-500/30'
+                                                            : 'text-zinc-400 hover:text-white'
+                                                    }`}
+                                                >
+                                                    Raw Output
+                                                </button>
+                                            </div>
+
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    const textToCopy =
+                                                        testViewMode === 'json' && singleTestResult.parsed_result
+                                                            ? JSON.stringify(singleTestResult.parsed_result, null, 2)
+                                                            : typeof singleTestResult.execution_result === 'string'
+                                                            ? singleTestResult.execution_result
+                                                            : JSON.stringify(singleTestResult.execution_result, null, 2)
+                                                    navigator.clipboard.writeText(textToCopy)
+                                                    toast.success('Đã sao chép kết quả vào Clipboard')
+                                                }}
+                                                className="text-zinc-400 hover:text-white text-[11px] flex items-center gap-1 font-mono transition"
+                                            >
+                                                <IconCopy className="w-3 h-3" />
+                                                <span>Copy</span>
+                                            </button>
+                                        </div>
+
+                                        <pre className="p-3.5 text-xs font-mono text-zinc-300 whitespace-pre-wrap max-h-60 overflow-y-auto leading-relaxed">
+                                            {testViewMode === 'json' && singleTestResult.parsed_result
+                                                ? JSON.stringify(singleTestResult.parsed_result, null, 2)
+                                                : typeof singleTestResult.execution_result === 'string'
+                                                ? singleTestResult.execution_result
+                                                : JSON.stringify(singleTestResult.execution_result, null, 2)}
+                                        </pre>
+                                    </div>
+
+                                    {/* Nút chuyển sang sửa code nếu có lỗi trên tool custom */}
+                                    {!singleTestResult.success && testingTool.code && (
+                                        <div className="pt-1 flex justify-end">
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setTestModalOpen(false)
+                                                    handleOpenEdit(testingTool)
+                                                }}
+                                                className="px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-750 text-blue-400 hover:text-blue-300 text-xs font-medium border border-blue-500/30 transition flex items-center gap-1.5"
+                                            >
+                                                <IconCode className="w-3.5 h-3.5" />
+                                                <span>Mở Trình Soạn Thảo Để Sửa Code / API Keys</span>
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Footer Modal Test */}
+                        <div className="p-4 sm:p-5 border-t border-zinc-800 bg-zinc-950/60 flex items-center justify-end shrink-0">
+                            <button
+                                type="button"
+                                onClick={() => setTestModalOpen(false)}
+                                className="px-4 py-2 rounded-xl text-xs font-medium text-zinc-300 hover:text-white bg-zinc-800 hover:bg-zinc-700 transition"
+                            >
+                                Đóng
+                            </button>
+                        </div>
+                    </div>
                 </div>
             )}
 
@@ -851,121 +1414,105 @@ export default function ToolsStudioPage() {
 
                             <div>
                                 <label className="text-[11px] font-medium text-zinc-400 block mb-1">
-                                    Mô tả nhiệm vụ của Tool (Prompt cho LLM Agent nhận diện lúc nào nên gọi):
+                                    Mô Tả Chức Năng (Prompt context cho LLM Agent):
                                 </label>
-                                <input
-                                    type="text"
+                                <textarea
                                     value={descInput}
                                     onChange={(e) => setDescInput(e.target.value)}
-                                    placeholder="Tóm tắt văn bản dài hoặc lịch sử chat thành các ý chính súc tích..."
+                                    rows={2}
+                                    placeholder="Agent sẽ đọc mô tả này để quyết định khi nào cần gọi tool..."
                                     className="w-full px-3 py-2 rounded-xl border border-zinc-700 bg-zinc-950 text-xs text-white outline-none focus:border-blue-500"
                                 />
                             </div>
 
-                            {/* 2. KHU VỰC CẤU HÌNH API KEYS / SECRETS */}
-                            <div className="p-4 rounded-2xl bg-zinc-950/80 border border-zinc-800 space-y-3">
-                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-zinc-800/80 pb-2.5">
-                                    <div className="flex items-center gap-2">
-                                        <div className="w-7 h-7 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center">
-                                            <IconKey className="w-4 h-4" />
-                                        </div>
-                                        <div>
-                                            <h3 className="text-xs font-bold text-white flex items-center gap-1.5">
-                                                <span>Cấu Hình API Keys &amp; Biến Môi Trường (Secrets)</span>
-                                                <span className="text-[10px] text-zinc-500 font-normal">
-                                                    ({apiKeysList.length} Keys)
-                                                </span>
-                                            </h3>
-                                            <p className="text-[10px] text-zinc-400">
-                                                Tự động nạp vào <code>os.getenv("KEY")</code> hoặc biến <code>secrets["KEY"]</code> trong code
-                                            </p>
-                                        </div>
+                            {/* Gợi ý Templates */}
+                            {!editingToolId && (
+                                <div className="space-y-2">
+                                    <label className="text-[11px] font-medium text-zinc-400 block">
+                                        Chọn Mẫu Code Sẵn (Templates):
+                                    </label>
+                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                                        {CODE_TEMPLATES.map((tmpl) => (
+                                            <button
+                                                key={tmpl.id}
+                                                type="button"
+                                                onClick={() => handleApplyTemplate(tmpl.id)}
+                                                className="p-2.5 rounded-xl border border-zinc-800 bg-zinc-950 hover:border-blue-500/50 hover:bg-zinc-800/40 text-left transition group"
+                                            >
+                                                <div className="text-xs font-bold text-white group-hover:text-blue-400 truncate">
+                                                    {tmpl.name.split('(')[0]}
+                                                </div>
+                                                <div className="text-[10px] text-zinc-500 uppercase font-mono mt-0.5">
+                                                    {tmpl.category}
+                                                </div>
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* 2. CẤU HÌNH API KEYS / SECRETS */}
+                            <div className="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 space-y-3">
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <h3 className="text-xs font-bold text-white flex items-center gap-1.5">
+                                            <IconShield className="w-3.5 h-3.5 text-amber-400" />
+                                            <span>Bảo Mật API Keys &amp; Biến Môi Trường (Secrets)</span>
+                                        </h3>
+                                        <p className="text-[11px] text-zinc-400">
+                                            Các keys này được lưu bảo mật và tự động nạp vào <code>os.environ</code> và biến <code>secrets</code> khi tool chạy.
+                                        </p>
                                     </div>
 
-                                    {/* Nút thêm nhanh */}
-                                    <div className="flex items-center gap-1.5 flex-wrap">
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                handleAddApiKey('GOOGLE_API_KEY', '')
-                                                handleAddApiKey('GOOGLE_CSE_ID', '')
-                                            }}
-                                            className="px-2 py-1 rounded-lg bg-zinc-900 border border-zinc-700 hover:border-amber-500/40 text-[10px] text-zinc-300 transition"
-                                        >
-                                            + Google Search Keys
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => handleAddApiKey('OPENWEATHER_API_KEY', '')}
-                                            className="px-2 py-1 rounded-lg bg-zinc-900 border border-zinc-700 hover:border-amber-500/40 text-[10px] text-zinc-300 transition"
-                                        >
-                                            + Weather Key
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => handleAddApiKey('CUSTOM_API_KEY', '')}
-                                            className="px-2.5 py-1 rounded-lg bg-amber-600/20 border border-amber-500/30 text-amber-300 text-[10px] font-semibold transition flex items-center gap-1"
-                                        >
-                                            <IconPlus className="w-3 h-3" />
-                                            <span>Thêm Key</span>
-                                        </button>
-                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleAddApiKey()}
+                                        className="px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-medium transition flex items-center gap-1"
+                                    >
+                                        <IconPlus className="w-3.5 h-3.5" />
+                                        <span>Thêm Key</span>
+                                    </button>
                                 </div>
 
                                 {apiKeysList.length === 0 ? (
-                                    <div className="text-center py-4 text-[11px] text-zinc-500 border border-dashed border-zinc-800 rounded-xl">
-                                        Chưa có API Key nào được gắn. Nếu Tool của bạn gọi dịch vụ ngoài (Google Search, Weather, v.v.), hãy nhấn <strong>Thêm Key</strong>.
+                                    <div className="text-[11px] text-zinc-500 italic py-1">
+                                        Chưa có API Key nào được gán cho Tool này (Tool chạy độc lập không cần key bên ngoài).
                                     </div>
                                 ) : (
-                                    <div className="space-y-2">
+                                    <div className="space-y-2 pt-1">
                                         {apiKeysList.map((entry, idx) => (
-                                            <div
-                                                key={idx}
-                                                className="flex items-center gap-2 p-2 rounded-xl bg-zinc-900 border border-zinc-800"
-                                            >
-                                                {/* Tên Biến Key */}
-                                                <div className="w-1/3 min-w-[140px]">
-                                                    <input
-                                                        type="text"
-                                                        value={entry.key}
-                                                        onChange={(e) =>
-                                                            handleUpdateApiKey(idx, 'key', e.target.value)
-                                                        }
-                                                        placeholder="TÊN_BIẾN (vd: GOOGLE_API_KEY)"
-                                                        className="w-full px-2.5 py-1.5 rounded-lg border border-zinc-700 bg-zinc-950 text-xs text-white font-mono uppercase outline-none focus:border-amber-500"
-                                                    />
-                                                </div>
-
-                                                {/* Giá Trị Secret Value */}
-                                                <div className="flex-1 relative">
+                                            <div key={idx} className="flex items-center gap-2">
+                                                <input
+                                                    type="text"
+                                                    value={entry.key}
+                                                    onChange={(e) => handleUpdateApiKey(idx, 'key', e.target.value)}
+                                                    placeholder="TÊN_BIẾN (vd: OPENAI_API_KEY)"
+                                                    className="w-1/3 px-3 py-1.5 rounded-xl border border-zinc-700 bg-zinc-900 text-xs text-white font-mono uppercase outline-none focus:border-amber-500"
+                                                />
+                                                <div className="relative flex-1">
                                                     <input
                                                         type={entry.show ? 'text' : 'password'}
                                                         value={entry.value}
-                                                        onChange={(e) =>
-                                                            handleUpdateApiKey(idx, 'value', e.target.value)
-                                                        }
-                                                        placeholder="Nhập giá trị secret / token / key..."
-                                                        className="w-full px-2.5 py-1.5 rounded-lg border border-zinc-700 bg-zinc-950 text-xs text-white font-mono pr-12 outline-none focus:border-amber-500"
+                                                        onChange={(e) => handleUpdateApiKey(idx, 'value', e.target.value)}
+                                                        placeholder="Giá trị Key bí mật..."
+                                                        className="w-full pl-3 pr-8 py-1.5 rounded-xl border border-zinc-700 bg-zinc-900 text-xs text-white font-mono outline-none focus:border-amber-500"
                                                     />
                                                     <button
                                                         type="button"
                                                         onClick={() => handleToggleShowKey(idx)}
-                                                        className="absolute right-2 top-1.5 text-zinc-500 hover:text-white text-[10px] px-1 py-0.5 rounded bg-zinc-800"
+                                                        className="absolute right-2.5 top-2 text-zinc-500 hover:text-white"
                                                     >
                                                         {entry.show ? (
-                                                            <IconEyeOff className="w-3 h-3" />
+                                                            <IconEyeOff className="w-3.5 h-3.5" />
                                                         ) : (
-                                                            <IconEye className="w-3 h-3" />
+                                                            <IconEye className="w-3.5 h-3.5" />
                                                         )}
                                                     </button>
                                                 </div>
-
-                                                {/* Nút xóa */}
                                                 <button
                                                     type="button"
                                                     onClick={() => handleRemoveApiKey(idx)}
-                                                    className="p-1.5 rounded-lg text-zinc-500 hover:text-rose-400 hover:bg-zinc-800 transition"
-                                                    title="Xóa Key này"
+                                                    className="p-1.5 rounded-xl text-zinc-500 hover:text-rose-400 hover:bg-zinc-800"
                                                 >
                                                     <IconTrash className="w-3.5 h-3.5" />
                                                 </button>
@@ -975,53 +1522,28 @@ export default function ToolsStudioPage() {
                                 )}
                             </div>
 
-                            {/* 3. THANH CÔNG CỤ EDITOR & NẠP CODE MẪU */}
-                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2 border-t border-zinc-800">
-                                <span className="text-xs font-bold text-white flex items-center gap-1.5">
-                                    <IconTerminal className="w-4 h-4 text-emerald-400" />
-                                    <span>Trình Soạn Thảo Mã Python (Python Execution Script)</span>
-                                </span>
-
-                                <div className="flex items-center gap-2">
-                                    <span className="text-[11px] text-zinc-500">Mẫu có sẵn:</span>
-                                    <select
-                                        onChange={(e) => {
-                                            if (e.target.value) {
-                                                handleApplyTemplate(e.target.value)
-                                                e.target.value = ''
-                                            }
-                                        }}
-                                        defaultValue=""
-                                        className="px-2.5 py-1 rounded-lg border border-zinc-700 bg-zinc-950 text-xs text-zinc-300 outline-none focus:border-blue-500"
-                                    >
-                                        <option value="" disabled>
-                                            + Nạp Code Mẫu...
-                                        </option>
-                                        {CODE_TEMPLATES.map((tmpl) => (
-                                            <option key={tmpl.id} value={tmpl.id}>
-                                                {tmpl.name}
-                                            </option>
-                                        ))}
-                                    </select>
+                            {/* 3. TRÌNH SOẠN THẢO CODE PYTHON */}
+                            <div className="space-y-2">
+                                <div className="flex items-center justify-between">
+                                    <label className="text-xs font-bold text-white flex items-center gap-1.5">
+                                        <IconCode className="w-3.5 h-3.5 text-blue-400" />
+                                        <span>Mã Nguồn Python (def execute(arguments):)</span>
+                                    </label>
+                                    <span className="text-[10px] text-zinc-500 font-mono">
+                                        Môi trường hỗ trợ: json, re, math, requests, urllib, datetime, os
+                                    </span>
                                 </div>
-                            </div>
 
-                            {/* Ô Code Editor */}
-                            <div className="relative rounded-2xl border border-zinc-700 bg-zinc-950 overflow-hidden font-mono shadow-inner">
-                                <div className="bg-zinc-900/80 px-4 py-1.5 border-b border-zinc-800 flex items-center justify-between text-[11px] text-zinc-400">
-                                    <span>tool_script.py</span>
-                                    <span>Python 3.11</span>
-                                </div>
                                 <textarea
                                     value={codeInput}
                                     onChange={(e) => setCodeInput(e.target.value)}
                                     rows={12}
-                                    className="w-full bg-transparent p-4 text-xs text-emerald-300 font-mono outline-none resize-y leading-relaxed"
+                                    className="w-full p-3 rounded-2xl border border-zinc-700 bg-zinc-950 text-xs text-emerald-400 font-mono outline-none focus:border-blue-500 transition leading-relaxed"
                                     spellCheck={false}
                                 />
                             </div>
 
-                            {/* 4. KHU VỰC TEST RUNNER */}
+                            {/* 4. KHU VỰC TEST RUNNER TRONG EDITOR */}
                             <div className="p-4 rounded-2xl bg-zinc-950 border border-zinc-800 space-y-3">
                                 <div className="flex items-center justify-between">
                                     <label className="text-xs font-bold text-white flex items-center gap-1.5">
@@ -1047,7 +1569,6 @@ export default function ToolsStudioPage() {
                                     className="w-full p-3 rounded-xl border border-zinc-800 bg-zinc-900 text-xs text-white font-mono outline-none focus:border-blue-500"
                                 />
 
-                                {/* Kết quả chạy test */}
                                 {testResult && (
                                     <div className="p-3.5 rounded-xl bg-zinc-900 border border-blue-500/30 text-xs text-zinc-300 font-mono whitespace-pre-wrap max-h-48 overflow-y-auto">
                                         {testResult}
@@ -1056,7 +1577,7 @@ export default function ToolsStudioPage() {
                             </div>
                         </div>
 
-                        {/* Footer Modal: Nút Lưu */}
+                        {/* Footer Modal Studio */}
                         <div className="p-4 sm:p-5 border-t border-zinc-800 bg-zinc-950/50 flex items-center justify-between shrink-0">
                             <div>
                                 {saveSuccess && (

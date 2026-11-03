@@ -43,7 +43,7 @@ export { chatsApi } from './chats'
 export type { Prompt } from './prompts'
 export { promptsApi } from './prompts'
 
-export type { Tool } from './tools'
+export type { Tool, ToolTestResult, BatchToolHealthItem, BatchHealthCheckResult } from './tools'
 export { toolsApi } from './tools'
 
 export type { AIModel } from './models'

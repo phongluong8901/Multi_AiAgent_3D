@@ -14,7 +14,7 @@ function normalizeAgent(a: Agent): Agent {
     }
 }
 
-export function useAgents(pollMs = 3000) {
+export function useAgents() {
     const [agents, setAgents] = useState<Agent[]>([])
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
@@ -36,9 +36,7 @@ export function useAgents(pollMs = 3000) {
 
     useEffect(() => {
         refresh()
-        const t = setInterval(refresh, pollMs)
-        return () => clearInterval(t)
-    }, [refresh, pollMs])
+    }, [refresh])
 
     return { agents, loading, error, connected, refresh }
 }

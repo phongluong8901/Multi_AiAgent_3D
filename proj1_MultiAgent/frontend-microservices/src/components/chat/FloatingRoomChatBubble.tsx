@@ -77,8 +77,6 @@ export default function FloatingRoomChatBubble() {
     useEffect(() => {
         if (!user?.id || isInsideRoomDetail) return
         loadBubbleRooms()
-        const timer = setInterval(loadBubbleRooms, 30000)
-        return () => clearInterval(timer)
     }, [user?.id, isInsideRoomDetail])
 
     // Tải chi tiết thành viên Online/Offline của phòng đang chọn (chỉ khi mở bubble)

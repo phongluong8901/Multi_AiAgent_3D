@@ -87,6 +87,7 @@ export default function DashboardPage() {
     const [loading, setLoading] = useState<boolean>(true)
     const [refreshing, setRefreshing] = useState<boolean>(false)
     const [lastSyncTime, setLastSyncTime] = useState<Date>(new Date())
+    const [mounted, setMounted] = useState<boolean>(false)
     const [activeTab, setActiveTab] = useState<'agents' | 'nodes' | 'rooms' | 'logs'>('agents')
     const [timeRange, setTimeRange] = useState<'6h' | '12h' | '24h' | '7d'>('24h')
     const [searchQuery, setSearchQuery] = useState<string>('')
@@ -158,9 +159,8 @@ export default function DashboardPage() {
     }, [])
 
     useEffect(() => {
+        setMounted(true)
         loadDashboardData()
-        const timer = setInterval(() => loadDashboardData(true), 12000)
-        return () => clearInterval(timer)
     }, [loadDashboardData])
 
     // ─── THỐNG KÊ TÍNH TOÁN ─────────────────────────────────────────────
@@ -383,11 +383,10 @@ export default function DashboardPage() {
                             <button
                                 key={range}
                                 onClick={() => setTimeRange(range)}
-                                className={`px-2.5 py-1 rounded-lg font-mono font-medium transition ${
-                                    timeRange === range
+                                className={`px-2.5 py-1 rounded-lg font-mono font-medium transition ${timeRange === range
                                         ? 'bg-primary text-primary-foreground font-semibold shadow-xs'
                                         : 'text-muted-foreground hover:text-foreground'
-                                }`}
+                                    }`}
                             >
                                 {range.toUpperCase()}
                             </button>
@@ -406,7 +405,9 @@ export default function DashboardPage() {
 
                     <div className="hidden sm:inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-border bg-card text-xs text-muted-foreground font-mono">
                         <Clock className="w-3.5 h-3.5 text-muted-foreground" />
-                        <span>{lastSyncTime.toLocaleTimeString()}</span>
+                        <span suppressHydrationWarning>
+                            {mounted ? lastSyncTime.toLocaleTimeString() : '--:--:--'}
+                        </span>
                     </div>
                 </div>
             </div>
@@ -777,11 +778,10 @@ export default function DashboardPage() {
                     <div className="flex flex-wrap items-center gap-1.5">
                         <button
                             onClick={() => setActiveTab('agents')}
-                            className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-medium transition ${
-                                activeTab === 'agents'
+                            className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-medium transition ${activeTab === 'agents'
                                     ? 'bg-primary text-primary-foreground font-semibold shadow-xs'
                                     : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
-                            }`}
+                                }`}
                         >
                             <Bot className="w-3.5 h-3.5" />
                             <span>Bầy Đàn Agent ({agents.length})</span>
@@ -789,11 +789,10 @@ export default function DashboardPage() {
 
                         <button
                             onClick={() => setActiveTab('nodes')}
-                            className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-medium transition ${
-                                activeTab === 'nodes'
+                            className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-medium transition ${activeTab === 'nodes'
                                     ? 'bg-primary text-primary-foreground font-semibold shadow-xs'
                                     : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
-                            }`}
+                                }`}
                         >
                             <Server className="w-3.5 h-3.5" />
                             <span>Máy Trạm Phân Tán ({nodes.length})</span>
@@ -801,11 +800,10 @@ export default function DashboardPage() {
 
                         <button
                             onClick={() => setActiveTab('rooms')}
-                            className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-medium transition ${
-                                activeTab === 'rooms'
+                            className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-medium transition ${activeTab === 'rooms'
                                     ? 'bg-primary text-primary-foreground font-semibold shadow-xs'
                                     : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
-                            }`}
+                                }`}
                         >
                             <Building2 className="w-3.5 h-3.5" />
                             <span>Phòng Cộng Tác ({rooms.length})</span>
@@ -813,11 +811,10 @@ export default function DashboardPage() {
 
                         <button
                             onClick={() => setActiveTab('logs')}
-                            className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-medium transition ${
-                                activeTab === 'logs'
+                            className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-medium transition ${activeTab === 'logs'
                                     ? 'bg-primary text-primary-foreground font-semibold shadow-xs'
                                     : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
-                            }`}
+                                }`}
                         >
                             <Terminal className="w-3.5 h-3.5" />
                             <span>Audit Logs ({auditLogs.length})</span>
@@ -922,22 +919,20 @@ export default function DashboardPage() {
                                                 </td>
                                                 <td className="py-3 px-4">
                                                     <span
-                                                        className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-[10px] font-mono font-semibold uppercase ${
-                                                            a.status === 'working'
+                                                        className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-[10px] font-mono font-semibold uppercase ${a.status === 'working'
                                                                 ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
                                                                 : a.status === 'idle'
-                                                                ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
-                                                                : 'bg-rose-500/15 text-rose-400 border border-rose-500/30'
-                                                        }`}
+                                                                    ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
+                                                                    : 'bg-rose-500/15 text-rose-400 border border-rose-500/30'
+                                                            }`}
                                                     >
                                                         <span
-                                                            className={`w-1.5 h-1.5 rounded-full ${
-                                                                a.status === 'working'
+                                                            className={`w-1.5 h-1.5 rounded-full ${a.status === 'working'
                                                                     ? 'bg-emerald-400 animate-pulse'
                                                                     : a.status === 'idle'
-                                                                    ? 'bg-amber-400'
-                                                                    : 'bg-rose-400'
-                                                            }`}
+                                                                        ? 'bg-amber-400'
+                                                                        : 'bg-rose-400'
+                                                                }`}
                                                         />
                                                         {a.status}
                                                     </span>
@@ -1023,13 +1018,12 @@ export default function DashboardPage() {
                                                 +{n.totalCoinsEarned || 0} Coins
                                             </td>
                                             <td className="py-3 px-4">
-                                                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-semibold uppercase ${
-                                                    n.status === 'BUSY'
+                                                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-semibold uppercase ${n.status === 'BUSY'
                                                         ? 'bg-blue-500/15 text-blue-400 border border-blue-500/30'
                                                         : n.status === 'IDLE'
-                                                        ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
-                                                        : 'bg-zinc-500/15 text-zinc-400 border border-zinc-500/30'
-                                                }`}>
+                                                            ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                                                            : 'bg-zinc-500/15 text-zinc-400 border border-zinc-500/30'
+                                                    }`}>
                                                     <span className={`w-1.5 h-1.5 rounded-full ${n.status === 'BUSY' ? 'bg-blue-400 animate-pulse' : n.status === 'IDLE' ? 'bg-emerald-400' : 'bg-zinc-400'}`} />
                                                     {n.status}
                                                 </span>

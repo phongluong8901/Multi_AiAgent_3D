@@ -150,15 +150,9 @@ class ToolExecutor:
             # 2. Nếu tool có custom code lưu trong database, chạy code tuỳ chỉnh kèm API Keys / env_vars
             if tool_obj and getattr(tool_obj, "code", None):
                 env_data = getattr(tool_obj, "env_vars", None)
-                code_content = str(getattr(tool_obj, "code", "") or "")
-                custom_res = cls.execute_custom_code(code_content, safe_args, env_vars=env_data)
-                # Kiểm tra nếu custom code chạy tốt thì trả về ngay
-                try:
-                    parsed = json.loads(custom_res) if isinstance(custom_res, str) else custom_res
-                    if not isinstance(parsed, dict) or not parsed.get("error"):
-                        return custom_res
-                except Exception:
-                    return custom_res
+                code_content = str(getattr(tool_obj, "code", "") or "").strip()
+                if code_content:
+                    return cls.execute_custom_code(code_content, safe_args, env_vars=env_data)
 
             # 3. Xử lý đồng bộ alias cho summarizer
             if tool_id in ["summarizer_tool", "text_summarizer"]:
