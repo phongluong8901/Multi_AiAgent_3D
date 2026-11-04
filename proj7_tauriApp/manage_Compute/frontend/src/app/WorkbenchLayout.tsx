@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { Group, Panel, Separator } from 'react-resizable-panels';
+import { ReactFlowProvider } from '@xyflow/react';
 import { ActivityBar } from '../components/workbench/ActivityBar';
 import { TitleBar } from '../components/workbench/TitleBar';
 import { SidebarExplorer } from '../components/workbench/SidebarExplorer';
@@ -7,6 +8,12 @@ import { TabBar } from '../components/workbench/TabBar';
 import { BottomConsole } from '../components/workbench/BottomConsole';
 import { CanvasEditor } from '../features/n8n-canvas/CanvasEditor';
 import { ServiceInspectorView } from '../features/service-inspector/ServiceInspectorView';
+import { DashboardMetricsView } from '../features/dashboard-metrics/DashboardMetricsView';
+import { ProcessDetailChartTab } from '../features/dashboard-metrics/ProcessDetailChartTab';
+import { IncidentAuditLogView } from '../features/incident-audit/IncidentAuditLogView';
+import { SystemHealthAdvisorView } from '../features/health-advisor/SystemHealthAdvisorView';
+import { NetworkTrafficView } from '../features/network-traffic/NetworkTrafficView';
+import { MemoryPartitionView } from '../features/partition-manager/MemoryPartitionView';
 import { ErrorBoundary } from '../components/common/ErrorBoundary';
 import { useWorkbenchStore } from '../stores/useWorkbenchStore';
 import { useTelemetryStore } from '../stores/useTelemetryStore';
@@ -25,46 +32,60 @@ export function WorkbenchLayout() {
 
     return (
         <div className="h-screen w-screen bg-zinc-950 text-zinc-100 flex flex-col overflow-hidden select-none">
-            {/* Header full viền liền mạch kiểu Postman */}
+            {/* Header full viền liền mạch */}
             <TitleBar />
 
             <div className="flex-1 flex overflow-hidden">
                 {/* Cột Icon bên trái */}
                 <ActivityBar />
 
-                {/* Hệ thống khung kéo giãn kiểu Postman */}
-                <Group orientation="horizontal" className="flex-1 h-full">
-                    <Panel defaultSize="260px" minSize="200px" maxSize="420px">
-                        <SidebarExplorer />
-                    </Panel>
+                {/* Hệ thống khung kéo giãn Split-Pane có chia sẻ context ReactFlow */}
+                <ReactFlowProvider>
+                    <Group orientation="horizontal" className="flex-1 h-full">
+                        <Panel defaultSize="260px" minSize="200px" maxSize="420px">
+                            <SidebarExplorer />
+                        </Panel>
 
-                    <Separator className="w-1 bg-zinc-800 hover:bg-emerald-500 transition-colors cursor-col-resize shrink-0" />
+                        <Separator className="w-1 bg-zinc-800 hover:bg-emerald-500 transition-colors cursor-col-resize shrink-0" />
 
-                    <Panel defaultSize="100%">
-                        <Group orientation="vertical" className="h-full">
-                            {/* Vùng làm việc chính theo từng Tab */}
-                            <Panel defaultSize="72%" minSize="40%" className="flex flex-col">
-                                <TabBar />
-                                <div className="flex-1 overflow-hidden">
-                                    <ErrorBoundary fallbackTitle="Workspace Tab Render Error">
-                                        {currentTab?.type === 'n8n-canvas' ? (
-                                            <CanvasEditor />
-                                        ) : (
-                                            <ServiceInspectorView />
-                                        )}
-                                    </ErrorBoundary>
-                                </div>
-                            </Panel>
+                        <Panel defaultSize="100%">
+                            <Group orientation="vertical" className="h-full">
+                                {/* Vùng làm việc chính theo từng Tab */}
+                                <Panel defaultSize="72%" minSize="40%" className="flex flex-col">
+                                    <TabBar />
+                                    <div className="flex-1 overflow-hidden">
+                                        <ErrorBoundary fallbackTitle="Workspace Tab Render Error">
+                                            {currentTab?.type === 'workflow-canvas' || currentTab?.type === 'n8n-canvas' ? (
+                                                <CanvasEditor />
+                                            ) : currentTab?.type === 'dashboard-metrics' ? (
+                                                <DashboardMetricsView />
+                                            ) : currentTab?.type === 'process-chart' ? (
+                                                <ProcessDetailChartTab tabId={currentTab.id} />
+                                            ) : currentTab?.type === 'incident-log' ? (
+                                                <IncidentAuditLogView />
+                                            ) : currentTab?.type === 'health-advisor' ? (
+                                                <SystemHealthAdvisorView />
+                                            ) : currentTab?.type === 'network-traffic' ? (
+                                                <NetworkTrafficView />
+                                            ) : currentTab?.type === 'memory-partitions' ? (
+                                                <MemoryPartitionView />
+                                            ) : (
+                                                <ServiceInspectorView />
+                                            )}
+                                        </ErrorBoundary>
+                                    </div>
+                                </Panel>
 
-                            <Separator className="h-1 bg-zinc-800 hover:bg-emerald-500 transition-colors cursor-row-resize shrink-0" />
+                                <Separator className="h-1 bg-zinc-800 hover:bg-emerald-500 transition-colors cursor-row-resize shrink-0" />
 
-                            {/* Ngăn kéo Console dưới đáy */}
-                            <Panel defaultSize="28%" minSize="120px">
-                                <BottomConsole />
-                            </Panel>
-                        </Group>
-                    </Panel>
-                </Group>
+                                {/* Ngăn kéo Console dưới đáy */}
+                                <Panel defaultSize="28%" minSize="120px">
+                                    <BottomConsole />
+                                </Panel>
+                            </Group>
+                        </Panel>
+                    </Group>
+                </ReactFlowProvider>
             </div>
 
             {/* Thanh trạng thái dưới cùng */}

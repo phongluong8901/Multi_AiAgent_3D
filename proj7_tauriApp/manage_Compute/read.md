@@ -11,7 +11,7 @@ compute-manager-workspace/
 │       ├── core/                             # Config, Logger, Security, Constants
 │       │   └── config.py
 │       ├── api/                              # Giao tiếp với Frontend (HTTP + WebSocket)
-│       │   ├── rest/                         # Kiểu Postman Request/Response
+│       │   ├── rest/                         # REST API Request/Response
 │       │   │   ├── system_routes.py          # Lấy thông tin OS, CPU, GPU tĩnh
 │       │   │   ├── process_routes.py         # Start / Stop / Kill / Inspect Services
 │       │   │   └── workflow_routes.py        # Lưu / Chạy kịch bản tự động hóa
@@ -26,7 +26,7 @@ compute-manager-workspace/
 │       │   ├── service_manager/              # Quản lý tiến trình & Daemon
 │       │   │   ├── os_process.py             # Quản lý PID, Port đang mở
 │       │   │   └── systemd_winservice.py     # Quản lý Background Services
-│       │   └── workflow_engine/              # Bộ thực thi Node-based (Kiểu n8n)
+│       │   └── workflow_engine/              # Bộ thực thi Workflow DAG Node-based
 │       │       ├── dag_runner.py             # Giải mã JSON từ React Flow thành luồng chạy
 │       │       ├── triggers.py               # Node kích hoạt (VD: GPU Temp > 80°C)
 │       │       └── actions.py                # Node hành động (VD: Restart Service, Kill PID)
@@ -43,9 +43,9 @@ compute-manager-workspace/
 │       ├── main.tsx
 │       ├── app/                              # Khung sườn ứng dụng
 │       │   ├── App.tsx
-│       │   └── WorkbenchLayout.tsx           # Chia khung Split-Pane kiểu Postman
+│       │   └── WorkbenchLayout.tsx           # Khung sườn Workbench Split-Pane
 │       ├── components/                       # UI dùng chung
-│       │   ├── workbench/                    # Các thành phần mang đặc trưng Postman
+│       │   ├── workbench/                    # Các thành phần giao diện Workbench
 │       │   │   ├── ActivityBar.tsx           # Thanh icon dọc bên trái
 │       │   │   ├── SidebarTree.tsx           # Cây thư mục quản lý Services / Workflows
 │       │   │   ├── TabManager.tsx            # Thanh mở nhiều Tab song song
@@ -53,10 +53,10 @@ compute-manager-workspace/
 │       │   └── ui/                           # Button, Input, Modal, Badge (Shadcn)
 │       ├── features/                         # Tách theo từng màn hình tính năng (Dễ scale)
 │       │   ├── dashboard-metrics/            # Tab 1: Biểu đồ CPU, RAM, VRAM realtime
-│       │   ├── service-inspector/            # Tab 2: Giao diện quản lý Service giống Postman
+│       │   ├── service-inspector/            # Tab 2: Quản lý OS Process, Port & Services
 │       │   │   ├── ControlHeader.tsx         # Thanh chọn Service + Nút Start/Stop/Restart
 │       │   │   └── InspectorPanels.tsx       # Sub-tabs: Ports, Env Vars, Realtime Logs
-│       │   └── n8n-canvas/                   # Tab 3: Màn hình kéo thả Node (React Flow)
+│       │   └── workflow-canvas/              # Tab 3: Màn hình kéo thả Workflow DAG (React Flow)
 │       │       ├── CanvasEditor.tsx
 │       │       ├── NodePalette.tsx           # Thanh công cụ chọn Node để kéo vào màn hình
 │       │       └── custom-nodes/

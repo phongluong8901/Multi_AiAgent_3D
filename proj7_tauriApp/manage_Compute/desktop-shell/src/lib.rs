@@ -52,12 +52,45 @@ fn try_spawn_backend(app: &AppHandle) -> Option<Child> {
         return None;
     }
 
-    // 2. Thử chạy bằng Tauri Sidecar plugin
+    // 2. Ưu tiên chạy từ Virtualenv Python nếu có (nhanh, luôn chạy code mới nhất, không bị lỗi binary cũ)
+    let venv_candidates = [
+        ("backend/.venv/Scripts/python.exe", "backend"),
+        ("../backend/.venv/Scripts/python.exe", "../backend"),
+        ("backend/.venv/bin/python", "backend"),
+        ("../backend/.venv/bin/python", "../backend"),
+    ];
+
+    for (venv_path, working_dir) in &venv_candidates {
+        if Path::new(venv_path).exists() {
+            eprintln!("[INFO] Spawning Python engine from {:?} with cwd {:?}", venv_path, working_dir);
+            let mut cmd = Command::new(venv_path);
+            cmd.current_dir(working_dir);
+            cmd.args(["main.py"]);
+            #[cfg(windows)]
+            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+            if let Ok(mut child) = cmd.spawn() {
+                eprintln!("[INFO] Spawned Python engine successfully (PID {})", child.id());
+                for _ in 0..15 {
+                    std::thread::sleep(std::time::Duration::from_millis(250));
+                    if is_backend_ready() {
+                        eprintln!("[INFO] Python engine is ready and listening on 127.0.0.1:14200");
+                        return Some(child);
+                    }
+                    if let Ok(Some(status)) = child.try_wait() {
+                        eprintln!("[WARN] Python engine exited with status: {}", status);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. Chạy qua Tauri Sidecar plugin nếu là bản standalone
     if let Ok(sidecar_cmd) = app.shell().sidecar("backend-engine") {
         if let Ok((_rx, child)) = sidecar_cmd.spawn() {
             eprintln!("[INFO] Spawned backend-engine via Tauri sidecar (PID {})", child.pid());
-            for _ in 0..10 {
-                std::thread::sleep(std::time::Duration::from_millis(200));
+            for _ in 0..12 {
+                std::thread::sleep(std::time::Duration::from_millis(250));
                 if is_backend_ready() {
                     return None;
                 }
@@ -65,7 +98,7 @@ fn try_spawn_backend(app: &AppHandle) -> Option<Child> {
         }
     }
 
-    // 3. Fallback: Tìm file binary backend-engine.exe trực tiếp
+    // 4. Fallback: Tìm file binary backend-engine.exe trực tiếp
     let current_exe = std::env::current_exe().ok();
     let current_dir = current_exe.as_ref().and_then(|p| p.parent()).map(|p| p.to_path_buf());
 
@@ -104,30 +137,6 @@ fn try_spawn_backend(app: &AppHandle) -> Option<Child> {
                 if ready {
                     return Some(child);
                 }
-            }
-        }
-    }
-
-    // 4. Fallback đáng tin cậy: Chạy trực tiếp Python từ Virtualenv nếu binary gặp sự cố
-    let venv_candidates = [
-        "backend/.venv/Scripts/python.exe",
-        "../backend/.venv/Scripts/python.exe",
-        "backend/.venv/bin/python",
-        "../backend/.venv/bin/python",
-    ];
-
-    for venv_path in &venv_candidates {
-        if Path::new(venv_path).exists() {
-            let working_dir = if venv_path.starts_with("../") { "../backend" } else { "backend" };
-            eprintln!("[INFO] Spawning Python engine fallback from {:?} with cwd {:?}", venv_path, working_dir);
-            let mut cmd = Command::new(venv_path);
-            cmd.current_dir(working_dir);
-            cmd.args(["main.py"]);
-            #[cfg(windows)]
-            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-            if let Ok(child) = cmd.spawn() {
-                eprintln!("[INFO] Spawned Python engine successfully (PID {})", child.id());
-                return Some(child);
             }
         }
     }

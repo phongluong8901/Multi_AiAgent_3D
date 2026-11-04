@@ -1,6 +1,15 @@
 import { create } from 'zustand';
 
-export type TabType = 'n8n-canvas' | 'service-inspector';
+export type TabType =
+    | 'workflow-canvas'
+    | 'service-inspector'
+    | 'dashboard-metrics'
+    | 'process-chart'
+    | 'n8n-canvas'
+    | 'incident-log'
+    | 'health-advisor'
+    | 'network-traffic'
+    | 'memory-partitions';
 
 export interface WorkbenchTab {
     id: string;
@@ -9,10 +18,10 @@ export interface WorkbenchTab {
 }
 
 interface WorkbenchState {
-    activeSection: 'workflows' | 'processes';
+    activeSection: 'dashboard' | 'workflows' | 'processes';
     tabs: WorkbenchTab[];
     activeTabId: string;
-    setActiveSection: (sec: 'workflows' | 'processes') => void;
+    setActiveSection: (sec: 'dashboard' | 'workflows' | 'processes') => void;
     openTab: (tab: WorkbenchTab) => void;
     closeTab: (id: string) => void;
     setActiveTab: (id: string) => void;
@@ -21,7 +30,8 @@ interface WorkbenchState {
 export const useWorkbenchStore = create<WorkbenchState>((set) => ({
     activeSection: 'workflows',
     tabs: [
-        { id: 'tab-canvas-1', title: 'Auto-Guard GPU Pipeline', type: 'n8n-canvas' },
+        { id: 'tab-dash-1', title: 'Compute Dashboard', type: 'dashboard-metrics' },
+        { id: 'tab-canvas-1', title: 'Auto-Guard GPU Pipeline', type: 'workflow-canvas' },
         { id: 'tab-proc-1', title: 'OS Process & Port Inspector', type: 'service-inspector' },
     ],
     activeTabId: 'tab-canvas-1',

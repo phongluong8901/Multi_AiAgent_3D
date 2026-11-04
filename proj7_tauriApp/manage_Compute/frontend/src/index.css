@@ -2,7 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Tùy chỉnh thanh cuộn tối màu chuẩn IDE/Postman */
+/* Tùy chỉnh thanh cuộn tối màu chuẩn IDE Workbench */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;

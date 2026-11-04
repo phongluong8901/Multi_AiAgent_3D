@@ -1,5 +1,6 @@
 from pydantic import BaseModel
 from typing import List, Optional
+from app.schemas.process_schema import ProcessInfo
 
 class CpuMetrics(BaseModel):
     percent: float
@@ -38,3 +39,4 @@ class SystemSnapshot(BaseModel):
     ram: RamMetrics
     gpus: List[GpuMetrics]
     io: DiskNetMetrics
+    processes: List[ProcessInfo] = []

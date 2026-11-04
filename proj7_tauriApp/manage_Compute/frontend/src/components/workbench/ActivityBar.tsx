@@ -1,4 +1,4 @@
-import { Workflow, Cpu, PlusCircle } from 'lucide-react';
+import { Workflow, Cpu, PlusCircle, LineChart } from 'lucide-react';
 import { useWorkbenchStore } from '../../stores/useWorkbenchStore';
 
 export function ActivityBar() {
@@ -9,14 +9,30 @@ export function ActivityBar() {
             <div className="flex flex-col gap-3">
                 <button
                     onClick={() => {
-                        setActiveSection('workflows');
-                        openTab({ id: 'tab-canvas-1', title: 'Auto-Guard GPU Pipeline', type: 'n8n-canvas' });
+                        setActiveSection('dashboard');
+                        openTab({ id: 'tab-dash-1', title: 'Compute Dashboard', type: 'dashboard-metrics' });
                     }}
-                    title="n8n Compute Workflows"
-                    className={`p-2.5 rounded-lg transition-colors ${activeSection === 'workflows'
+                    title="Compute & Telemetry Dashboard"
+                    className={`p-2.5 rounded-lg transition-colors cursor-pointer ${
+                        activeSection === 'dashboard'
                             ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
                             : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800'
-                        }`}
+                    }`}
+                >
+                    <LineChart className="w-5 h-5" />
+                </button>
+
+                <button
+                    onClick={() => {
+                        setActiveSection('workflows');
+                        openTab({ id: 'tab-canvas-1', title: 'Auto-Guard GPU Pipeline', type: 'workflow-canvas' });
+                    }}
+                    title="Auto-Guard Workflows"
+                    className={`p-2.5 rounded-lg transition-colors cursor-pointer ${
+                        activeSection === 'workflows'
+                            ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                            : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800'
+                    }`}
                 >
                     <Workflow className="w-5 h-5" />
                 </button>
@@ -26,11 +42,12 @@ export function ActivityBar() {
                         setActiveSection('processes');
                         openTab({ id: 'tab-proc-1', title: 'OS Process & Port Inspector', type: 'service-inspector' });
                     }}
-                    title="Postman Service & Process Inspector"
-                    className={`p-2.5 rounded-lg transition-colors ${activeSection === 'processes'
+                    title="OS Process & Service Inspector"
+                    className={`p-2.5 rounded-lg transition-colors cursor-pointer ${
+                        activeSection === 'processes'
                             ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
                             : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800'
-                        }`}
+                    }`}
                 >
                     <Cpu className="w-5 h-5" />
                 </button>
@@ -40,12 +57,12 @@ export function ActivityBar() {
                 onClick={() =>
                     openTab({
                         id: `canvas-${Date.now()}`,
-                        title: `Workflow #${Math.floor(Math.random() * 90 + 10)}`,
-                        type: 'n8n-canvas',
+                        title: `Pipeline #${Math.floor(Math.random() * 90 + 10)}`,
+                        type: 'workflow-canvas',
                     })
                 }
-                title="New Workflow Tab"
-                className="p-2 text-zinc-500 hover:text-emerald-400 transition-colors"
+                title="New Pipeline Tab"
+                className="p-2 text-zinc-500 hover:text-emerald-400 transition-colors cursor-pointer"
             >
                 <PlusCircle className="w-5 h-5" />
             </button>

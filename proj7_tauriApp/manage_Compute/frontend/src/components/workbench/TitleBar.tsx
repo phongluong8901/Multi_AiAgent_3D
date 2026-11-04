@@ -139,7 +139,7 @@ export function TitleBar() {
                 </div>
             </div>
 
-            {/* Bên phải: Cụm nút điều khiển cửa sổ chuẩn phong cách Postman / Windows Frameless */}
+            {/* Bên phải: Cụm nút điều khiển cửa sổ chuẩn Windows Frameless */}
             <div className="flex items-center -mr-3 h-full z-50 relative shrink-0">
                 <button
                     type="button"

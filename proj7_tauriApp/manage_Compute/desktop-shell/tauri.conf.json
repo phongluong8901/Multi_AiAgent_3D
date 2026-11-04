@@ -5,7 +5,7 @@
     "identifier": "com.computestudio.app",
     "build": {
         "beforeDevCommand": "npm --prefix frontend run dev",
-        "devUrl": "http://localhost:5173",
+        "devUrl": "http://127.0.0.1:5173",
         "beforeBuildCommand": "npm --prefix frontend run build",
         "frontendDist": "../frontend/dist"
     },
@@ -19,7 +19,8 @@
                 "minWidth": 900,
                 "minHeight": 600,
                 "decorations": false,
-                "center": true
+                "center": true,
+                "theme": "Dark"
             }
         ],
         "security": {
