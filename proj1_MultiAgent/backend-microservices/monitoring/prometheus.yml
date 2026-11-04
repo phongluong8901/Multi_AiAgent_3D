@@ -1,0 +1,13 @@
+global:
+  scrape_interval: 15s # Tần suất Prometheus đi cào metrics mỗi 15 giây
+
+scrape_configs:
+  - job_name: "user-service"
+    static_configs:
+      - targets: ["users_service:5001"] # Trỏ tới container_name của user-service và cổng của nó
+
+
+  # Bạn có thể thêm các microservice khác sau này vào đây:
+  # - job_name: 'room-service'
+  #   static_configs:
+  #     - targets: ['rooms_service:5002']

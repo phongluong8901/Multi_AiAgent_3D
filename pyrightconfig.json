@@ -1,0 +1,17 @@
+{
+  "include": [
+    "."
+  ],
+  "exclude": [
+    "**/node_modules",
+    "**/__pycache__",
+    "**/venv",
+    "**/.venv"
+  ],
+  "extraPaths": [
+    "proj1_MultiAgent/backend-microservices/worker-client",
+    "proj1_MultiAgent/backend-microservices/worker-client/backend_worker",
+    "proj1_MultiAgent/backend-microservices/agent-service"
+  ]
+}
+

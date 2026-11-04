@@ -1,0 +1,89 @@
+# ====================================================================
+#   PYTHON STANDARD & ENTERPRISE .GITIGNORE FOR AGENT-FIRMWARE
+# ====================================================================
+
+# --- 1. Python Bytecode & Compilation Cache ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.pyd
+*.pyo
+*.c
+
+# --- 2. Virtual Environments ---
+.venv/
+venv/
+ENV/
+env/
+.env.local
+.venv*/
+virtualenv/
+bin/
+include/
+lib/
+lib64/
+share/
+pyvenv.cfg
+
+# --- 3. Pip, Package Distribution & Build Artifacts ---
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# --- 4. Environment Variables & Secret Credentials ---
+.env
+.env.*
+!.env.example
+
+# --- 5. Unit Test, Coverage & Tool Caches ---
+.pytest_cache/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# --- 6. Firmware Binary & Build Outputs ---
+*.bin
+*.elf
+*.hex
+*.ino.bin
+*.uf2
+firmware_builds/
+
+# --- 7. Logs, Databases & Local State ---
+*.log
+logs/
+*.sqlite
+*.sqlite3
+*.db
+postgres_data/
+
+# --- 8. IDEs, Editors & OS Files ---
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.history/
+.DS_Store
+Thumbs.db
+

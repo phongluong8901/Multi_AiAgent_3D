@@ -1,0 +1,65 @@
+# ====================================================================
+#   ROOT .GITIGNORE FOR MULTI-AGENT REPOSITORY
+#   Bảo vệ toàn bộ workspace: Python, Node.js, Next.js, Docker & OS
+# ====================================================================
+
+# --- 1. Python Virtual Environments (Chặn hàng chục nghìn file) ---
+**/.venv/
+**/venv/
+**/ENV/
+**/env/
+**/.venv*/
+**/virtualenv/
+**/pyvenv.cfg
+
+# --- 2. Python Cache & Bytecode ---
+**/__pycache__/
+**/*.py[cod]
+**/*$py.class
+**/*.so
+**/*.pyd
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/.coverage
+**/htmlcov/
+
+# --- 3. Node.js & Frontend (Chặn thư viện nặng và build) ---
+**/node_modules/
+**/.next/
+**/dist/
+**/build/
+**/out/
+**/*.tsbuildinfo
+**/.turbo/
+
+# --- 4. Environment Variables & Secrets ---
+**/.env
+**/.env.local
+**/.env.development.local
+**/.env.test.local
+**/.env.production.local
+!**/.env.example
+
+# --- 5. Logs & Databases (Local) ---
+**/*.log
+**/logs/
+**/*.sqlite3
+**/*.db
+**/postgres_data/
+**/mongo_data/
+**/rabbitmq_data/
+**/redis_data/
+
+# --- 6. IDEs & Editors ---
+**/.idea/
+**/.vscode/
+**/*.swp
+**/*.swo
+**/*~
+
+# --- 7. OS Garbage Files ---
+**/.DS_Store
+**/Thumbs.db
+**/ehthumbs.db
+**/desktop.ini

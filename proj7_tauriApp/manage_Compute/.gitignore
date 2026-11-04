@@ -1,0 +1,48 @@
+# Rust / Cargo
+target/
+**/target/
+**/*.rs.bk
+desktop-shell/binaries/*.exe
+desktop-shell/gen/
+
+# Node / Frontend
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+**/.tmp/
+**/*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Python / Backend
+__pycache__/
+**/__pycache__/
+**/*.py[cod]
+*$py.class
+.venv/
+**/.venv/
+venv/
+**/venv/
+build/
+**/build/
+backend/*.spec
+backend/dist/
+
+# OS / Environment
+.DS_Store
+Thumbs.db
+*.local
+.env
+.env.*
+!.env.example
+
+# IDE
+.idea/
+*.sublime-workspace
+*.sublime-project
+.vscode/*
+!.vscode/settings.json
+

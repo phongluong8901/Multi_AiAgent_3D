@@ -1,0 +1,4 @@
+POSTGRES_USER=mlflow_user
+POSTGRES_PASSWORD=mlflow_password
+POSTGRES_DB=mlflow_db
+MLFLOW_TRACKING_URI=http://mlflow-server:5000
