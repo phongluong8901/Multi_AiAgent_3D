@@ -2,9 +2,28 @@
 import { Router, Response } from "express";
 import { createProxyMiddleware, fixRequestBody } from "http-proxy-middleware";
 import { gatewayAuthMiddleware } from "../middlewares/auth.middleware";
+import dns from "dns/promises";
 
 const router = Router();
 const USER_SERVICE_URL = process.env.USER_SERVICE_URL || "http://localhost:5001";
+
+// Cache trạng thái phân giải hostname user-service để tránh lookup liên tục
+let resolvedUserTarget: string | null = null;
+async function resolveUserTarget(): Promise<string> {
+    if (resolvedUserTarget) return resolvedUserTarget;
+    if (USER_SERVICE_URL.includes("user-service")) {
+        try {
+            await dns.lookup("user-service");
+            resolvedUserTarget = USER_SERVICE_URL;
+        } catch {
+            console.log("[Gateway Proxy] [INFO] Không tìm thấy hostname 'user-service', tự động fallback sang http://localhost:5001");
+            resolvedUserTarget = "http://localhost:5001";
+        }
+    } else {
+        resolvedUserTarget = USER_SERVICE_URL;
+    }
+    return resolvedUserTarget;
+}
 
 // Các đường dẫn public không cần token xác thực
 const PUBLIC_PATHS = [
@@ -59,6 +78,9 @@ router.use(
     createProxyMiddleware({
         target: USER_SERVICE_URL,
         changeOrigin: true,
+        router: async () => {
+            return await resolveUserTarget();
+        },
         pathFilter: (pathname) => {
             return (
                 pathname.startsWith("/api/v1/auth") ||
@@ -69,11 +91,11 @@ router.use(
         on: {
             proxyReq: (proxyReq, req: any) => {
                 const fullPath = req.url || "";
-                console.log(`[Gateway Proxy] 📥 Chuyển tiếp: ${req.method} ${fullPath} -> ${USER_SERVICE_URL}`);
+                console.log(`[Gateway Proxy] [DISPATCH] Chuyển tiếp: ${req.method} ${fullPath} -> ${resolvedUserTarget || USER_SERVICE_URL}`);
                 fixRequestBody(proxyReq, req);
             },
             error: (err, req, res) => {
-                console.error(`[Gateway Proxy] ❌ Lỗi kết nối xuống User Service:`, err);
+                console.error(`[Gateway Proxy] [ERROR] Lỗi kết nối xuống User Service:`, err);
 
                 // Ép kiểu res về Response của Express để TypeScript nhận diện headersSent và status
                 const expressRes = res as Response;

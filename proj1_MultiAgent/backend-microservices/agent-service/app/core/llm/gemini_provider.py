@@ -46,15 +46,15 @@ class _ResponseMock:
 class GeminiProvider(BaseLLMProvider):
     """
     Cloud LLM Provider đa năng:
-    - Hỗ trợ trực tiếp Google Gemini (`gemini-2.5-flash`, `gemini-2.5-pro`, `gemini-2.0-flash`, `gemini-2.5-flash-lite`) với cơ chế xoay vòng API Key & Fallback model tự động.
+    - Hỗ trợ trực tiếp Google Gemini (`gemini-2.5-flash`, `gemini-2.5-pro`, `gemini-2.0-flash`, `gemini-3.5-flash-lite`) với cơ chế xoay vòng API Key & Fallback model tự động.
     - Hỗ trợ OpenAI / DeepSeek REST API (`gpt-4o`, `gpt-4o-mini`, `deepseek-chat`, `deepseek-reasoner`) khi có `OPENAI_API_KEY` hoặc `DEEPSEEK_API_KEY`.
     - Tự động ánh xạ mượt mà về `gemini-2.5-flash` nếu người dùng chọn model ngoại lai mà chưa cấu hình API key riêng.
     """
 
     FALLBACK_MODELS = [
+        "gemini-3.5-flash-lite",
         "gemini-2.5-flash",
         "gemini-2.0-flash",
-        "gemini-2.5-flash-lite",
     ]
 
     def __init__(self, model_name: Optional[str] = None):
@@ -89,7 +89,7 @@ class GeminiProvider(BaseLLMProvider):
         default_model = (
             os.getenv("GEMINI_MODEL")
             or getattr(settings, "GEMINI_MODEL", "")
-            or "gemini-2.5-flash-lite"
+            or "gemini-3.5-flash-lite"
         )
         self.model_name = model_name or default_model
         self.openai_api_key = os.getenv("OPENAI_API_KEY", "").strip()

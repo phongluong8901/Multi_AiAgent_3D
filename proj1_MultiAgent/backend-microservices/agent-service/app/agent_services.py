@@ -1,3 +1,12 @@
+import sys
+try:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
@@ -19,7 +28,7 @@ def init_db(max_retries: int = 10, delay: int = 2):
             from sqlalchemy import text
             with engine.connect() as conn:
                 try:
-                    conn.execute(text("ALTER TABLE agents ADD COLUMN IF NOT EXISTS model VARCHAR DEFAULT 'gemini-2.5-flash-lite'"))
+                    conn.execute(text("ALTER TABLE agents ADD COLUMN IF NOT EXISTS model VARCHAR DEFAULT 'gemini-3.5-flash-lite'"))
                     conn.execute(text("ALTER TABLE agents ADD COLUMN IF NOT EXISTS form VARCHAR DEFAULT 'humanoid'"))
                     conn.execute(text("ALTER TABLE agents ADD COLUMN IF NOT EXISTS body_id VARCHAR"))
                     conn.execute(text("ALTER TABLE tools ADD COLUMN IF NOT EXISTS code TEXT"))

@@ -2,13 +2,19 @@ import { useEffect } from "react";
 import { useTrainingStore } from "../stores/useTrainingStore";
 
 export function useWebSocket() {
-    const { setStateFromWS, setTraining, setPlaying, addLog } = useTrainingStore();
+    const { setStateFromWS, setTraining, setPlaying, setWsSend, addLog } =
+        useTrainingStore();
 
     useEffect(() => {
         const ws = new WebSocket("ws://localhost:8000/api/ws");
 
         ws.onopen = () => {
-            addLog("WebSocket connected");
+            addLog("[THÀNH CÔNG] Đã kết nối với AI Engine (Python)");
+            setWsSend((payload: Record<string, unknown>) => {
+                if (ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify(payload));
+                }
+            });
         };
 
         ws.onmessage = (event) => {
@@ -21,27 +27,29 @@ export function useWebSocket() {
 
                 if (data.type === "train_done") {
                     setTraining(false);
-                    addLog(data.message || "Training finished");
+                    addLog(data.message || "[THÀNH CÔNG] Dạy học PPO hoàn tất");
                 }
 
                 if (data.type === "play_done") {
                     setPlaying(false);
-                    addLog("Play finished");
+                    addLog("[THÔNG BÁO] Bé đã hoàn thành lượt tự đi");
                 }
             } catch (err) {
-                console.error("WS parse error", err);
+                console.error("[LỖI] Phân giải dữ liệu WebSocket thất bại", err);
             }
         };
 
         ws.onclose = () => {
-            addLog("WebSocket disconnected");
+            setWsSend(null);
+            addLog("[CẢNH BÁO] Đã ngắt kết nối WebSocket tới server");
         };
 
         ws.onerror = () => {
-            addLog("WebSocket error");
+            addLog("[LỖI] Không thể kết nối tới server Python (ws://localhost:8000/api/ws)");
         };
 
         return () => {
+            setWsSend(null);
             ws.close();
         };
     }, []);

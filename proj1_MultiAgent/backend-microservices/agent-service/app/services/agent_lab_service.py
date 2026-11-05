@@ -63,7 +63,7 @@ class AgentLabService:
             '  "name": "Tên tiếng Việt trang trọng của Agent",\n'
             '  "role": "Mô tả vai trò ngắn gọn (1-2 câu)",\n'
             '  "color": "#mã_màu_hex_như_#6366f1",\n'
-            '  "recommended_model": "gemini-2.5-flash-lite",\n'
+            '  "recommended_model": "gemini-3.5-flash-lite",\n'
             '  "speech_manager": "Lời nói của Manager giao việc cho Search",\n'
             '  "search_libraries": ["tên thư viện 1", "thư viện 2"],\n'
             '  "search_notes": "Kết quả khảo sát tài liệu và kiến trúc của agent_search",\n'
@@ -88,7 +88,7 @@ class AgentLabService:
         llm_response = None
         data = None
         try:
-            resp = client.chat_completion(messages=messages, model=target_model or "gemini-2.5-flash-lite", temperature=0.2)
+            resp = client.chat_completion(messages=messages, model=target_model or "gemini-3.5-flash-lite", temperature=0.2)
             content = resp.choices[0].message.content if resp.choices else ""
             
             # Làm sạch chuỗi JSON
@@ -142,7 +142,7 @@ class AgentLabService:
                 "name": default_name,
                 "role": f"Tự động hóa và xử lý nghiệp vụ cho yêu cầu: {user_goal}",
                 "color": "#6366f1",
-                "recommended_model": target_model or "gemini-2.5-flash-lite",
+                "recommended_model": target_model or "gemini-3.5-flash-lite",
                 "speech_manager": f"Chào cả đội! Yêu cầu mới: '{user_goal}'. @agent_search hãy khảo sát thư viện và thông số kỹ thuật tối ưu nhất ngay!",
                 "search_libraries": ["pypdf", "fitz", "pandas", "re", "json", "urllib"],
                 "search_notes": f"Đã khảo sát toàn bộ tài liệu kỹ thuật về '{user_goal}'. Đề xuất tích hợp module phân tích cấu trúc, bóc tách bảng số liệu và trả về Markdown thẩm mỹ.",
@@ -284,7 +284,7 @@ class AgentLabService:
                 "name": agent_name,
                 "role": _to_str(data.get("role")) or user_goal,
                 "color": _to_str(data.get("color"), "#8b5cf6"),
-                "model": target_model or _to_str(data.get("recommended_model"), "gemini-2.5-flash-lite"),
+                "model": target_model or _to_str(data.get("recommended_model"), "gemini-3.5-flash-lite"),
                 "prompt_id": prompt_id,
                 "tool_id": tool_id,
                 "tool_name": _to_str(data.get("tool_name")) or f"Tool {agent_name}",
@@ -305,7 +305,7 @@ class AgentLabService:
                 "name": agent_name,
                 "role": data.get("role"),
                 "color": data.get("color", "#8b5cf6"),
-                "model": target_model or data.get("recommended_model", "gemini-2.5-flash-lite"),
+                "model": target_model or data.get("recommended_model", "gemini-3.5-flash-lite"),
                 "prompt_id": prompt_id,
                 "tool_id": tool_id
             },

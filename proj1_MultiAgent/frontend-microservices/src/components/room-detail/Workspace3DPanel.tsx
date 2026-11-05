@@ -66,12 +66,12 @@ export function Workspace3DPanel({
     const formLabel = robotForm === 'duck' ? 'MicroDuck Bipedal' : robotForm === 'amr' ? 'Nova Carter AMR' : robotForm === 'drone' ? 'Cyber Falcon' : 'Project GR00T'
 
     const agentModelName = useMemo(() => {
-        if (!selectedAgent) return 'gemini-2.5-flash-lite'
+        if (!selectedAgent) return 'gemini-3.5-flash-lite'
         if (typeof window !== 'undefined' && selectedAgent.id) {
             const saved = localStorage.getItem(`agent_model:${selectedAgent.id}`)
             if (saved) return saved
         }
-        return selectedAgent.model || 'gemini-2.5-flash-lite'
+        return selectedAgent.model || 'gemini-3.5-flash-lite'
     }, [selectedAgent])
 
     const agentRLProfile = useMemo(() => {

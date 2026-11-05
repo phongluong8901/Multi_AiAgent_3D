@@ -30,6 +30,14 @@ function DraggableToolCard({
         : undefined
 
     const accent = colorFromId(tool.id, 320) // lệch về hồng / tím
+    const isApiTool =
+        tool.category === 'api' ||
+        tool.name.toUpperCase().includes('[API]') ||
+        (tool.description || '').includes('[Dùng API') ||
+        Boolean(tool.env_vars && tool.env_vars !== '{}')
+    const isFreeWeb =
+        tool.name.toUpperCase().includes('[FREE]') ||
+        (tool.description || '').includes('[Không cần API Key]')
 
     return (
         <div
@@ -57,11 +65,22 @@ function DraggableToolCard({
                 <div className="min-w-0 flex-1">
                     <div className="flex items-center justify-between gap-1">
                         <span className="font-medium text-zinc-100 truncate">{tool.name}</span>
-                        {isSelected && (
-                            <span className="text-[10px] bg-pink-500/20 text-pink-400 px-1.5 py-0.5 rounded-full font-mono">
-                                Đã gắn
-                            </span>
-                        )}
+                        <div className="flex items-center gap-1 shrink-0">
+                            {isApiTool ? (
+                                <span className="text-[9px] bg-amber-500/20 text-amber-300 border border-amber-500/30 px-1.5 py-0.5 rounded font-mono uppercase">
+                                    API Key
+                                </span>
+                            ) : isFreeWeb ? (
+                                <span className="text-[9px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-1.5 py-0.5 rounded font-mono uppercase">
+                                    Free
+                                </span>
+                            ) : null}
+                            {isSelected && (
+                                <span className="text-[10px] bg-pink-500/20 text-pink-400 px-1.5 py-0.5 rounded-full font-mono">
+                                    Đã gắn
+                                </span>
+                            )}
+                        </div>
                     </div>
                     {tool.description && (
                         <div className="text-[11px] text-zinc-500 mt-0.5 line-clamp-2 leading-relaxed">

@@ -152,7 +152,7 @@ export default function AgentDetailPage() {
                     typeof window !== 'undefined'
                         ? localStorage.getItem(`agent_model:${ag.id}`)
                         : null
-                const effectiveModel = ag.model || savedLocalModel || 'gemini-2.5-flash-lite'
+                const effectiveModel = ag.model || savedLocalModel || 'gemini-3.5-flash-lite'
                 setModelId(effectiveModel)
 
                 setPrompts(p ?? [])
@@ -212,7 +212,20 @@ export default function AgentDetailPage() {
     // Derived items for AttachedSlots
     const currentPrompt = prompts.find((p) => p.id === promptId) || null
     const currentTools = tools.filter((t) => selectedTools.includes(t.id))
-    const currentModel = models.find((m) => m.id === modelId) || null
+    const currentModel: AIModel | null =
+        models.find(
+            (m) =>
+                m.id === modelId ||
+                (modelId && m.id.replace(/^rental:/, 'rented:') === modelId.replace(/^rental:/, 'rented:'))
+        ) ||
+        (modelId
+            ? {
+                  id: modelId,
+                  name: modelId === 'gemini-3.5-flash-lite' ? 'Gemini 3.5 Flash Lite (Mặc định)' : modelId,
+                  provider: modelId.startsWith('rent') ? 'P2P Rented Node' : 'Google AI / Local',
+                  type: modelId.startsWith('rent') ? 'rented_p2p' : 'cloud',
+              }
+            : null)
 
     // Lưu cập nhật Agent
     async function handleSave(e: React.FormEvent) {
@@ -222,7 +235,7 @@ export default function AgentDetailPage() {
         setSaving(true)
 
         try {
-            const chosenModel = modelId || 'gemini-2.5-flash-lite'
+            const chosenModel = modelId || 'gemini-3.5-flash-lite'
             const updatePayload: AgentUpdate = {
                 name: name.trim(),
                 color,

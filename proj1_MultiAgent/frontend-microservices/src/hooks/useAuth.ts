@@ -26,7 +26,7 @@ function pickTokenAndUser(data: any) {
             id: String(user.id || user._id),
             name: user.username || user.name || user.email,
             email: user.email,
-            role: user.role || 'user', // 👈 Bổ sung dòng này để bắt role từ lúc đăng nhập!
+            role: user.role || 'user',
             avatar: user.avatarUrl || user.avatar || '',
             avatarUrl: user.avatarUrl || user.avatar || '',
             status: user.status || 'online',
@@ -50,6 +50,14 @@ export function useAuth() {
     const clearMessages = () => {
         setError(null)
         setMessage(null)
+    }
+
+    const navigateToDashboard = () => {
+        if (typeof window !== 'undefined') {
+            window.location.href = '/dashboard'
+        } else {
+            router.replace('/dashboard')
+        }
     }
 
     const register = async (payload: RegisterPayload) => {
@@ -130,7 +138,7 @@ export function useAuth() {
                 notify.success('Đăng nhập thành công', {
                     description: `Xin chào, ${user.name}`,
                 })
-                router.replace('/dashboard')
+                navigateToDashboard()
             }
             return data
         } catch (err) {
@@ -154,7 +162,7 @@ export function useAuth() {
                 notify.success('Đăng nhập Google thành công', {
                     description: `Xin chào, ${user.name}`,
                 })
-                router.replace('/dashboard')
+                navigateToDashboard()
             }
             return data
         } catch (err) {
@@ -197,7 +205,7 @@ export function useAuth() {
                 notify.success('Đăng nhập GitHub thành công', {
                     description: `Xin chào, ${user.name}`,
                 })
-                router.replace('/dashboard')
+                navigateToDashboard()
             }
             return data
         } catch (err) {
@@ -244,7 +252,7 @@ export function useAuth() {
                 notify.success('Đăng nhập Hugging Face thành công', {
                     description: `Xin chào, ${user.name}`,
                 })
-                router.replace('/dashboard')
+                navigateToDashboard()
             }
             return data
         } catch (err) {
@@ -258,18 +266,17 @@ export function useAuth() {
     }
 
     return {
-        loading,
-        error,
-        message,
+        login,
         register,
         verifyOtp,
         resendOtp,
-        login,
         googleLogin,
         startGithubLogin,
         githubLogin,
         startHuggingfaceLogin,
         huggingfaceLogin,
-        clearMessages,
+        loading,
+        error,
+        message,
     }
 }

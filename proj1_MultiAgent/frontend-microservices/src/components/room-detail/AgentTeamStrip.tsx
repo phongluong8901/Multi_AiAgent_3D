@@ -40,7 +40,7 @@ export function AgentTeamStrip({
                 const form = getAgentForm(ag)
                 const FormIcon = form === 'duck' ? IconDuck : form === 'amr' ? IconAmr : form === 'drone' ? IconDrone : IconHumanoid
                 const localModel = typeof window !== 'undefined' ? localStorage.getItem(`agent_model:${ag.id}`) : null
-                const effectiveModel = localModel || ag.model || 'gemini-2.5-flash-lite'
+                const effectiveModel = localModel || ag.model || 'gemini-3.5-flash-lite'
                 const isRented = effectiveModel.startsWith('rented:') || effectiveModel.startsWith('rental:')
                 const rlCfg = getAgentRLConfig(ag.id)
 

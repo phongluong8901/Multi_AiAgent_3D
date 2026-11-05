@@ -284,8 +284,16 @@ export class AgentDispatcher {
             }
         }
 
-        // Chọn agent trưởng nhóm (có chữ manager hoặc lead) hoặc agent đầu tiên trong phòng
-        const defaultAgent = roomAgents.find(a => a.includes("manager") || a.includes("lead")) || roomAgents[0];
+        // Ưu tiên định tuyến trực tiếp sang chuyên gia tìm kiếm (search/duck) nếu câu hỏi là tra cứu thời tiết / thông tin trực tiếp
+        const textLower = (message || "").trim().toLowerCase();
+        const searchKeywords = ["thời tiết", "thoi tiet", "nhiệt độ", "giá vàng", "tra cứu", "tìm kiếm", "tin tức", "hôm nay"];
+        const searchAgent = roomAgents.find(a => a.toLowerCase().includes("search") || a.toLowerCase().includes("duck"));
+        const isSearchIntent = searchKeywords.some(k => textLower.includes(k));
+
+        // Chọn agent phù hợp nhất trong phòng
+        const defaultAgent = (isSearchIntent && searchAgent)
+            ? searchAgent
+            : (roomAgents.find(a => a.includes("manager") || a.includes("lead")) || roomAgents[0]);
 
         if (chatType === "agent" || chatType === "workflow" || chatType === "meeting") {
             return defaultAgent ? [defaultAgent] : [];
@@ -373,6 +381,53 @@ export class AgentDispatcher {
             }).catch((err) => {
                 console.error(`[AgentDispatcher] Direct execution error:`, err);
                 this.setIdle(roomId, agentId);
+            });
+        }
+    }
+
+    /**
+     * Phát luồng token streaming trực tiếp từ Agent xuống Room qua Socket.IO
+     */
+    handleAgentStream(data: any) {
+        const roomId = data.roomId || data.room_id;
+        const agentId = data.agentId || data.agent_id || "agent";
+        if (!roomId) return;
+
+        // Làm mới bộ đếm chờ vì Agent đang thực sự stream token về
+        this.startPendingTimer(roomId, agentId);
+
+        const ctx = data.context || {};
+        const depth = typeof data.depth === "number" ? data.depth : (ctx.depth || 0);
+        const typeChat: ChatType = ctx.typeChat || (depth > 0 ? "workflow" : "agent");
+        const rootTypeChat: ChatType = ctx.rootTypeChat || typeChat;
+        const agentName =
+            data.agentName && data.agentName !== agentId
+                ? data.agentName
+                : data.agent_name && data.agent_name !== agentId
+                ? data.agent_name
+                : this.getAgentDisplayName(agentId);
+        const content = String(data.content || "");
+
+        broadcastToRoom(this.io, roomId, "agent_stream", {
+            roomId,
+            agentId,
+            agentName,
+            streamId: data.streamId || `stream_${agentId}`,
+            chunk: data.chunk || "",
+            content,
+            done: Boolean(data.done),
+            typeChat,
+            rootTypeChat,
+            depth,
+            senderId: ctx.senderId,
+        });
+
+        if (content) {
+            broadcastToRoom(this.io, roomId, "agent_status", {
+                roomId,
+                agentId,
+                status: "speaking",
+                speech: content.slice(-150),
             });
         }
     }

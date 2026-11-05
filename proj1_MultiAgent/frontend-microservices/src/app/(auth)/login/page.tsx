@@ -69,7 +69,7 @@ export default function LoginPage() {
 
             <div className="space-y-3">
                 {/* Google */}
-                <div className="flex justify-center w-full [&_div]:w-full">
+                <div className="flex justify-center w-full">
                     <GoogleLogin
                         onSuccess={handleGoogleSuccess}
                         onError={() => {
@@ -77,7 +77,7 @@ export default function LoginPage() {
                         }}
                         theme="filled_black"
                         shape="rectangular"
-                        width="100%"
+                        width="384"
                         text="signin_with"
                     />
                 </div>

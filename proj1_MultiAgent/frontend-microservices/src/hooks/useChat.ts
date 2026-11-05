@@ -114,9 +114,11 @@ export function useChat({ roomId, typeChat, onRoomUpdated }: UseChatProps) {
 
                     const tempIdx = prev.findIndex(
                         (m) =>
-                            (m.id?.startsWith('temp_') || m._id?.startsWith('temp_')) &&
-                            m.senderId === newMsg.senderId &&
-                            m.message === newMsg.message
+                            ((m.id?.startsWith('temp_') || m._id?.startsWith('temp_')) &&
+                                m.senderId === newMsg.senderId &&
+                                m.message === newMsg.message) ||
+                            ((m.id?.startsWith('stream_') || (m as any).metadata?.isStreaming) &&
+                                m.senderId === newMsg.senderId)
                     )
                     if (tempIdx !== -1) {
                         const next = [...prev]
@@ -140,6 +142,62 @@ export function useChat({ roomId, typeChat, onRoomUpdated }: UseChatProps) {
                 }
             } catch (err) {
                 console.error('[Chat Socket] Error parsing receive_message event:', err)
+            }
+        })
+
+        // Lắng nghe luồng token streaming trực tiếp từ Agent (Local LLM / Electron Worker / Cloud)
+        socket.on('agent_stream', (data: any) => {
+            try {
+                const streamData = data.data || data
+                const agentId = streamData.agentId || streamData.agent_id
+                const content = String(streamData.content || '')
+                if (!agentId || !content) return
+
+                const streamId = streamData.streamId || `stream_${agentId}`
+                const resolvedTypeChat: ChatType = streamData.typeChat || 'agent'
+                const rootTypeChat: ChatType = streamData.rootTypeChat || resolvedTypeChat
+
+                setMessages((prev) => {
+                    const existingIdx = prev.findIndex(
+                        (m) =>
+                            m.id === streamId ||
+                            (m.id?.startsWith('stream_') && m.senderId === agentId)
+                    )
+                    const streamMsg: ChatMessage = {
+                        id: streamId,
+                        roomId: streamData.roomId || roomId,
+                        typeChat: resolvedTypeChat,
+                        senderId: agentId,
+                        senderName: streamData.agentName || agentId,
+                        senderType: 'agent',
+                        message: content,
+                        targetAgentId: agentId,
+                        createdAt: existingIdx !== -1 ? prev[existingIdx].createdAt : new Date().toISOString(),
+                        metadata: {
+                            isStreaming: !streamData.done,
+                            rootTypeChat,
+                            depth: streamData.depth || 0,
+                        },
+                    }
+
+                    if (existingIdx !== -1) {
+                        const next = [...prev]
+                        next[existingIdx] = streamMsg
+                        return next
+                    }
+                    return [...prev, streamMsg]
+                })
+
+                setAgentStatuses((prev) => ({
+                    ...prev,
+                    [agentId]: {
+                        agentId,
+                        status: 'speaking',
+                        speech: content.slice(-150),
+                    },
+                }))
+            } catch (err) {
+                console.error('[Chat Socket] Error parsing agent_stream event:', err)
             }
         })
 

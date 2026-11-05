@@ -22,7 +22,9 @@ function DraggableModelCard({
     isSelected?: boolean
     onSelect?: (model: AIModel) => void
 }) {
-    const isRented = model.type === 'rented_p2p' || model.id.startsWith('rented:')
+    const isRented = model.type === 'rented_p2p' || model.id.startsWith('rented:') || model.id.startsWith('rental:')
+    const isLocal = model.type === 'local_ollama' || model.type === 'local_webgpu'
+    const isDefaultModel = model.id === 'gemini-3.5-flash-lite'
 
     const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
         id: `model-${model.id}`,
@@ -33,7 +35,7 @@ function DraggableModelCard({
         ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` }
         : undefined
 
-    const accent = isRented ? '#06b6d4' : colorFromId(model.id, 140)
+    const accent = isRented ? '#06b6d4' : isLocal ? '#f59e0b' : colorFromId(model.id, 140)
 
     return (
         <div
@@ -69,24 +71,40 @@ function DraggableModelCard({
                 <div className="min-w-0 flex-1">
                     <div className="flex items-center justify-between gap-1">
                         <span className="font-medium text-zinc-100 truncate">{model.name}</span>
-                        {isSelected ? (
-                            <span className="text-[10px] bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded-full font-mono shrink-0">
-                                Đã chọn
-                            </span>
-                        ) : isRented ? (
-                            <span className="text-[9px] bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 px-1.5 py-0.2 rounded-full font-bold uppercase tracking-wider shrink-0">
-                                P2P Thuê
-                            </span>
-                        ) : null}
+                        <div className="flex items-center gap-1 shrink-0">
+                            {isDefaultModel && !isSelected && (
+                                <span className="text-[9px] bg-blue-500/20 text-blue-300 border border-blue-500/30 px-1.5 py-0.2 rounded-full font-mono uppercase">
+                                    Default
+                                </span>
+                            )}
+                            {isSelected ? (
+                                <span className="text-[10px] bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded-full font-mono shrink-0">
+                                    Đã chọn
+                                </span>
+                            ) : isRented ? (
+                                <span className="text-[9px] bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 px-1.5 py-0.2 rounded-full font-bold uppercase tracking-wider shrink-0">
+                                    P2P Thuê
+                                </span>
+                            ) : isLocal ? (
+                                <span className="text-[9px] bg-amber-500/20 text-amber-300 border border-amber-500/30 px-1.5 py-0.2 rounded-full font-mono uppercase shrink-0">
+                                    Local
+                                </span>
+                            ) : null}
+                        </div>
                     </div>
 
-                    <div className="text-[11px] text-zinc-400 mt-0.5 flex items-center gap-1.5">
+                    <div className="text-[11px] text-zinc-400 mt-0.5 flex items-center justify-between gap-1.5">
                         {isRented ? (
                             <span className="text-cyan-400 font-semibold truncate">
                                 Trạm {model.nodeName || model.provider}
                             </span>
                         ) : (
                             <span className="text-zinc-500 truncate">{model.provider}</span>
+                        )}
+                        {model.contextWindow && (
+                            <span className="text-[10px] text-zinc-500 font-mono shrink-0">
+                                {model.contextWindow}
+                            </span>
                         )}
                     </div>
 
@@ -95,6 +113,7 @@ function DraggableModelCard({
                             {model.description}
                         </div>
                     )}
+                    <div className="text-[10px] text-zinc-600 mt-1 font-mono truncate">{model.id}</div>
                 </div>
             </div>
         </div>
@@ -102,8 +121,9 @@ function DraggableModelCard({
 }
 
 export default function ModelPalette({ models, loading, selectedModelId, onSelect }: Props) {
-    const rentedModels = models.filter((m) => m.type === 'rented_p2p' || m.id.startsWith('rented:'))
-    const standardModels = models.filter((m) => m.type !== 'rented_p2p' && !m.id.startsWith('rented:'))
+    const rentedModels = models.filter((m) => m.type === 'rented_p2p' || m.id.startsWith('rented:') || m.id.startsWith('rental:'))
+    const localModels = models.filter((m) => (m.type === 'local_ollama' || m.type === 'local_webgpu') && !rentedModels.includes(m))
+    const cloudModels = models.filter((m) => !rentedModels.includes(m) && !localModels.includes(m))
 
     return (
         <div className="space-y-3">
@@ -155,17 +175,15 @@ export default function ModelPalette({ models, loading, selectedModelId, onSelec
                         </div>
                     )}
 
-                    {/* KHU VỰC 2: MÔ HÌNH CLOUD & CỤC BỘ TIÊU CHUẨN */}
+                    {/* KHU VỰC 2: MÔ HÌNH CLOUD API TIÊU CHUẨN */}
                     <div className="space-y-1.5">
-                        {rentedModels.length > 0 && (
-                            <div className="px-1 pt-1 border-t border-zinc-800">
-                                <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">
-                                    Cloud &amp; Local Tiêu Chuẩn ({standardModels.length})
-                                </span>
-                            </div>
-                        )}
+                        <div className="px-1 pt-1 border-t border-zinc-800">
+                            <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
+                                Cloud API Models ({cloudModels.length})
+                            </span>
+                        </div>
                         <div className="space-y-2">
-                            {standardModels.map((m) => (
+                            {cloudModels.map((m) => (
                                 <DraggableModelCard
                                     key={m.id}
                                     model={m}
@@ -175,6 +193,27 @@ export default function ModelPalette({ models, loading, selectedModelId, onSelec
                             ))}
                         </div>
                     </div>
+
+                    {/* KHU VỰC 3: MÔ HÌNH LOCAL OLLAMA / DISTRIBUTED WORKER */}
+                    {localModels.length > 0 && (
+                        <div className="space-y-1.5">
+                            <div className="px-1 pt-1 border-t border-zinc-800">
+                                <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider">
+                                    Local Ollama / Worker ({localModels.length})
+                                </span>
+                            </div>
+                            <div className="space-y-2">
+                                {localModels.map((m) => (
+                                    <DraggableModelCard
+                                        key={m.id}
+                                        model={m}
+                                        isSelected={selectedModelId === m.id}
+                                        onSelect={onSelect}
+                                    />
+                                ))}
+                            </div>
+                        </div>
+                    )}
 
                     {/* Banner gợi ý thuê máy nếu chưa có máy nào */}
                     {rentedModels.length === 0 && (

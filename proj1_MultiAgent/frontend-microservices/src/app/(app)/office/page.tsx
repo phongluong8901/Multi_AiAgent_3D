@@ -68,7 +68,7 @@ const DEFAULT_VILLAGE_AGENTS: Agent[] = [
         status: 'idle',
         speech: 'Sẵn sàng tra cứu tri thức thế giới, cào tài liệu khoa học và lưu vào Thư viện Ký ức.',
         position: [8, 0, 8], // Thư viện Ký ức
-        model: 'gemini-2.5-flash-lite',
+        model: 'gemini-3.5-flash-lite',
         prompt_id: 'chuyen_gia_tim_kiem',
         form: 'duck',
     },
@@ -79,7 +79,7 @@ const DEFAULT_VILLAGE_AGENTS: Agent[] = [
         status: 'idle',
         speech: 'Tôi phụ trách chu trình đúc kết phản tư (Reflection), nén ngữ cảnh ngắn hạn thành bài học dài hạn.',
         position: [6, 0, -3.8], // Khu nhà ở
-        model: 'gemini-2.5-flash-lite',
+        model: 'gemini-3.5-flash-lite',
         prompt_id: 'chuyen_gia_tom_tat',
         form: 'amr',
     },
@@ -90,7 +90,7 @@ const DEFAULT_VILLAGE_AGENTS: Agent[] = [
         status: 'idle',
         speech: 'Luyện tập giải toán khoa học và thuật toán tài chính hàng ngày tại Học viện Kỹ năng.',
         position: [-6, 0, 8], // Học viện Kỹ năng
-        model: 'gemini-2.5-flash-lite',
+        model: 'gemini-3.5-flash-lite',
         prompt_id: 'chuyen_gia_tinh_toan',
         form: 'humanoid',
     },

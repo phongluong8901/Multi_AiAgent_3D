@@ -86,7 +86,7 @@ export default function DashboardPage() {
     // ─── STATE ĐIỀU KHIỂN GIAO DIỆN ─────────────────────────────────────
     const [loading, setLoading] = useState<boolean>(true)
     const [refreshing, setRefreshing] = useState<boolean>(false)
-    const [lastSyncTime, setLastSyncTime] = useState<Date>(new Date())
+    const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null)
     const [mounted, setMounted] = useState<boolean>(false)
     const [activeTab, setActiveTab] = useState<'agents' | 'nodes' | 'rooms' | 'logs'>('agents')
     const [timeRange, setTimeRange] = useState<'6h' | '12h' | '24h' | '7d'>('24h')
@@ -406,7 +406,7 @@ export default function DashboardPage() {
                     <div className="hidden sm:inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-border bg-card text-xs text-muted-foreground font-mono">
                         <Clock className="w-3.5 h-3.5 text-muted-foreground" />
                         <span suppressHydrationWarning>
-                            {mounted ? lastSyncTime.toLocaleTimeString() : '--:--:--'}
+                            {mounted && lastSyncTime ? lastSyncTime.toLocaleTimeString() : '--:--:--'}
                         </span>
                     </div>
                 </div>

@@ -7,6 +7,7 @@ DEFAULT_OLLAMA_URL = "http://localhost:11434"
 
 # Global LLM Activity & Token Tracking Metrics (Thread-safe)
 _metrics_lock = threading.Lock()
+_inference_exec_lock = threading.Lock()
 _llm_metrics = {
     "total_requests": 0,
     "active_requests": 0,
@@ -139,61 +140,62 @@ def handle_inference_request(ws, ws_lock, req_data, ollama_url=DEFAULT_OLLAMA_UR
     eval_duration_sec = 0.0
 
     try:
-        req = urllib.request.Request(
-            f"{ollama_url}/api/generate",
-            data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
+        with _inference_exec_lock:
+            req = urllib.request.Request(
+                f"{ollama_url}/api/generate",
+                data=json.dumps(payload).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
 
-        with urllib.request.urlopen(req, timeout=180) as resp:
-            if is_stream:
-                chunks = []
-                for line in resp:
-                    if not line:
-                        continue
-                    try:
-                        line_str = line.decode("utf-8").strip()
-                        if not line_str:
+            with urllib.request.urlopen(req, timeout=180) as resp:
+                if is_stream:
+                    chunks = []
+                    for line in resp:
+                        if not line:
                             continue
-                        chunk_obj = json.loads(line_str)
-                        piece = chunk_obj.get("response", "")
-                        done = chunk_obj.get("done", False)
+                        try:
+                            line_str = line.decode("utf-8").strip()
+                            if not line_str:
+                                continue
+                            chunk_obj = json.loads(line_str)
+                            piece = chunk_obj.get("response", "")
+                            done = chunk_obj.get("done", False)
 
-                        # Capture token stats from Ollama response if provided
-                        if "prompt_eval_count" in chunk_obj:
-                            prompt_tokens = int(chunk_obj["prompt_eval_count"])
-                        if "eval_count" in chunk_obj:
-                            completion_tokens = int(chunk_obj["eval_count"])
-                        if "eval_duration" in chunk_obj:
-                            ev_dur = float(chunk_obj.get("eval_duration") or 0.0)
-                            if ev_dur > 0.0:
-                                eval_duration_sec = ev_dur / 1e9
+                            # Capture token stats from Ollama response if provided
+                            if "prompt_eval_count" in chunk_obj:
+                                prompt_tokens = int(chunk_obj["prompt_eval_count"])
+                            if "eval_count" in chunk_obj:
+                                completion_tokens = int(chunk_obj["eval_count"])
+                            if "eval_duration" in chunk_obj:
+                                ev_dur = float(chunk_obj.get("eval_duration") or 0.0)
+                                if ev_dur > 0.0:
+                                    eval_duration_sec = ev_dur / 1e9
 
-                        if piece:
-                            chunks.append(piece)
-                            with ws_lock:
-                                ws.send(json.dumps({
-                                    "type": "INFERENCE_CHUNK",
-                                    "requestId": request_id,
-                                    "nodeId": node_id,
-                                    "model": target_model,
-                                    "chunk": piece,
-                                    "done": False,
-                                }))
-                        if done:
-                            break
-                    except Exception:
-                        continue
-                output_text = "".join(chunks)
-            else:
-                res_json = json.loads(resp.read().decode("utf-8"))
-                output_text = res_json.get("response", "")
-                prompt_tokens = int(res_json.get("prompt_eval_count", 0))
-                completion_tokens = int(res_json.get("eval_count", 0))
-                ev_dur_direct = float(res_json.get("eval_duration") or 0.0)
-                if ev_dur_direct > 0.0:
-                    eval_duration_sec = ev_dur_direct / 1e9
+                            if piece:
+                                chunks.append(piece)
+                                with ws_lock:
+                                    ws.send(json.dumps({
+                                        "type": "INFERENCE_CHUNK",
+                                        "requestId": request_id,
+                                        "nodeId": node_id,
+                                        "model": target_model,
+                                        "chunk": piece,
+                                        "done": False,
+                                    }))
+                            if done:
+                                break
+                        except Exception:
+                            continue
+                    output_text = "".join(chunks)
+                else:
+                    res_json = json.loads(resp.read().decode("utf-8"))
+                    output_text = res_json.get("response", "")
+                    prompt_tokens = int(res_json.get("prompt_eval_count", 0))
+                    completion_tokens = int(res_json.get("eval_count", 0))
+                    ev_dur_direct = float(res_json.get("eval_duration") or 0.0)
+                    if ev_dur_direct > 0.0:
+                        eval_duration_sec = ev_dur_direct / 1e9
 
         duration_sec = max(0.001, time.time() - start_time)
         latency_ms = int(duration_sec * 1000)

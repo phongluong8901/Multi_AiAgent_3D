@@ -11,7 +11,7 @@ class AgentCreate(BaseModel):
     pos_x: Optional[float] = 0.0
     pos_y: Optional[float] = 0.0
     pos_z: Optional[float] = 0.0
-    model: Optional[str] = "gemini-2.5-flash-lite"
+    model: Optional[str] = "gemini-3.5-flash-lite"
     form: Optional[str] = "humanoid"
     body_id: Optional[str] = None
     prompt_id: Optional[str] = None
@@ -38,7 +38,7 @@ class AgentResponse(BaseModel):
     status: str
     speech: Optional[str] = None
     position: List[float]
-    model: Optional[str] = "gemini-2.5-flash-lite"
+    model: Optional[str] = "gemini-3.5-flash-lite"
     form: Optional[str] = "humanoid"
     body_id: Optional[str] = None
     prompt_id: Optional[str] = None

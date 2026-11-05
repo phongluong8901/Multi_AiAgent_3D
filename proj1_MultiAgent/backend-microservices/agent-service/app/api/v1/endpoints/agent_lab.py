@@ -11,7 +11,7 @@ router = APIRouter(prefix="/lab", tags=["Agent Lab Generator 3D"])
 
 class GenerateAgentRequest(BaseModel):
     goal: str
-    target_model: Optional[str] = "gemini-2.5-flash-lite"
+    target_model: Optional[str] = "gemini-3.5-flash-lite"
     save_to_db: Optional[bool] = True
 
 
@@ -27,7 +27,7 @@ def get_lab_templates():
             "goal": "Tạo ra agent phân tích tài liệu PDF: bóc tách bảng số liệu, tóm tắt nội dung chính và trích xuất chỉ số",
             "category": "Document AI",
             "icon": "FileText",
-            "recommended_model": "gemini-2.5-flash-lite",
+            "recommended_model": "gemini-3.5-flash-lite",
             "color": "#6366f1"
         },
         {
@@ -54,7 +54,7 @@ def get_lab_templates():
             "goal": "Tạo ra agent CSKH tự động: tiếp nhận khiếu nại, phân loại mức độ khẩn cấp và tra cứu chính sách hoàn tiền",
             "category": "Customer Support",
             "icon": "Headphones",
-            "recommended_model": "gemini-2.5-flash-lite",
+            "recommended_model": "gemini-3.5-flash-lite",
             "color": "#f59e0b"
         }
     ]

@@ -15,6 +15,7 @@ export async function startChatConsumers(io: SocketIOServer) {
         await channel.assertExchange(AGENT_EXCHANGE, "topic", { durable: true });
         await channel.assertQueue(queueName, { durable: true });
         await channel.bindQueue(queueName, AGENT_EXCHANGE, "agent.reply.#");
+        await channel.bindQueue(queueName, AGENT_EXCHANGE, "agent.stream.#");
 
         // Lắng nghe sự kiện thay đổi agent trong room từ room-service (room.agent.added, removed, synced)
         const roomEventsQueue = "chat_room_agent_events_queue";
@@ -59,9 +60,19 @@ export async function startChatConsumers(io: SocketIOServer) {
             if (!msg) return;
 
             try {
+                const routingKey = msg.fields?.routingKey || "";
                 const data = JSON.parse(msg.content.toString());
                 const roomId = data.roomId || data.room_id;
                 const agentId = data.agentId || data.agent_id || "agent";
+
+                // Nếu là gói tin streaming từng đoạn token từ agent-service -> phát ngay qua Socket.IO
+                if (routingKey.startsWith("agent.stream") || (data.streamId && !data.answer && !data.reply)) {
+                    if (roomId) {
+                        agentDispatcher.handleAgentStream(data);
+                    }
+                    channel.ack(msg);
+                    return;
+                }
 
                 // Nếu reply này xuất phát từ direct HTTP call thì bỏ qua để tránh duplicate tin nhắn trong phòng
                 if (data.source === "http") {

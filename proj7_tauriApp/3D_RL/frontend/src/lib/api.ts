@@ -33,3 +33,37 @@ export async function getStatus() {
     const res = await fetch(`${API_BASE}/train/status`);
     return res.json();
 }
+
+export async function feedAgent(kcal = 250) {
+    const res = await fetch(`${API_BASE}/state/feed?kcal=${kcal}`, {
+        method: "POST",
+    });
+    return res.json();
+}
+
+export async function restAgent() {
+    const res = await fetch(`${API_BASE}/state/rest`, { method: "POST" });
+    return res.json();
+}
+
+export async function saveAgentState() {
+    const res = await fetch(`${API_BASE}/state/save`, { method: "POST" });
+    return res.json();
+}
+
+export async function loadAgentState() {
+    const res = await fetch(`${API_BASE}/state/load`, { method: "POST" });
+    return res.json();
+}
+
+export async function resetAgentState(fullReset = true) {
+    const res = await fetch(`${API_BASE}/state/reset?full_reset=${fullReset}`, {
+        method: "POST",
+    });
+    return res.json();
+}
+
+export async function clearDemos() {
+    const res = await fetch(`${API_BASE}/demos/clear`, { method: "POST" });
+    return res.json();
+}

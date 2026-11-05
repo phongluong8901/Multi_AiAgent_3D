@@ -34,7 +34,7 @@ const QUICK_TEMPLATES = [
     {
         title: 'Agent Phân tích PDF',
         goal: 'Tạo ra agent phân tích file PDF: trích xuất văn bản, đọc bảng số liệu, bóc tách hóa đơn và tóm tắt nội dung chính',
-        model: 'gemini-2.5-flash-lite',
+        model: 'gemini-3.5-flash-lite',
         color: '#6366f1',
     },
     {
@@ -52,14 +52,14 @@ const QUICK_TEMPLATES = [
     {
         title: 'Agent Nghiên cứu Thị trường',
         goal: 'Tạo ra agent tra cứu xu hướng giá cả, phân tích đối thủ cạnh tranh và lập báo cáo tổng hợp SWOT',
-        model: 'gemini-2.5-flash-lite',
+        model: 'gemini-3.5-flash-lite',
         color: '#f59e0b',
     },
 ]
 
 export default function AgentLabPage() {
     const [userGoal, setUserGoal] = useState('')
-    const [selectedModel, setSelectedModel] = useState('gemini-2.5-flash-lite')
+    const [selectedModel, setSelectedModel] = useState('gemini-3.5-flash-lite')
     const [isSynthesizing, setIsSynthesizing] = useState(false)
     const [currentStep, setCurrentStep] = useState(0) // 0: idle, 1..5
     const [stages, setStages] = useState<LabStage[]>([])
@@ -244,7 +244,7 @@ export default function AgentLabPage() {
                                     disabled={isSynthesizing}
                                     className="bg-slate-950 border border-slate-700 text-slate-200 text-xs rounded-lg px-2.5 py-1 focus:ring-1 focus:ring-cyan-500 focus:outline-none"
                                 >
-                                    <option value="gemini-2.5-flash-lite">Gemini 2.5 Flash Lite (Nhanh, Tối ưu)</option>
+                                    <option value="gemini-3.5-flash-lite">Gemini 2.5 Flash Lite (Nhanh, Tối ưu)</option>
                                     <option value="gemini-2.5-flash">Gemini 2.5 Flash (Thông minh cao cấp)</option>
                                     <option value="deepseek-coder">DeepSeek Coder (Chuyên lập trình)</option>
                                     <option value="qwen2.5-coder:7b">Qwen 2.5 Coder 7B (Local Sandbox)</option>

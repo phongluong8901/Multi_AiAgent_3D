@@ -119,7 +119,7 @@ class PDFAnalyzerTool(BaseTool):
             if user_prompt:
                 instruction += f"\nYêu cầu đặc biệt từ người dùng: {user_prompt}"
 
-            models_to_try = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-2.5-flash-lite"]
+            models_to_try = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-3.5-flash-lite"]
             last_err = None
 
             for m in models_to_try:

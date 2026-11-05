@@ -131,7 +131,10 @@ class ToolExecutor:
         else:
             safe_args = {"input": str(arguments)}
 
-        print(f"[ToolExecutor] Executing tool '{tool_id}' with args: {safe_args}")
+        try:
+            print(f"[ToolExecutor] Executing tool '{tool_id}' with args: {safe_args}")
+        except Exception:
+            pass
 
         try:
             # 1. Tự động truy vấn Tool từ Database nếu tool_obj chưa được truyền
@@ -152,7 +155,19 @@ class ToolExecutor:
                 env_data = getattr(tool_obj, "env_vars", None)
                 code_content = str(getattr(tool_obj, "code", "") or "").strip()
                 if code_content:
-                    return cls.execute_custom_code(code_content, safe_args, env_vars=env_data)
+                    custom_res = cls.execute_custom_code(code_content, safe_args, env_vars=env_data)
+                    # Riêng duckduckgo_search (custom free): nếu code cũ trong DB trả rỗng/lỗi thì fallback sang DuckDuckGoSearchTool chuẩn
+                    if tool_id in ["duckduckgo_search", "duckduckgo_search_tool"]:
+                        try:
+                            parsed_custom = json.loads(custom_res)
+                            if isinstance(parsed_custom, dict):
+                                has_error = parsed_custom.get("success") is False or bool(parsed_custom.get("error"))
+                                empty_results = "results" in parsed_custom and not parsed_custom.get("results")
+                                if has_error or empty_results:
+                                    return tool_registry.execute("duckduckgo_search", safe_args)
+                        except Exception:
+                            pass
+                    return custom_res
 
             # 3. Xử lý đồng bộ alias cho summarizer
             if tool_id in ["summarizer_tool", "text_summarizer"]:
@@ -164,7 +179,7 @@ class ToolExecutor:
                 max_len = safe_args.get("max_length", 150)
                 return summarize_text_smart(text_input, max_len)
 
-            # 4. Gọi các tool hệ thống đã đăng ký (Calculator, Web Search, Web Crawler, PDF Analyzer,...)
+            # 4. Gọi các tool hệ thống đã đăng ký (DuckDuckGo Free, Tavily API, Google Search API, Calculator, PDF Analyzer,...)
             result_json_str = tool_registry.execute(tool_id, safe_args)
             if "not found in registry" not in result_json_str:
                 return result_json_str

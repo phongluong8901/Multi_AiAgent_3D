@@ -16,7 +16,10 @@ router = APIRouter(prefix="/tools", tags=["Tool Execution"])
 DEFAULT_TOOL_SAMPLE_ARGS: Dict[str, Dict[str, Any]] = {
     "calculator_tool": {"expression": "25 * 4 + 10"},
     "scientific_calculator": {"expression": "sqrt(144) + 10"},
+    "duckduckgo_search": {"query": "Thời tiết Hà Nội hôm nay"},
+    "duckduckgo_search_tool": {"query": "Thời tiết Hà Nội hôm nay"},
     "web_search_tool": {"query": "LangGraph multi-agent architecture"},
+    "tavily_search_tool": {"query": "LangGraph multi-agent architecture"},
     "google_search_tool": {"query": "LangGraph multi-agent architecture"},
     "wikipedia_tool": {"query": "Artificial Intelligence"},
     "web_crawler_tool": {"url": "https://example.com"},

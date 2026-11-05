@@ -160,6 +160,8 @@ services:
       - OWER_SERVICE_URL=http://ower-service:5012
     ports:
       - "8000:8000"
+    volumes:
+      - ./agent-service/app:/app/app
     depends_on:
       # - db
       - redis

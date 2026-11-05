@@ -1,5 +1,7 @@
 from .calculator import CalculatorTool
-from .web_search import WebSearchTool
+from .web_search import DuckDuckGoSearchTool
+from .tools_api.web_search_tool import TavilyWebSearchTool
+from .tools_api.google_search_tool import GoogleSearchTool
 from .web_crawler import WebCrawlerTool
 from .wikipedia_tool import WikipediaTool
 from .data_analysis_tool import DataAnalysisTool
@@ -22,9 +24,12 @@ from .system_health_tool import SystemHealthTool
 
 class ToolRegistry:
     _tools = {
-        # 1. Tìm kiếm, Thu thập Web & Bách khoa toàn thư
-        "web_search_tool": WebSearchTool(),
-        "google_search_tool": WebSearchTool(),
+        # 1. Tìm kiếm (Tách rõ: 1 Custom Free DuckDuckGo + 2 API Search: Tavily & Google)
+        "duckduckgo_search": DuckDuckGoSearchTool(),
+        "duckduckgo_search_tool": DuckDuckGoSearchTool(),
+        "web_search_tool": TavilyWebSearchTool(),
+        "tavily_search_tool": TavilyWebSearchTool(),
+        "google_search_tool": GoogleSearchTool(),
         "wikipedia_tool": WikipediaTool(),
         "web_crawler_tool": WebCrawlerTool(),
 

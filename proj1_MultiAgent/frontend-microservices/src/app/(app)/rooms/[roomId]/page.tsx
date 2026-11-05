@@ -202,7 +202,7 @@ export default function CollaborativeRoomPage() {
                 if (found) {
                     return {
                         ...found,
-                        model: localModel || found.model || 'gemini-2.5-flash-lite',
+                        model: localModel || found.model || 'gemini-3.5-flash-lite',
                         form: (localForm || found.form || 'humanoid') as any,
                         body_id: localBodyId || found.body_id,
                         status: (live?.status || found.status || 'idle') as Agent['status'],
@@ -214,7 +214,7 @@ export default function CollaborativeRoomPage() {
                     id,
                     name: formatAgentName(id),
                     color: getAgentDefaultColor(id),
-                    model: localModel || 'gemini-2.5-flash-lite',
+                    model: localModel || 'gemini-3.5-flash-lite',
                     form: (localForm || 'humanoid') as any,
                     body_id: localBodyId || null,
                     status: (live?.status || 'idle') as Agent['status'],
@@ -226,28 +226,30 @@ export default function CollaborativeRoomPage() {
         )
     }, [room, allAgents, agentStatuses])
 
-    // Tự động cuộn chat và clear cờ chờ khi có tin nhắn từ Agent
+    // Tự động cuộn chat và clear cờ chờ khi có tin nhắn hoặc luồng streaming từ Agent
+    const lastMsgLen = messages[messages.length - 1]?.message?.length || 0
     useEffect(() => {
         const lastMsg = messages[messages.length - 1]
         if (lastMsg && (lastMsg.senderType === 'agent' || lastMsg.senderId?.startsWith('agent_'))) {
             setIsWaitingReply(false)
         }
 
-        if (messages.length <= prevMsgCountRef.current) {
+        const isStreamingNow = Boolean((lastMsg as any)?.metadata?.isStreaming)
+        if (messages.length <= prevMsgCountRef.current && !isStreamingNow) {
             prevMsgCountRef.current = messages.length
             return
         }
         const el = chatScrollRef.current
         const nearBottom =
-            !el || el.scrollHeight - el.scrollTop - el.clientHeight < 140
+            !el || el.scrollHeight - el.scrollTop - el.clientHeight < 180
         if (isFirstScrollRef.current || nearBottom) {
             chatEndRef.current?.scrollIntoView({
-                behavior: isFirstScrollRef.current ? 'auto' : 'smooth',
+                behavior: isFirstScrollRef.current || isStreamingNow ? 'auto' : 'smooth',
             })
             isFirstScrollRef.current = false
         }
         prevMsgCountRef.current = messages.length
-    }, [messages.length, messages])
+    }, [messages.length, lastMsgLen, messages])
 
     // Lọc danh sách online users
     const visibleOnlineUsers = useMemo(() => {
@@ -288,7 +290,7 @@ export default function CollaborativeRoomPage() {
         if (found) {
             setInspectorAgent({
                 ...found,
-                model: localModel || found.model || 'gemini-2.5-flash-lite',
+                model: localModel || found.model || 'gemini-3.5-flash-lite',
                 form: (localForm as any) || found.form || 'humanoid',
                 body_id: localBodyId || found.body_id,
             })
@@ -298,7 +300,7 @@ export default function CollaborativeRoomPage() {
                 id: agentId,
                 name: formatAgentName(agentId),
                 color: getAgentDefaultColor(agentId),
-                model: localModel || 'gemini-2.5-flash-lite',
+                model: localModel || 'gemini-3.5-flash-lite',
                 form: (localForm as any) || 'humanoid',
                 body_id: localBodyId || null,
                 status: 'idle',

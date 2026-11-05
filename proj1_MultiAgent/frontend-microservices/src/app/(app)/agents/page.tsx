@@ -444,7 +444,7 @@ export default function AgentsPage() {
                                                 }
                                                 return (
                                                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono">
-                                                        <span>{agent.model || 'gemini-2.5-flash-lite'}</span>
+                                                        <span>{agent.model || 'gemini-3.5-flash-lite'}</span>
                                                     </span>
                                                 )
                                             })()}

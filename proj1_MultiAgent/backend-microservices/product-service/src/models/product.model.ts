@@ -53,7 +53,7 @@ const ProductSchema = new Schema<IProduct>(
         },
         skills: [{ type: String }],
         tools: [{ type: String }],
-        modelTier: { type: String, default: "gemini-2.5-flash-lite" },
+        modelTier: { type: String, default: "gemini-3.5-flash-lite" },
         rating: { type: Number, default: 5.0 },
         reviewsCount: { type: Number, default: 0 },
         totalRented: { type: Number, default: 0 },

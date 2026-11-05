@@ -156,8 +156,15 @@ export class AgentInferenceService {
                     upstreamRes = upstream;
                     break;
                 }
-            } catch {
-                // Tiếp tục thử URL tiếp theo
+                // Nếu đã kết nối được tới Distributed Service nhưng không có worker online (503/400), dừng ngay tránh gọi lặp
+                if (upstream.status === 503 || upstream.status === 400 || upstream.status === 502 || upstream.status === 504) {
+                    break;
+                }
+            } catch (err: any) {
+                if (err?.name === "TimeoutError" || err?.name === "AbortError") {
+                    break;
+                }
+                // Chỉ thử URL tiếp theo khi lỗi kết nối mạng (ECONNREFUSED / DNS)
             }
         }
 
@@ -221,127 +228,102 @@ export class AgentInferenceService {
         const { prompt, systemPrompt, temperature, maxTokens, agentId } = params;
         const session = await this.resolveSession(params);
 
-        // Chuyển tiếp yêu cầu suy luận sang seller-service (thử cả Docker DNS, localhost và Gateway)
         let sellerResult: any = null;
         let lastErr: any = null;
-        const sellerBaseUrls = [
-            SELLER_SERVICE_URL,
-            "http://localhost:5011",
-            "http://127.0.0.1:5011",
+
+        // 1. Ưu tiên đẩy lệnh trực tiếp qua Distributed Service (P2P WebSocket Relay xuống Electron Worker)
+        // Distributed Service đã tự động fallback sang worker đang online nếu nodeId không khớp, nên chỉ gọi 1 lần duy nhất!
+        const distUrls = [
+            process.env.DISTRIBUTED_SERVICE_URL || "http://distributed-service:5010",
+            "http://localhost:5010",
+            "http://127.0.0.1:5010",
+            "http://gateway-service:4000",
             "http://localhost:4000",
-            "http://127.0.0.1:4000",
         ];
 
-        const encodedNodeId = encodeURIComponent(session.nodeId);
-
-        for (const baseUrl of sellerBaseUrls) {
+        for (const dUrl of distUrls) {
             try {
-                const res = await fetch(`${baseUrl}/api/v1/seller/nodes/${encodedNodeId}/inference`, {
+                const dRes = await fetch(`${dUrl}/api/v1/distributed/inference`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
-                        renterId: session.renterId,
+                        nodeId: session.nodeId || "",
+                        model: session.modelKey || "qwen2.5-coder:1.5b",
                         prompt,
-                        systemPrompt,
-                        temperature,
-                        maxTokens,
+                        systemPrompt: systemPrompt || "Bạn là AI Agent thực thi chuyên nghiệp",
+                        temperature: temperature || 0.7,
+                        maxTokens: maxTokens || 1024,
                     }),
                     signal: AbortSignal.timeout(120000),
                 });
 
-                if (res.ok) {
-                    sellerResult = await res.json();
-                    if (sellerResult?.output) break;
+                if (dRes.ok) {
+                    const dData: any = await dRes.json();
+                    if (dData?.output) {
+                        sellerResult = {
+                            output: dData.output,
+                            tokens: Math.max(1, Math.round(dData.output.length / 3.8)),
+                            latencyMs: 1400,
+                            coinsBilled: 0.1,
+                        };
+                        logger.info(`[INFERENCE] Đã thực thi inference trực tiếp qua Distributed Service P2P Relay (${dUrl})`);
+                        break;
+                    }
                 } else {
-                    const errData: any = await res.json().catch(() => ({}));
-                    lastErr = new Error(errData.message || `Lỗi từ Seller Service (HTTP ${res.status})`);
+                    const dErr: any = await dRes.json().catch(() => ({}));
+                    if (dErr?.message) {
+                        lastErr = new Error(dErr.message);
+                    }
+                    // Nếu đã kết nối tới Distributed Service nhưng Worker báo lỗi hoặc offline (503/502/504/400), dừng ngay tránh gửi lặp!
+                    if (dRes.status === 503 || dRes.status === 502 || dRes.status === 504 || dRes.status === 400) {
+                        break;
+                    }
                 }
             } catch (err: any) {
                 lastErr = err;
+                if (err?.name === "TimeoutError" || err?.name === "AbortError") {
+                    break;
+                }
+                // Chỉ thử URL tiếp theo khi lỗi kết nối mạng (ECONNREFUSED / ENOTFOUND)
             }
         }
 
-        // Nếu seller-service chưa phản hồi, thử đẩy lệnh trực tiếp qua Distributed Service (P2P WebSocket Relay như /node-checker)
-        if (!sellerResult || !sellerResult.output) {
-            const distUrls = [
-                process.env.DISTRIBUTED_SERVICE_URL || "http://distributed-service:5010",
-                "http://localhost:5010",
-                "http://127.0.0.1:5010",
-                "http://localhost:4000",
-                "http://127.0.0.1:4000",
+        // 2. Chỉ thử Seller Service nếu chưa kết nối được Distributed Service
+        if (!sellerResult && !lastErr) {
+            const sellerBaseUrls = [
+                SELLER_SERVICE_URL,
+                "http://localhost:5011",
+                "http://127.0.0.1:5011",
             ];
+            const encodedNodeId = encodeURIComponent(session.nodeId);
 
-            for (const dUrl of distUrls) {
+            for (const baseUrl of sellerBaseUrls) {
                 try {
-                    const dRes = await fetch(`${dUrl}/api/v1/distributed/inference`, {
+                    const res = await fetch(`${baseUrl}/api/v1/seller/nodes/${encodedNodeId}/inference`, {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({
-                            nodeId: session.nodeId,
-                            model: session.modelKey || "qwen2.5:1.5b",
+                            renterId: session.renterId,
                             prompt,
-                            systemPrompt: systemPrompt || "Bạn là AI Agent thực thi chuyên nghiệp",
-                            temperature: temperature || 0.7,
-                            maxTokens: maxTokens || 1024,
+                            systemPrompt,
+                            temperature,
+                            maxTokens,
                         }),
-                        signal: AbortSignal.timeout(120000),
+                        signal: AbortSignal.timeout(90000),
                     });
 
-                    if (dRes.ok) {
-                        const dData: any = await dRes.json();
-                        if (dData?.output) {
-                            sellerResult = {
-                                output: dData.output,
-                                tokens: Math.max(1, Math.round(dData.output.length / 3.8)),
-                                latencyMs: 1400,
-                                coinsBilled: 0.1,
-                            };
-                            logger.info(`[INFERENCE] Đã thực thi inference trực tiếp qua Distributed Service P2P Relay (${dUrl})`);
-                            break;
-                        }
+                    if (res.ok) {
+                        sellerResult = await res.json();
+                        if (sellerResult?.output) break;
                     } else {
-                        const dErr: any = await dRes.json().catch(() => ({}));
-                        if (dErr?.message) {
-                            lastErr = new Error(dErr.message);
-                        }
+                        const errData: any = await res.json().catch(() => ({}));
+                        lastErr = new Error(errData.message || `Lỗi từ Seller Service (HTTP ${res.status})`);
+                        break;
                     }
-                } catch {
-                    // Ignore
-                }
-            }
-
-            // Fallback: nếu nodeId chỉ định không khớp worker nào, định tuyến tự động tới worker đang online bất kỳ
-            if (!sellerResult || !sellerResult.output) {
-                for (const dUrl of distUrls) {
-                    try {
-                        const anyRes = await fetch(`${dUrl}/api/v1/distributed/inference`, {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({
-                                nodeId: "",
-                                model: session.modelKey || "qwen2.5-coder:1.5b",
-                                prompt,
-                                systemPrompt: systemPrompt || "Bạn là AI Agent thực thi chuyên nghiệp",
-                                temperature: temperature || 0.7,
-                                maxTokens: maxTokens || 1024,
-                            }),
-                            signal: AbortSignal.timeout(120000),
-                        });
-                        if (anyRes.ok) {
-                            const anyData: any = await anyRes.json();
-                            if (anyData?.output) {
-                                sellerResult = {
-                                    output: anyData.output,
-                                    tokens: Math.max(1, Math.round(anyData.output.length / 3.8)),
-                                    latencyMs: 1400,
-                                    coinsBilled: 0.1,
-                                };
-                                logger.info(`[INFERENCE] Đã thực thi inference qua worker đang hoạt động (${dUrl})`);
-                                break;
-                            }
-                        }
-                    } catch {
-                        // Ignore
+                } catch (err: any) {
+                    lastErr = err;
+                    if (err?.name === "TimeoutError" || err?.name === "AbortError") {
+                        break;
                     }
                 }
             }

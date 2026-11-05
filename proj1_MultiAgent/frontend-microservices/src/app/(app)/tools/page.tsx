@@ -38,7 +38,10 @@ type ApiKeyEntry = {
 const TOOL_DEFAULT_SAMPLES: Record<string, Record<string, unknown>> = {
     calculator_tool: { expression: '25 * 4 + 10' },
     scientific_calculator: { expression: 'sqrt(144) + 10' },
+    duckduckgo_search: { query: 'Thời tiết Hà Nội hôm nay' },
+    duckduckgo_search_tool: { query: 'Thời tiết Hà Nội hôm nay' },
     web_search_tool: { query: 'LangGraph multi-agent architecture 2026' },
+    tavily_search_tool: { query: 'LangGraph multi-agent architecture 2026' },
     google_search_tool: { query: 'LangGraph multi-agent architecture 2026' },
     wikipedia_tool: { query: 'Artificial Intelligence' },
     web_crawler_tool: { url: 'https://example.com' },
@@ -913,10 +916,11 @@ export default function ToolsStudioPage() {
                         className="px-3 py-2 rounded-xl border border-zinc-700 bg-zinc-950 text-xs text-white outline-none focus:border-blue-500"
                     >
                         <option value="all">Tất cả danh mục ({tools.length})</option>
+                        <option value="api">Tool Dùng API Key ([API])</option>
+                        <option value="web">Web &amp; Free Search</option>
                         <option value="custom">Tool Tự Viết Code</option>
                         <option value="builtin">Tool Hệ Thống Tích Hợp</option>
                         <option value="nlp">NLP / Tóm Tắt</option>
-                        <option value="web">Web &amp; API Search</option>
                         <option value="data">Data &amp; Phân Tích</option>
                         <option value="utility">Tiện Ích &amp; Tính Toán</option>
                     </select>
@@ -968,6 +972,14 @@ export default function ToolsStudioPage() {
                         }
 
                         const health = healthStatusMap[t.id]
+                        const isApiTool =
+                            t.category === 'api' ||
+                            t.name.toUpperCase().includes('[API]') ||
+                            (t.description || '').includes('[Dùng API') ||
+                            keysCount > 0
+                        const isFreeWeb =
+                            t.name.toUpperCase().includes('[FREE]') ||
+                            (t.description || '').includes('[Không cần API Key]')
 
                         return (
                             <div
@@ -1007,19 +1019,31 @@ export default function ToolsStudioPage() {
                                         </div>
 
                                         <div className="flex flex-col items-end gap-1 shrink-0">
-                                            <span
-                                                className={`text-[10px] px-2 py-0.5 rounded-full border font-mono ${
-                                                    hasCustomCode
-                                                        ? 'bg-purple-500/15 text-purple-300 border-purple-500/30'
-                                                        : 'bg-zinc-800 text-zinc-400 border-zinc-700'
-                                                }`}
-                                            >
-                                                {hasCustomCode ? 'Custom Python' : 'Built-in'}
-                                            </span>
+                                            <div className="flex items-center gap-1">
+                                                {isApiTool ? (
+                                                    <span className="text-[10px] px-2 py-0.5 rounded-full border font-mono bg-amber-500/15 text-amber-300 border-amber-500/30 flex items-center gap-1">
+                                                        <IconKey className="w-2.5 h-2.5" />
+                                                        <span>Dùng API Key</span>
+                                                    </span>
+                                                ) : isFreeWeb ? (
+                                                    <span className="text-[10px] px-2 py-0.5 rounded-full border font-mono bg-emerald-500/15 text-emerald-300 border-emerald-500/30">
+                                                        Free / No API Key
+                                                    </span>
+                                                ) : null}
+                                                <span
+                                                    className={`text-[10px] px-2 py-0.5 rounded-full border font-mono ${
+                                                        hasCustomCode
+                                                            ? 'bg-purple-500/15 text-purple-300 border-purple-500/30'
+                                                            : 'bg-zinc-800 text-zinc-400 border-zinc-700'
+                                                    }`}
+                                                >
+                                                    {hasCustomCode ? 'Custom Python' : 'Built-in'}
+                                                </span>
+                                            </div>
                                             {keysCount > 0 && (
                                                 <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-300 border border-amber-500/20 font-mono flex items-center gap-0.5">
                                                     <IconKey className="w-2.5 h-2.5" />
-                                                    <span>{keysCount} Key</span>
+                                                    <span>{keysCount} Key đã nạp</span>
                                                 </span>
                                             )}
                                         </div>

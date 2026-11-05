@@ -59,7 +59,7 @@ class AgentFileGenerator:
         agent_name = agent_blueprint.get("name", "Agent Tự Sinh")
         role = agent_blueprint.get("role", "")
         color = agent_blueprint.get("color", "#6366f1")
-        model = agent_blueprint.get("model", "gemini-2.5-flash-lite")
+        model = agent_blueprint.get("model", "gemini-3.5-flash-lite")
         prompt_id = agent_blueprint.get("prompt_id") or f"prompt_{agent_id.replace('agent_', '')}"
         tool_id = agent_blueprint.get("tool_id") or f"tool_{agent_id.replace('agent_', '')}"
         tool_name = agent_blueprint.get("tool_name") or f"Tool {agent_name}"

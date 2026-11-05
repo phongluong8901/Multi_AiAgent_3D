@@ -209,7 +209,7 @@ export default function AgentConfigModal({
                                 <span>Mô hình Trí tuệ (LLM Model Nạp Vào)</span>
                             </span>
                             <span className="text-[11px] font-mono text-purple-300 bg-purple-500/10 border border-purple-500/30 px-2.5 py-0.5 rounded-lg font-bold">
-                                {agent.model || 'gemini-2.5-flash-lite'}
+                                {agent.model || 'gemini-3.5-flash-lite'}
                             </span>
                         </div>
 

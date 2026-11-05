@@ -26,7 +26,7 @@ class AgentRunner:
             tool_desc = tool.description if hasattr(tool, "description") else tool.get("description", "")
             tool_id_lower = str(tool_id).lower()
 
-            if "search" in tool_id_lower or "wiki" in tool_id_lower:
+            if "search" in tool_id_lower or "duck" in tool_id_lower or "wiki" in tool_id_lower:
                 properties = {
                     "query": {"type": "string", "description": "Từ khóa tìm kiếm trên Internet hoặc Wikipedia"},
                     "lang": {"type": "string", "description": "Ngôn ngữ tra cứu ('vi' hoặc 'en', mặc định 'vi')"},
@@ -166,6 +166,40 @@ class AgentRunner:
                 }
             )
         return tool_definitions
+
+    @staticmethod
+    def _publish_stream_chunk(
+        agent_id: str,
+        agent_name: str,
+        room_id: Optional[str],
+        stream_id: str,
+        chunk: str,
+        content: str,
+        done: bool,
+        context: Optional[dict],
+    ) -> None:
+        """Publish từng đoạn token streaming của Agent lên RabbitMQ để chat-service phát realtime qua Socket.IO."""
+        if not room_id:
+            return
+        ctx = context or {}
+        publish_event(
+            exchange="agent.events",
+            routing_key="agent.stream",
+            payload={
+                "agent_id": agent_id,
+                "agentId": agent_id,
+                "agent_name": agent_name,
+                "agentName": agent_name,
+                "room_id": room_id,
+                "roomId": room_id,
+                "streamId": stream_id,
+                "chunk": chunk,
+                "content": content,
+                "done": done,
+                "depth": ctx.get("depth", 0),
+                "context": ctx,
+            },
+        )
 
     @staticmethod
     def _publish_reply(
@@ -464,8 +498,37 @@ class AgentRunner:
         tool_definitions = self._build_tool_definitions(agent_tools)
 
         # 6. Xây dựng danh sách messages ban đầu
-        initial_messages: List[BaseMessage] = [SystemMessage(content=agent_system_prompt)]
-        
+        preferred_model = (
+            (context or {}).get("model")
+            or agent_data.get("model")
+            or "gemini-2.5-flash-lite"
+        )
+        m_lower = str(preferred_model).lower()
+        is_local_model = (
+            m_lower.startswith("rented:")
+            or m_lower.startswith("rental:")
+            or m_lower.startswith("ollama:")
+            or m_lower.startswith("local:")
+            or m_lower.startswith("ollama/")
+            or m_lower.startswith("local/")
+            or any(k in m_lower for k in ["qwen", "llama", "deepseek-r1", "mistral", "phi", "gemma"])
+        )
+
+        # Tối ưu hóa System Prompt cho Local LLM (Electron Worker) để giảm độ trễ Prompt Eval và tránh nhiễu
+        if is_local_model and agent_id != "agent_manager":
+            effective_system_prompt = (
+                f"{base_role_prompt}\n\n"
+                "CHỈ THỊ QUAN TRỌNG:\n"
+                "- Trả lời trực tiếp, rõ ràng, chính xác bằng tiếng Việt dựa trên dữ liệu thực tế.\n"
+                "- Không tự bịa số liệu và không gắn thẻ @agent khác trừ khi người dùng yêu cầu."
+            )
+            if memory_context:
+                effective_system_prompt = f"{effective_system_prompt}\n\n{memory_context}"
+        else:
+            effective_system_prompt = agent_system_prompt
+
+        initial_messages: List[BaseMessage] = [SystemMessage(content=effective_system_prompt)]
+
         # Chuyển đổi lịch sử short_memory từ dict sang langchain message objects
         for m in short_memory:
             role = m.get("role")
@@ -475,7 +538,7 @@ class AgentRunner:
             elif role == "assistant":
                 initial_messages.append(AIMessage(content=content))
 
-        # Thêm tin nhắn hiện tại của user
+        # Thêm tin nhắn hiện tại của user (giữ nguyên bản sạch để LangGraph tự kích hoạt node tools)
         initial_messages.append(HumanMessage(content=user_message))
 
         # 7. Lưu user message vào short memory redis
@@ -487,6 +550,26 @@ class AgentRunner:
 
         start_time = time.time()
         trace_id = f"trace_{int(start_time * 1000)}"
+        stream_id = f"stream_{agent_id}_{int(start_time * 1000)}"
+        agent_display_name = agent_data.get("name", agent_id)
+        last_stream_emit = [0.0]
+
+        def _on_llm_chunk(piece: str, accumulated: str):
+            if not room_id:
+                return
+            now_t = time.time()
+            if now_t - last_stream_emit[0] >= 0.08 or len(piece) > 12:
+                last_stream_emit[0] = now_t
+                self._publish_stream_chunk(
+                    agent_id=agent_id,
+                    agent_name=agent_display_name,
+                    room_id=room_id,
+                    stream_id=stream_id,
+                    chunk=piece,
+                    content=accumulated,
+                    done=False,
+                    context=context,
+                )
 
         # Khởi tạo cây thực thi Workflow Trace (Tương tự LangSmith / LangGraph Studio)
         trace_nodes: List[Dict[str, Any]] = [
@@ -508,7 +591,7 @@ class AgentRunner:
                 "outputs": {
                     "shortMemoryTurns": len(short_memory),
                     "longMemoryCount": len(long_memories),
-                    "systemPromptLength": len(agent_system_prompt),
+                    "systemPromptLength": len(effective_system_prompt),
                 },
                 "latencyMs": 20,
             },
@@ -516,11 +599,6 @@ class AgentRunner:
 
         try:
             # 8. Khởi tạo State và thực thi LangGraph
-            preferred_model = (
-                (context or {}).get("model")
-                or agent_data.get("model")
-                or "gemini-2.5-flash-lite"
-            )
             initial_state = AgentState(
                 messages=initial_messages,
                 agent_id=agent_id,
@@ -528,6 +606,7 @@ class AgentRunner:
                 model=preferred_model,
                 tool_definitions=tool_definitions,
                 tools_used=[],
+                on_chunk=_on_llm_chunk,
                 llm_client=self.llm_client,
                 tool_executor=self.tool_executor
             )
@@ -783,8 +862,38 @@ class AgentRunner:
         # 3. Tool definitions
         tool_definitions = self._build_tool_definitions(agent_tools)
 
+        preferred_model = (
+            (context or {}).get("model")
+            or agent_data.get("model")
+            or "gemini-2.5-flash-lite"
+        )
+        m_lower = str(preferred_model).lower()
+        is_local_model = (
+            m_lower.startswith("rented:")
+            or m_lower.startswith("rental:")
+            or m_lower.startswith("ollama:")
+            or m_lower.startswith("local:")
+            or m_lower.startswith("ollama/")
+            or m_lower.startswith("local/")
+            or any(k in m_lower for k in ["qwen", "llama", "deepseek-r1", "mistral", "phi", "gemma"])
+        )
+
+        if is_local_model and agent_id != "agent_manager":
+            effective_system_prompt = (
+                f"{base_role_prompt}\n\n"
+                "CHỈ THỊ QUAN TRỌNG:\n"
+                "- Trả lời trực tiếp, rõ ràng, chính xác bằng tiếng Việt dựa trên dữ liệu thực tế.\n"
+                "- Không tự bịa số liệu và không gắn thẻ @agent khác trừ khi người dùng yêu cầu."
+            )
+            if memory_context:
+                effective_system_prompt = f"{effective_system_prompt}\n\n{memory_context}"
+        else:
+            effective_system_prompt = agent_system_prompt
+
+        tools_used = []
+
         # 4. Messages
-        initial_messages: List[BaseMessage] = [SystemMessage(content=agent_system_prompt)]
+        initial_messages: List[BaseMessage] = [SystemMessage(content=effective_system_prompt)]
         for m in short_memory:
             role = m.get("role")
             content = m.get("content", "")
@@ -796,13 +905,7 @@ class AgentRunner:
         initial_messages.append(HumanMessage(content=user_message))
         memory_service.append_short_memory(agent_id, "user", user_message, room_id)
 
-        preferred_model = (
-            (context or {}).get("model")
-            or agent_data.get("model")
-            or "gemini-2.5-flash-lite"
-        )
         current_messages: List[BaseMessage] = list(initial_messages)
-        tools_used = []
         final_answer = ""
 
         # 5. ReAct streaming loop (tối đa 5 lượt tool liên hoàn)

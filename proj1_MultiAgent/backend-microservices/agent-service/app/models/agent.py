@@ -15,7 +15,7 @@ class AgentModel(Base):
     pos_y = Column(Float, default=0.0)
     pos_z = Column(Float, default=0.0)
 
-    model = Column(String, default="gemini-2.5-flash-lite")
+    model = Column(String, default="gemini-3.5-flash-lite")
     form = Column(String, default="humanoid")
     body_id = Column(String, nullable=True)
 

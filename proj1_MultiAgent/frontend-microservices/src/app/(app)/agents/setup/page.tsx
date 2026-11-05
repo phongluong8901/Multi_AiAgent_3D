@@ -63,7 +63,7 @@ export default function SetupAgentPage() {
     // Attached configs
     const [promptId, setPromptId] = useState<string | null>(null)
     const [selectedTools, setSelectedTools] = useState<string[]>([])
-    const [modelId, setModelId] = useState<string | null>(null)
+    const [modelId, setModelId] = useState<string | null>('gemini-3.5-flash-lite')
 
     // Data from API
     const [prompts, setPrompts] = useState<Prompt[]>([])
@@ -137,7 +137,20 @@ export default function SetupAgentPage() {
     // Derived data
     const currentPrompt = prompts.find((p) => p.id === promptId) || null
     const currentTools = tools.filter((t) => selectedTools.includes(t.id))
-    const currentModel = models.find((m) => m.id === modelId) || null
+    const currentModel: AIModel | null =
+        models.find(
+            (m) =>
+                m.id === modelId ||
+                (modelId && m.id.replace(/^rental:/, 'rented:') === modelId.replace(/^rental:/, 'rented:'))
+        ) ||
+        (modelId
+            ? {
+                  id: modelId,
+                  name: modelId === 'gemini-3.5-flash-lite' ? 'Gemini 3.5 Flash Lite (Mặc định)' : modelId,
+                  provider: modelId.startsWith('rent') ? 'P2P Rented Node' : 'Google AI / Local',
+                  type: modelId.startsWith('rent') ? 'rented_p2p' : 'cloud',
+              }
+            : null)
 
     // Submit
     async function handleSubmit(e: React.FormEvent) {
@@ -154,7 +167,7 @@ export default function SetupAgentPage() {
                 throw new Error('ID hoặc Name không được để trống')
             }
 
-            const chosenModel = modelId || 'gemini-2.5-flash-lite'
+            const chosenModel = modelId || 'gemini-3.5-flash-lite'
 
             await agentsApi.create({
                 id: agentId,

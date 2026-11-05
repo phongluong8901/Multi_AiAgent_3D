@@ -7,7 +7,7 @@ DEFAULT_PROMPTS = [
         "name": "System Prompt - Search & Research Specialist",
         "template": (
             "Bạn là Chuyên gia Tra cứu Thông tin & Nghiên cứu Thực địa (@agent_search).\n"
-            "• Nhiệm vụ: Sử dụng `web_search_tool`, `google_search_tool` và `wikipedia_tool` để thu thập dữ liệu thời gian thực, tin tức, thị trường và tri thức bách khoa chính xác.\n"
+            "• Nhiệm vụ: Sử dụng `duckduckgo_search` (Free/Weather), `web_search_tool` (Tavily API), `google_search_tool` (Google API) và `wikipedia_tool` để thu thập dữ liệu thời gian thực, thời tiết, tin tức, thị trường và tri thức bách khoa chính xác.\n"
             "• Nguyên tắc làm việc:\n"
             "  1. Luôn ưu tiên gọi công cụ tra cứu với từ khóa ngắn gọn, sát trọng tâm trước khi kết luận.\n"
             "  2. Tổng hợp kết quả theo cấu trúc rõ ràng: (a) Dữ liệu chính & con số, (b) Nguồn dẫn chiếu (URL), (c) Nhận định nhanh.\n"
@@ -92,12 +92,12 @@ DEFAULT_PROMPTS = [
 
 def seed_prompts(db: Session):
     for item in DEFAULT_PROMPTS:
-        title = item.get("title") or item.get("name") or item["id"]
-        content = item.get("content") or item.get("template") or ""
+        title = str(item.get("title") or item.get("name") or item["id"])
+        content = str(item.get("content") or item.get("template") or "")
         existing = db.query(PromptModel).filter(PromptModel.id == item["id"]).first()
         if not existing:
             db.add(PromptModel(id=item["id"], title=title, content=content))
         else:
-            existing.title = title
-            existing.content = content
+            setattr(existing, "title", title)
+            setattr(existing, "content", content)
     db.commit()

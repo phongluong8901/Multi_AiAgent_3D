@@ -29,18 +29,34 @@ export function getUser(): User | null {
 export function setSession(token: string, user: User) {
     if (typeof window === 'undefined') return
 
-    // Xóa sạch dữ liệu cũ trước khi gán session mới tinh
+    // Xóa sạch dữ liệu cũ trước khi gán session mới
     localStorage.removeItem(TOKEN_KEY)
     localStorage.removeItem(USER_KEY)
 
     // Lưu thông tin mới vào localStorage
     localStorage.setItem(TOKEN_KEY, token)
     localStorage.setItem(USER_KEY, JSON.stringify(user))
+
+    // Đồng bộ vào Cookie
+    try {
+        document.cookie = `${TOKEN_KEY}=${encodeURIComponent(token)}; path=/; max-age=604800; SameSite=Lax`
+        document.cookie = `${USER_KEY}=${encodeURIComponent(JSON.stringify(user))}; path=/; max-age=604800; SameSite=Lax`
+    } catch {
+        // bỏ qua
+    }
 }
 
 export function clearSession() {
-    localStorage.removeItem(TOKEN_KEY)
-    localStorage.removeItem(USER_KEY)
+    if (typeof window !== 'undefined') {
+        localStorage.removeItem(TOKEN_KEY)
+        localStorage.removeItem(USER_KEY)
+        try {
+            document.cookie = `${TOKEN_KEY}=; path=/; max-age=0; SameSite=Lax`
+            document.cookie = `${USER_KEY}=; path=/; max-age=0; SameSite=Lax`
+        } catch {
+            // bỏ qua
+        }
+    }
 }
 
 export function isLoggedIn(): boolean {

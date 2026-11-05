@@ -28,7 +28,7 @@ import {
     ALGORITHM_LABELS,
     MAP_LABELS,
 } from '@/lib/rl/agentRLProfile'
-import { AgentFormType } from './NvidiaRobots'
+import type { AgentFormType } from './NvidiaRobots'
 
 type AgentInspectorModalProps = {
     agent: AgentType | null
@@ -119,7 +119,7 @@ export default function AgentInspectorModal({
 
             if (latestAgent) {
                 // Áp dụng cấu hình ưu tiên (Local cache vừa thay đổi hoặc DB)
-                const mergedModel = localModel || latestAgent.model || 'gemini-2.5-flash-lite'
+                const mergedModel = localModel || latestAgent.model || 'gemini-3.5-flash-lite'
                 const mergedForm = (localForm as AgentFormType) || latestAgent.form || 'humanoid'
                 const mergedBodyId = localBodyId || latestAgent.body_id || latestAgent.bodyId || null
 
@@ -269,7 +269,7 @@ export default function AgentInspectorModal({
     if (!isOpen || !agentData) return null
 
     // Nhận diện Model LLM đã nạp (Ưu tiên: Cấu hình mới nhất tại Agent Setup)
-    const effectiveModel = agentData.model || 'gemini-2.5-flash-lite'
+    const effectiveModel = agentData.model || 'gemini-3.5-flash-lite'
     const isRentedModel = effectiveModel.startsWith('rented:') || effectiveModel.startsWith('rental:')
 
     // Nhận diện thuật toán RL & Bản đồ

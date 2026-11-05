@@ -52,8 +52,8 @@ export type ProviderConfig = {
 // Danh sách các mô hình Cloud tiêu chuẩn
 export const DEFAULT_CLOUD_MODELS: AIModel[] = [
     {
-        id: 'gemini-2.5-flash-lite',
-        name: 'Gemini 2.5 Flash Lite',
+        id: 'gemini-3.5-flash-lite',
+        name: 'Gemini 3.5 Flash Lite (Mặc định)',
         provider: 'Google AI',
         providerId: 'google',
         type: 'cloud',
@@ -508,33 +508,69 @@ export async function deleteOllamaModel(modelName: string, host = getOllamaHost(
     }
 }
 
-/** Lấy danh sách model tổng hợp (Cloud + Backend + Rented Seller P2P) */
+/** Lấy danh sách model tổng hợp (Cloud + Backend + Local Ollama + Rented Seller P2P) */
 export async function listModels(): Promise<AIModel[]> {
-    let result: AIModel[] = []
+    const modelMap = new Map<string, AIModel>()
+
+    // 1. Nạp danh sách mặc định phía Client trước (đảm bảo gemini-3.5-flash-lite luôn đứng đầu nhóm Cloud)
+    for (const m of DEFAULT_CLOUD_MODELS) {
+        modelMap.set(m.id, {
+            ...m,
+            tokenStats: getModelTokenStats(m.id),
+        })
+    }
+
+    // 2. Đồng bộ danh sách từ Backend /api/v1/models (hỗ trợ cả dạng { total, models: [...] } và mảng trực tiếp)
     try {
-        const backendModels = await request<AIModel[]>('/models')
-        if (Array.isArray(backendModels) && backendModels.length > 0) {
-            result = backendModels.map((m) => ({
-                ...m,
-                type: m.type || 'cloud',
-                tokenStats: getModelTokenStats(m.id),
-            }))
+        const rawRes = await request<any>('/models')
+        const backendList: any[] = Array.isArray(rawRes)
+            ? rawRes
+            : Array.isArray(rawRes?.models)
+            ? rawRes.models
+            : []
+
+        for (const bm of backendList) {
+            if (!bm?.id) continue
+            const existing = modelMap.get(bm.id)
+            const inferredType: ModelType =
+                bm.type ||
+                (bm.category === 'Local LLM'
+                    ? 'local_ollama'
+                    : bm.category === 'Rented Local LLM' || String(bm.id).startsWith('rental:') || String(bm.id).startsWith('rented:')
+                    ? 'rented_p2p'
+                    : 'cloud')
+
+            modelMap.set(bm.id, {
+                ...(existing || {}),
+                id: bm.id,
+                name: bm.name || existing?.name || bm.id,
+                provider: bm.provider || existing?.provider || 'Cloud API',
+                providerId: bm.providerId || existing?.providerId,
+                type: inferredType,
+                description: bm.description || existing?.description,
+                contextWindow: bm.contextWindow || bm.context_window || existing?.contextWindow,
+                tokenStats: getModelTokenStats(bm.id),
+            })
         }
     } catch {
-        result = DEFAULT_CLOUD_MODELS.map((m) => ({
-            ...m,
-            tokenStats: getModelTokenStats(m.id),
-        }))
+        // Fallback giữ nguyên DEFAULT_CLOUD_MODELS nếu backend đang khởi động
     }
 
-    if (result.length === 0) {
-        result = DEFAULT_CLOUD_MODELS.map((m) => ({
-            ...m,
-            tokenStats: getModelTokenStats(m.id),
-        }))
+    // 3. Quét thêm các model đã cài trực tiếp trên Ollama máy người dùng (nếu đang bật Ollama)
+    try {
+        const localInstalled = await listInstalledOllamaModels()
+        for (const lm of localInstalled) {
+            if (!modelMap.has(lm.id)) {
+                modelMap.set(lm.id, lm)
+            }
+        }
+    } catch {
+        // Bỏ qua nếu Ollama trên máy client không bật
     }
 
-    // Tích hợp các mô hình mà Owner đang thuê từ Seller (P2P Mesh Network)
+    let result: AIModel[] = Array.from(modelMap.values())
+
+    // 4. Tích hợp các mô hình mà Owner đang thuê từ Seller (P2P Mesh Network)
     try {
         const rentalsRes = await request<{ success: boolean; count?: number; rentals?: any[]; activeRentals?: any[] }>('/owner/rentals/my')
         const activeList = (rentalsRes?.rentals || rentalsRes?.activeRentals || []).filter((r: any) => r.status === 'ACTIVE')
@@ -557,8 +593,8 @@ export async function listModels(): Promise<AIModel[]> {
                     totalCoinsSpent: r.totalCoinsSpent || 0,
                 }
             })
-            // Đưa các model P2P đã thuê lên đầu danh sách để ưu tiên chọn cho Agent
-            result = [...rentedModels, ...result]
+            const rentedIds = new Set(rentedModels.map((rm) => rm.id))
+            result = [...rentedModels, ...result.filter((m) => !rentedIds.has(m.id))]
         }
     } catch {
         // Không chặn nếu offline hoặc chưa thuê máy
