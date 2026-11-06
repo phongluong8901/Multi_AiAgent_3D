@@ -1,9 +1,17 @@
 import { RentalSessionModel, IRentalSession } from "../models/rental-session.model";
 import { logger } from "../config/logger";
 
+/**
+ * Repository quan ly du lieu Phien Thue Node Phan Cung (Rental Sessions):
+ * Ho tro co che Persistent Database (MongoDB) ket hop In-Memory Cache Fallback
+ * dam bao dich vu luon san sang ke ca khi database gap su co.
+ */
 export class RentalSessionRepository {
     private inMemorySessions: Map<string, IRentalSession> = new Map();
 
+    /**
+     * Khoi tao phien thue may moi
+     */
     async create(data: Partial<IRentalSession>): Promise<IRentalSession> {
         try {
             const session = new RentalSessionModel(data);
@@ -23,6 +31,9 @@ export class RentalSessionRepository {
         }
     }
 
+    /**
+     * Tim kiem chi tiet phien thue theo sessionId
+     */
     async findBySessionId(sessionId: string): Promise<IRentalSession | null> {
         try {
             const found = await RentalSessionModel.findOne({ sessionId });
@@ -33,6 +44,9 @@ export class RentalSessionRepository {
         return this.inMemorySessions.get(sessionId) || null;
     }
 
+    /**
+     * Lay danh sach tat ca phien thue cua mot nguoi thue (Renter)
+     */
     async findByRenterId(renterId: string): Promise<IRentalSession[]> {
         try {
             const dbList = await RentalSessionModel.find({
@@ -48,6 +62,9 @@ export class RentalSessionRepository {
         );
     }
 
+    /**
+     * Lay danh sach cac phien dang ACTIVE cua mot Renter
+     */
     async findActiveByRenterId(renterId: string): Promise<IRentalSession[]> {
         try {
             const dbList = await RentalSessionModel.find({
@@ -64,6 +81,9 @@ export class RentalSessionRepository {
         );
     }
 
+    /**
+     * Lay tat ca phien dang ACTIVE trong toan bo he thong
+     */
     async findAllActive(): Promise<IRentalSession[]> {
         try {
             const dbList = await RentalSessionModel.find({ status: "ACTIVE" }).sort({ createdAt: -1 });
@@ -75,6 +95,9 @@ export class RentalSessionRepository {
         return Array.from(this.inMemorySessions.values()).filter((s) => s.status === "ACTIVE");
     }
 
+    /**
+     * Ket thuc va dung phien thue (chuyen trang thai sang COMPLETED)
+     */
     async stopSession(sessionId: string): Promise<IRentalSession | null> {
         let stopped: any = null;
         try {
@@ -97,6 +120,9 @@ export class RentalSessionRepository {
         return stopped;
     }
 
+    /**
+     * Cong don so token da su dung va so SaveCoin da tieu vao phien thue
+     */
     async incrementUsage(sessionId: string, tokens: number, coins: number): Promise<IRentalSession | null> {
         let updated: any = null;
         try {
@@ -124,6 +150,9 @@ export class RentalSessionRepository {
         return updated;
     }
 
+    /**
+     * Gan hoac doi Agent duoc phep su dung phien thue nay
+     */
     async updateBoundAgent(sessionId: string, agentId: string, agentName?: string): Promise<IRentalSession | null> {
         let updated: any = null;
         try {

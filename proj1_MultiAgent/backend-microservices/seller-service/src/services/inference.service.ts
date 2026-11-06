@@ -6,6 +6,9 @@ import { logger } from "../config/logger";
 const DISTRIBUTED_SERVICE_URL = process.env.DISTRIBUTED_SERVICE_URL || "http://distributed-service:5010";
 const SAVECOIN_SERVICE_URL = process.env.SAVECOIN_SERVICE_URL || "http://savecoin-service:5006";
 
+/**
+ * Tham số đầu vào để thực thi một phiên suy luận mô hình AI phân tán (LLM Inference).
+ */
 export interface InferenceParams {
     nodeId: string;
     renterId: string;
@@ -15,7 +18,21 @@ export interface InferenceParams {
     maxTokens?: number;
 }
 
+/**
+ * Dịch vụ điều phối suy luận mô hình AI P2P (InferenceService).
+ * 
+ * Luồng hoạt động:
+ * 1. Tự động đồng bộ các đối tác đang kết nối từ Distributed Service (Go).
+ * 2. Ưu tiên 1: Chuyển tiếp prompt qua đường hầm WebSocket bảo mật của Distributed Service (xuyên tường lửa/NAT tới máy tính cá nhân của Seller).
+ * 3. Ưu tiên 2: Fallback trực tiếp gọi Ollama API (:11434) trên máy cục bộ hoặc mạng LAN của Seller.
+ * 4. Tính toán số lượng token sinh ra, thời gian phản hồi (latency) và chi phí SaveCoins.
+ * 5. Tự động chuyển tiền thưởng SaveCoins vào ví của Seller trên `savecoin-service`.
+ * 6. Lưu trữ lịch sử suy luận vào collection `inference_logs` trong MongoDB.
+ */
 export class InferenceService {
+    /**
+     * Chuẩn hóa tên định danh mô hình phù hợp với Ollama tag name.
+     */
     private normalizeOllamaModel(hostedModel?: string): string {
         const raw = (hostedModel || "qwen2.5-coder:1.5b").toLowerCase();
         if (raw.includes(":")) return raw;

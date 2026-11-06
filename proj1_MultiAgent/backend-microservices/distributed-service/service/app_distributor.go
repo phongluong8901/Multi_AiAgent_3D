@@ -11,10 +11,13 @@ import (
 	"distributed-service/models"
 )
 
+// AppDistributor quản lý thông tin gói cài đặt Electron Client App (.exe)
+// và sinh file cấu hình worker-config.json cá nhân hóa cho từng Partner Node.
 type AppDistributor struct {
 	cfg *config.Config
 }
 
+// NewAppDistributor khởi tạo dịch vụ phân phối ứng dụng với cấu hình hệ thống.
 func NewAppDistributor(cfg *config.Config) *AppDistributor {
 	return &AppDistributor{
 		cfg: cfg,

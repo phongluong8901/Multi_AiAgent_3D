@@ -9,7 +9,20 @@ import SmartCity from './iot/SmartCity'
 import { Agent as AgentType } from '@/lib/api'
 import { AgentAction } from './agents/Agent'
 
+/**
+ * Loai ban do 3D:
+ * - 'office': Van phong lam viec ao
+ * - 'outdoor': Cong vien ngoai troi
+ * - 'iot': Thanh pho thong minh IoT
+ */
 export type MapType = 'office' | 'outdoor' | 'iot'
+
+/**
+ * Thoi diem trong ngay (Anh sang moi truong):
+ * - 'day': Ban ngay (anh sang tu nhien)
+ * - 'sunset': Hoang hon
+ * - 'night': Ban dem (kem bau troi day sao Stars)
+ */
 export type TimeOfDay = 'day' | 'sunset' | 'night'
 
 type Props = {
@@ -22,6 +35,13 @@ type Props = {
     agentTargetActions?: Record<string, { action: AgentAction; targetPos: [number, number, number] }>
 }
 
+/**
+ * Component Khong gian 3D chinh (Three.js / React Three Fiber Canvas):
+ * - Render bau troi (Sky / Stars), anh sang (DirectionalLight, AmbientLight) theo TimeOfDay
+ * - Tich hop dong hoc vat ly (Rapier Physics)
+ * - Render ban do phu hop (Room / OutdoorPark / SmartCity)
+ * - Dieu khien camera OrbitControls va tuong tac chon Agent / di chuyen tren san
+ */
 export default function Scene({
     agents,
     mapType = 'office',
@@ -57,88 +77,83 @@ export default function Scene({
                     <>
                         {isNight ? (
                             <>
-                                <Stars
-                                    radius={100}
-                                    depth={50}
-                                    count={3200}
-                                    factor={4}
-                                    saturation={0.2}
-                                    fade
-                                    speed={1.2}
-                                />
-                                <ambientLight intensity={0.22} color="#1e1b4b" />
+                                <Stars radius={100} depth={50} count={3000} factor={4} saturation={0} fade speed={1} />
+                                <ambientLight intensity={0.25} />
                                 <directionalLight
-                                    position={[12, 25, 14]}
-                                    intensity={0.45}
+                                    position={[15, 25, 10]}
+                                    intensity={0.4}
                                     color="#93c5fd"
                                     castShadow
                                     shadow-mapSize={[1024, 1024]}
                                 />
-                                <pointLight position={[0, 15, 0]} intensity={0.6} color="#38bdf8" />
                             </>
                         ) : isSunset ? (
                             <>
                                 <Sky
-                                    distance={450000}
-                                    sunPosition={[30, 4, 18]}
-                                    inclination={0.48}
-                                    azimuth={0.25}
+                                    sunPosition={[
+                                        Math.cos(0.3) * 100,
+                                        Math.sin(0.15) * 100,
+                                        Math.sin(0.3) * 100,
+                                    ]}
+                                    turbidity={8}
+                                    rayleigh={3}
                                 />
-                                <ambientLight intensity={0.55} color="#fed7aa" />
+                                <ambientLight intensity={0.4} color="#fed7aa" />
                                 <directionalLight
-                                    position={[25, 10, 18]}
-                                    intensity={1.4}
-                                    color="#fb923c"
+                                    position={[30, 15, 20]}
+                                    intensity={1.2}
+                                    color="#fdba74"
                                     castShadow
                                     shadow-mapSize={[1024, 1024]}
                                 />
-                                <hemisphereLight color="#fdba74" groundColor="#334155" intensity={0.4} />
                             </>
                         ) : (
                             <>
-                                <Sky
-                                    distance={450000}
-                                    sunPosition={[15, 26, 20]}
-                                    inclination={0.6}
-                                    azimuth={0.25}
-                                />
-                                <ambientLight intensity={isIot ? 0.55 : 0.75} />
+                                <Sky sunPosition={[100, 80, 100]} turbidity={0.5} rayleigh={0.5} />
+                                <ambientLight intensity={0.65} />
                                 <directionalLight
-                                    position={[15, 28, 18]}
-                                    intensity={isIot ? 1.4 : 1.6}
+                                    position={[20, 35, 15]}
+                                    intensity={1.4}
                                     castShadow
-                                    shadow-mapSize={[1024, 1024]}
+                                    shadow-mapSize={[2048, 2048]}
+                                    shadow-camera-left={-25}
+                                    shadow-camera-right={25}
+                                    shadow-camera-top={25}
+                                    shadow-camera-bottom={-25}
                                 />
                             </>
-                        )}
-                        {isIot && !isNight && (
-                            <pointLight position={[0, 12, 0]} intensity={0.4} color="#38bdf8" />
                         )}
                     </>
                 ) : (
                     <>
-                        <ambientLight intensity={0.55} />
+                        <color attach="background" args={isNight ? ['#050811'] : isSunset ? ['#1a0f1e'] : ['#090d16']} />
+                        <ambientLight intensity={isNight ? 0.4 : isSunset ? 0.6 : 0.75} />
                         <directionalLight
-                            position={[12, 18, 10]}
-                            intensity={1.3}
+                            position={[15, 22, 12]}
+                            intensity={isNight ? 0.6 : isSunset ? 1.0 : 1.3}
+                            color={isSunset ? '#fed7aa' : isNight ? '#bfdbfe' : '#ffffff'}
                             castShadow
-                            shadow-mapSize={[1024, 1024]}
+                            shadow-mapSize={[2048, 2048]}
+                            shadow-camera-left={-15}
+                            shadow-camera-right={15}
+                            shadow-camera-top={15}
+                            shadow-camera-bottom={-15}
                         />
+                        <pointLight position={[0, 10, 0]} intensity={isNight ? 0.3 : 0.5} distance={25} />
                     </>
                 )}
 
                 <Physics gravity={[0, -9.81, 0]}>
-                    {mapType === 'outdoor' ? (
-                        <OutdoorPark
+                    {isIot ? (
+                        <SmartCity
                             agents={agents}
                             selectedAgentId={selectedAgentId}
                             onSelectAgent={onSelectAgent}
                             onFloorClick={onFloorClick}
                             agentTargetActions={agentTargetActions}
-                            timeOfDay={timeOfDay}
                         />
-                    ) : mapType === 'iot' ? (
-                        <SmartCity
+                    ) : isOutdoor ? (
+                        <OutdoorPark
                             agents={agents}
                             selectedAgentId={selectedAgentId}
                             onSelectAgent={onSelectAgent}
@@ -158,11 +173,12 @@ export default function Scene({
 
                 <OrbitControls
                     enableDamping
-                    dampingFactor={0.05}
-                    maxPolarAngle={Math.PI / 2.15}
-                    minDistance={isIot ? 12 : 8}
-                    maxDistance={isIot ? 55 : 40}
-                    target={[0, 0, 0]}
+                    dampingFactor={0.06}
+                    maxPolarAngle={Math.PI / 2.05}
+                    minDistance={5}
+                    maxDistance={isIot ? 70 : 45}
+                    target={[0, 1, 0]}
+                    makeDefault
                 />
             </Canvas>
         </div>

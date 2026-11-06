@@ -3,6 +3,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import { agentsApi, Agent, AgentStatus } from '@/lib/api'
 
+/**
+ * Chuẩn hóa dữ liệu Agent trả về từ API, đảm bảo tọa độ 3D `[x, y, z]`, trạng thái và màu sắc luôn hợp lệ.
+ */
 function normalizeAgent(a: Agent): Agent {
     const pos = Array.isArray(a.position) ? a.position : [0, 0, 0]
     return {
@@ -14,12 +17,16 @@ function normalizeAgent(a: Agent): Agent {
     }
 }
 
+/**
+ * Hook tải và đồng bộ danh sách toàn bộ AI Agents từ `agent-service`.
+ */
 export function useAgents() {
     const [agents, setAgents] = useState<Agent[]>([])
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
     const [connected, setConnected] = useState(false)
 
+    /** Làm mới danh sách Agents từ Backend API */
     const refresh = useCallback(async () => {
         try {
             const data = await agentsApi.list()

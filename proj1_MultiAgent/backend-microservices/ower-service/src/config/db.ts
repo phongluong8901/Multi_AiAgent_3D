@@ -1,6 +1,16 @@
 import mongoose from "mongoose";
 import { logger } from "./logger";
 
+/**
+ * Ket noi co so du lieu MongoDB cho Owner Service:
+ * - Thu ket noi lai toi da `maxRetries` lan neu MongoDB chua san sang
+ * - Khoi tao collection `rental_sessions` neu chua ton tai
+ * - Tu dong don dep cac phien thue ao cu de tranh xung dot du lieu
+ * - Tu dong chuyen sang che do Resilient In-Memory Cache neu that bai
+ * 
+ * @param maxRetries So lan thu lai toi da
+ * @param delay Khoang thoi gian cho giua cac lan thu (ms)
+ */
 export const connectDB = async (maxRetries = 10, delay = 2000): Promise<void> => {
     const mongoUri = process.env.MONGO_URI || "mongodb://localhost:27017/owner_db";
 
@@ -20,7 +30,7 @@ export const connectDB = async (maxRetries = 10, delay = 2000): Promise<void> =>
                         await db.createCollection("rental_sessions");
                         logger.info("Initialized collection 'rental_sessions' in owner_db");
                     } else {
-                        // Tự động dọn dẹp các session thuê mẫu ảo cũ
+                        // Tu dong don dep cac session thue mau ao cu
                         const dummyNodeIds = [
                             "node_seller_qwen_01",
                             "node_seller_deepseek_02",

@@ -511,15 +511,15 @@ export default function ChessArena3D({
             {/* Thông báo Chiếu Vua / Kết thúc trận */}
             {isCheck && !isGameOver && (
                 <div className="absolute top-20 left-1/2 -translate-x-1/2 z-20 bg-rose-600/90 text-white font-bold text-xs px-4 py-1.5 rounded-full backdrop-blur-md shadow-lg shadow-rose-600/30 animate-bounce">
-                    ⚠ CHIẾU TƯỚNG! (CHECK)
+                    [CHECK] CHIẾU TƯỚNG!
                 </div>
             )}
 
             {isGameOver && (
                 <div className="absolute inset-0 z-30 bg-zinc-950/75 backdrop-blur-md flex flex-col items-center justify-center pointer-events-auto">
                     <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-3xl text-center max-w-sm shadow-2xl space-y-3">
-                        <div className="w-12 h-12 mx-auto rounded-2xl bg-amber-500/20 text-amber-400 flex items-center justify-center font-bold text-xl">
-                            ♔
+                        <div className="w-12 h-12 mx-auto rounded-2xl bg-amber-500/20 text-amber-400 flex items-center justify-center font-mono font-bold text-sm">
+                            [WIN]
                         </div>
                         <h3 className="text-lg font-bold text-white">Ván Đấu Kết Thúc</h3>
                         <p className="text-xs text-zinc-300 font-medium">{gameResult}</p>

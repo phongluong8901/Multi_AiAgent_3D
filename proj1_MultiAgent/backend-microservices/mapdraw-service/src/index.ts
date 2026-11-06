@@ -7,13 +7,18 @@ import agentBodyRoutes from "./routes/agentBody.routes";
 
 dotenv.config();
 
+/**
+ * Khởi tạo ứng dụng MapDraw Service.
+ * Quản lý lưu trữ không gian bản đồ 3D Three.js và tùy biến hình thái Robot Agent Body.
+ */
 const app = express();
 const PORT = process.env.PORT || 5005;
 
 app.use(cors());
-app.use(express.json({ limit: "20mb" })); // Tăng limit vì dữ liệu bản đồ 3D nhiều item
+// Hỗ trợ kích thước tải trọng lớn (20MB) cho các cấu trúc mảng vật thể và mesh 3D phức tạp
+app.use(express.json({ limit: "20mb" }));
 
-// Health check
+// Health check endpoint
 app.get("/", (req, res) => {
     res.status(200).json({
         service: "mapdraw-service",
@@ -23,18 +28,21 @@ app.get("/", (req, res) => {
     });
 });
 
-// Gắn routes
+// Gắn các API router bản đồ 3D và Agent Body
 app.use("/api/v1", mapRoutes);
 app.use("/api/v1", agentBodyRoutes);
 
-async function startServer() {
+/**
+ * Khởi động server sau khi kết nối thành công MongoDB.
+ */
+async function startServer(): Promise<void> {
     await connectDB();
 
     app.listen(PORT, () => {
-        console.log(`[mapdraw-service] Running on http://localhost:${PORT}`);
+        console.log(`[INFO] [mapdraw-service] Running on http://localhost:${PORT}`);
     });
 }
 
 startServer().catch((err) => {
-    console.error("[mapdraw-service] Fatal startup error:", err);
+    console.error("[ERROR] [mapdraw-service] Fatal startup error:", err);
 });

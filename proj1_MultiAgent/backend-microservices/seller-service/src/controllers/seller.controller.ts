@@ -2,7 +2,16 @@ import { Request, Response } from "express";
 import { sellerNodeService } from "../services/seller-node.service";
 import { inferenceService } from "../services/inference.service";
 
+/**
+ * Controller quản lý thị trường chia sẻ tài nguyên tính toán P2P (Seller Service).
+ * Cho phép đối tác đăng ký Node GPU/CPU, quản lý bảng giá, cập nhật trạng thái hoạt động
+ * và tiếp nhận các yêu cầu suy luận mô hình AI (Local LLM Inference Relay).
+ */
 export class SellerController {
+    /**
+     * Lấy danh sách các Compute Node đang mở cho thuê trên toàn hệ thống Marketplace.
+     * Hỗ trợ tìm kiếm theo tọa độ địa lý (kinh độ, vĩ độ) và bán kính tính theo km.
+     */
     async getMarketNodes(req: Request, res: Response) {
         try {
             const lng = req.query.lng ? Number(req.query.lng) : undefined;
@@ -16,6 +25,9 @@ export class SellerController {
         }
     }
 
+    /**
+     * Lấy danh sách các Node do một đối tác Seller cụ thể sở hữu.
+     */
     async getMyNodes(req: Request, res: Response) {
         try {
             const sellerId = (req.query.sellerId as string) || "usr_seller_01";
@@ -27,6 +39,9 @@ export class SellerController {
         }
     }
 
+    /**
+     * Đăng ký một Node phần cứng mới để cho thuê tài nguyên tính toán AI.
+     */
     async registerNode(req: Request, res: Response) {
         try {
             const newNode = await sellerNodeService.registerNode(req.body);
@@ -36,6 +51,9 @@ export class SellerController {
         }
     }
 
+    /**
+     * Cập nhật trạng thái vận hành của Node (ví dụ: ACTIVE, BUSY, PAUSED, OFFLINE).
+     */
     async updateStatus(req: Request, res: Response) {
         try {
             const { id } = req.params;
@@ -51,6 +69,9 @@ export class SellerController {
         }
     }
 
+    /**
+     * Cập nhật đơn giá cho thuê tài nguyên (SaveCoins/giờ hoặc SaveCoins/1k tokens).
+     */
     async updatePricing(req: Request, res: Response) {
         try {
             const { id } = req.params;
@@ -66,6 +87,9 @@ export class SellerController {
         }
     }
 
+    /**
+     * Thực thi lệnh suy luận AI (LLM Inference Relay) trực tiếp trên Node được chỉ định.
+     */
     async executeInference(req: Request, res: Response) {
         try {
             const nodeId = req.params.id || req.body.nodeId;
@@ -91,6 +115,9 @@ export class SellerController {
         }
     }
 
+    /**
+     * Lấy dữ liệu thống kê tổng quan (Dashboard metrics) dành cho trang quản trị của Seller.
+     */
     async getDashboard(req: Request, res: Response) {
         try {
             const sellerId = (req.query.sellerId as string) || "usr_seller_01";

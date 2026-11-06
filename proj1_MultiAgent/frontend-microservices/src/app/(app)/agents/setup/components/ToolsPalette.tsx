@@ -4,13 +4,23 @@ import { useDraggable } from '@dnd-kit/core'
 import type { Tool } from '@/lib/api'
 import { colorFromId } from '@/lib/colorFormId'
 
+/**
+ * Thuộc tính đầu vào cho bảng chọn Công cụ (ToolsPalette).
+ */
 type Props = {
+    /** Danh sách công cụ khả dụng */
     tools: Tool[]
+    /** Trạng thái đang tải dữ liệu */
     loading?: boolean
+    /** Danh sách ID các công cụ đang được gắn vào Agent */
     selectedToolIds?: string[]
+    /** Callback khi click bật/tắt công cụ */
     onSelect?: (tool: Tool) => void
 }
 
+/**
+ * Thẻ công cụ hỗ trợ kéo-thả (Draggable) vào cánh tay Robot hoặc click trực tiếp để bật/tắt.
+ */
 function DraggableToolCard({
     tool,
     isSelected,
@@ -94,6 +104,9 @@ function DraggableToolCard({
     )
 }
 
+/**
+ * Bảng danh sách Công cụ (ToolsPalette) trong xưởng lắp ráp Agent.
+ */
 export default function ToolsPalette({ tools, loading, selectedToolIds = [], onSelect }: Props) {
     return (
         <div className="space-y-3">

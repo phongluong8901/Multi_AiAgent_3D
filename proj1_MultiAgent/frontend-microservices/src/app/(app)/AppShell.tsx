@@ -49,6 +49,13 @@ interface NavGroup {
     items: NavItem[]
 }
 
+/**
+ * Component AppShell - Khung bo cuc chinh cua toan bo he thong ung dung:
+ * - Quan ly thanh Header dieu huong tren cung (Logo, Breadcrumbs, LanguageToggle, ThemeToggle, User Avatar)
+ * - Tich hop Sidebar danh sach menu tat ca cac module
+ * - Tich hop FloatingRoomChatBubble noi toan ung dung
+ * - Xu ly dang xuat va bao ve session
+ */
 export default function AppShell({ children }: { children: React.ReactNode }) {
     const pathname = usePathname()
     const router = useRouter()

@@ -10,6 +10,8 @@ router.use(
         target: FIRMWARE_SERVICE_URL,
         changeOrigin: true,
         ws: true, // Hỗ trợ nâng cấp WebSocket /api/v1/firmware/ws/:deviceId cho ESP32/ESP32-S3
+        proxyTimeout: 180000,
+        timeout: 180000,
         pathFilter: (pathname) => FIRMWARE_PATHS.some((p) => pathname.startsWith(p)),
         pathRewrite: {
             "^/api/v1/api/v1/firmware": "/api/v1/firmware",
@@ -17,7 +19,7 @@ router.use(
         on: {
             proxyReq: (proxyReq, req: any) => {
                 const fullPath = req.url || "";
-                console.log(`[Gateway Proxy] 🤖 Chuyển tiếp Firmware: ${req.method} ${fullPath} -> ${FIRMWARE_SERVICE_URL}`);
+                console.log(`[INFO] [Gateway Proxy] Chuyển tiếp Firmware: ${req.method} ${fullPath} -> ${FIRMWARE_SERVICE_URL}`);
                 fixRequestBody(proxyReq, req);
             },
             proxyRes: (proxyRes) => {
@@ -28,7 +30,7 @@ router.use(
                 }
             },
             error: (err, req, res) => {
-                console.error(`[Gateway Proxy] ❌ Lỗi kết nối xuống Agent-Firmware Service:`, err);
+                console.error(`[ERROR] [Gateway Proxy] Lỗi kết nối xuống Agent-Firmware Service:`, err);
                 const expressRes = res as Response;
                 if (expressRes && !expressRes.headersSent) {
                     expressRes.status(502).json({

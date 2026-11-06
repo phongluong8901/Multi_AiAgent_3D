@@ -486,7 +486,7 @@ export class AgentDispatcher {
                 agentId,
                 agentName: data.agent_name || data.agentName,
                 roomId,
-                answer: data.answer || data.reply || data.content || (data.error ? `⚠️ ${data.error}` : ""),
+                answer: data.answer || data.reply || data.content || (data.error ? `[WARN] ${data.error}` : ""),
                 usedTools: data.used_tools || data.toolsUsed || [],
                 trace: data.workflow_trace || data.trace || data.workflowTrace,
                 depth,
@@ -508,7 +508,7 @@ export class AgentDispatcher {
                 senderId: agentId,
                 senderType: "system",
                 senderName: this.getAgentDisplayName(agentId),
-                message: `⚠️ ${this.getAgentDisplayName(agentId)}: ${reason}`,
+                message: `[WARN] ${this.getAgentDisplayName(agentId)}: ${reason}`,
             });
             broadcastToRoom(this.io, roomId, "receive_message", errorMessage);
         } catch (err: any) {

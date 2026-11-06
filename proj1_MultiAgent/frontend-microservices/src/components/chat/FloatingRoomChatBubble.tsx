@@ -27,6 +27,12 @@ const AGENT_SHORT_LABELS: Record<string, string> = {
     agent_vision: 'Vision & OCR',
 }
 
+/**
+ * Component Floating Chat Bubble (Nut bong bong chat noi toan ung dung):
+ * - Hien thi o goc duoi man hinh tren tat ca cac trang (tru trang phong dang mo)
+ * - Tich hop danh sach phong rut gon, so nguoi online/offline thoi gian thuc
+ * - Ho tro gui tin nhan nhanh toi phong va nhan phan hoi tu Agent AI ma khong can roi khoi man hinh hien tai
+ */
 export default function FloatingRoomChatBubble() {
     const pathname = usePathname()
     const router = useRouter()

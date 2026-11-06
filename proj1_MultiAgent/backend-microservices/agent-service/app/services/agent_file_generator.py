@@ -275,9 +275,9 @@ class AgentFileGenerator:
                     )
                     db_records["agent"] = agent_service.update_agent(db, agent_id, agent_update_data)
 
-                logger.info(f"✅ [AgentFileGenerator] Đồng bộ thành công Agent '{agent_name}' ({agent_id}) vào Database!")
+                logger.info(f"[SUCCESS] [AgentFileGenerator] Đồng bộ thành công Agent '{agent_name}' ({agent_id}) vào Database!")
             except Exception as db_err:
-                logger.error(f"❌ [AgentFileGenerator] Lỗi ghi dữ liệu Database: {db_err}", exc_info=True)
+                logger.error(f"[ERROR] [AgentFileGenerator] Lỗi ghi dữ liệu Database: {db_err}", exc_info=True)
                 db_records["error"] = str(db_err)
 
         return {

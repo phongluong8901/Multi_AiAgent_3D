@@ -6,13 +6,23 @@ import type { AIModel } from '@/lib/api'
 import { colorFromId } from '@/lib/colorFormId'
 import { IconCpu, IconServer, IconSparkles, IconExternalLink } from '@/components/ui/icons'
 
+/**
+ * Thuộc tính đầu vào cho bảng chọn Mô hình AI (ModelPalette).
+ */
 type Props = {
+    /** Danh sách tất cả mô hình AI (Cloud, Local Ollama, WebGPU, P2P Rented) */
     models: AIModel[]
+    /** Trạng thái đang tải danh sách mô hình */
     loading?: boolean
+    /** ID của mô hình đang được chọn gắn vào Agent */
     selectedModelId?: string | null
+    /** Callback khi người dùng click chọn trực tiếp một mô hình */
     onSelect?: (model: AIModel) => void
 }
 
+/**
+ * Thẻ mô hình AI hỗ trợ kéo-thả (Draggable) bằng `@dnd-kit/core` hoặc click trực tiếp để gắn vào Agent.
+ */
 function DraggableModelCard({
     model,
     isSelected,
@@ -120,6 +130,10 @@ function DraggableModelCard({
     )
 }
 
+/**
+ * Bảng danh mục Mô hình AI (ModelPalette) trong xưởng lắp ráp Agent.
+ * Phân nhóm rõ ràng giữa: Máy Seller Đã Thuê (P2P), Cloud API Models và Local Ollama / Worker.
+ */
 export default function ModelPalette({ models, loading, selectedModelId, onSelect }: Props) {
     const rentedModels = models.filter((m) => m.type === 'rented_p2p' || m.id.startsWith('rented:') || m.id.startsWith('rental:'))
     const localModels = models.filter((m) => (m.type === 'local_ollama' || m.type === 'local_webgpu') && !rentedModels.includes(m))

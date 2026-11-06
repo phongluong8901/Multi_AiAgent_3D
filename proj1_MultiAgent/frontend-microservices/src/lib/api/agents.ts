@@ -1,5 +1,8 @@
 import { request, API_BASE } from '../client'
 
+/**
+ * Các trạng thái hoạt động chuẩn của AI Agent trong không gian 3D và phòng cộng tác.
+ */
 export type AgentStatus =
     | 'idle'
     | 'working'
@@ -9,6 +12,9 @@ export type AgentStatus =
     | 'thinking'
     | 'error'
 
+/**
+ * Cấu trúc dữ liệu chi tiết của một AI Agent (bao gồm cấu hình LLM, Tools, Prompt và Hình thái Robot 3D).
+ */
 export type Agent = {
     id: string
     name: string
@@ -25,6 +31,9 @@ export type Agent = {
     bodyId?: string | null
 }
 
+/**
+ * Payload khởi tạo mới một AI Agent.
+ */
 export type AgentCreate = {
     id: string
     name: string
@@ -42,6 +51,9 @@ export type AgentCreate = {
     bodyId?: string | null
 }
 
+/**
+ * Payload cập nhật thông tin cấu hình của AI Agent.
+ */
 export type AgentUpdate = Partial<{
     name: string
     color: string
@@ -58,28 +70,37 @@ export type AgentUpdate = Partial<{
     bodyId: string | null
 }>
 
+/**
+ * Module API giao tiếp với `agent-service` để quản lý vòng đời Agent và thực thi hội thoại SSE Streaming.
+ */
 export const agentsApi = {
+    /** Lấy danh sách toàn bộ AI Agents trong hệ thống */
     list: () => request<Agent[]>('/agents'),
 
+    /** Lấy thông tin chi tiết của một AI Agent theo ID */
     get: (id: string) => request<Agent>(`/agents/${id}`),
 
+    /** Khởi tạo một AI Agent mới */
     create: (data: AgentCreate) =>
         request<Agent>('/agents', {
             method: 'POST',
             body: JSON.stringify(data),
         }),
 
+    /** Cập nhật thông số cấu hình (Model, Prompt, Tools, Hình thái 3D) cho Agent */
     update: (id: string, data: AgentUpdate) =>
         request<Agent>(`/agents/${id}`, {
             method: 'PUT',
             body: JSON.stringify(data),
         }),
 
+    /** Xóa vĩnh viễn một AI Agent khỏi hệ thống */
     remove: (id: string) =>
         request<{ success: boolean }>(`/agents/${id}`, {
             method: 'DELETE',
         }),
 
+    /** Gửi tin nhắn hội thoại đồng bộ tới một Agent cụ thể */
     chat: (id: string, message: string, room_id?: string) =>
         request<{
             success: boolean
@@ -91,6 +112,10 @@ export const agentsApi = {
             body: JSON.stringify({ message, room_id }),
         }),
 
+    /**
+     * Hội thoại trực tiếp với Agent theo luồng Server-Sent Events (SSE Streaming).
+     * Cho phép cập nhật từng token, trạng thái suy nghĩ (thinking) và tiến trình gọi công cụ (tool_start / tool_end).
+     */
     chatStream: async (
         id: string,
         message: string,
@@ -153,7 +178,7 @@ export const agentsApi = {
                         }
                         onEvent?.(event)
                     } catch {
-                        // ignore malformed SSE line
+                        // Bỏ qua các dòng SSE không phải JSON hợp lệ
                     }
                 }
             }
@@ -163,6 +188,9 @@ export const agentsApi = {
     },
 }
 
+/**
+ * Sự kiện thời gian thực phát ra từ luồng SSE khi Agent suy luận và gọi công cụ.
+ */
 export interface AgentStreamEvent {
     type: 'status' | 'thinking' | 'tool_start' | 'tool_end' | 'token' | 'done' | 'error'
     step?: number

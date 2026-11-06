@@ -1,3 +1,6 @@
+// Package service chứa các dịch vụ nghiệp vụ cốt lõi của Distributed Service:
+// đánh giá phần cứng (BenchmarkEngine), quản lý vòng đời Node (NodeRegistry)
+// và phân phối gói cài đặt Electron Client (AppDistributor).
 package service
 
 import (
@@ -8,32 +11,36 @@ import (
 	"distributed-service/models"
 )
 
+// BenchmarkEngine thực hiện chấm điểm phần cứng của người dùng và đề xuất danh sách mô hình AI tương thích.
 type BenchmarkEngine struct {
 	catalog []models.ModelSpec
 }
 
+// NewBenchmarkEngine khởi tạo bộ đánh giá phần cứng kèm danh mục mô hình chuẩn từ catalog.
 func NewBenchmarkEngine() *BenchmarkEngine {
 	return &BenchmarkEngine{
 		catalog: models.GetCatalogModels(),
 	}
 }
 
-// GetCatalog trả về toàn bộ danh mục mô hình
+// GetCatalog trả về toàn bộ danh mục mô hình AI có thể chạy phân tán.
 func (b *BenchmarkEngine) GetCatalog() []models.ModelSpec {
 	return b.catalog
 }
 
-// GetModelByID tìm kiếm mô hình theo ID
+// GetModelByID tìm kiếm mô hình theo ID hoặc tên model Ollama (không phân biệt hoa thường).
 func (b *BenchmarkEngine) GetModelByID(id string) (*models.ModelSpec, bool) {
+	cleanID := strings.TrimSpace(id)
 	for _, m := range b.catalog {
-		if strings.EqualFold(m.ID, id) {
-			return &m, true
+		if strings.EqualFold(m.ID, cleanID) || (m.OllamaModel != "" && strings.EqualFold(m.OllamaModel, cleanID)) {
+			spec := m
+			return &spec, true
 		}
 	}
 	return nil, false
 }
 
-// EvaluateHardware kiểm tra RAM, CPU, GPU và đưa ra đề xuất cho người dùng
+// EvaluateHardware kiểm tra thông số RAM, CPU, GPU của thiết bị và tính toán điểm tương thích cho từng mô hình.
 func (b *BenchmarkEngine) EvaluateHardware(hw models.HardwareReport) models.BenchmarkResult {
 	var eligibleList []models.ModelRecommendation
 	totalCoins := 0.0
@@ -59,18 +66,18 @@ func (b *BenchmarkEngine) EvaluateHardware(hw models.HardwareReport) models.Benc
 
 		var missing []string
 
-		// 1. Kiểm tra RAM
+		// 1. Kiểm tra dung lượng RAM tối thiểu
 		if hw.DeviceMemoryGB < spec.MinRAMGB {
 			diff := spec.MinRAMGB - hw.DeviceMemoryGB
 			missing = append(missing, fmt.Sprintf("Thiếu %.1f GB RAM (Yêu cầu tối thiểu %.0f GB)", diff, spec.MinRAMGB))
 		}
 
-		// 2. Kiểm tra CPU Cores
+		// 2. Kiểm tra số nhân CPU tối thiểu
 		if hw.CPUCores < spec.MinCPUCores {
 			missing = append(missing, fmt.Sprintf("Thiếu CPU Cores (Máy có %d cores, yêu cầu %d cores)", hw.CPUCores, spec.MinCPUCores))
 		}
 
-		// 3. Kiểm tra GPU nếu model bắt buộc
+		// 3. Kiểm tra GPU rời nếu mô hình bắt buộc
 		if spec.RequiresGPU {
 			if !hw.HasWebGPU && hw.GPUName == "" {
 				missing = append(missing, "Model yêu cầu GPU rời (NVIDIA RTX / Apple Silicon / WebGPU)")
@@ -79,16 +86,18 @@ func (b *BenchmarkEngine) EvaluateHardware(hw models.HardwareReport) models.Benc
 			}
 		}
 
-		// 4. Tính toán Match Percent
-		ramScore := math.Min(1.0, hw.DeviceMemoryGB/spec.MinRAMGB) * 40
-		cpuScore := math.Min(1.0, float64(hw.CPUCores)/float64(spec.MinCPUCores)) * 30
+		// 4. Tính toán tỷ lệ tương thích (Match Percent: 0 - 100)
+		minRAM := math.Max(1.0, spec.MinRAMGB)
+		minCores := math.Max(1.0, float64(spec.MinCPUCores))
+		ramScore := math.Min(1.0, hw.DeviceMemoryGB/minRAM) * 40
+		cpuScore := math.Min(1.0, float64(hw.CPUCores)/minCores) * 30
 		gpuScore := 0.0
 		if spec.RequiresGPU {
 			if hw.HasWebGPU || hw.GPUName != "" {
 				gpuScore = 30.0
 			}
 		} else {
-			gpuScore = 30.0 // Model không bắt buộc GPU nên tự động đạt
+			gpuScore = 30.0 // Model không bắt buộc GPU nên tự động đạt điểm GPU tối đa
 		}
 
 		totalScore := int(ramScore + cpuScore + gpuScore)
@@ -97,11 +106,11 @@ func (b *BenchmarkEngine) EvaluateHardware(hw models.HardwareReport) models.Benc
 		}
 		rec.MatchPercent = totalScore
 
-		// Đủ điều kiện nếu không thiếu yêu cầu nào
+		// Đủ điều kiện vận hành nếu không thiếu yêu cầu phần cứng nào
 		if len(missing) == 0 {
 			rec.IsEligible = true
 
-			// Tính token/s ước tính: phụ thuộc vào CPU cores + GPU boost
+			// Tính tốc độ sinh token/s ước tính dựa trên số nhân CPU vượt chuẩn và tăng tốc GPU
 			speedMultiplier := 1.0
 			if hw.CPUCores > spec.MinCPUCores {
 				speedMultiplier += float64(hw.CPUCores-spec.MinCPUCores) * 0.08
@@ -111,13 +120,13 @@ func (b *BenchmarkEngine) EvaluateHardware(hw models.HardwareReport) models.Benc
 			}
 			rec.EstimatedTokensPerS = math.Round(spec.BaseTokensPerSec*speedMultiplier*10) / 10
 
-			// Thưởng thêm nếu cấu hình mạnh hơn mức chuẩn
+			// Cộng thưởng SaveCoin/giờ nếu cấu hình mạnh hơn mức chuẩn
 			rec.CoinsPerHour = math.Round(spec.BaseCoinsPerHour*(1.0+(speedMultiplier-1.0)*0.5)*10) / 10
 			if rec.CoinsPerHour > totalCoins {
 				totalCoins = rec.CoinsPerHour
 			}
 
-			// Đề xuất mức phân bổ cho thuê tối ưu
+			// Đề xuất mức phân bổ tài nguyên cho thuê tối ưu
 			rec.RecommendedRentAlloc.Cores = int(math.Min(float64(hw.CPUCores), float64(spec.MinCPUCores+2)))
 			rec.RecommendedRentAlloc.RAMGB = math.Min(hw.DeviceMemoryGB*0.8, spec.MinRAMGB+2)
 			rec.RecommendedRentAlloc.GPU = spec.RequiresGPU || hw.HasWebGPU
@@ -130,7 +139,7 @@ func (b *BenchmarkEngine) EvaluateHardware(hw models.HardwareReport) models.Benc
 		eligibleList = append(eligibleList, rec)
 	}
 
-	// Đánh giá Hạng phần cứng (Tier)
+	// Đánh giá Hạng phần cứng tổng thể (Hardware Tier)
 	tierName := "Tier 1: Edge & Office Node"
 	tierScore := 35
 	summaryAdvice := "Máy bạn tối ưu chạy các mô hình AI siêu nhẹ (Phi-3, Llama 3.2, Qwen Coder 1.5B) bằng CPU, không cần GPU rời."
@@ -163,7 +172,7 @@ func (b *BenchmarkEngine) EvaluateHardware(hw models.HardwareReport) models.Benc
 	}
 }
 
-// GenerateSetupScript tạo file kịch bản cài đặt tự động (.bat hoặc .sh) cho người dùng
+// GenerateSetupScript tạo kịch bản cài đặt tự động (.bat cho Windows hoặc .sh cho Linux/macOS) để tải và chạy mô hình.
 func (b *BenchmarkEngine) GenerateSetupScript(modelID string, osType string) (string, string, error) {
 	spec, found := b.GetModelByID(modelID)
 	if !found {
@@ -177,7 +186,7 @@ func (b *BenchmarkEngine) GenerateSetupScript(modelID string, osType string) (st
 		script := fmt.Sprintf(`@echo off
 chcp 65001 >nul
 echo ==============================================================
-echo 🚀 Multi-Agent AI Model Installer - %s
+echo [INSTALLER] Multi-Agent AI Model Installer - %s
 echo    Dung lượng tải: %.1f GB | Định dạng: %s
 echo    Phân khúc: %s
 echo ==============================================================
@@ -191,7 +200,7 @@ if %%ERRORLEVEL%% equ 0 (
     echo [2/2] Đang tải mô hình qua Ollama (%s)...
     ollama pull %s
     echo.
-    echo ✅ Đã cài đặt hoàn tất!
+    echo [SUCCESS] Đã cài đặt hoàn tất!
     echo Bạn có thể khởi động mô hình bất cứ lúc nào bằng lệnh:
     echo    ollama run %s
 ) else (
@@ -199,7 +208,7 @@ if %%ERRORLEVEL%% equ 0 (
     echo Đang tải từ HuggingFace CDN: %s
     curl -L -o "models\%s.%s" "%s" --progress-bar
     echo.
-    echo ✅ Đã lưu file mô hình tại: %%~dp0models\%s.%s
+    echo [SUCCESS] Đã lưu file mô hình tại: %%~dp0models\%s.%s
     echo Bạn có thể nạp file này trực tiếp vào Desktop Client hoặc llama.cpp.
 )
 
@@ -219,7 +228,7 @@ pause
 	script := fmt.Sprintf(`#!/usr/bin/env bash
 set -e
 echo "=============================================================="
-echo "🚀 Multi-Agent AI Model Installer - %s"
+echo "[INSTALLER] Multi-Agent AI Model Installer - %s"
 echo "   Dung lượng tải: %.1f GB | Định dạng: %s"
 echo "   Phân khúc: %s"
 echo "=============================================================="
@@ -230,11 +239,11 @@ if command -v ollama &> /dev/null; then
     echo "[1/2] Phát hiện Ollama trên hệ thống!"
     echo "[2/2] Đang tải mô hình %s..."
     ollama pull %s
-    echo "✅ Hoàn tất! Chạy bằng lệnh: ollama run %s"
+    echo "[SUCCESS] Hoàn tất! Chạy bằng lệnh: ollama run %s"
 else
     echo "[1/2] Đang tải file trọng số GGUF trực tiếp..."
     curl -L -o "models/%s.gguf" "%s" --progress-bar
-    echo "✅ Đã lưu file tại models/%s.gguf"
+    echo "[SUCCESS] Đã lưu file tại models/%s.gguf"
 fi
 `, spec.Name, spec.DownloadSizeGB, spec.DownloadFormat, spec.TierLabel,
 		spec.OllamaModel, spec.OllamaModel, spec.OllamaModel,

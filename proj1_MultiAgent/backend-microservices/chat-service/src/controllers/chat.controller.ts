@@ -290,6 +290,10 @@ export class ChatController {
         });
     });
 
+    /**
+     * Lay bo nho ngan han (Short-term Memory sliding window) cho phong chat
+     * Duoc su dung boi Agent de doc boi canh hoi thoai gan nhat
+     */
     getShortMemory = asyncHandler(async (req: Request, res: Response) => {
         const roomId = req.params.roomId as string;
         const turns = req.query.turns ? parseInt(req.query.turns as string) : 10;
@@ -297,6 +301,9 @@ export class ChatController {
         return res.status(200).json({ success: true, data: memory });
     });
 
+    /**
+     * Lay bo nho dai han (Long-term Memory) cua Agent theo phong hoac tong the
+     */
     getLongMemory = asyncHandler(async (req: Request, res: Response) => {
         const agentId = req.params.agentId as string;
         const roomId = req.query.room_id as string | undefined;
@@ -304,6 +311,9 @@ export class ChatController {
         return res.status(200).json({ success: true, data: memories });
     });
 
+    /**
+     * Luu tru kien thuc hoac fact moi vao bo nho dai han cua Agent
+     */
     addLongMemory = asyncHandler(async (req: Request, res: Response) => {
         const agentId = req.params.agentId as string;
         const { content, memory_type, room_id } = req.body;
@@ -318,6 +328,9 @@ export class ChatController {
         return res.status(201).json({ success: true, data: saved });
     });
 
+    /**
+     * Tong hop context hoan chinh (Short-term + Long-term Memory) de tiep nguyen lieu cho Agent
+     */
     getAgentContext = asyncHandler(async (req: Request, res: Response) => {
         const agentId = req.params.agentId as string;
         const roomId = req.query.room_id as string;

@@ -510,7 +510,7 @@ export default function GameAgentPage() {
             setRoundTime((prev) => {
                 if (prev <= 0.5) {
                     setHiderScore((s) => s + 1)
-                    toast.success('🎉 HẾT GIỜ! Đội Trốn (Hiders) đã ẩn nấp thành công và chiến thắng!')
+                    toast.success('[SUCCESS] HẾT GIỜ! Đội Trốn (Hiders) đã ẩn nấp thành công và chiến thắng!')
                     resetHideSeekRound()
                     return 45
                 }
@@ -524,7 +524,7 @@ export default function GameAgentPage() {
                 const untaggedHiders = prevAgents.filter((a) => a.role === 'hider' && !a.isTagged)
                 if (untaggedHiders.length === 0) {
                     setSeekerScore((s) => s + 1)
-                    toast.info('👁 THỢ SĂN CHIẾN THẮNG! Seeker đã bắt hết toàn bộ Hiders!')
+                    toast.info('[SEEKER] THỢ SĂN CHIẾN THẮNG! Seeker đã bắt hết toàn bộ Hiders!')
                     resetHideSeekRound()
                     return prevAgents
                 }
@@ -554,7 +554,7 @@ export default function GameAgentPage() {
 
                     const dToSeeker = Math.hypot(newSeekerX - ag.x, newSeekerZ - ag.z)
                     if (dToSeeker < 1.15) {
-                        toast.error(`✘ ${ag.name} đã bị tóm!`)
+                        toast.error(`[TAGGED] ${ag.name} đã bị tóm!`)
                         return { ...ag, isTagged: true, isSpotted: true }
                     }
 

@@ -55,6 +55,9 @@ class CodeExecutionResponse(BaseModel):
 
 @app.get("/health")
 def health_check():
+    """
+    Kiểm tra trạng thái sức khỏe của Sandbox Runner và phiên bản Python hiện hành.
+    """
     return {
         "status": "healthy",
         "service": "python-sandbox-service",
@@ -64,6 +67,17 @@ def health_check():
 
 @app.post("/execute", response_model=CodeExecutionResponse)
 def execute_code(request: CodeExecutionRequest):
+    """
+    Thực thi an toàn đoạn mã nguồn Python trong môi trường Sandbox cô lập.
+    
+    Quy trình bảo mật:
+    1. Kiểm tra tĩnh (Static Guard) chặn các lệnh can thiệp hệ thống tệp và shell fork.
+    2. Tạo thư mục tạm thời độc lập cho mỗi lượt chạy.
+    3. Thiết lập biến môi trường cách ly (không chứa credentials hay API keys bí mật).
+    4. Giới hạn thời gian chạy tối đa (timeout) tránh treo CPU.
+    5. Thu thập stdout, stderr và danh sách các tệp đầu ra được sinh ra.
+    6. Tự động dọn dẹp thư mục tạm sau khi kết thúc.
+    """
     code = request.code.strip()
     if not code:
         raise HTTPException(status_code=400, detail="Mã nguồn Python không được để trống.")

@@ -1,3 +1,11 @@
+/**
+ * Deep Knowledge Synthesis Engine Dashboard Page.
+ * Visualizes 5-tiered memory hierarchy (Raw Facts, Concept Bridges, Verified Laws, Negative Knowledge),
+ * provides interactive controls to trigger LangGraph Multi-Hop Synthesis with Python Sandbox validation,
+ * runs offline Sleep-Phase Discovery, and renders structured tables of discovered insights,
+ * falsified hypotheses, and cross-domain relational graph triplets.
+ */
+
 import React, { useEffect, useState } from 'react';
 import {
   Layers,
@@ -34,6 +42,7 @@ interface KnowledgeSynthesisPageProps {
 }
 
 export default function KnowledgeSynthesisPage({ gatewayUrl }: KnowledgeSynthesisPageProps) {
+  // Tiered memory distribution counters
   const [tieredStats, setTieredStats] = useState<TieredMemoryStats>({
     tier_1_raw: 0,
     tier_2_bridge: 0,
@@ -65,6 +74,9 @@ export default function KnowledgeSynthesisPage({ gatewayUrl }: KnowledgeSynthesi
   const [bridges, setBridges] = useState<ConceptBridge[]>([]);
   const [isTableLoading, setIsTableLoading] = useState(false);
 
+  /**
+   * Fetches tiered count breakdown across memory hierarchy.
+   */
   const fetchTieredStats = async () => {
     setIsStatsLoading(true);
     try {
@@ -80,6 +92,9 @@ export default function KnowledgeSynthesisPage({ gatewayUrl }: KnowledgeSynthesi
     }
   };
 
+  /**
+   * Fetches verified Tier 3 synthesized knowledge insights.
+   */
   const fetchInsights = async () => {
     setIsTableLoading(true);
     try {
@@ -95,6 +110,9 @@ export default function KnowledgeSynthesisPage({ gatewayUrl }: KnowledgeSynthesi
     }
   };
 
+  /**
+   * Fetches refuted negative knowledge hypotheses from Qdrant.
+   */
   const fetchFalsified = async () => {
     setIsTableLoading(true);
     try {
@@ -110,6 +128,9 @@ export default function KnowledgeSynthesisPage({ gatewayUrl }: KnowledgeSynthesi
     }
   };
 
+  /**
+   * Fetches active Tier 2 relational concept bridges.
+   */
   const fetchBridges = async () => {
     setIsTableLoading(true);
     try {
@@ -125,6 +146,9 @@ export default function KnowledgeSynthesisPage({ gatewayUrl }: KnowledgeSynthesi
     }
   };
 
+  /**
+   * Refreshes all statistics and data tables in parallel.
+   */
   const refreshAll = () => {
     fetchTieredStats();
     fetchInsights();
@@ -136,6 +160,9 @@ export default function KnowledgeSynthesisPage({ gatewayUrl }: KnowledgeSynthesi
     refreshAll();
   }, [gatewayUrl]);
 
+  /**
+   * Triggers LangGraph multi-hop reasoning and empirical sandbox simulation.
+   */
   const handleRunMultiHop = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!queryInput.trim() || isSynthesizing) return;
@@ -164,6 +191,9 @@ export default function KnowledgeSynthesisPage({ gatewayUrl }: KnowledgeSynthesi
     }
   };
 
+  /**
+   * Triggers offline sleep-phase consolidation across stored memories.
+   */
   const handleRunSleepPhase = async () => {
     if (isSleepRunning) return;
     setIsSleepRunning(true);

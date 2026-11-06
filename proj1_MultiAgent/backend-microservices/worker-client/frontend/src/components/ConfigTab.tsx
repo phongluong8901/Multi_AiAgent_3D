@@ -2,6 +2,9 @@ import type { FC, Dispatch, SetStateAction } from 'react';
 import { WorkerConfig, SystemData } from '../types';
 import { SlidersIcon, ShieldCheckIcon, CheckCircleIcon, GpuIcon, CpuIcon, MemoryIcon, SparklesIcon, ZapIcon } from './Icons';
 
+/**
+ * Thuoc tinh dau vao cho ConfigTab
+ */
 interface ConfigTabProps {
   config: WorkerConfig;
   setConfig: Dispatch<SetStateAction<WorkerConfig>>;
@@ -10,6 +13,14 @@ interface ConfigTabProps {
   handleSaveConfig: () => void;
 }
 
+/**
+ * Tab Cau hinh Thiet bi va Thong so Chia se Phan cung:
+ * - Dien Auth Token xac thuc Seller Partner voi API Gateway
+ * - Dat ten Node goi nho (Node Name)
+ * - Phan bo han ngach CPU cores, dung luong RAM va ty le card GPU
+ * - Tuy chinh muc gia thue SaveCoin toi thieu theo gio (minPricePerHourCoin)
+ * - Tich hop dong bo xuong file `worker-config.json` thong qua Electron IPC
+ */
 export const ConfigTab: FC<ConfigTabProps> = ({
   config,
   setConfig,

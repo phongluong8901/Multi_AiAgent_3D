@@ -1,3 +1,4 @@
+// Package handlers chứa các HTTP và WebSocket handler xử lý yêu cầu API cho Distributed Service.
 package handlers
 
 import (
@@ -16,19 +17,23 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// upgrader cấu hình bộ nâng cấp kết nối HTTP sang WebSocket, cho phép mọi Origin trong môi trường microservice.
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
+// WSHandler quản lý toàn bộ kết nối WebSocket thời gian thực từ Electron/Python Worker và giao diện Web,
+// đồng thời điều phối các luồng suy luận (Inference Relay) qua đường hầm WebSocket.
 type WSHandler struct {
 	registry    *service.NodeRegistry
-	clients     map[*websocket.Conn]string // Conn -> NodeID
-	writeMu     map[*websocket.Conn]*sync.Mutex
-	mu          sync.Mutex
-	pendingReqs map[string]chan map[string]interface{}
-	reqMu       sync.Mutex
+	clients     map[*websocket.Conn]string               // Ánh xạ kết nối WebSocket -> NodeID
+	writeMu     map[*websocket.Conn]*sync.Mutex          // Khóa ghi riêng biệt cho từng kết nối WebSocket để chống ghi đồng thời
+	mu          sync.Mutex                               // Khóa bảo vệ map clients và writeMu
+	pendingReqs map[string]chan map[string]interface{}   // Ánh xạ RequestID -> Kênh nhận phản hồi streaming từ Worker
+	reqMu       sync.Mutex                               // Khóa bảo vệ map pendingReqs
 }
 
+// NewWSHandler khởi tạo bộ xử lý WebSocket gắn với NodeRegistry.
 func NewWSHandler(registry *service.NodeRegistry) *WSHandler {
 	return &WSHandler{
 		registry:    registry,
@@ -38,24 +43,63 @@ func NewWSHandler(registry *service.NodeRegistry) *WSHandler {
 	}
 }
 
-// SendMessageToNode gửi thông điệp điều khiển xuống kết nối WebSocket của worker cụ thể
+// normalizeModelAndNode chuẩn hóa chuỗi tên mô hình (loại bỏ tiền tố ollama:, local:, rental:...)
+// và tách mã nodeId nếu chuỗi model có định dạng "rental:<nodeId>::<modelName>".
+func normalizeModelAndNode(rawModel string, rawNodeID string) (string, string) {
+	model := strings.TrimSpace(rawModel)
+	nodeID := strings.TrimSpace(rawNodeID)
+
+	for _, prefix := range []string{"rented:", "rental:", "ollama:", "local:", "ollama/", "local/"} {
+		if strings.HasPrefix(strings.ToLower(model), prefix) {
+			model = strings.TrimSpace(model[len(prefix):])
+			break
+		}
+	}
+
+	if strings.Contains(model, "::") {
+		parts := strings.SplitN(model, "::", 2)
+		if nodeID == "" && strings.TrimSpace(parts[0]) != "" && !strings.HasPrefix(parts[0], "rent_") {
+			nodeID = strings.TrimSpace(parts[0])
+		}
+		model = strings.TrimSpace(parts[1])
+	}
+
+	if model == "" {
+		model = "qwen2.5-coder:1.5b"
+	}
+	return model, nodeID
+}
+
+// SendMessageToNode gửi thông điệp điều khiển (JSON) xuống kết nối WebSocket của một Worker cụ thể.
 func (h *WSHandler) SendMessageToNode(nodeID string, msg map[string]interface{}) bool {
 	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	sent := false
+	var matchedConns []*websocket.Conn
 	for conn, nid := range h.clients {
 		if !strings.HasPrefix(nid, "web_listener_") && (nid == nodeID || strings.Contains(nid, nodeID) || strings.Contains(nodeID, nid)) {
-			b, err := json.Marshal(msg)
-			if err == nil {
-				_ = h.safeWriteMessage(conn, websocket.TextMessage, b)
-				sent = true
-			}
+			matchedConns = append(matchedConns, conn)
+		}
+	}
+	h.mu.Unlock()
+
+	if len(matchedConns) == 0 {
+		return false
+	}
+
+	b, err := json.Marshal(msg)
+	if err != nil {
+		return false
+	}
+
+	sent := false
+	for _, conn := range matchedConns {
+		if err := h.safeWriteMessage(conn, websocket.TextMessage, b); err == nil {
+			sent = true
 		}
 	}
 	return sent
 }
 
+// safeWriteMessage thực hiện ghi dữ liệu xuống WebSocket an toàn với khóa Mutex riêng cho từng kết nối.
 func (h *WSHandler) safeWriteMessage(conn *websocket.Conn, messageType int, data []byte) error {
 	h.mu.Lock()
 	wmu, ok := h.writeMu[conn]
@@ -122,15 +166,21 @@ func (h *WSHandler) HandleInferenceRelay(w http.ResponseWriter, r *http.Request)
 		req.Prompt = r.URL.Query().Get("prompt")
 		req.SystemPrompt = r.URL.Query().Get("systemPrompt")
 		req.Stream = r.URL.Query().Get("stream") == "true"
-	} else if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Prompt == "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"message": "Cần cung cấp nội dung prompt hợp lệ.",
-		})
-		return
+	} else {
+		defer r.Body.Close()
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.Prompt) == "" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"message": "Cần cung cấp nội dung prompt hợp lệ.",
+			})
+			return
+		}
 	}
+
+	// Chuẩn hóa tên model và nodeId (tự động bóc tách tiền tố ollama:, local:, rental:...)
+	req.Model, req.NodeID = normalizeModelAndNode(req.Model, req.NodeID)
 
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 
@@ -228,11 +278,22 @@ func (h *WSHandler) HandleInferenceRelay(w http.ResponseWriter, r *http.Request)
 	}
 
 	if isSSE {
-		// Luồng streaming Server-Sent Events (SSE) từng token
-		timeout := time.After(120 * time.Second)
+		// Luồng streaming Server-Sent Events (SSE) từng token với bộ đếm idle timeout tự làm mới khi có chunk mới
+		idleDuration := 90 * time.Second
+		idleTimer := time.NewTimer(idleDuration)
+		defer idleTimer.Stop()
+
 		for {
 			select {
 			case resData := <-respChan:
+				if !idleTimer.Stop() {
+					select {
+					case <-idleTimer.C:
+					default:
+					}
+				}
+				idleTimer.Reset(idleDuration)
+
 				mType, _ := resData["type"].(string)
 				chunk, _ := resData["chunk"].(string)
 				errMsg, _ := resData["error"].(string)
@@ -278,9 +339,9 @@ func (h *WSHandler) HandleInferenceRelay(w http.ResponseWriter, r *http.Request)
 					}
 					return
 				}
-			case <-timeout:
+			case <-idleTimer.C:
 				timeoutBytes, _ := json.Marshal(map[string]interface{}{
-					"error":   "Quá thời gian chờ (120s) phản hồi LLM từ Worker.",
+					"error":   "Quá thời gian chờ (90s) phản hồi LLM từ Worker.",
 					"done":    true,
 					"success": false,
 				})
@@ -294,8 +355,11 @@ func (h *WSHandler) HandleInferenceRelay(w http.ResponseWriter, r *http.Request)
 			}
 		}
 	} else {
-		// Non-streaming response: thu thập toàn bộ chunk cho tới khi Worker hoàn tất
-		timeout := time.After(120 * time.Second)
+		// Non-streaming response: thu thập toàn bộ chunk cho tới khi Worker hoàn tất (reset idle timer mỗi khi có chunk)
+		idleDuration := 90 * time.Second
+		idleTimer := time.NewTimer(idleDuration)
+		defer idleTimer.Stop()
+
 		var fullOutput strings.Builder
 		var finalModel string
 		finished := false
@@ -303,6 +367,14 @@ func (h *WSHandler) HandleInferenceRelay(w http.ResponseWriter, r *http.Request)
 		for !finished {
 			select {
 			case resData := <-respChan:
+				if !idleTimer.Stop() {
+					select {
+					case <-idleTimer.C:
+					default:
+					}
+				}
+				idleTimer.Reset(idleDuration)
+
 				mType, _ := resData["type"].(string)
 				errMsg, _ := resData["error"].(string)
 				if errMsg != "" {
@@ -328,11 +400,11 @@ func (h *WSHandler) HandleInferenceRelay(w http.ResponseWriter, r *http.Request)
 					}
 					finished = true
 				}
-			case <-timeout:
+			case <-idleTimer.C:
 				w.WriteHeader(http.StatusGatewayTimeout)
 				_ = json.NewEncoder(w).Encode(map[string]interface{}{
 					"success": false,
-					"message": "Quá thời gian chờ (120s) phản hồi từ Desktop Worker.",
+					"message": "Quá thời gian chờ (90s) phản hồi từ Desktop Worker.",
 				})
 				return
 			case <-r.Context().Done():

@@ -3,8 +3,18 @@
 import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react'
 import { AlertTriangle, AlertCircle, Info, CheckCircle2, Trash2, X } from 'lucide-react'
 
+/**
+ * Cac bien the mau sac cua hop thoai xac nhan (Confirm / Alert Modal):
+ * - danger: Do (Xoa du lieu, hanh dong nguy hiem)
+ * - warning: Vang (Canh bao thay doi quan trong)
+ * - info: Xanh duong (Thong tin bo sung)
+ * - success: Xanh la (Xac nhan thanh cong)
+ */
 export type ConfirmVariant = 'danger' | 'warning' | 'info' | 'success'
 
+/**
+ * Cac tuy chon thiet lap cho hop thoai confirm
+ */
 export interface ConfirmOptions {
     title?: string
     description: React.ReactNode
@@ -14,6 +24,9 @@ export interface ConfirmOptions {
     icon?: React.ComponentType<{ className?: string }>
 }
 
+/**
+ * Cac tuy chon thiet lap cho hop thoai alert don gian
+ */
 export interface AlertModalOptions {
     title?: string
     description: React.ReactNode
@@ -28,6 +41,10 @@ interface ConfirmContextType {
 
 const ConfirmContext = createContext<ConfirmContextType | null>(null)
 
+/**
+ * Provider quan ly hop thoai xac nhan (Confirm Dialog Provider):
+ * Cung cap phuong thuc `confirm()` tra ve Promise<boolean> giup goi modal xac nhan dong bo giong `window.confirm`.
+ */
 export function ConfirmProvider({ children }: { children: React.ReactNode }) {
     const [isOpen, setIsOpen] = useState(false)
     const [isAlertOnly, setIsAlertOnly] = useState(false)
@@ -232,6 +249,9 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
     )
 }
 
+/**
+ * Custom hook truy cap cac phuong thuc xac nhan `confirm` va `alert` tu `ConfirmProvider`
+ */
 export function useConfirm() {
     const context = useContext(ConfirmContext)
     if (!context) {

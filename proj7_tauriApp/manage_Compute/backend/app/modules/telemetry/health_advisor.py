@@ -1,7 +1,26 @@
+"""
+Module đánh giá sức khỏe và đề xuất tối ưu hóa hệ thống (Health Advisor).
+Phân tích ảnh chụp snapshot (CPU, RAM, GPU, tiến trình ngốn tài nguyên) để tính điểm sức khỏe
+và tạo khuyến nghị xử lý tự động (Hạ priority, Trim memory, Suspend, Gán CPU affinity).
+"""
+
 from typing import Dict, Any, List
 from app.schemas.telemetry_schema import SystemSnapshot
 
 def calculate_health_and_recommendations(snapshot: SystemSnapshot) -> Dict[str, Any]:
+    """
+    Tính toán điểm sức khỏe hệ thống (thang điểm 100) và tạo danh sách khuyến nghị tối ưu.
+    - Trừ điểm khi CPU quá tải (>= 90% hoặc >= 75%).
+    - Trừ điểm khi RAM cạn kiệt (>= 88% hoặc >= 75%).
+    - Trừ điểm khi GPU bị quá nhiệt (>= 82 độ C hoặc >= 75 độ C).
+    - Phát hiện tiến trình chiếm dụng bộ nhớ lớn (> 3000 MB) để đề xuất cô lập.
+
+    Args:
+        snapshot: Dữ liệu ảnh chụp hiện thời của hệ thống.
+
+    Returns:
+        Dictionary chứa điểm số (score), phân loại (status), chi tiết khấu trừ và các khuyến nghị.
+    """
     score = 100
     deductions: List[Dict[str, Any]] = []
     recommendations: List[Dict[str, Any]] = []
@@ -45,7 +64,7 @@ def calculate_health_and_recommendations(snapshot: SystemSnapshot) -> Dict[str, 
         gpu = snapshot.gpus[0]
         if gpu.temp_c >= 82:
             score -= 25
-            deductions.append({"factor": "GPU Critical Thermal", "points": -25, "value": f"{gpu.temp_c}°C"})
+            deductions.append({"factor": "GPU Critical Thermal", "points": -25, "value": f"{gpu.temp_c} C"})
             recommendations.append({
                 "id": "rec-gpu-thermal",
                 "type": "THERMAL_THROTTLE",
@@ -56,7 +75,7 @@ def calculate_health_and_recommendations(snapshot: SystemSnapshot) -> Dict[str, 
             })
         elif gpu.temp_c >= 75:
             score -= 10
-            deductions.append({"factor": "GPU Elevated Temp", "points": -10, "value": f"{gpu.temp_c}°C"})
+            deductions.append({"factor": "GPU Elevated Temp", "points": -10, "value": f"{gpu.temp_c} C"})
 
     # 4. Quét tìm các Tiến trình chiếm dụng bất thường
     top_procs = sorted(snapshot.processes, key=lambda p: p.memory_mb, reverse=True)[:5]
@@ -84,4 +103,3 @@ def calculate_health_and_recommendations(snapshot: SystemSnapshot) -> Dict[str, 
         "recommendations": recommendations,
         "summary": f"Hệ thống đạt {score}/100 điểm ({status}). {len(recommendations)} khuyến nghị tối ưu đang chờ."
     }
-

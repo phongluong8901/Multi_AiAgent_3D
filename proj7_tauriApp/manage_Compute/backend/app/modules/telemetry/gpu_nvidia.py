@@ -1,9 +1,19 @@
+"""
+Module giám sát và thu thập thông số bộ xử lý đồ họa NVIDIA (NVIDIA GPU Collector).
+Sử dụng thư viện pynvml (NVIDIA Management Library) để đo mức tải, dung lượng VRAM, nhiệt độ và công suất.
+"""
+
 import pynvml
 from typing import List
 from app.schemas.telemetry_schema import GpuMetrics
 
 class NvidiaGpuCollector:
+    """
+    Bộ thu thập trạng thái phần cứng card đồ họa NVIDIA.
+    Tự động kiểm tra và xử lý an toàn nếu hệ thống không có GPU NVIDIA hoặc thiếu driver.
+    """
     def __init__(self):
+        """Khởi tạo kết nối với driver NVML và đếm số lượng card đồ họa khả dụng."""
         self.available = False
         self.device_count = 0
         try:
@@ -14,6 +24,13 @@ class NvidiaGpuCollector:
             self.available = False
 
     def collect_gpus(self) -> List[GpuMetrics]:
+        """
+        Duyệt qua từng card NVIDIA, truy vấn handle và đọc các chỉ số hiệu năng:
+        tên GPU, % tải tính toán, dung lượng VRAM (MB/%), nhiệt độ (độ C) và công suất (Watts).
+
+        Returns:
+            Danh sách đối tượng GpuMetrics cho từng card đồ họa.
+        """
         if not self.available:
             return []
 

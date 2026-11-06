@@ -1,3 +1,4 @@
+// Package config quản lý việc đọc biến môi trường và cấu hình vận hành cho Distributed Service.
 package config
 
 import (
@@ -5,16 +6,18 @@ import (
 	"path/filepath"
 )
 
+// Config lưu trữ toàn bộ thông số cấu hình của Distributed Service.
 type Config struct {
-	Port            string
-	ClientAppPath   string
-	ClientSourceDir string
-	JWTSecret       string
-	GatewayWSURL    string
-	DatabaseURL     string
-	RedisURL        string
+	Port            string // Cổng lắng nghe HTTP/WebSocket của dịch vụ (mặc định: 5010)
+	ClientAppPath   string // Đường dẫn vật lý tới bộ cài đặt Electron Worker (.exe)
+	ClientSourceDir string // Đường dẫn tới thư mục mã nguồn worker-client
+	JWTSecret       string // Khóa bí mật xác thực JWT
+	GatewayWSURL    string // Địa chỉ WebSocket của Gateway hoặc Distributed Service
+	DatabaseURL     string // Chuỗi kết nối PostgreSQL (Neon DB)
+	RedisURL        string // Chuỗi kết nối Redis phục vụ Pub/Sub và session cache
 }
 
+// LoadConfig đọc cấu hình từ biến môi trường và áp dụng các giá trị mặc định an toàn.
 func LoadConfig() *Config {
 	port := os.Getenv("PORT")
 	if port == "" {

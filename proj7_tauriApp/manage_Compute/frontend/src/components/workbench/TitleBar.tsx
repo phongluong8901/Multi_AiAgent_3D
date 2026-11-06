@@ -1,15 +1,23 @@
+/**
+ * Thanh tiêu đề cửa sổ ứng dụng (TitleBar Component):
+ * - Hỗ trợ kéo thả di chuyển cửa sổ (data-tauri-drag-region) khi chạy dưới Tauri Desktop.
+ * - Nhấp đúp chuột để phóng to / khôi phục kích thước cửa sổ (Maximize/Restore).
+ * - Cụm nút điều khiển cửa sổ góc phải: Thu nhỏ (Minimize), Phóng to (Maximize), Đóng (Close).
+ */
+
 import React, { useState, useEffect } from 'react';
 import { Cpu, Minus, Square, Copy, X } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
 export function TitleBar() {
+    // Trạng thái cửa sổ đang phóng to toàn màn hình hay ở kích thước thường
     const [isMaximized, setIsMaximized] = useState(false);
 
     useEffect(() => {
         let isMounted = true;
 
-        // Kiểm tra trạng thái maximize ban đầu
+        // Kiểm tra trạng thái maximize ban đầu từ backend Tauri Rust
         invoke<boolean>('app_is_maximized')
             .then((max) => {
                 if (isMounted) setIsMaximized(max);
@@ -21,11 +29,11 @@ export function TitleBar() {
                         if (isMounted) setIsMaximized(max);
                     }).catch(() => {});
                 } catch {
-                    // Ignore in web browser
+                    // Bỏ qua khi chạy trên trình duyệt web thông thường
                 }
             });
 
-        // Lắng nghe sự kiện thay đổi kích thước cửa sổ
+        // Lắng nghe sự kiện thay đổi kích thước cửa sổ để cập nhật icon Maximize/Restore
         try {
             const appWin = getCurrentWindow();
             if (appWin) {
@@ -38,7 +46,7 @@ export function TitleBar() {
                             const max = await appWin.isMaximized();
                             if (isMounted) setIsMaximized(max);
                         } catch {
-                            // Ignore
+                            // Bỏ qua
                         }
                     }
                 });
@@ -49,7 +57,7 @@ export function TitleBar() {
                 };
             }
         } catch {
-            // Ignore in web browser
+            // Bỏ qua khi chạy trên web
         }
 
         return () => {
@@ -57,6 +65,9 @@ export function TitleBar() {
         };
     }, []);
 
+    /**
+     * Thu nhỏ cửa sổ xuống thanh tác vụ Taskbar.
+     */
     const handleMinimize = async (e: React.MouseEvent) => {
         e.stopPropagation();
         try {
@@ -71,6 +82,9 @@ export function TitleBar() {
         }
     };
 
+    /**
+     * Bật/tắt phóng to toàn màn hình hoặc khôi phục kích thước ban đầu.
+     */
     const handleMaximizeToggle = async (e?: React.MouseEvent) => {
         e?.stopPropagation();
         try {
@@ -88,6 +102,9 @@ export function TitleBar() {
         }
     };
 
+    /**
+     * Đóng cửa sổ ứng dụng.
+     */
     const handleClose = async (e: React.MouseEvent) => {
         e.stopPropagation();
         try {
@@ -141,6 +158,7 @@ export function TitleBar() {
 
             {/* Bên phải: Cụm nút điều khiển cửa sổ chuẩn Windows Frameless */}
             <div className="flex items-center -mr-3 h-full z-50 relative shrink-0">
+                {/* Nút Thu nhỏ */}
                 <button
                     type="button"
                     onMouseDown={(e) => e.stopPropagation()}
@@ -150,6 +168,7 @@ export function TitleBar() {
                 >
                     <Minus className="w-3.5 h-3.5 pointer-events-none" />
                 </button>
+                {/* Nút Phóng to / Khôi phục */}
                 <button
                     type="button"
                     onMouseDown={(e) => e.stopPropagation()}
@@ -163,6 +182,7 @@ export function TitleBar() {
                         <Square className="w-3 h-3 pointer-events-none" />
                     )}
                 </button>
+                {/* Nút Đóng cửa sổ */}
                 <button
                     type="button"
                     onMouseDown={(e) => e.stopPropagation()}

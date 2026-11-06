@@ -1,8 +1,17 @@
+"""
+Module thu thập chỉ số phần cứng CPU và RAM hệ thống.
+Sử dụng thư viện psutil để lấy mức tải CPU tổng/từng lõi, xung nhịp và dung lượng bộ nhớ khả dụng.
+"""
+
 import psutil
 from app.schemas.telemetry_schema import CpuMetrics, RamMetrics
 
 class CpuRamCollector:
+    """
+    Bộ thu thập dữ liệu hiệu năng CPU và RAM thời gian thực.
+    """
     def __init__(self):
+        """Khởi tạo vòng đo ban đầu cho psutil để tránh trả về 0.0 ở lần đọc đầu tiên."""
         try:
             psutil.cpu_percent(interval=None)
             psutil.cpu_percent(interval=None, percpu=True)
@@ -10,6 +19,13 @@ class CpuRamCollector:
             pass
 
     def collect_cpu(self) -> CpuMetrics:
+        """
+        Đo đạc và tính toán mức sử dụng CPU:
+        xung nhịp hiện tại/tối đa, phần trăm tải toàn bộ và từng lõi vật lý/logic.
+
+        Returns:
+            Đối tượng CpuMetrics chứa thông số chi tiết.
+        """
         freq_cur = 0.0
         freq_max = 0.0
         try:
@@ -37,6 +53,12 @@ class CpuRamCollector:
         )
 
     def collect_ram(self) -> RamMetrics:
+        """
+        Đo đạc trạng thái sử dụng bộ nhớ vật lý (RAM) và bộ nhớ ảo hoán đổi (Swap).
+
+        Returns:
+            Đối tượng RamMetrics chứa thông số chi tiết.
+        """
         vm = psutil.virtual_memory()
         swap_percent = 0.0
         try:

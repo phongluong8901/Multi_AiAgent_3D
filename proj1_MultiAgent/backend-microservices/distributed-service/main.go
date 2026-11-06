@@ -1,3 +1,7 @@
+// Package main là điểm khởi đầu của Distributed Service (Go).
+// Dịch vụ này quản lý mạng lưới tính toán phân tán (Partner Nodes),
+// đánh giá phần cứng (Benchmark), phân phối ứng dụng Electron Worker
+// và điều phối suy luận AI qua đường hầm WebSocket / Server-Sent Events (SSE).
 package main
 
 import (
@@ -11,12 +15,13 @@ import (
 	"distributed-service/storage"
 )
 
-// corsMiddleware xử lý Cross-Origin Resource Sharing cho toàn bộ các request HTTP
+// corsMiddleware thiết lập tiêu đề Cross-Origin Resource Sharing (CORS) cho toàn bộ các HTTP request.
+// Hỗ trợ xử lý nhanh preflight request (OPTIONS) để tương thích với trình duyệt và API Gateway.
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Accept")
 
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusOK)
@@ -27,24 +32,25 @@ func corsMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// main khởi tạo cấu hình, kết nối cơ sở dữ liệu, đăng ký các HTTP/WebSocket route và khởi chạy HTTP server.
 func main() {
 	cfg := config.LoadConfig()
 
 	log.Println("==================================================")
-	log.Println("⚡ Khởi động Multi-Agent Distributed Service (Go)")
-	log.Printf("📡 Cổng lắng nghe: :%s\n", cfg.Port)
-	log.Printf("📦 Đường dẫn Client App: %s\n", cfg.ClientAppPath)
+	log.Println("[INFO] Khởi động Multi-Agent Distributed Service (Go)")
+	log.Printf("[CONFIG] Cổng lắng nghe: :%s\n", cfg.Port)
+	log.Printf("[CONFIG] Đường dẫn Client App: %s\n", cfg.ClientAppPath)
 	log.Println("==================================================")
 
-	// Khởi tạo Storage: Neon PostgreSQL (Lưu trữ cấu hình Node vĩnh viễn, fallback in-memory)
+	// Khởi tạo Storage: Neon PostgreSQL (Lưu trữ cấu hình Node bền vững, tự động fallback sang in-memory nếu lỗi)
 	pgStorage, err := storage.NewPostgresStorage(cfg.DatabaseURL)
 	if err != nil {
-		log.Printf("[INFO] Không thể kết nối Neon PostgreSQL (%v), chuyển sang chế độ in-memory hoàn toàn.\n", err)
+		log.Printf("[WARN] Không thể kết nối Neon PostgreSQL (%v), chuyển sang chế độ in-memory hoàn toàn.\n", err)
 	} else {
 		defer pgStorage.Close()
 	}
 
-	// Khởi tạo các dịch vụ nghiệp vụ (Core Services) - Chế độ In-Memory Native Direct WebSocket Routing
+	// Khởi tạo các dịch vụ nghiệp vụ cốt lõi (Core Services) - Chế độ In-Memory Native Direct WebSocket Routing
 	benchmarkEngine := service.NewBenchmarkEngine()
 	nodeRegistry := service.NewNodeRegistry(pgStorage)
 	appDistributor := service.NewAppDistributor(cfg)
@@ -80,7 +86,7 @@ func main() {
 	mux.HandleFunc("/api/v1/distributed/app/download", appHandler.HandleDownloadApp)
 	mux.HandleFunc("/api/v1/distributed/app/config-file", appHandler.HandleDownloadConfigFile)
 
-	// Real-time WebSocket Endpoints (hỗ trợ cả đường dẫn chuẩn lẫn alias tương thích proj3_clientElectron)
+	// Real-time WebSocket & Inference Relay Endpoints
 	mux.HandleFunc("/api/v1/distributed/ws", wsHandler.HandleWebSocket)
 	mux.HandleFunc("/ws", wsHandler.HandleWebSocket)
 	mux.HandleFunc("/api/v1/distributed/inference", wsHandler.HandleInferenceRelay)
@@ -89,11 +95,11 @@ func main() {
 	wrappedHandler := corsMiddleware(mux)
 
 	serverAddr := ":" + cfg.Port
-	log.Printf("[GO DISTRIBUTED] Server đang phục vụ tại http://localhost:%s\n", cfg.Port)
-	log.Printf("[GO DISTRIBUTED] WebSocket khả dụng tại ws://localhost:%s/api/v1/distributed/ws\n", cfg.Port)
+	log.Printf("[INFO] [GO DISTRIBUTED] Server đang phục vụ tại http://localhost:%s\n", cfg.Port)
+	log.Printf("[INFO] [GO DISTRIBUTED] WebSocket khả dụng tại ws://localhost:%s/api/v1/distributed/ws\n", cfg.Port)
 
 	if err := http.ListenAndServe(serverAddr, wrappedHandler); err != nil {
-		log.Fatalf("Lỗi khởi chạy server: %v\n", err)
+		log.Fatalf("[ERROR] Lỗi khởi chạy server: %v\n", err)
 		os.Exit(1)
 	}
 }

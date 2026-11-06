@@ -1,3 +1,9 @@
+"""
+Module quản lý và điều khiển tiến trình hệ điều hành (OS Process Manager).
+Cung cấp các tính năng liệt kê tiến trình, dừng/tạm dừng, thu hồi bộ nhớ EmptyWorkingSet,
+hạ/nâng độ ưu tiên CPU (nice priority), giới hạn lõi CPU (affinity), giải phóng port mạng và chạy tiến trình con.
+"""
+
 import psutil
 import subprocess
 import shlex
@@ -6,14 +12,30 @@ from typing import List, Dict
 from app.schemas.process_schema import ProcessInfo, ProcessActionType
 
 class OSProcessManager:
+    """
+    Trình quản lý tiến trình hệ thống cấp thấp (OS Process Manager).
+    Hỗ trợ tương tác với Win32 API trên Windows và chuẩn POSIX trên Linux.
+    """
     def __init__(self):
-        # Lưu các tiến trình con do người dùng bật từ giao diện Studio
+        """Khởi tạo danh sách các tiến trình con được quản lý trực tiếp bởi Compute Studio."""
         self.managed_subprocesses: Dict[int, subprocess.Popen] = {}
 
     def list_processes(self, limit: int = 30, sort_by: str = "memory") -> List[ProcessInfo]:
+        """
+        Quét và liệt kê danh sách các tiến trình đang hoạt động trong hệ thống.
+        Kết hợp thông tin cổng mạng đang lắng nghe (Listening Ports) và sắp xếp theo RAM hoặc CPU.
+
+        Args:
+            limit: Số lượng tiến trình tối đa trả về.
+            sort_by: Tiêu chí sắp xếp ("memory" hoặc "cpu").
+
+        Returns:
+            Danh sách đối tượng ProcessInfo.
+        """
         results: List[ProcessInfo] = []
         pid_ports: Dict[int, List[int]] = {}
         try:
+            # Thu thập các cổng mạng đang ở trạng thái LISTEN gắn liền với từng PID
             for conn in psutil.net_connections(kind='inet'):
                 if conn.status == 'LISTEN' and conn.pid and conn.laddr:
                     port = getattr(conn.laddr, "port", None)
@@ -47,6 +69,7 @@ class OSProcessManager:
             except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                 continue
 
+        # Sắp xếp danh sách kết quả theo tiêu chí yêu cầu
         if sort_by == "cpu":
             results.sort(key=lambda x: x.cpu_percent, reverse=True)
         else:
@@ -55,6 +78,16 @@ class OSProcessManager:
         return results[:limit]
 
     def control_process(self, pid: int, action: ProcessActionType | str) -> dict:
+        """
+        Thực hiện hành động điều khiển tiến trình: kill, terminate, suspend, resume, trim_memory.
+
+        Args:
+            pid: Định danh tiến trình mục tiêu.
+            action: Loại hành động cần thực thi.
+
+        Returns:
+            Dictionary trạng thái thực thi.
+        """
         proc = psutil.Process(pid)
         act_val = action.value if hasattr(action, "value") else str(action)
 
@@ -74,6 +107,12 @@ class OSProcessManager:
         """
         Thu hồi Working Set RAM cho tiến trình thông qua Win32 EmptyWorkingSet API.
         Giải phóng RAM rò rỉ / dư thừa ngay lập tức mà không làm tắt hoặc gián đoạn tiến trình.
+
+        Args:
+            pid: Định danh tiến trình cần giải phóng RAM.
+
+        Returns:
+            Kết quả thu hồi và trạng thái quyền hạn.
         """
         if sys.platform == "win32":
             import ctypes
@@ -92,8 +131,15 @@ class OSProcessManager:
 
     def set_process_priority(self, pid: int, priority: str = "idle") -> dict:
         """
-        Hạ hoặc nâng mức ưu tiên CPU của tiến trình (IDLE, BELOW_NORMAL, NORMAL, HIGH).
+        Hạ hoặc nâng mức ưu tiên CPU của tiến trình (IDLE, BELOW_NORMAL, NORMAL, HIGH, REALTIME).
         Giúp tránh khựng đơ giao diện khi tiến trình chạy nặng.
+
+        Args:
+            pid: Định danh tiến trình.
+            priority: Mức ưu tiên mong muốn.
+
+        Returns:
+            Dictionary trạng thái gán priority.
         """
         proc = psutil.Process(pid)
         p_lower = str(priority).lower()
@@ -116,6 +162,13 @@ class OSProcessManager:
     def set_process_affinity(self, pid: int, cores: List[int] | None = None) -> dict:
         """
         Gán Core CPU (Affinity) cho tiến trình, giới hạn CPU Cores được phép chạy.
+
+        Args:
+            pid: Định danh tiến trình.
+            cores: Danh sách chỉ số lõi CPU được phép sử dụng.
+
+        Returns:
+            Dictionary trạng thái gán affinity.
         """
         proc = psutil.Process(pid)
         total_cores = psutil.cpu_count(logical=True) or 4
@@ -127,7 +180,13 @@ class OSProcessManager:
 
     def release_port(self, port: int) -> dict:
         """
-        Quét tìm và giải phóng cổng mạng đang bị chiếm dụng bởi tiến trình treo/xung đột.
+        Quét tìm và giải phóng cổng mạng đang bị chiếm dụng bởi tiến trình treo hoặc xung đột.
+
+        Args:
+            port: Số hiệu cổng mạng cần giải phóng.
+
+        Returns:
+            Dictionary kết quả đóng tiến trình chiếm port.
         """
         target_pid = None
         try:
@@ -154,6 +213,16 @@ class OSProcessManager:
         return {"port": port, "status": "not_in_use", "reason": f"Port {port} is not occupied"}
 
     def spawn_managed_service(self, command: str, cwd: str | None = None) -> dict:
+        """
+        Khởi chạy tiến trình con mới dưới sự giám sát trực tiếp của Compute Studio.
+
+        Args:
+            command: Câu lệnh shell cần chạy.
+            cwd: Thư mục thực thi làm việc (tùy chọn).
+
+        Returns:
+            Dictionary chứa PID và trạng thái khởi tạo.
+        """
         args = shlex.split(command, posix=(sys.platform != "win32"))
         proc = subprocess.Popen(
             args,
@@ -166,4 +235,5 @@ class OSProcessManager:
         self.managed_subprocesses[proc.pid] = proc
         return {"pid": proc.pid, "command": command, "status": "started"}
 
+# Instance duy nhất của trình quản lý tiến trình
 process_manager = OSProcessManager()

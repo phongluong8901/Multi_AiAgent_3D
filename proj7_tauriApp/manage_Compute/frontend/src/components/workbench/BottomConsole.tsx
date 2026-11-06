@@ -1,3 +1,10 @@
+/**
+ * Khung điều khiển và nhật ký kỹ thuật dưới đáy bàn làm việc (Bottom Console Component):
+ * - Hiển thị luồng nhật ký Telemetry thời gian thực nhận từ WebSocket hoặc API.
+ * - Cho phép sao chép toàn bộ log (Copy All) hoặc sao chép từng dòng log riêng lẻ.
+ * - Tích hợp sơ đồ thu nhỏ MiniMap của đồ thị ReactFlow nằm liền mạch bên phải khi đang mở Tab Canvas.
+ */
+
 import { useState } from 'react';
 import { Terminal, Trash2, Map, Copy, Check } from 'lucide-react';
 import { MiniMap } from '@xyflow/react';
@@ -10,9 +17,13 @@ export function BottomConsole() {
     const [copiedAll, setCopiedAll] = useState(false);
     const [copiedId, setCopiedId] = useState<string | null>(null);
 
+    // Kiểm tra xem tab hiện tại có phải là Canvas đồ thị workflow hay không
     const currentTab = tabs.find((t) => t.id === activeTabId);
     const isCanvasTab = currentTab?.type === 'workflow-canvas' || currentTab?.type === 'n8n-canvas';
 
+    /**
+     * Sao chép toàn bộ các dòng nhật ký hiện có vào Clipboard.
+     */
     const handleCopyAll = async () => {
         if (logs.length === 0) return;
         const text = logs.map((l) => `[${l.time}] [${l.type}] ${l.message}`).join('\n');
@@ -21,17 +32,20 @@ export function BottomConsole() {
             setCopiedAll(true);
             setTimeout(() => setCopiedAll(false), 2000);
         } catch {
-            // Fallback for clipboard
+            // Dự phòng khi trình duyệt chặn quyền truy cập Clipboard
         }
     };
 
+    /**
+     * Sao chép nội dung của một dòng nhật ký cụ thể.
+     */
     const handleCopyLine = async (id: string, text: string) => {
         try {
             await navigator.clipboard.writeText(text);
             setCopiedId(id);
             setTimeout(() => setCopiedId(null), 1500);
         } catch {
-            // Fallback
+            // Dự phòng
         }
     };
 
@@ -44,6 +58,7 @@ export function BottomConsole() {
                     <span className="font-sans font-medium">Console &amp; Realtime Telemetry</span>
                 </div>
                 <div className="flex items-center gap-3">
+                    {/* Hiển thị tóm tắt chỉ số CPU / RAM / Disk thời gian thực */}
                     {snapshot && (
                         <span className="text-[11px] text-zinc-400 font-mono hidden md:inline">
                             CPU: <strong className="text-emerald-400">{snapshot.cpu.percent}%</strong> | RAM:{' '}
@@ -52,7 +67,7 @@ export function BottomConsole() {
                         </span>
                     )}
 
-                    {/* Nút Copy All Logs */}
+                    {/* Nút sao chép toàn bộ nhật ký */}
                     <button
                         onClick={handleCopyAll}
                         title="Copy all console logs to clipboard"
@@ -72,6 +87,7 @@ export function BottomConsole() {
                         )}
                     </button>
 
+                    {/* Nút xóa sạch nhật ký */}
                     <button
                         onClick={clearLogs}
                         className="text-zinc-400 hover:text-zinc-200 flex items-center gap-1 font-sans cursor-pointer transition-colors text-[11px]"
@@ -111,7 +127,7 @@ export function BottomConsole() {
                                         <span className="text-zinc-300 break-all select-text">{log.message}</span>
                                     </div>
 
-                                    {/* Nút copy 1 dòng xuất hiện khi hover */}
+                                    {/* Nút sao chép 1 dòng xuất hiện khi rê chuột hover */}
                                     <button
                                         onClick={() => handleCopyLine(log.id, rawLine)}
                                         title="Copy this log line"
@@ -129,7 +145,7 @@ export function BottomConsole() {
                     )}
                 </div>
 
-                {/* MiniMap chung hàng với Log khi đang mở Tab Workflow Canvas */}
+                {/* Sơ đồ thu nhỏ MiniMap đồng bộ vị trí khi đang mở Tab Workflow Canvas */}
                 {isCanvasTab && (
                     <div className="w-60 h-full border-l border-zinc-800 bg-zinc-900/60 p-2 flex flex-col shrink-0 select-none">
                         <div className="flex items-center justify-between text-[10px] text-zinc-400 font-sans font-semibold mb-1 uppercase tracking-wider">

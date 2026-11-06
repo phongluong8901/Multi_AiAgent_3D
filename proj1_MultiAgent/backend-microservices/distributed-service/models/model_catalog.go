@@ -1,5 +1,9 @@
+// Package models định nghĩa các cấu trúc dữ liệu cốt lõi cho Distributed Service:
+// thông số mô hình AI (ModelSpec), cấu hình đối tác phần cứng (PartnerNode),
+// thông tin gói cài đặt Electron Client (AppPackageInfo) và báo cáo đánh giá (BenchmarkResult).
 package models
 
+// ModelSpec mô tả chi tiết thông số kỹ thuật, yêu cầu phần cứng và lệnh cài đặt của một mô hình AI phân tán.
 type ModelSpec struct {
 	ID                 string   `json:"id"`
 	Name               string   `json:"name"`

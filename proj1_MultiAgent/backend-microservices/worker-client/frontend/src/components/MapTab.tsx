@@ -5,10 +5,19 @@ import 'leaflet/dist/leaflet.css';
 import { LocationInfo } from '../types';
 import { RadioIcon, MapPinIcon, LayersIcon } from './Icons';
 
+/**
+ * Thuoc tinh dau vao cho MapTab
+ */
 interface MapTabProps {
   location: LocationInfo | null;
 }
 
+/**
+ * Tab Ban do Toa do Dia ly va Pham vi Ket noi P2P (Leaflet):
+ * - Dinh vi toa do thuc cua node thong qua IP cong cong
+ * - Ve cac vong tron ban kinh ket noi P2P (50km, 150km, 350km)
+ * - Tich hop bo loc giao dien ban do (Dark mode, Light mode, Ve tinh)
+ */
 export const MapTab: FC<MapTabProps> = ({ location }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);

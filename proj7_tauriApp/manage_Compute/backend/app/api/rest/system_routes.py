@@ -1,3 +1,9 @@
+"""
+Router REST API Thông tin Hệ thống & Phân vùng Bộ nhớ:
+Cung cấp thông tin phần cứng tĩnh, ảnh chụp nhanh Telemetry (CPU, RAM, GPU, Disk, Net),
+chẩn đoán sức khỏe hệ thống (Health Advisor), và quản lý / dọn dẹp các phân vùng bộ nhớ (Purge Memory Partitions).
+"""
+
 import platform
 import psutil
 from fastapi import APIRouter
@@ -15,6 +21,9 @@ router = APIRouter(prefix="/system", tags=["System & Hardware"])
 
 @router.get("/info")
 def get_static_host_info():
+    """
+    Lấy thông tin tĩnh về hệ điều hành, kiến trúc vi xử lý, tên máy chủ và thời điểm khởi động máy.
+    """
     return {
         "os": platform.system(),
         "os_release": platform.release(),
@@ -26,10 +35,16 @@ def get_static_host_info():
 
 @router.get("/snapshot", response_model=SystemSnapshot)
 def get_instant_snapshot():
+    """
+    Lấy bản chụp trạng thái tài nguyên phần cứng tức thì (CPU, RAM, Disk, Mạng, GPU NVIDIA, Top tiến trình).
+    """
     return telemetry_collector.get_snapshot()
 
 @router.get("/health")
 def get_system_health():
+    """
+    Tính toán chỉ số sức khỏe tổng thể (Health Score 0-100%) và đưa ra khuyến nghị tối ưu hóa hệ thống.
+    """
     snapshot = telemetry_collector.get_snapshot()
     return calculate_health_and_recommendations(snapshot)
 
@@ -46,4 +61,3 @@ def purge_memory_partition(req: PartitionPurgeRequest):
     Thực hiện giải phóng / dọn dẹp phân vùng bộ nhớ chỉ định (Standby Cache, Temp, Dumps, Working Sets).
     """
     return partition_manager.purge_partition(req.partition_id, req.mode)
-

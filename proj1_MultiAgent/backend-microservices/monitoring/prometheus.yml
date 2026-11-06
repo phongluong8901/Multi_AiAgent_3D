@@ -1,13 +1,69 @@
 global:
-  scrape_interval: 15s # Tần suất Prometheus đi cào metrics mỗi 15 giây
+  scrape_interval: 15s # Tan suat Prometheus thu thap metrics (15s)
+  evaluation_interval: 15s
 
 scrape_configs:
+  # 1. User & Authentication Service
   - job_name: "user-service"
     static_configs:
-      - targets: ["users_service:5001"] # Trỏ tới container_name của user-service và cổng của nó
+      - targets: ["users_service:5001"]
 
+  # 2. Collaborative Room & Space Management Service
+  - job_name: "room-service"
+    static_configs:
+      - targets: ["rooms_service:5002"]
 
-  # Bạn có thể thêm các microservice khác sau này vào đây:
-  # - job_name: 'room-service'
-  #   static_configs:
-  #     - targets: ['rooms_service:5002']
+  # 3. Real-time WebSocket Chat & Event Service
+  - job_name: "chat-service"
+    static_configs:
+      - targets: ["chat_service:5003"]
+
+  # 4. Agent Marketplace & Rental Service
+  - job_name: "product-service"
+    static_configs:
+      - targets: ["product_service:5004"]
+
+  # 5. 3D Map & Canvas Drawing Service
+  - job_name: "mapdraw-service"
+    static_configs:
+      - targets: ["mapdraw_service:5005"]
+
+  # 6. Core AI Agent & LangGraph Reasoning Service
+  - job_name: "agent-service"
+    static_configs:
+      - targets: ["agents_service:8000"]
+
+  # 7. Hardware Embedded Firmware & IoT Flashing Service
+  - job_name: "agent-firmware"
+    static_configs:
+      - targets: ["firmware_service:8001"]
+
+  # 8. Distributed Node Computing & WebSocket Relay Engine (Go)
+  - job_name: "distributed-service"
+    static_configs:
+      - targets: ["distributed_service:8080"]
+
+  # 9. Reinforcement Learning Training Service (SAC / PPO / World Models)
+  - job_name: "rltrain-service"
+    static_configs:
+      - targets: ["rltrain_service:5009"]
+
+  # 10. SaveCoin & Reward Gamification Service
+  - job_name: "savecoin-service"
+    static_configs:
+      - targets: ["savecoin_service:5010"]
+
+  # 11. Local Compute Seller & Node Provider Service
+  - job_name: "seller-service"
+    static_configs:
+      - targets: ["seller_service:5011"]
+
+  # 12. Workspace & Cluster Owner Management Service
+  - job_name: "ower-service"
+    static_configs:
+      - targets: ["ower_service:5012"]
+
+  # 13. Isolated Python Sandbox Runner Service
+  - job_name: "sandbox-service"
+    static_configs:
+      - targets: ["sandbox_service:8002"]

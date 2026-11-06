@@ -166,7 +166,7 @@ function HideSeekAgentMesh({ agent }: { agent: HideSeekAgent }) {
                 outlineWidth={0.03}
                 outlineColor="#020617"
             >
-                {agent.isControlled ? `★ ${agent.name} (BẠN)` : agent.name}
+                {agent.isControlled ? `[PLAYER] ${agent.name} (BẠN)` : agent.name}
             </Text>
 
             <Text
@@ -189,13 +189,13 @@ function HideSeekAgentMesh({ agent }: { agent: HideSeekAgent }) {
                 outlineColor="#020617"
             >
                 {agent.isTagged
-                    ? 'BỊ BẮT ✘'
+                    ? 'BỊ BẮT [TAGGED]'
                     : isSeeker
-                    ? 'THỢ SĂN 👁'
+                    ? 'THỢ SĂN [SEEKER]'
                     : agent.isSpotted
-                    ? 'BỊ PHÁT HIỆN ⚠'
+                    ? 'BỊ PHÁT HIỆN [ALERT]'
                     : agent.isCovered
-                    ? 'ẨN NẤP KÍN ✓'
+                    ? 'ẨN NẤP KÍN [SAFE]'
                     : 'ĐANG NẤP'}
             </Text>
         </group>

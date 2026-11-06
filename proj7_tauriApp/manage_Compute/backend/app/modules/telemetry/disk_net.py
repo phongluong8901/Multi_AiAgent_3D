@@ -1,8 +1,22 @@
+"""
+Module thu thập chỉ số I/O ổ đĩa và lưu lượng mạng hệ thống.
+Đo đạc dung lượng ổ đĩa gốc và dung lượng byte truyền/nhận qua card mạng.
+"""
+
 import psutil
 from app.schemas.telemetry_schema import DiskNetMetrics
 
 class DiskNetCollector:
+    """
+    Bộ thu thập dữ liệu phân vùng ổ đĩa và băng thông mạng.
+    """
     def collect_io(self) -> DiskNetMetrics:
+        """
+        Đọc tỷ lệ sử dụng ổ đĩa hệ thống và lưu lượng mạng đã gửi/nhận tính bằng MB.
+
+        Returns:
+            Đối tượng DiskNetMetrics chứa các thông số I/O.
+        """
         disk = psutil.disk_usage('/')
         net = psutil.net_io_counters()
         return DiskNetMetrics(

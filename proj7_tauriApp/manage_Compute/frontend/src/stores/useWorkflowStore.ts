@@ -1,3 +1,9 @@
+/**
+ * Kho lưu trữ Zustand quản lý trạng thái đồ thị tự động hóa Auto-Guard Canvas (React Flow / @xyflow/react).
+ * Lưu trữ danh sách Node, Edge, các mẫu quy trình dựng sẵn (Presets), trạng thái vũ trang (guardArmed),
+ * trạng thái triển khai nền (isDeployed) và hiệu ứng đánh dấu node đang chạy (Execution Trace Highlights).
+ */
+
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import {
@@ -11,6 +17,19 @@ import {
     addEdge,
 } from '@xyflow/react';
 
+/**
+ * Các mẫu đồ thị quy trình dựng sẵn (Presets) phục vụ kiểm thử và ứng dụng thực tế:
+ * 1. gpu_thermal: Giám sát nhiệt độ và VRAM card đồ họa NVIDIA.
+ * 2. pc_automation_guard: Giám sát tiến trình Chrome, tìm kiếm giải pháp và dump thư mục.
+ * 3. oom_guard: Chống tràn bộ nhớ Out-Of-Memory và tự hủy tiến trình rò rỉ.
+ * 4. live_stream_watchdog: Theo dõi CPU và mở Dashboard trực tiếp.
+ * 5. production_scheduled_guard: Quy trình chạy định kỳ thực tế với Timer Schedule.
+ * 6. conditional_branch_guard: Rẽ nhánh điều kiện If/Else với 2 đầu ra True / False.
+ * 7. memory_leak_auto_trim: Tự động phát hiện rò rỉ bộ nhớ qua độ dốc và gọi Win32 EmptyWorkingSet.
+ * 8. port_collision_watchdog: Tự động phát hiện và giải phóng cổng mạng bị chiếm dụng.
+ * 9. remote_webhook_watchdog: Gửi cảnh báo Webhook Discord/Telegram kèm chụp màn hình.
+ * 10. resource_quota_partitioning: Phân vùng giới hạn tài nguyên CPU Cores và RAM Quota.
+ */
 export const DEFAULT_PRESETS = {
     gpu_thermal: {
         name: 'GPU Thermal & VRAM Guard',
@@ -401,27 +420,51 @@ export const DEFAULT_PRESETS = {
     },
 };
 
+/**
+ * Trạng thái Store của Workflow Canvas.
+ */
 interface WorkflowState {
+    /** Danh sách node hiện tại trên canvas */
     nodes: Node[];
+    /** Danh sách cạnh nối (edges) giữa các node */
     edges: Edge[];
+    /** Trạng thái vũ trang của Auto-Guard (true = bật) */
     guardArmed: boolean;
+    /** Số lần tự động can thiệp đã thực hiện */
     interventions: number;
+    /** Trạng thái đã triển khai chạy nền hay chưa */
     isDeployed: boolean;
+    /** Cập nhật toàn bộ danh sách node */
     setNodes: (nodes: Node[] | ((nds: Node[]) => Node[])) => void;
+    /** Cập nhật toàn bộ danh sách edge */
     setEdges: (edges: Edge[] | ((eds: Edge[]) => Edge[])) => void;
+    /** Hàm xử lý sự kiện kéo thả thay đổi vị trí/kích thước node */
     onNodesChange: (changes: NodeChange[]) => void;
+    /** Hàm xử lý sự kiện thay đổi edge */
     onEdgesChange: (changes: EdgeChange[]) => void;
+    /** Hàm kết nối 2 handle giữa 2 node */
     onConnect: (connection: Connection) => void;
+    /** Xóa một node và các cạnh nối liên quan */
     deleteNode: (nodeId: string) => void;
+    /** Xóa một cạnh nối theo ID */
     deleteEdge: (edgeId: string) => void;
+    /** Xóa sạch toàn bộ canvas */
     clearAll: () => void;
+    /** Nạp cấu trúc đồ thị từ mẫu Preset có sẵn */
     loadPreset: (key: keyof typeof DEFAULT_PRESETS) => void;
+    /** Bật/tắt trạng thái Auto-Guard */
     setGuardArmed: (val: boolean) => void;
+    /** Cập nhật bộ đếm can thiệp */
     setInterventions: (val: number) => void;
+    /** Đánh dấu trạng thái triển khai liên tục */
     setIsDeployed: (val: boolean) => void;
+    /** ID của node đang được thực thi để vẽ viền sáng */
     activeExecutingNodeId: string | null;
+    /** Bảng trạng thái thực thi của từng node: pending, running, success, failed, skipped */
     executionStatusMap: Record<string, 'pending' | 'running' | 'success' | 'failed' | 'skipped'>;
+    /** Thiết lập node đang chạy */
     setActiveExecutingNodeId: (id: string | null) => void;
+    /** Cập nhật bảng trạng thái thực thi */
     setExecutionStatusMap: (
         updater:
             | Record<string, 'pending' | 'running' | 'success' | 'failed' | 'skipped'>
@@ -429,6 +472,7 @@ interface WorkflowState {
                   prev: Record<string, 'pending' | 'running' | 'success' | 'failed' | 'skipped'>
               ) => Record<string, 'pending' | 'running' | 'success' | 'failed' | 'skipped'>)
     ) => void;
+    /** Đặt lại toàn bộ trạng thái chạy về ban đầu */
     resetExecutionStatus: () => void;
 }
 

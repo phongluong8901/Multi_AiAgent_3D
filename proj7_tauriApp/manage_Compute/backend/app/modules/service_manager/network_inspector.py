@@ -1,3 +1,10 @@
+"""
+Module thanh tra mạng và giám sát kết nối Socket (Network Inspector).
+Hỗ trợ phân giải DNS ngược bất đồng bộ (Reverse DNS resolution với in-memory cache),
+phân loại dịch vụ mục tiêu (AI/LLM, Database, Cloud Provider, Local Microservice),
+truy xuất socket qua psutil kèm cơ chế fallback tự động sang netstat.
+"""
+
 import psutil
 import socket
 import subprocess
@@ -12,7 +19,11 @@ from app.schemas.process_schema import (
 )
 
 class NetworkInspector:
+    """
+    Bộ thanh tra và giải mã lưu lượng mạng cho từng tiến trình và toàn bộ hệ thống.
+    """
     def __init__(self):
+        """Khởi tạo DNS cache trong RAM và ThreadPoolExecutor phục vụ phân giải hostname không chặn main thread."""
         # In-memory DNS cache: ip -> (hostname, timestamp)
         self._dns_cache: Dict[str, tuple[str, float]] = {
             "127.0.0.1": ("localhost", time.time() + 86400 * 365),
@@ -24,6 +35,13 @@ class NetworkInspector:
     def _resolve_ip(self, ip: str, timeout: float = 0.4) -> str:
         """
         Phân giải địa chỉ IP sang Hostname qua DNS Cache với cơ chế non-blocking an toàn.
+
+        Args:
+            ip: Địa chỉ IP cần phân giải.
+            timeout: Thời gian chờ tối đa cho mỗi truy vấn DNS (giây).
+
+        Returns:
+            Tên miền hostname hoặc chính địa chỉ IP nếu truy vấn thất bại.
         """
         if not ip:
             return "unknown"
@@ -58,7 +76,16 @@ class NetworkInspector:
 
     def _build_target_url(self, remote_host: str, remote_ip: str, remote_port: Optional[int], category: str) -> str:
         """
-        Xây dựng đường dẫn URL Endpoint đầy đủ dựa trên giao thức, port và host/domain.
+        Xây dựng chuỗi URL Endpoint đầy đủ dựa trên giao thức, port và host/domain.
+
+        Args:
+            remote_host: Tên host đã phân giải.
+            remote_ip: Địa chỉ IP đích.
+            remote_port: Cổng mạng đích.
+            category: Phân loại dịch vụ.
+
+        Returns:
+            Định dạng URL trực quan (https://, http://, postgres://, v.v.).
         """
         host_target = remote_host if remote_host and remote_host != "unknown" and not remote_host.startswith("LAN (") else remote_ip
         if not host_target:
@@ -86,11 +113,19 @@ class NetworkInspector:
     def _classify_service(self, remote_ip: str, remote_port: Optional[int], remote_host: str) -> tuple[str, str]:
         """
         Phân loại dịch vụ API và điểm cuối kết nối (AI/LLM, Cloud, Database, Local Microservice).
+
+        Args:
+            remote_ip: Địa chỉ IP máy chủ đích.
+            remote_port: Cổng kết nối đích.
+            remote_host: Tên miền của máy chủ đích.
+
+        Returns:
+            Tuple gồm (mã danh mục, mô tả chi tiết).
         """
         host_lower = (remote_host or "").lower()
         ip_str = remote_ip or ""
 
-        # AI & LLM Providers
+        # Điểm cuối dịch vụ AI & LLM Inference
         if any(k in host_lower for k in ["openai", "api.openai", "chatgpt"]):
             return "AI_LLM", "OpenAI API Endpoint (GPT-4o / Embeddings)"
         if any(k in host_lower for k in ["anthropic", "claude"]):
@@ -104,7 +139,7 @@ class NetworkInspector:
         if remote_port == 8000 and any(k in host_lower for k in ["localhost", "127.0.0.1"]):
             return "AI_LLM", "vLLM / Local AI Microservice (:8000)"
 
-        # Databases
+        # Kết nối cơ sở dữ liệu
         if remote_port == 5432:
             return "DATABASE", "PostgreSQL Database Connection"
         if remote_port == 3306:
@@ -114,7 +149,7 @@ class NetworkInspector:
         if remote_port == 27017:
             return "DATABASE", "MongoDB Cluster"
 
-        # Cloud & Code Hosting
+        # Dịch vụ Cloud và Code Hosting
         if any(k in host_lower for k in ["github", "githubusercontent"]):
             return "CLOUD_API", "GitHub API & Code Repository"
         if any(k in host_lower for k in ["googleapis", "google", "gstatic", "1e100"]):
@@ -126,7 +161,7 @@ class NetworkInspector:
         if any(k in host_lower for k in ["cloudflare", "workers"]):
             return "CLOUD_API", "Cloudflare CDN & Edge Proxy"
 
-        # Local Microservices
+        # Microservice và IPC cục bộ
         if ip_str in ["127.0.0.1", "0.0.0.0", "::1", "localhost"] or "localhost" in host_lower:
             if remote_port == 14200:
                 return "LOCAL_SERVICE", "Compute Studio Daemon (:14200)"
@@ -136,7 +171,7 @@ class NetworkInspector:
                 return "LOCAL_SERVICE", "Local Web / Dev Server"
             return "LOCAL_SERVICE", f"Local IPC / Microservice (:{remote_port})"
 
-        # Standard Web / REST API
+        # Lưu lượng Web / REST API tiêu chuẩn
         if remote_port == 443:
             return "HTTPS_API", "Secure HTTPS REST / Web API"
         if remote_port == 80:
@@ -146,13 +181,18 @@ class NetworkInspector:
 
     def _get_connections_via_psutil(self, target_pid: Optional[int] = None) -> List[Dict[str, Any]]:
         """
-        Lấy danh sách kết nối qua psutil.
+        Truy vấn danh sách kết nối mạng thông qua thư viện psutil.
+
+        Args:
+            target_pid: PID tiến trình cụ thể (tùy chọn).
+
+        Returns:
+            Danh sách dictionary mô tả kết nối thô.
         """
         results: List[Dict[str, Any]] = []
         try:
             if target_pid:
                 proc = psutil.Process(target_pid)
-                # Dùng net_connections hoặc connections
                 conns_fn = getattr(proc, "net_connections", None) or getattr(proc, "connections", None)
                 conns = conns_fn(kind="inet") if conns_fn else []
             else:
@@ -179,13 +219,20 @@ class NetworkInspector:
                     "status": str(c.status or "NONE"),
                 })
         except Exception:
-            # Fallback nếu psutil bị chặn quyền
+            # Fallback nếu psutil bị chặn quyền truy cập cấp thấp
             pass
         return results
 
     def _get_connections_via_netstat(self, target_pid: Optional[int] = None) -> List[Dict[str, Any]]:
         """
-        Cơ chế dự phòng: phân tích output của `netstat -ano` trên Windows.
+        Cơ chế dự phòng: phân tích output của lệnh `netstat -ano` trên Windows
+        khi psutil bị giới hạn bởi quyền hạn tài khoản.
+
+        Args:
+            target_pid: PID tiến trình cần lọc (tùy chọn).
+
+        Returns:
+            Danh sách kết nối được phân tích cú pháp từ netstat.
         """
         results: List[Dict[str, Any]] = []
         try:
@@ -238,7 +285,13 @@ class NetworkInspector:
 
     def _collect_connections(self, target_pid: Optional[int] = None) -> List[Dict[str, Any]]:
         """
-        Lấy kết nối: Ưu tiên psutil, tự động fallback sang netstat nếu psutil không có quyền.
+        Thu thập kết nối: Ưu tiên psutil, tự động fallback sang netstat nếu psutil không có quyền.
+
+        Args:
+            target_pid: PID tiến trình cần truy vấn (tùy chọn).
+
+        Returns:
+            Danh sách kết nối mạng thu thập được.
         """
         conns = self._get_connections_via_psutil(target_pid)
         if not conns:
@@ -248,6 +301,12 @@ class NetworkInspector:
     def get_process_network_profile(self, pid: int) -> ProcessNetworkProfile:
         """
         Thu thập toàn bộ thông tin socket, điểm cuối API và hostname mà tiến trình đang gọi tới.
+
+        Args:
+            pid: Định danh tiến trình mục tiêu.
+
+        Returns:
+            Hồ sơ mạng ProcessNetworkProfile hoàn chỉnh.
         """
         pname = f"Process {pid}"
         try:
@@ -304,7 +363,10 @@ class NetworkInspector:
 
     def get_system_network_summary(self) -> SystemNetworkSummary:
         """
-        Tổng quan lưu lượng kết nối API và Socket của toàn bộ hệ thống.
+        Tổng hợp lưu lượng kết nối API và Socket của toàn bộ hệ thống.
+
+        Returns:
+            Báo cáo SystemNetworkSummary với danh sách top domain và top tiến trình.
         """
         all_conns = self._collect_connections()
         pid_map: Dict[int, List[Dict[str, Any]]] = {}
@@ -350,5 +412,5 @@ class NetworkInspector:
             top_processes=top_processes,
         )
 
+# Instance duy nhất của thanh tra mạng
 network_inspector = NetworkInspector()
-

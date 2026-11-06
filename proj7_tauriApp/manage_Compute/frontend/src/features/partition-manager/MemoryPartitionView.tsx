@@ -1,3 +1,11 @@
+/**
+ * Màn hình Quản lý Phân vùng Bộ nhớ & Ổ lưu trữ (Memory & Storage Partition Manager):
+ * - Giám sát toàn diện các phân vùng RAM vật lý, Windows Standby Cache, Swap File, ổ SSD/HDD và Temp Cache.
+ * - Cho phép dọn dẹp bộ nhớ chuyên sâu một chạm (1-Click Deep Memory Flush) thu hồi hàng Gigabyte RAM.
+ * - Lọc phân vùng theo vai trò: Tất cả, RAM & Swap, Ổ đĩa lưu trữ, Bộ đệm tạm thời & Dumps.
+ * - Hộp thoại xác nhận dọn dẹp phân vùng (Confirm Partition Purge Modal) bảo vệ an toàn hệ thống.
+ */
+
 import { useState, useEffect, useCallback } from 'react';
 import {
     HardDrive,
@@ -26,6 +34,9 @@ export function MemoryPartitionView() {
 
     const addLog = useTelemetryStore((s) => s.addLog);
 
+    /**
+     * Tải thông tin phân vùng bộ nhớ và ổ đĩa từ backend.
+     */
     const loadPartitions = useCallback(async () => {
         try {
             setIsLoading(true);
@@ -38,6 +49,7 @@ export function MemoryPartitionView() {
         }
     }, [addLog]);
 
+    // Chu kỳ làm mới mỗi 5 giây
     useEffect(() => {
         void loadPartitions();
         const timer = setInterval(() => {
@@ -46,6 +58,9 @@ export function MemoryPartitionView() {
         return () => clearInterval(timer);
     }, [loadPartitions]);
 
+    /**
+     * Xác nhận giải phóng / dọn dẹp phân vùng mục tiêu.
+     */
     const handleConfirmPurge = async () => {
         if (!purgeTarget) return;
         setIsPurging(true);
@@ -67,6 +82,9 @@ export function MemoryPartitionView() {
         }
     };
 
+    /**
+     * Xả sạch nhanh bộ đệm Standby List của Windows và cắt tỉa RAM không hoạt động.
+     */
     const handleQuickFlushAll = async () => {
         setIsPurging(true);
         try {
@@ -86,6 +104,7 @@ export function MemoryPartitionView() {
     };
 
     const partitions = overview?.partitions || [];
+    // Lọc danh sách phân vùng theo Tab được chọn
     const filteredPartitions = partitions.filter((p) => {
         if (selectedTab === 'RAM') return p.storage_type === 'RAM' || p.storage_type === 'SWAP';
         if (selectedTab === 'STORAGE') return p.storage_type === 'SSD' || p.storage_type === 'HDD';
@@ -110,6 +129,7 @@ export function MemoryPartitionView() {
                 </div>
 
                 <div className="flex items-center gap-2">
+                    {/* Nút bấm giải phóng sâu toàn bộ bộ đệm Standby Cache */}
                     <button
                         onClick={handleQuickFlushAll}
                         disabled={isPurging}
@@ -120,6 +140,7 @@ export function MemoryPartitionView() {
                         <span>1-Click Deep Memory Flush</span>
                     </button>
 
+                    {/* Nút làm mới phân vùng */}
                     <button
                         onClick={loadPartitions}
                         disabled={isLoading}
@@ -194,7 +215,7 @@ export function MemoryPartitionView() {
                 </div>
             </div>
 
-            {/* Notification Banner */}
+            {/* Banner hiển thị thông báo kết quả thao tác */}
             {actionMsg && (
                 <div
                     className={`mx-4 mb-2 p-2.5 rounded-lg border text-xs flex items-center justify-between animate-in fade-in ${
@@ -220,7 +241,7 @@ export function MemoryPartitionView() {
                 </div>
             )}
 
-            {/* Filter Tabs */}
+            {/* Các Tab lọc phân vùng */}
             <div className="px-4 py-1.5 flex items-center gap-2 border-b border-zinc-800 bg-zinc-900/40 text-xs shrink-0">
                 <span className="text-zinc-500 font-medium mr-1">Partition Role:</span>
                 {[
@@ -243,7 +264,7 @@ export function MemoryPartitionView() {
                 ))}
             </div>
 
-            {/* Partition Cards Grid */}
+            {/* Lưới các thẻ phân vùng chi tiết */}
             <div className="flex-1 p-4 overflow-y-auto">
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
                     {filteredPartitions.map((p) => {
@@ -256,7 +277,7 @@ export function MemoryPartitionView() {
                                 className="bg-zinc-900/80 border border-zinc-800 rounded-xl p-3.5 flex flex-col justify-between hover:border-zinc-700 transition-all shadow-md group"
                             >
                                 <div className="space-y-2.5">
-                                    {/* Header: Name & Priority Badge */}
+                                    {/* Tiêu đề & Huy hiệu mức độ ưu tiên */}
                                     <div className="flex items-start justify-between gap-2">
                                         <div>
                                             <div className="font-semibold text-zinc-100 text-xs flex items-center gap-1.5">
@@ -295,7 +316,7 @@ export function MemoryPartitionView() {
                                         </div>
                                     </div>
 
-                                    {/* Usage Metric & Progress Bar */}
+                                    {/* Mức sử dụng và thanh tiến trình */}
                                     <div className="space-y-1">
                                         <div className="flex justify-between text-xs font-mono">
                                             <span className="text-zinc-400">
@@ -344,13 +365,13 @@ export function MemoryPartitionView() {
                                         </div>
                                     </div>
 
-                                    {/* Description */}
+                                    {/* Mô tả chức năng phân vùng */}
                                     <p className="text-[11px] text-zinc-400 leading-relaxed font-sans line-clamp-2">
                                         {p.description}
                                     </p>
                                 </div>
 
-                                {/* Footer Action */}
+                                {/* Chân thẻ: Nút dọn dẹp (Purge) hoặc nhãn LOCKED */}
                                 <div className="mt-3 pt-2.5 border-t border-zinc-800/80 flex items-center justify-between">
                                     <span className="text-[10px] font-mono text-zinc-500">
                                         {p.is_purgeable ? 'Purgeable Region' : 'Kernel Protected'}
@@ -380,7 +401,7 @@ export function MemoryPartitionView() {
             {purgeTarget && (
                 <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-150">
                     <div className="bg-zinc-900 border border-amber-500/50 rounded-xl shadow-2xl max-w-md w-full overflow-hidden text-xs text-zinc-300">
-                        {/* Header */}
+                        {/* Header Modal */}
                         <div className="px-4 py-3 bg-amber-950/40 border-b border-amber-500/30 flex items-center justify-between">
                             <div className="flex items-center gap-2 text-amber-300 font-semibold text-sm">
                                 <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
@@ -394,7 +415,7 @@ export function MemoryPartitionView() {
                             </button>
                         </div>
 
-                        {/* Content */}
+                        {/* Nội dung Modal */}
                         <div className="p-4 space-y-3">
                             <p className="text-zinc-300 text-xs leading-relaxed">
                                 Are you sure you want to clean and release memory from this partition?
@@ -428,7 +449,7 @@ export function MemoryPartitionView() {
                             </p>
                         </div>
 
-                        {/* Footer */}
+                        {/* Chân Modal */}
                         <div className="px-4 py-3 bg-zinc-950/80 border-t border-zinc-800 flex justify-end gap-2">
                             <button
                                 onClick={() => setPurgeTarget(null)}

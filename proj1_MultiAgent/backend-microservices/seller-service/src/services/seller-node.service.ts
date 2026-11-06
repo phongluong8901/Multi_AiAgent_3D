@@ -86,16 +86,26 @@ export class SellerNodeService {
         }
     }
 
+    /**
+     * Lấy danh sách Node cho thuê trên sàn Marketplace, tự động đồng bộ từ Go Distributed Service
+     * và tính khoảng cách km theo tọa độ GPS của người thuê.
+     */
     async getMarketNodes(lng?: number, lat?: number, maxDistanceKm?: number): Promise<any[]> {
         await this.syncPartnerNodesFromDistributed();
         return await sellerNodeRepository.findMarketNodes(lng, lat, maxDistanceKm);
     }
 
+    /**
+     * Lấy danh sách các Node thuộc quyền quản lý của một Seller.
+     */
     async getMyNodes(sellerId: string): Promise<ISellerNode[]> {
         await this.syncPartnerNodesFromDistributed();
         return await sellerNodeRepository.findBySellerId(sellerId);
     }
 
+    /**
+     * Đăng ký một Node phần cứng mới hoặc cập nhật thông số tài nguyên nếu Node đã tồn tại.
+     */
     async registerNode(data: any): Promise<ISellerNode> {
         const nodeId = data.nodeId || `node_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
         const existing = await sellerNodeRepository.findByNodeId(nodeId);

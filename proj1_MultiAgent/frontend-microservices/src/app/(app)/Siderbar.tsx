@@ -5,6 +5,12 @@ import { usePathname } from 'next/navigation'
 import { useState, useMemo } from 'react'
 import { useLanguage } from '@/context/LanguageContext'
 
+/**
+ * Component Sidebar - Thanh dieu huong ben trai co the thu gon / mo rong (Collapsible Sidebar):
+ * - Tu dong phong to khi hover chuot (`expanded = true`) de hien thi day du nhan va badge
+ * - Thu gon thanh bieu tuong gon gang khi chuot roi khoi
+ * - Tich hop da ngon ngu (i18n) va to dam trang thai tuyen duong dang duoc chon
+ */
 export default function Sidebar() {
     const pathname = usePathname()
     const { t } = useLanguage()

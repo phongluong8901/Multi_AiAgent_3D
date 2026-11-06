@@ -1,11 +1,24 @@
+"""
+External Web Search Tool Integration.
+Provides real-time web search capabilities powered by Tavily Search API
+for acquiring current information and verifying factual hypotheses.
+"""
+
 import httpx
 from typing import Optional
 from ..core.config import settings
 
 async def search_the_web(query: str, max_results: int = 4) -> str:
     """
-    Tìm kiếm web thời gian thực bằng Tavily Search API.
-    Sử dụng HTTP REST API trực tiếp để đảm bảo tính ổn định và tốc độ cao.
+    Executes an asynchronous HTTP REST query against Tavily Search API.
+    Parses summarized responses and source citations into formatted markdown text.
+
+    Args:
+        query: Search keywords or question.
+        max_results: Maximum number of search result items to return.
+
+    Returns:
+        Formatted summary and list of search results with sources.
     """
     api_key = settings.TAVILY_API_KEY
     if not api_key or api_key.strip() in ("", "your_tavily_api_key_here"):

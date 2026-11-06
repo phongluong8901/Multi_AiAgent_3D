@@ -44,8 +44,12 @@ import {
     IconDrone,
     IconHumanoid,
     IconBot,
+    IconExternalLink,
 } from '@/components/ui/icons'
+import { toast } from 'sonner'
+import { useConfirm } from '@/context/ConfirmContext'
 
+/** Danh sách bảng màu sơn ngoại thất Robot tiêu chuẩn */
 const COLOR_PRESETS = [
     { label: 'MicroDuck Blue', hex: '#7dd3fc' },
     { label: 'Duck Beak Orange', hex: '#f97316' },
@@ -57,6 +61,7 @@ const COLOR_PRESETS = [
     { label: 'Titanium White', hex: '#e2e8f0' },
 ]
 
+/** Màu nhận diện đặc trưng theo từng hình thái khung gầm Robot (Chassis) */
 const FORM_SIGNATURE_COLORS: Record<AgentFormType, string> = {
     humanoid: '#76b900',
     duck: '#7dd3fc',
@@ -65,9 +70,11 @@ const FORM_SIGNATURE_COLORS: Record<AgentFormType, string> = {
     custom: '#a855f7',
 }
 
-import { toast } from 'sonner'
-import { useConfirm } from '@/context/ConfirmContext'
-
+/**
+ * Trang Chi tiết & Tinh chỉnh Cấu hình AI Agent 3D Studio (`/agents/[id]`).
+ * Cho phép kéo-thả (Drag & Drop) Prompt, Tools, LLM Model (bao gồm Cloud, Ollama và P2P Rented Node)
+ * và cấu hình khung gầm Robot 3D trực quan.
+ */
 export default function AgentDetailPage() {
     const { confirm } = useConfirm()
     const params = useParams()
@@ -83,24 +90,24 @@ export default function AgentDetailPage() {
     const [status, setStatus] = useState('idle')
     const [speech, setSpeech] = useState('')
 
-    // Attached configs
+    // Cấu hình đính kèm (Prompt, Tools, Model)
     const [promptId, setPromptId] = useState<string | null>(null)
     const [selectedTools, setSelectedTools] = useState<string[]>([])
     const [modelId, setModelId] = useState<string | null>(null)
 
-    // Data from API
+    // Dữ liệu danh mục từ API
     const [prompts, setPrompts] = useState<Prompt[]>([])
     const [tools, setTools] = useState<Tool[]>([])
     const [models, setModels] = useState<AIModel[]>([])
 
-    // UI state
+    // Trạng thái giao diện
     const [loading, setLoading] = useState(true)
     const [saving, setSaving] = useState(false)
     const [error, setError] = useState('')
     const [successMessage, setSuccessMessage] = useState('')
     const [activeDrag, setActiveDrag] = useState<any>(null)
 
-    // Load initial data
+    // Tải thông tin Agent cùng danh mục Prompts, Tools và Models khi mở trang
     useEffect(() => {
         setLoading(true)
         Promise.all([
@@ -123,7 +130,7 @@ export default function AgentDetailPage() {
                 setSpeech(ag.speech || '')
 
                 setPromptId(ag.prompt_id || null)
-                // Tools có thể là mảng string ID hoặc mảng Tool object
+                // Chuẩn hóa danh sách Tools (hỗ trợ cả mảng string ID hoặc mảng object Tool)
                 if (Array.isArray(ag.tools)) {
                     setSelectedTools(
                         ag.tools.map((item: any) =>
@@ -132,12 +139,26 @@ export default function AgentDetailPage() {
                     )
                 }
 
-                // Nhận diện chassis robot từ localStorage hoặc keyword
+                // Nhận diện khung gầm Robot từ dữ liệu backend, localStorage hoặc từ khóa tên
                 const savedForm =
                     typeof window !== 'undefined'
                         ? localStorage.getItem(`agent_form:${ag.id}`)
                         : null
-                if (savedForm === 'duck' || savedForm === 'amr' || savedForm === 'drone' || savedForm === 'humanoid') {
+                if (
+                    ag.form === 'duck' ||
+                    ag.form === 'amr' ||
+                    ag.form === 'drone' ||
+                    ag.form === 'humanoid' ||
+                    ag.form === 'custom'
+                ) {
+                    setAgentForm(ag.form)
+                } else if (
+                    savedForm === 'duck' ||
+                    savedForm === 'amr' ||
+                    savedForm === 'drone' ||
+                    savedForm === 'humanoid' ||
+                    savedForm === 'custom'
+                ) {
                     setAgentForm(savedForm as AgentFormType)
                 } else {
                     const lower = ((ag.name || '') + ' ' + ag.id).toLowerCase()
@@ -147,7 +168,7 @@ export default function AgentDetailPage() {
                     else setAgentForm('humanoid')
                 }
 
-                // Model priority: backend agent.model -> localStorage -> default
+                // Ưu tiên model từ backend -> localStorage -> mặc định gemini-3.5-flash-lite
                 const savedLocalModel =
                     typeof window !== 'undefined'
                         ? localStorage.getItem(`agent_model:${ag.id}`)
@@ -163,16 +184,18 @@ export default function AgentDetailPage() {
                 setError(err instanceof Error ? err.message : 'Không thể tải thông tin Agent')
             })
             .finally(() => setLoading(false))
-        agentBodiesApi.getBodies()
+
+        agentBodiesApi
+            .getBodies()
             .then((res) => {
                 if (res?.data && res.data.length > 0) {
                     setCustomBodies(res.data)
                 }
             })
-            .catch(() => { })
+            .catch(() => {})
     }, [id])
 
-    // DnD sensors
+    // Cấu hình cảm biến kéo-thả (Drag & Drop)
     const sensors = useSensors(
         useSensor(PointerSensor, {
             activationConstraint: { distance: 6 },
@@ -183,6 +206,7 @@ export default function AgentDetailPage() {
         setActiveDrag(event.active.data.current)
     }
 
+    /** Xử lý khi thả thẻ Prompt, Tool hoặc Model vào các ô Slot tương ứng */
     function handleDragEnd(event: DragEndEvent) {
         setActiveDrag(null)
         const { over, active } = event
@@ -191,25 +215,22 @@ export default function AgentDetailPage() {
         const data = active.data.current
         if (!data) return
 
-        // Drop vào slot Prompt
         if (over.id === 'slot-prompt' && data.type === 'prompt') {
             setPromptId(data.item.id)
         }
 
-        // Drop vào slot Tools (có thể gắn nhiều)
         if (over.id === 'slot-tools' && data.type === 'tool') {
             setSelectedTools((prev) =>
                 prev.includes(data.item.id) ? prev : [...prev, data.item.id]
             )
         }
 
-        // Drop vào slot Model
         if (over.id === 'slot-model' && data.type === 'model') {
             setModelId(data.item.id)
         }
     }
 
-    // Derived items for AttachedSlots
+    // Dữ liệu dẫn xuất hiển thị trong các ô AttachedSlots
     const currentPrompt = prompts.find((p) => p.id === promptId) || null
     const currentTools = tools.filter((t) => selectedTools.includes(t.id))
     const currentModel: AIModel | null =
@@ -227,7 +248,9 @@ export default function AgentDetailPage() {
               }
             : null)
 
-    // Lưu cập nhật Agent
+    /**
+     * Lưu toàn bộ thay đổi cấu hình Agent lên Backend và đồng bộ sự kiện `agent-updated` trên Client.
+     */
     async function handleSave(e: React.FormEvent) {
         e.preventDefault()
         setError('')
@@ -244,26 +267,30 @@ export default function AgentDetailPage() {
                 model: chosenModel,
                 prompt_id: promptId,
                 tool_ids: selectedTools,
+                form: agentForm,
+                body_id: agentForm === 'custom' ? bodyId : null,
             }
 
             const updated = await agentsApi.update(id, updatePayload)
 
-            // Nếu chọn mô hình thuê từ Seller, đồng bộ gán vào phiên thuê
+            // Nếu chọn mô hình thuê từ Seller P2P, đồng bộ gán vào phiên thuê trên Marketplace
             if (chosenModel.startsWith('rented:')) {
                 const rentalId = chosenModel.replace('rented:', '')
                 try {
                     await ownerApi.bindAgent(rentalId, id, name.trim())
                 } catch (e) {
-                    console.warn('[RENTAL_BIND] Khong the gan rental cho agent:', e)
+                    console.warn('[WARN] [RENTAL_BIND] Không thể gán phiên thuê cho agent:', e)
                 }
             }
             setAgent(updated)
 
-            // Lưu model preference & form chassis phía client
+            // Lưu cấu hình dự phòng vào LocalStorage và phát sự kiện đồng bộ toàn ứng dụng
             if (typeof window !== 'undefined') {
                 localStorage.setItem(`agent_form:${id}`, agentForm)
                 if (agentForm === 'custom' && bodyId) {
                     localStorage.setItem(`agent_body_id:${id}`, bodyId)
+                } else {
+                    localStorage.removeItem(`agent_body_id:${id}`)
                 }
                 localStorage.setItem(`agent_model:${id}`, chosenModel)
                 window.dispatchEvent(
@@ -289,7 +316,7 @@ export default function AgentDetailPage() {
         }
     }
 
-    // Xóa Agent
+    /** Xóa vĩnh viễn Agent sau khi người dùng xác nhận */
     async function handleDelete() {
         const isConfirmed = await confirm({
             title: 'Xóa vĩnh viễn Agent',
@@ -302,6 +329,8 @@ export default function AgentDetailPage() {
             await agentsApi.remove(id)
             if (typeof window !== 'undefined') {
                 localStorage.removeItem(`agent_model:${id}`)
+                localStorage.removeItem(`agent_form:${id}`)
+                localStorage.removeItem(`agent_body_id:${id}`)
             }
             toast.success(`Đã xóa vĩnh viễn Agent "${name}"`)
             router.push('/agents')
@@ -322,7 +351,9 @@ export default function AgentDetailPage() {
     if (!agent && !loading) {
         return (
             <div className="max-w-md mx-auto py-16 text-center space-y-4">
-                <p className="text-zinc-400">Không tìm thấy agent với ID: <code className="text-red-400 font-mono">{id}</code></p>
+                <p className="text-zinc-400">
+                    Không tìm thấy agent với ID: <code className="text-red-400 font-mono">{id}</code>
+                </p>
                 <Link
                     href="/agents"
                     className="inline-flex items-center gap-1.5 text-sm text-blue-400 hover:underline"
@@ -442,7 +473,6 @@ export default function AgentDetailPage() {
 
                     {/* ===== CENTER: Robot 3D + Slots + Form ===== */}
                     <div className="space-y-4">
-                        {/* 3D Robot Canvas với màu sắc và tên thực tế của Agent */}
                         <RobotCanvas
                             promptId={promptId}
                             toolCount={selectedTools.length}
@@ -450,10 +480,10 @@ export default function AgentDetailPage() {
                             customColor={color}
                             label={name || id}
                             agentForm={agentForm}
+                            bodyId={bodyId}
                             onFormChange={setAgentForm}
                         />
 
-                        {/* Attached slots (drop zones) */}
                         <AttachedSlots
                             prompt={currentPrompt}
                             tools={currentTools}
@@ -472,7 +502,7 @@ export default function AgentDetailPage() {
                         >
                             <div className="flex items-center justify-between border-b border-zinc-800/80 pb-2.5">
                                 <h3 className="text-xs font-bold text-zinc-300 uppercase tracking-wider">
-                                    Thông tin định danh & Tính cách
+                                    Thông tin định danh &amp; Tính cách
                                 </h3>
                                 <span className="text-[11px] text-zinc-500 font-mono">ID: {id}</span>
                             </div>
@@ -508,10 +538,11 @@ export default function AgentDetailPage() {
                                                         setColor(FORM_SIGNATURE_COLORS[nextForm])
                                                     }
                                                 }}
-                                                className={`p-2.5 rounded-xl border text-left transition flex flex-col justify-between ${active
+                                                className={`p-2.5 rounded-xl border text-left transition flex flex-col justify-between ${
+                                                    active
                                                         ? 'bg-zinc-800/90 border-[#76b900] text-white shadow-[0_0_15px_rgba(118,185,0,0.2)]'
                                                         : 'bg-zinc-800/40 border-zinc-700/60 text-zinc-400 hover:text-white hover:bg-zinc-800 ' + f.glow
-                                                    }`}
+                                                }`}
                                             >
                                                 <div className="flex items-center justify-between">
                                                     <div className={`p-1.5 rounded-lg ${active ? 'bg-[#76b900]/20 text-[#76b900]' : 'bg-zinc-700/40 text-zinc-400'}`}>
@@ -550,7 +581,7 @@ export default function AgentDetailPage() {
                                             className="text-[11px] font-semibold text-purple-300 hover:text-white px-2.5 py-1 rounded-lg bg-purple-900/40 border border-purple-500/30 hover:bg-purple-800/50 transition flex items-center gap-1"
                                         >
                                             <span>Mở Body Studio</span>
-                                            <span>↗</span>
+                                            <IconExternalLink className="w-3 h-3" />
                                         </Link>
                                     </div>
 
@@ -569,7 +600,7 @@ export default function AgentDetailPage() {
                                                 )}
                                                 {customBodies.map((b) => (
                                                     <option key={b.bodyId} value={b.bodyId}>
-                                                        {b.name} ({b.joints?.filter(j => j.type !== 'fixed')?.length || 0} DOF / {b.category})
+                                                        {b.name} ({b.joints?.filter((j) => j.type !== 'fixed')?.length || 0} DOF / {b.category})
                                                     </option>
                                                 ))}
                                             </select>
@@ -622,7 +653,7 @@ export default function AgentDetailPage() {
                             {/* Bảng màu và Preset Swatches */}
                             <div>
                                 <label className="block text-xs text-zinc-400 mb-1.5 font-medium">
-                                    Màu sơn ngoại thất & Đèn LED
+                                    Màu sơn ngoại thất &amp; Đèn LED
                                 </label>
                                 <div className="flex items-center flex-wrap gap-2">
                                     <div className="flex items-center gap-2 pr-2 border-r border-zinc-800">
@@ -639,14 +670,15 @@ export default function AgentDetailPage() {
                                             const isSelectedColor = color.toLowerCase() === p.hex.toLowerCase()
                                             return (
                                                 <button
-                                                    key={p.hex}
+                                                    key={p.label}
                                                     type="button"
                                                     title={p.label}
                                                     onClick={() => setColor(p.hex)}
-                                                    className={`w-6 h-6 rounded-full border transition flex items-center justify-center ${isSelectedColor
+                                                    className={`w-6 h-6 rounded-full border transition flex items-center justify-center ${
+                                                        isSelectedColor
                                                             ? 'border-white scale-110 shadow-[0_0_8px_rgba(255,255,255,0.4)]'
                                                             : 'border-zinc-700 hover:scale-105'
-                                                        }`}
+                                                    }`}
                                                     style={{ backgroundColor: p.hex }}
                                                 >
                                                     {isSelectedColor && (

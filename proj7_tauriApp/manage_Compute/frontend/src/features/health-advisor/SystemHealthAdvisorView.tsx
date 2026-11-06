@@ -1,3 +1,12 @@
+/**
+ * Màn hình Cố vấn Sức khỏe Hệ thống & Tối ưu hóa AI (System Health Advisor View):
+ * - Đánh giá chỉ số sức khỏe tổng thể (Health Index 0-100) theo mô hình chẩn đoán heuristic.
+ * - Hiển thị chi tiết các yếu tố trừ điểm hiệu năng (Score Deductions): tải CPU cao, rò rỉ RAM, nhiệt độ GPU.
+ * - Danh sách các hành động khuyến nghị từ AI (Remediation Actions) kèm nút bấm thực thi một chạm
+ *   (Win32 EmptyWorkingSet, CPU Throttling, Suspend/Resume tiến trình).
+ * - Chụp ảnh màn hình bằng chứng sự cố (Capture Incident Frame).
+ */
+
 import { useState, useEffect } from 'react';
 import {
     Activity,
@@ -15,10 +24,17 @@ import {
 import { httpClient } from '../../services/httpClient';
 import { useTelemetryStore } from '../../stores/useTelemetryStore';
 
+/**
+ * Cấu trúc dữ liệu phản hồi từ API /api/rest/system/health.
+ */
 interface HealthData {
+    /** Điểm số sức khỏe hệ thống (0 - 100) */
     score: number;
+    /** Trạng thái phân loại: OPTIMAL, HEALTHY, WARNING, CRITICAL */
     status: 'OPTIMAL' | 'HEALTHY' | 'WARNING' | 'CRITICAL';
+    /** Danh sách các lý do bị trừ điểm */
     deductions: Array<{ factor: string; points: number; value: string }>;
+    /** Danh sách các hành động khắc phục gợi ý */
     recommendations: Array<{
         id: string;
         type: string;
@@ -29,6 +45,7 @@ interface HealthData {
         pid?: number;
         proc_name?: string;
     }>;
+    /** Tóm tắt nhận định tổng quan */
     summary: string;
 }
 
@@ -39,6 +56,9 @@ export function SystemHealthAdvisorView() {
     const addLog = useTelemetryStore((s) => s.addLog);
     const snapshot = useTelemetryStore((s) => s.snapshot);
 
+    /**
+     * Tải dữ liệu chẩn đoán sức khỏe hệ thống từ Backend.
+     */
     const fetchHealth = async () => {
         setLoading(true);
         try {
@@ -51,12 +71,16 @@ export function SystemHealthAdvisorView() {
         }
     };
 
+    // Quét định kỳ mỗi 4 giây
     useEffect(() => {
         fetchHealth();
         const interval = setInterval(fetchHealth, 4000);
         return () => clearInterval(interval);
     }, []);
 
+    /**
+     * Thực thi một hành động khắc phục được AI gợi ý.
+     */
     const handleApplyRecommendation = async (rec: HealthData['recommendations'][0]) => {
         setActionMsg(`Applying action: ${rec.title}...`);
         try {
@@ -86,6 +110,9 @@ export function SystemHealthAdvisorView() {
         }
     };
 
+    /**
+     * Chụp ảnh màn hình Desktop làm bằng chứng chẩn đoán lỗi.
+     */
     const handleCaptureDiagnosticScreenshot = async () => {
         try {
             const res = await httpClient.captureScreen();
@@ -109,7 +136,7 @@ export function SystemHealthAdvisorView() {
 
     return (
         <div className="h-full w-full bg-zinc-950 text-zinc-100 flex flex-col overflow-y-auto select-none p-5 space-y-6">
-            {/* Header */}
+            {/* Header thanh công cụ */}
             <div className="flex items-center justify-between border-b border-zinc-800 pb-4">
                 <div>
                     <h1 className="text-lg font-bold text-zinc-100 flex items-center gap-2">
@@ -122,6 +149,7 @@ export function SystemHealthAdvisorView() {
                 </div>
 
                 <div className="flex items-center gap-2">
+                    {/* Nút chụp màn hình chẩn đoán */}
                     <button
                         onClick={handleCaptureDiagnosticScreenshot}
                         className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs rounded-lg flex items-center gap-1.5 border border-zinc-700 transition-colors cursor-pointer"
@@ -130,6 +158,7 @@ export function SystemHealthAdvisorView() {
                         Capture Incident Frame
                     </button>
 
+                    {/* Nút quét lại chẩn đoán */}
                     <button
                         onClick={fetchHealth}
                         disabled={loading}
@@ -141,6 +170,7 @@ export function SystemHealthAdvisorView() {
                 </div>
             </div>
 
+            {/* Thông báo trạng thái thao tác */}
             {actionMsg && (
                 <div className="px-4 py-2.5 rounded-lg bg-zinc-900 border border-emerald-500/30 text-emerald-300 text-xs flex items-center gap-2">
                     <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
@@ -148,9 +178,9 @@ export function SystemHealthAdvisorView() {
                 </div>
             )}
 
-            {/* Main Score & Status Section */}
+            {/* Khối Điểm số và Thông số chính */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {/* Score Card */}
+                {/* Thẻ hiển thị điểm số tổng thể */}
                 <div className={`p-5 rounded-2xl border flex flex-col justify-between items-center text-center ${scoreColor}`}>
                     <div className="text-xs font-semibold tracking-wider text-zinc-400 uppercase">System Health Index</div>
                     <div className="my-2">
@@ -162,7 +192,7 @@ export function SystemHealthAdvisorView() {
                     </div>
                 </div>
 
-                {/* Hardware Telemetry Snapshot */}
+                {/* Bản chụp phần cứng tức thời */}
                 <div className="p-4 rounded-2xl bg-zinc-900/60 border border-zinc-800 flex flex-col justify-between space-y-3">
                     <div className="text-xs font-semibold text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
                         <Activity className="w-4 h-4 text-cyan-400" /> Real-time Compute State
@@ -195,7 +225,7 @@ export function SystemHealthAdvisorView() {
                     </div>
                 </div>
 
-                {/* Score Deductions Breakdown */}
+                {/* Bảng chi tiết các yếu tố trừ điểm */}
                 <div className="p-4 rounded-2xl bg-zinc-900/60 border border-zinc-800 flex flex-col justify-between">
                     <div className="text-xs font-semibold text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
                         <AlertTriangle className="w-4 h-4 text-amber-400" /> Score Deductions
@@ -220,7 +250,7 @@ export function SystemHealthAdvisorView() {
                 </div>
             </div>
 
-            {/* AI Advisor Recommendations */}
+            {/* Danh sách hành động khuyến nghị từ AI */}
             <div className="space-y-3">
                 <div className="flex items-center justify-between">
                     <h2 className="text-sm font-bold text-zinc-200 flex items-center gap-2">

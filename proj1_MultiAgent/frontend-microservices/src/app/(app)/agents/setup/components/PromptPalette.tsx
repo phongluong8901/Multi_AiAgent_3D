@@ -1,16 +1,27 @@
 'use client'
 
 import { useDraggable } from '@dnd-kit/core'
+import Link from 'next/link'
 import type { Prompt } from '@/lib/api'
-import { colorFromId } from '@/lib/colorFormId' // hoặc copy hàm vào đây
+import { colorFromId } from '@/lib/colorFormId'
 
+/**
+ * Thuộc tính đầu vào cho bảng chọn System Prompt (PromptPalette).
+ */
 type Props = {
+    /** Danh sách các System Prompt khả dụng */
     prompts: Prompt[]
+    /** Trạng thái đang tải dữ liệu */
     loading?: boolean
+    /** ID của Prompt đang được gắn vào Agent */
     selectedPromptId?: string | null
+    /** Callback khi click chọn trực tiếp một Prompt */
     onSelect?: (prompt: Prompt) => void
 }
 
+/**
+ * Thẻ System Prompt hỗ trợ kéo-thả (Draggable) vào phần đầu Robot hoặc click để chọn.
+ */
 function DraggablePromptCard({
     prompt,
     isSelected,
@@ -73,6 +84,9 @@ function DraggablePromptCard({
     )
 }
 
+/**
+ * Bảng danh mục System Prompts (PromptPalette) trong xưởng lắp ráp Agent.
+ */
 export default function PromptPalette({ prompts, loading, selectedPromptId, onSelect }: Props) {
     return (
         <div className="space-y-3">
@@ -92,9 +106,9 @@ export default function PromptPalette({ prompts, loading, selectedPromptId, onSe
             ) : prompts.length === 0 ? (
                 <div className="rounded-xl border border-dashed border-zinc-700 py-6 text-center">
                     <p className="text-xs text-zinc-500">Chưa có prompt</p>
-                    <a href="/prompts" className="mt-1 inline-block text-[11px] text-blue-400 hover:underline">
-                        Tạo prompt →
-                    </a>
+                    <Link href="/prompts" className="mt-1 inline-block text-[11px] text-blue-400 hover:underline">
+                        Tạo prompt
+                    </Link>
                 </div>
             ) : (
                 <div className="space-y-2 max-h-[280px] overflow-y-auto pr-1">

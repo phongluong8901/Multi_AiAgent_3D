@@ -15,15 +15,15 @@ router.use(
         pathFilter: (pathname) => pathname.startsWith("/api/v1/rooms/socket.io"),
         on: {
             error: (err, req, res) => {
-                console.error(`[Gateway WS Proxy] ❌ Lỗi WebSocket/Socket.IO Room Service:`, err);
-                if (res && 'writeHead' in res && !res.headersSent) {
+                console.error(`[ERROR] [Gateway WS Proxy] Lỗi WebSocket/Socket.IO Room Service:`, err);
+                if (res && "writeHead" in res && !res.headersSent) {
                     (res as Response).status(502).json({
                         success: false,
-                        message: "Bad Gateway: Room Service Socket không phản hồi"
+                        message: "Bad Gateway: Room Service Socket không phản hồi",
                     });
                 }
-            }
-        }
+            },
+        },
     })
 );
 
@@ -55,7 +55,7 @@ router.use(
                 if (expressRes && !expressRes.headersSent) {
                     expressRes.status(502).json({ success: false, message: "Bad Gateway: Room Service đang gặp sự cố" });
                 }
-            }
+            },
         },
     })
 );

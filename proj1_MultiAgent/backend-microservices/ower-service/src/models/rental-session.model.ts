@@ -1,5 +1,16 @@
 import { Schema, model, Document } from "mongoose";
 
+/**
+ * Interface mo ta phien thue may GPU/NPU cua Owner tu Seller tren Marketplace:
+ * - sessionId: Ma phien thue duy nhat
+ * - renterId: User ID cua nguoi thue (Owner)
+ * - nodeId: Dinh danh may tinh phan cung cua Seller
+ * - coinsPerHour: Chi phi thue tinh theo gio (SaveCoin)
+ * - coinsPer1kTokens: Chi phi suy luan tinh tren 1000 tokens
+ * - status: Trang thai phien (ACTIVE: dang hoat dong, COMPLETED: da hoan tat, CANCELLED: bi huy)
+ * - totalTokensUsed: Tong tokens da su dung trong phien
+ * - totalCoinsSpent: Tong SaveCoins da thanh toan
+ */
 export interface IRentalSession extends Document {
     sessionId: string;
     renterId: string;
@@ -21,6 +32,9 @@ export interface IRentalSession extends Document {
     updatedAt: Date;
 }
 
+/**
+ * Mongoose Schema cho RentalSession
+ */
 const RentalSessionSchema = new Schema<IRentalSession>(
     {
         sessionId: { type: String, required: true, unique: true, index: true },

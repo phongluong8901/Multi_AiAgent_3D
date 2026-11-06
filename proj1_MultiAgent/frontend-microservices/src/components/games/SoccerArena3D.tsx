@@ -124,7 +124,7 @@ function RobotPlayerMesh({
                 outlineWidth={0.03}
                 outlineColor="#020617"
             >
-                {player.isControlled ? `★ ${player.name} (BẠN)` : player.name}
+                {player.isControlled ? `[PLAYER] ${player.name} (BẠN)` : player.name}
             </Text>
             <Text
                 position={[0, 0.68, 0]}

@@ -1,5 +1,9 @@
 import { Schema, model, Document } from "mongoose";
 
+/**
+ * Interface biểu diễn thực thể Nhật ký suy luận AI (IInferenceLog).
+ * Lưu trữ chi tiết từng prompt gửi tới Node, phản hồi đầu ra, số lượng token, độ trễ và chi phí thanh toán Coin.
+ */
 export interface IInferenceLog extends Document {
     taskId: string;
     nodeId: string;
@@ -14,6 +18,9 @@ export interface IInferenceLog extends Document {
     createdAt: Date;
 }
 
+/**
+ * Mongoose Schema cho bảng `inference_logs`.
+ */
 const InferenceLogSchema = new Schema<IInferenceLog>(
     {
         taskId: { type: String, required: true, unique: true, index: true },

@@ -1,3 +1,9 @@
+/**
+ * Root Application Component.
+ * Coordinates WebSocket communication with the Gateway Service, manages session state,
+ * synchronizes real-time memory events, and switches between Interactive Chat and Deep Knowledge Synthesis views.
+ */
+
 import { useEffect, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import AppHeader from './components/AppHeader';
@@ -18,26 +24,48 @@ import type {
 
 const GATEWAY_URL = import.meta.env.VITE_GATEWAY_URL || 'http://localhost:4000';
 
+/**
+ * Main application dashboard rendering navigation, chat/synthesis tabs,
+ * and cognitive memory metrics panels.
+ */
 export default function App() {
+  // Navigation active tab: interactive chat vs deep knowledge synthesis
   const [activeTab, setActiveTab] = useState<'chat' | 'synthesis'>('chat');
+  
+  // Real-time Socket.IO client instance
   const [socket, setSocket] = useState<Socket | null>(null);
+  
+  // Session tracking and input state
   const [sessionId, setSessionId] = useState<string>('session_phong_01');
   const [input, setInput] = useState<string>('');
   const [learnTopic, setLearnTopic] = useState<string>('');
+  
+  // Operational and UI status tracking
   const [status, setStatus] = useState<string>('Sẵn sàng');
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
+  
+  // Conversation and cognitive trace collections
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [traces, setTraces] = useState<string[]>([]);
+  
+  // Stored knowledge memory feed
   const [learnedItems, setLearnedItems] = useState<LearnedMemoryItem[]>([]);
   const [isLoadingItems, setIsLoadingItems] = useState<boolean>(false);
   const [itemsError, setItemsError] = useState<string | null>(null);
+  
+  // Result state for autonomous learning triggered from UI
   const [latestAutonomousResult, setLatestAutonomousResult] =
     useState<AutonomousLearningResult | null>(null);
+    
+  // Memory volume statistics
   const [stats, setStats] = useState<MemoryStats>({
     total_knowledge_facts: 0,
     total_experiences: 0,
   });
 
+  /**
+   * Fetches the latest memory counts from Gateway REST API.
+   */
   const fetchMemoryStats = async () => {
     try {
       const response = await fetch(`${GATEWAY_URL}/api/memory-stats`);
@@ -48,6 +76,9 @@ export default function App() {
     }
   };
 
+  /**
+   * Fetches stored memory items (knowledge and experiences) from Gateway REST API.
+   */
   const fetchLearnedItems = async () => {
     setIsLoadingItems(true);
     setItemsError(null);
@@ -66,16 +97,21 @@ export default function App() {
     }
   };
 
+  /**
+   * Establishes Socket.IO event listeners for real-time memory and chat updates.
+   */
   useEffect(() => {
     fetchMemoryStats();
     fetchLearnedItems();
     const newSocket = io(GATEWAY_URL);
     setSocket(newSocket);
 
+    // Agent status notification event
     newSocket.on('agent_status', (data: { status: string }) => {
       setStatus(data.status);
     });
 
+    // Final agent chat response event
     newSocket.on('agent_response', (data: AICoreChatResponse) => {
       setIsProcessing(false);
       setStatus('Đang tiêu hóa tri thức vào Qdrant...');
@@ -92,14 +128,14 @@ export default function App() {
       setTraces(data.reasoning_trace);
     });
 
-    // Cập nhật realtime từ Socket.IO ngay khi Qdrant có thay đổi
+    // Real-time memory update event broadcasted from Gateway
     newSocket.on('memory_updated', (data: { stats: MemoryStats; items: LearnedMemoryItem[] }) => {
       setStats(data.stats);
       setLearnedItems(data.items);
       setStatus('Bộ nhớ Qdrant & danh sách tri thức đã được cập nhật realtime!');
     });
 
-    // Tách riêng luồng Tự học chủ động: Không in vào khung chat mà lưu vào panel bên phải
+    // Dedicated autonomous learning completion event
     newSocket.on('autonomous_learned', (data: { topic: string; summary: string }) => {
       setIsProcessing(false);
       setLatestAutonomousResult({
@@ -110,6 +146,7 @@ export default function App() {
       setStatus(`Đã tự học xong chủ đề: "${data.topic}"!`);
     });
 
+    // Error handler event
     newSocket.on('agent_error', (data: { error: string }) => {
       setIsProcessing(false);
       setStatus(`Lỗi: ${data.error}`);
@@ -120,6 +157,9 @@ export default function App() {
     };
   }, []);
 
+  /**
+   * Submits user message to the Gateway via Socket.IO.
+   */
   const handleSendMessage = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!input.trim() || !socket || isProcessing) return;
@@ -137,6 +177,9 @@ export default function App() {
     setInput('');
   };
 
+  /**
+   * Manually triggers immediate autonomous learning for a specific topic.
+   */
   const handleTriggerAutonomousLearn = () => {
     if (!learnTopic.trim() || !socket || isProcessing) return;
     setIsProcessing(true);
@@ -144,6 +187,9 @@ export default function App() {
     setLearnTopic('');
   };
 
+  /**
+   * Generates a fresh session ID, clearing short-term chat feed while preserving long-term memory.
+   */
   const handleNewSession = () => {
     const newId = `session_${Math.random().toString(36).substring(2, 7)}`;
     setSessionId(newId);

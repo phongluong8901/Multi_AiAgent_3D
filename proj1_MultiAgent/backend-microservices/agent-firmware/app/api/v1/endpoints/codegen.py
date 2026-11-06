@@ -12,5 +12,8 @@ def generate_firmware(
     req: GenerateFirmwareRequest,
     db: Session = Depends(get_db),
 ):
+    """
+    Sinh mã nguồn nhúng C++/Arduino (.ino) hoặc Python (.py) cho thiết bị phần cứng.
+    Tự động nhúng cấu hình WiFi/BLE, endpoint API Gateway, logic điều khiển động cơ và ghi nhận lịch sử vào Neon PostgreSQL.
+    """
     return device_service.generate_and_log_firmware(db, req)
-

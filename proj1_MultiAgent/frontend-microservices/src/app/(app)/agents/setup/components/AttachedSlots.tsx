@@ -4,15 +4,27 @@ import { useDroppable } from '@dnd-kit/core'
 import type { Prompt, Tool, AIModel } from '@/lib/api'
 import { IconX } from '@/components/ui/icons'
 
+/**
+ * Thuộc tính đầu vào cho khu vực hiển thị các khe cắm thành phần đã gắn vào Agent (AttachedSlots).
+ */
 type Props = {
+    /** System Prompt đang gắn ở phần Đầu (Head) */
     prompt: Prompt | null
+    /** Danh sách công cụ đang gắn ở phần Cánh tay (Arms) */
     tools: Tool[]
+    /** Mô hình LLM đang gắn ở phần Lõi ngực (Core) */
     model: AIModel | null
+    /** Gỡ bỏ System Prompt hiện tại */
     onRemovePrompt: () => void
+    /** Gỡ bỏ một công cụ theo ID */
     onRemoveTool: (id: string) => void
+    /** Gỡ bỏ mô hình AI hiện tại */
     onRemoveModel: () => void
 }
 
+/**
+ * Khe thả (Droppable Slot) đại diện cho từng bộ phận trên cơ thể Robot (Head, Arms, Core).
+ */
 function Slot({
     id,
     label,

@@ -1,3 +1,9 @@
+/**
+ * Gateway Service HTTP & WebSocket Server.
+ * Serves as the central API gateway and real-time Socket.IO coordinator
+ * bridging frontend dashboards, scheduled learning cron jobs, and the AI Core Service.
+ */
+
 import express, { Request, Response } from "express";
 import http from "http";
 import { Server, Socket } from "socket.io";
@@ -12,10 +18,12 @@ import {
   MemoryStats,
 } from "./types";
 
+// Initialize Express application and global middleware
 const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Create HTTP server and mount Socket.IO server with type-safe event signatures
 const server = http.createServer(app);
 const io = new Server<ClientToServerEvents, ServerToClientEvents>(server, {
   cors: { origin: "*" },
@@ -24,7 +32,12 @@ const io = new Server<ClientToServerEvents, ServerToClientEvents>(server, {
 const AI_CORE_URL = process.env.AI_CORE_URL || "http://localhost:8000";
 const PORT = process.env.PORT || 4000;
 
-// Helper: Lấy dữ liệu bộ nhớ mới nhất từ AI Core và bắn Socket.IO realtime cho tất cả clients
+/**
+ * Fetches updated memory statistics and active memory items from AI Core Service
+ * and broadcasts them via Socket.IO to all connected client dashboards.
+ *
+ * @returns Object with stats and items, or null on failure.
+ */
 async function broadcastMemoryUpdated() {
   try {
     const [statsRes, itemsRes] = await Promise.all([
@@ -42,7 +55,9 @@ async function broadcastMemoryUpdated() {
   }
 }
 
-// Webhook nội bộ từ AI Core khi tiến trình tự học ngầm hoàn tất
+/**
+ * Internal webhook endpoint invoked by AI Core background worker upon completing memory digestion.
+ */
 app.post("/api/internal/memory-updated", async (_req: Request, res: Response) => {
   const result = await broadcastMemoryUpdated();
   if (result) {
@@ -52,6 +67,9 @@ app.post("/api/internal/memory-updated", async (_req: Request, res: Response) =>
   }
 });
 
+/**
+ * Endpoint to trigger manual memory consolidation and pruning in AI Core.
+ */
 app.post("/api/memory-consolidation", async (_req: Request, res: Response) => {
   try {
     const response = await axios.post(`${AI_CORE_URL}/api/v1/memory-consolidation`);
@@ -62,7 +80,9 @@ app.post("/api/memory-consolidation", async (_req: Request, res: Response) => {
   }
 });
 
-// REST Proxy để Frontend lấy dữ liệu ban đầu
+/**
+ * REST proxy: Retrieves current memory statistics.
+ */
 app.get("/api/memory-stats", async (_req: Request, res: Response) => {
   try {
     const response = await axios.get<MemoryStats>(
@@ -74,6 +94,9 @@ app.get("/api/memory-stats", async (_req: Request, res: Response) => {
   }
 });
 
+/**
+ * REST proxy: Retrieves active declarative knowledge base items.
+ */
 app.get("/api/memory-knowledge", async (req: Request, res: Response) => {
   try {
     const response = await axios.get(`${AI_CORE_URL}/api/v1/memory-knowledge`, {
@@ -85,6 +108,9 @@ app.get("/api/memory-knowledge", async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * REST proxy: Retrieves merged memory items (knowledge + experiences).
+ */
 app.get("/api/memory-items", async (req: Request, res: Response) => {
   try {
     const response = await axios.get(`${AI_CORE_URL}/api/v1/memory-items`, {
@@ -96,7 +122,11 @@ app.get("/api/memory-items", async (req: Request, res: Response) => {
   }
 });
 
-// Knowledge Synthesis Engine Endpoints
+// --- Knowledge Synthesis Engine REST Proxies ---
+
+/**
+ * Triggers multi-hop synthesis workflow on AI Core Service.
+ */
 app.post("/api/synthesis/run-multihop", async (req: Request, res: Response) => {
   try {
     const response = await axios.post(
@@ -112,6 +142,9 @@ app.post("/api/synthesis/run-multihop", async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * Triggers sleep phase discovery (abductive synthesis across stored memories).
+ */
 app.post("/api/synthesis/sleep-phase-discovery", async (_req: Request, res: Response) => {
   try {
     const response = await axios.post(
@@ -126,6 +159,9 @@ app.post("/api/synthesis/sleep-phase-discovery", async (_req: Request, res: Resp
   }
 });
 
+/**
+ * Retrieves tiered memory statistics from AI Core.
+ */
 app.get("/api/synthesis/tiered-stats", async (_req: Request, res: Response) => {
   try {
     const response = await axios.get(`${AI_CORE_URL}/api/v1/synthesis/tiered-stats`);
@@ -135,6 +171,9 @@ app.get("/api/synthesis/tiered-stats", async (_req: Request, res: Response) => {
   }
 });
 
+/**
+ * Retrieves Tier 3 synthesized knowledge insights.
+ */
 app.get("/api/synthesis/insights", async (req: Request, res: Response) => {
   try {
     const response = await axios.get(`${AI_CORE_URL}/api/v1/synthesis/insights`, {
@@ -146,6 +185,9 @@ app.get("/api/synthesis/insights", async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * Retrieves Tier 2 concept relational bridges.
+ */
 app.get("/api/synthesis/bridges", async (req: Request, res: Response) => {
   try {
     const response = await axios.get(`${AI_CORE_URL}/api/v1/synthesis/bridges`, {
@@ -157,6 +199,9 @@ app.get("/api/synthesis/bridges", async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * Retrieves Negative Knowledge Memory (falsified hypotheses).
+ */
 app.get("/api/synthesis/falsified", async (req: Request, res: Response) => {
   try {
     const response = await axios.get(`${AI_CORE_URL}/api/v1/synthesis/falsified`, {
@@ -168,6 +213,9 @@ app.get("/api/synthesis/falsified", async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * Executes code benchmark scripts in the sandbox via AI Core proxy.
+ */
 app.post("/api/synthesis/run-sandbox", async (req: Request, res: Response) => {
   try {
     const response = await axios.post(
@@ -180,16 +228,16 @@ app.post("/api/synthesis/run-sandbox", async (req: Request, res: Response) => {
   }
 });
 
-// Quản lý kết nối Realtime Socket.IO với Type-Safety
+// Real-time Socket.IO Connection Handler
 io.on(
   "connection",
   (socket: Socket<ClientToServerEvents, ServerToClientEvents>) => {
     console.log(`[Gateway TS] Client connected: ${socket.id}`);
 
-    // Gửi dữ liệu bộ nhớ realtime ngay khi client kết nối
+    // Deliver initial memory state immediately upon client connection
     broadcastMemoryUpdated();
 
-    // 1. Khi người dùng chat
+    // 1. Interactive chat message from client
     socket.on("user_message", async (payload: UserMessagePayload) => {
       const { sessionId, message } = payload;
       socket.emit("agent_status", {
@@ -212,7 +260,7 @@ io.on(
       }
     });
 
-    // 2. Khi người dùng bấm nút ép AI tự đi học chủ đề mới ngay lập tức trên UI
+    // 2. Manual trigger from client dashboard for autonomous learning
     socket.on("trigger_learn_now", async ({ topic }) => {
       socket.emit("agent_status", {
         status: `Đang tự nghiên cứu chủ đề: "${topic}"...`,
@@ -225,7 +273,7 @@ io.on(
           topic: res.data.topic,
           summary: res.data.summary,
         });
-        // Bắn Socket.IO cập nhật ngay bộ nhớ & danh sách tri thức
+        // Synchronize updated memory state across all active dashboards
         await broadcastMemoryUpdated();
       } catch (error: any) {
         socket.emit("agent_error", { error: error.message });
@@ -234,7 +282,10 @@ io.on(
   },
 );
 
-// CRONJOB CHỦ ĐỘNG TỰ HỌC: Chạy mỗi 6 tiếng
+/**
+ * Autonomous Learning Cron Job.
+ * Periodically triggers exploratory learning on predetermined architectural topics every 6 hours.
+ */
 cron.schedule("0 */6 * * *", async () => {
   const topicsToExplore = [
     "LangGraph multi-agent architecture best practices",
@@ -259,6 +310,8 @@ cron.schedule("0 */6 * * *", async () => {
   }
 });
 
+// Start HTTP and WebSocket listener
 server.listen(PORT, () => {
   console.log(`[Gateway TS] Service running on port ${PORT}`);
 });
+

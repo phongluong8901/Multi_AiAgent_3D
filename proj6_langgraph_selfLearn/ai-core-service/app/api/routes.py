@@ -1,6 +1,12 @@
-# File: ai-core-service/app/api/routes.py
+"""
+FastAPI HTTP REST API Route Definitions for AI Core Service.
+Exposes conversational chat with background learning, autonomous research triggers,
+memory inspection/consolidation endpoints, multi-hop knowledge synthesis,
+offline sleep-phase discovery, tiered statistics, and isolated sandbox code execution.
+"""
+
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from ..agent.graph import agent_graph
 from ..agent.synthesis_graph import synthesis_graph
 from ..agent.learner import background_continual_learning
@@ -9,20 +15,36 @@ from ..memory.long_term import long_memory
 router = APIRouter()
 
 class ChatRequest(BaseModel):
-    session_id: str
-    message: str
+    """
+    Payload for interactive conversational queries.
+    """
+    session_id: str = Field(description="Unique conversation session identifier")
+    message: str = Field(description="User message or query")
 
 class AutonomousLearnRequest(BaseModel):
-    topic: str
+    """
+    Payload for autonomous topical exploration triggered by background schedulers.
+    """
+    topic: str = Field(description="Domain topic to autonomously investigate")
 
 class SynthesisQueryRequest(BaseModel):
-    query: str
+    """
+    Payload for complex multi-hop research queries requiring deep synthesis.
+    """
+    query: str = Field(description="Complex research query to decompose and synthesize")
 
 class SandboxRunRequest(BaseModel):
-    code: str
+    """
+    Payload for executing standalone benchmark scripts in the sandbox.
+    """
+    code: str = Field(description="Python source code to execute inside the sandbox")
 
 @router.post("/chat")
 async def chat_endpoint(req: ChatRequest, background_tasks: BackgroundTasks):
+    """
+    Processes chat queries through the LangGraph cognitive loop (recall -> evaluate -> search -> synthesize -> critique).
+    Schedules asynchronous continual learning in the background to digest conversation insights.
+    """
     initial_state = {
         "session_id": req.session_id,
         "query": req.message,
@@ -30,7 +52,7 @@ async def chat_endpoint(req: ChatRequest, background_tasks: BackgroundTasks):
     }
     
     try:
-        # Chạy luồng LangGraph
+        # Execute the compiled LangGraph cognitive workflow
         result = await agent_graph.ainvoke(initial_state)
     except Exception as e:
         error_msg = str(e)
@@ -44,7 +66,7 @@ async def chat_endpoint(req: ChatRequest, background_tasks: BackgroundTasks):
             detail=f"Lỗi xử lý tại AI Core: {error_msg}"
         )
     
-    # Kích hoạt tiến trình Tự Học chạy ngầm (Không làm chậm phản hồi của User)
+    # Enqueue background continual learning without blocking client response
     background_tasks.add_task(
         background_continual_learning,
         req.session_id,
@@ -63,7 +85,9 @@ async def chat_endpoint(req: ChatRequest, background_tasks: BackgroundTasks):
 
 @router.post("/autonomous-learn")
 async def trigger_autonomous_learning(req: AutonomousLearnRequest, background_tasks: BackgroundTasks):
-    """Endpoint để Node.js Cronjob gọi định kỳ giúp AI tự nghiên cứu chủ đề mới"""
+    """
+    Endpoint triggered by scheduled background jobs to perform self-directed research on novel topics.
+    """
     query = f"Tìm hiểu các thông tin, cập nhật hoặc xu hướng mới nhất về: {req.topic}"
     try:
         result = await agent_graph.ainvoke({"session_id": "system_cron", "query": query, "reasoning_trace": []})
@@ -81,27 +105,42 @@ async def trigger_autonomous_learning(req: AutonomousLearnRequest, background_ta
 
 @router.post("/memory-consolidation")
 async def trigger_memory_consolidation():
-    """Kích hoạt tiến trình dọn dẹp và nén tri thức (Memory Consolidation / Sleep Phase)"""
+    """
+    Triggers maintenance cycle to purge deprecated/superseded memories and optimize indices.
+    """
     result = long_memory.consolidate_memory()
     return result
 
 @router.get("/memory-stats")
 async def memory_stats():
+    """
+    Returns aggregate counts of stored knowledge facts and procedural experiences.
+    """
     return long_memory.get_stats()
 
 @router.get("/memory-knowledge")
 async def memory_knowledge(limit: int = Query(default=100, ge=1, le=500)):
+    """
+    Retrieves active declarative knowledge facts from Qdrant vector database.
+    """
     return {"items": long_memory.list_knowledge(limit=limit)}
 
 @router.get("/memory-items")
 async def memory_items(limit: int = Query(default=100, ge=1, le=500)):
+    """
+    Returns unified chronological memory stream merging knowledge facts and experiences.
+    """
     return {"items": long_memory.list_memory_items(limit=limit)}
 
 # --- Knowledge Synthesis Engine Endpoints ---
 
 @router.post("/synthesis/run-multihop")
 async def run_multihop_synthesis(req: SynthesisQueryRequest):
-    """Thực thi Agentic Multi-Hop Reasoning qua LangGraph Synthesis Graph"""
+    """
+    Executes 5-stage Multi-Hop Knowledge Synthesis pipeline via LangGraph:
+    decomposes queries, gathers evidence across hops, discovers conceptual bridges,
+    derives new laws, and executes empirical sandbox verification before write-back.
+    """
     try:
         initial_state = {
             "complex_query": req.query,
@@ -109,7 +148,7 @@ async def run_multihop_synthesis(req: SynthesisQueryRequest):
         }
         result = await synthesis_graph.ainvoke(initial_state)
         
-        # Đồng bộ hóa tất cả các trường dữ liệu cho Frontend
+        # Synchronize response fields for frontend consumption
         sub_q = result.get("sub_queries", [])
         init_h = result.get("initial_hypothesis", "")
         new_law = result.get("new_law_or_insight", "")
@@ -153,7 +192,10 @@ async def run_multihop_synthesis(req: SynthesisQueryRequest):
 
 @router.post("/synthesis/sleep-phase-discovery")
 async def trigger_sleep_phase_discovery():
-    """Kích hoạt tiến trình Giấc mơ AI (Sleep Phase Discovery): Gom cụm & Suy luận Thoái quy (Abductive Synthesis)"""
+    """
+    Triggers offline sleep-phase discovery and abductive knowledge synthesis
+    to infer emergent patterns across disparate stored facts.
+    """
     try:
         result = long_memory.run_sleep_phase_discovery()
         return result
@@ -165,26 +207,38 @@ async def trigger_sleep_phase_discovery():
 
 @router.get("/synthesis/tiered-stats")
 async def get_tiered_stats():
-    """Lấy thống kê dữ liệu phân tầng: Tier 1 (Raw), Tier 2 (Bridge), Tier 3 (Synthesized)"""
+    """
+    Retrieves statistics broken down by tiered memory hierarchy:
+    Tier 1 (Raw), Tier 2 (Bridge), Tier 3 (Synthesized), and Negative Memory.
+    """
     return long_memory.get_tiered_stats()
 
 @router.get("/synthesis/insights")
 async def list_synthesized_insights(limit: int = Query(default=50, ge=1, le=200)):
-    """Danh sách các định luật / tri thức mới được sinh ra từ Tier 3"""
+    """
+    Returns list of verified Tier 3 synthesized knowledge insights with simulation logs.
+    """
     return {"insights": long_memory.list_synthesized_insights(limit=limit)}
 
 @router.get("/synthesis/bridges")
 async def list_concept_bridges(limit: int = Query(default=50, ge=1, le=200)):
-    """Danh sách các cầu nối khái niệm thuộc Tier 2 (Graph triplets)"""
+    """
+    Returns list of relational concept bridges in Tier 2.
+    """
     return {"bridges": long_memory.list_concept_bridges(limit=limit)}
 
 @router.get("/synthesis/falsified")
 async def list_falsified_hypotheses(limit: int = Query(default=50, ge=1, le=200)):
-    """Danh sách Tri thức Phủ định / Giả thuyết bị Bác bỏ qua Sandbox (Negative Knowledge Memory)"""
+    """
+    Returns list of refuted negative knowledge hypotheses that failed empirical verification.
+    """
     return {"falsified": long_memory.list_falsified_hypotheses(limit=limit)}
 
 @router.post("/synthesis/run-sandbox")
 async def run_sandbox_code(req: SandboxRunRequest):
-    """Thực thi mã kiểm nghiệm độc lập trong Sandbox cô lập"""
+    """
+    Executes test code directly inside the isolated execution sandbox.
+    """
     from ..tools.sandbox import execute_code_sandbox
     return execute_code_sandbox(req.code)
+

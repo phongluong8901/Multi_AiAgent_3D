@@ -1,3 +1,9 @@
+/**
+ * Thanh chuyển đổi Tab trên vùng làm việc chính (TabBar Component):
+ * - Hiển thị danh sách các tab đang mở với biểu tượng tương ứng theo từng loại màn hình.
+ * - Cho phép chuyển đổi tab kích hoạt và bấm nút X để đóng tab.
+ */
+
 import { X, Workflow, Server, LineChart, Activity, ShieldAlert, Sparkles } from 'lucide-react';
 import { useWorkbenchStore } from '../../stores/useWorkbenchStore';
 
@@ -18,6 +24,7 @@ export function TabBar() {
                                 : 'bg-zinc-900/50 text-zinc-400 border-transparent hover:bg-zinc-800/60 hover:text-zinc-200'
                         }`}
                     >
+                        {/* Biểu tượng đại diện theo từng loại tab */}
                         {tab.type === 'dashboard-metrics' ? (
                             <LineChart className="w-3.5 h-3.5 text-blue-400" />
                         ) : tab.type === 'process-chart' ? (
@@ -32,6 +39,8 @@ export function TabBar() {
                             <Server className="w-3.5 h-3.5 text-amber-400" />
                         )}
                         <span className="max-w-[160px] truncate">{tab.title}</span>
+
+                        {/* Nút đóng tab (chỉ hiển thị nếu còn nhiều hơn 1 tab) */}
                         {tabs.length > 1 && (
                             <button
                                 onClick={(e) => {

@@ -24,12 +24,13 @@ import {
 import RobotCanvas, { AgentFormType } from './components/RobotCanvas'
 import Link from 'next/link'
 import { agentBodiesApi, CloudAgentBody } from '@/lib/api/agentBodies'
-import { IconDuck, IconAmr, IconDrone, IconHumanoid, IconBot } from '@/components/ui/icons'
+import { IconDuck, IconAmr, IconDrone, IconHumanoid, IconBot, IconExternalLink } from '@/components/ui/icons'
 import PromptPalette from './components/PromptPalette'
 import ToolsPalette from './components/ToolsPalette'
 import ModelPalette from './components/ModelPalette'
 import AttachedSlots from './components/AttachedSlots'
 
+/** Danh sách bảng màu sơn ngoại thất Robot tiêu chuẩn */
 const COLOR_PRESETS = [
     { label: 'MicroDuck Blue', hex: '#7dd3fc' },
     { label: 'Duck Beak Orange', hex: '#f97316' },
@@ -41,6 +42,7 @@ const COLOR_PRESETS = [
     { label: 'Titanium White', hex: '#e2e8f0' },
 ]
 
+/** Màu nhận diện đặc trưng theo từng hình thái khung gầm Robot (Chassis) */
 const FORM_SIGNATURE_COLORS: Record<AgentFormType, string> = {
     humanoid: '#76b900',
     duck: '#7dd3fc',
@@ -49,10 +51,15 @@ const FORM_SIGNATURE_COLORS: Record<AgentFormType, string> = {
     custom: '#a855f7',
 }
 
+/**
+ * Trang Khởi tạo AI Agent 3D Studio (`/agents/setup`).
+ * Cho phép thiết lập hình thái Robot (GR00T, MicroDuck, Nova Carter, Cyber Falcon, Custom URDF)
+ * và kéo-thả Prompt, Tools, LLM Model (bao gồm mô hình thuê từ Seller P2P qua query `?model=`).
+ */
 export default function SetupAgentPage() {
     const router = useRouter()
 
-    // Basic info
+    // Thông tin định danh & ngoại hình cơ bản
     const [id, setId] = useState('')
     const [name, setName] = useState('')
     const [color, setColor] = useState('#76b900')
@@ -60,34 +67,42 @@ export default function SetupAgentPage() {
     const [bodyId, setBodyId] = useState<string | null>(null)
     const [customBodies, setCustomBodies] = useState<CloudAgentBody[]>([])
 
-    // Attached configs
+    // Cấu hình đính kèm (Prompt, Tools, Model)
     const [promptId, setPromptId] = useState<string | null>(null)
     const [selectedTools, setSelectedTools] = useState<string[]>([])
     const [modelId, setModelId] = useState<string | null>('gemini-3.5-flash-lite')
 
-    // Data from API
+    // Dữ liệu danh mục từ API
     const [prompts, setPrompts] = useState<Prompt[]>([])
     const [tools, setTools] = useState<Tool[]>([])
     const [models, setModels] = useState<AIModel[]>([])
 
-    // UI state
+    // Trạng thái giao diện
     const [error, setError] = useState('')
     const [loading, setLoading] = useState(false)
     const [loadingMeta, setLoadingMeta] = useState(true)
     const [activeDrag, setActiveDrag] = useState<any>(null)
 
-    // Load meta data
+    // Tải danh mục Prompts, Tools, Models và kiểm tra tham số `?model=` trên URL
     useEffect(() => {
+        if (typeof window !== 'undefined') {
+            const urlModel = new URLSearchParams(window.location.search).get('model')
+            if (urlModel) {
+                setModelId(urlModel)
+            }
+        }
+
         Promise.all([promptsApi.list(), toolsApi.list(), listModels()])
             .then(([p, t, m]) => {
                 setPrompts(p ?? [])
                 setTools(t ?? [])
                 setModels(m ?? [])
             })
-            .catch((err) => console.error(err))
+            .catch((err) => console.error('[ERROR] [SetupAgentPage] Lỗi tải dữ liệu meta:', err))
             .finally(() => setLoadingMeta(false))
 
-        agentBodiesApi.getBodies()
+        agentBodiesApi
+            .getBodies()
             .then((res) => {
                 if (res?.data && res.data.length > 0) {
                     setCustomBodies(res.data)
@@ -97,7 +112,7 @@ export default function SetupAgentPage() {
             .catch(() => {})
     }, [])
 
-    // DnD sensors
+    // Cấu hình cảm biến kéo-thả (Drag & Drop)
     const sensors = useSensors(
         useSensor(PointerSensor, {
             activationConstraint: { distance: 6 },
@@ -108,6 +123,7 @@ export default function SetupAgentPage() {
         setActiveDrag(event.active.data.current)
     }
 
+    /** Xử lý khi người dùng thả thẻ Prompt, Tool hoặc Model vào các ô Slot */
     function handleDragEnd(event: DragEndEvent) {
         setActiveDrag(null)
         const { over, active } = event
@@ -116,25 +132,22 @@ export default function SetupAgentPage() {
         const data = active.data.current
         if (!data) return
 
-        // Drop vào slot Prompt
         if (over.id === 'slot-prompt' && data.type === 'prompt') {
             setPromptId(data.item.id)
         }
 
-        // Drop vào slot Tools (có thể gắn nhiều)
         if (over.id === 'slot-tools' && data.type === 'tool') {
             setSelectedTools((prev) =>
                 prev.includes(data.item.id) ? prev : [...prev, data.item.id]
             )
         }
 
-        // Drop vào slot Model
         if (over.id === 'slot-model' && data.type === 'model') {
             setModelId(data.item.id)
         }
     }
 
-    // Derived data
+    // Dữ liệu dẫn xuất hiển thị trong các ô AttachedSlots
     const currentPrompt = prompts.find((p) => p.id === promptId) || null
     const currentTools = tools.filter((t) => selectedTools.includes(t.id))
     const currentModel: AIModel | null =
@@ -152,7 +165,9 @@ export default function SetupAgentPage() {
               }
             : null)
 
-    // Submit
+    /**
+     * Khởi tạo Agent mới trên `agent-service` và tự động liên kết phiên thuê P2P nếu chọn mô hình `rented:`.
+     */
     async function handleSubmit(e: React.FormEvent) {
         e.preventDefault()
         setError('')
@@ -185,17 +200,17 @@ export default function SetupAgentPage() {
                 body_id: agentForm === 'custom' ? bodyId : undefined,
             })
 
-            // Nếu chọn mô hình thuê từ Seller, gán tự động vào phiên thuê
+            // Nếu chọn mô hình thuê từ Seller P2P, tự động gán Agent vào phiên thuê
             if (chosenModel.startsWith('rented:')) {
                 const rentalId = chosenModel.replace('rented:', '')
                 try {
                     await ownerApi.bindAgent(rentalId, agentId, name.trim())
                 } catch (e) {
-                    console.warn('[RENTAL_BIND] Khong the gan rental cho agent:', e)
+                    console.warn('[WARN] [RENTAL_BIND] Không thể gán phiên thuê cho agent:', e)
                 }
             }
 
-            // Lưu model & form preference phía client để backup
+            // Lưu cấu hình dự phòng phía client và phát sự kiện đồng bộ
             if (typeof window !== 'undefined') {
                 localStorage.setItem(`agent_model:${agentId}`, chosenModel)
                 localStorage.setItem(`agent_form:${agentId}`, agentForm)
@@ -235,7 +250,7 @@ export default function SetupAgentPage() {
                         <h1 className="text-xl font-bold tracking-tight text-white">NVIDIA Isaac Robotics Studio · Agent Setup</h1>
                     </div>
                     <p className="text-xs text-zinc-400 mt-1">
-                        Cấu hình phần cứng Robot (Project GR00T, MicroDuck Orin, Nova Carter AMR, Cyber Falcon) tích hợp Tensor Core Model, Prompt & Tools.
+                        Cấu hình phần cứng Robot (Project GR00T, MicroDuck Orin, Nova Carter AMR, Cyber Falcon) tích hợp Tensor Core Model, Prompt &amp; Tools.
                     </p>
                 </div>
                 <div className="hidden sm:flex items-center gap-2 text-xs font-mono text-zinc-500">
@@ -272,7 +287,6 @@ export default function SetupAgentPage() {
 
                     {/* ===== CENTER: Robot + Slots + Form ===== */}
                     <div className="space-y-4">
-                        {/* 3D Robot */}
                         <RobotCanvas
                             promptId={promptId}
                             toolCount={selectedTools.length}
@@ -284,7 +298,6 @@ export default function SetupAgentPage() {
                             onFormChange={setAgentForm}
                         />
 
-                        {/* Attached slots (drop zones) */}
                         <AttachedSlots
                             prompt={currentPrompt}
                             tools={currentTools}
@@ -328,7 +341,6 @@ export default function SetupAgentPage() {
                                                 onClick={() => {
                                                     const nextForm = f.id as AgentFormType
                                                     setAgentForm(nextForm)
-                                                    // Cập nhật màu signature nếu chưa đổi màu custom
                                                     if (Object.values(FORM_SIGNATURE_COLORS).includes(color) || color === '#4299e1') {
                                                         setColor(FORM_SIGNATURE_COLORS[nextForm])
                                                     }
@@ -376,7 +388,7 @@ export default function SetupAgentPage() {
                                             className="text-[11px] font-semibold text-purple-300 hover:text-white px-2.5 py-1 rounded-lg bg-purple-900/40 border border-purple-500/30 hover:bg-purple-800/50 transition flex items-center gap-1"
                                         >
                                             <span>Mở Body Studio thiết kế</span>
-                                            <span>↗</span>
+                                            <IconExternalLink className="w-3 h-3" />
                                         </Link>
                                     </div>
 
@@ -395,7 +407,7 @@ export default function SetupAgentPage() {
                                                 )}
                                                 {customBodies.map((b) => (
                                                     <option key={b.bodyId} value={b.bodyId}>
-                                                        {b.name} ({b.joints?.filter(j => j.type !== 'fixed')?.length || 0} DOF / {b.category})
+                                                        {b.name} ({b.joints?.filter((j) => j.type !== 'fixed')?.length || 0} DOF / {b.category})
                                                     </option>
                                                 ))}
                                             </select>
@@ -442,7 +454,7 @@ export default function SetupAgentPage() {
 
                             {/* Color Theme & Swatches */}
                             <div>
-                                <label className="block text-xs text-zinc-400 mb-1.5">Color Theme (Màu sơn ngoại thất & Led)</label>
+                                <label className="block text-xs text-zinc-400 mb-1.5">Color Theme (Màu sơn ngoại thất &amp; Led)</label>
                                 <div className="flex items-center flex-wrap gap-2">
                                     <div className="flex items-center gap-2 pr-2 border-r border-zinc-800">
                                         <input
@@ -458,7 +470,7 @@ export default function SetupAgentPage() {
                                             const isSelectedColor = color.toLowerCase() === p.hex.toLowerCase()
                                             return (
                                                 <button
-                                                    key={p.hex}
+                                                    key={p.label}
                                                     type="button"
                                                     title={p.label}
                                                     onClick={() => setColor(p.hex)}

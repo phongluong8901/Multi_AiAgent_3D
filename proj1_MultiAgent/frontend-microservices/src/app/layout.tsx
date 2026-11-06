@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { GoogleOAuthProvider } from '@react-oauth/google';
 import { Toaster } from "sonner"
@@ -7,15 +6,9 @@ import { ConfirmProvider } from "@/context/ConfirmContext"
 import { ThemeProvider } from "@/context/ThemeContext"
 import { LanguageProvider } from "@/context/LanguageContext"
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
+// Resilient font variable fallback compatible with both offline and cloud CI builds
+const geistSans = { variable: "font-sans" };
+const geistMono = { variable: "font-mono" };
 
 export const metadata: Metadata = {
   title: "Multi-Agent OS",
@@ -30,6 +23,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <head>
+        <link rel="stylesheet" href="/leaflet/leaflet.css" />
         <script
           dangerouslySetInnerHTML={{
             __html: `(function(){try{var t=localStorage.getItem('app-theme')||'dark';var r=document.documentElement;if(t==='system'){t=window.matchMedia('(prefers-color-scheme: light)').matches?'light':'dark';}r.classList.remove('dark','light','theme-cyberpunk');if(t==='dark'){r.classList.add('dark');r.style.colorScheme='dark';}else if(t==='cyberpunk'){r.classList.add('dark','theme-cyberpunk');r.style.colorScheme='dark';}else{r.classList.add('light');r.style.colorScheme='light';}}catch(e){}})();`,

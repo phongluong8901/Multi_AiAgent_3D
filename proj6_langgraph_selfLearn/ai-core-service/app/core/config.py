@@ -1,23 +1,39 @@
+"""
+Module cau hinh he thong cho AI Core Service (`config.py`).
+Quan ly bien moi truong, API Keys (Google Gemini, Tavily), ket noi Redis, Qdrant Vector DB, va LangSmith tracing.
+"""
+
 import os
 from typing import Optional
 from dotenv import load_dotenv
 from pydantic_settings import BaseSettings
 
-# Load .env into os.environ for LangSmith / LangChain tracing auto-detection
+# Load .env vao os.environ de tu dong phat hien LangSmith / LangChain tracing
 load_dotenv()
 
+
 class Settings(BaseSettings):
+    """
+    Lop Settings cau hinh ung dung Pydantic:
+    - GOOGLE_API_KEY: Khoa API truy cap mo hinh Google Gemini
+    - REDIS_URL: Dia chi ket noi Redis phuc vu bo nho ngan han (Short-term Memory)
+    - QDRANT_URL / QDRANT_API_KEY: Dia chi Vector Database phuc vu bo nho dai han (Long-term Memory)
+    - GATEWAY_INTERNAL_URL: Endpoint Webhook noi bo goi sang Gateway Service
+    - FAST_MODEL / EMBEDDING_MODEL: Mo hinh LLM suy luan va Text Embedding
+    - TAVILY_API_KEY: API tim kiem web
+    - LangSmith Tracing configurations
+    """
     GOOGLE_API_KEY: str
     REDIS_URL: str = "redis://localhost:6379/0"
-    
-    # Qdrant (Hỗ trợ cả Local Docker và Qdrant Cloud)
+
+    # Qdrant (Ho tro ca Local Docker va Qdrant Cloud)
     QDRANT_URL: str = "http://localhost:6333"
     QDRANT_API_KEY: Optional[str] = None
-    
-    # Gateway URL (để AI Core gửi webhook kích hoạt Socket.IO realtime)
+
+    # Gateway URL (de AI Core gui webhook kich hoat Socket.IO realtime)
     GATEWAY_INTERNAL_URL: str = "http://gateway:4000"
 
-    # Models (gemini-3.5-flash-lite có hạn mức 500 requests/ngày)
+    # Models (gemini-3.5-flash-lite toi uu chi phi va toc do)
     FAST_MODEL: str = "gemini-3.5-flash-lite"
     EMBEDDING_MODEL: str = "models/gemini-embedding-001"
     EMBEDDING_DIM: int = 768
@@ -38,5 +54,6 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         extra = "ignore"
+
 
 settings = Settings()

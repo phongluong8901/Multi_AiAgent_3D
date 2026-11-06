@@ -15,6 +15,13 @@ import { TerminalLog } from './components/TerminalLog';
 const customWindow = window as WindowWithElectron;
 const ipcRenderer = customWindow.require ? customWindow.require('electron').ipcRenderer : null;
 
+/**
+ * Component goc cua Worker Client Desktop Application (Electron / React):
+ * - Quan ly ket noi IPC voi Electron Main Process
+ * - Hien thi trang thai phan cung, thong ke token va vi tri dia ly tren ban do
+ * - Cung cap cac thao tac dieu khien tien trinh Worker (Khoi dong / Tam dung / Do do tre ping)
+ * - Dieu chinh cau hinh thue chia se GPU/CPU trong ConfigTab
+ */
 export default function App() {
   const [wsStatus, setWsStatus] = useState('Connecting...');
   const [logs, setLogs] = useState<string[]>([]);

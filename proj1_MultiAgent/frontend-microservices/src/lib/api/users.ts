@@ -1,7 +1,10 @@
 import { request, API_BASE } from '../client'
 import { getToken, getUser } from '@/lib/auth'
-import type { HardwareReport } from './hardware' // 👈 Import type từ hardware.ts
+import type { HardwareReport } from './hardware'
 
+/**
+ * Thông tin hồ sơ người dùng đã chuẩn hóa trên toàn hệ thống.
+ */
 export type UserProfile = {
     id: string
     name: string
@@ -14,9 +17,12 @@ export type UserProfile = {
     status?: 'online' | 'offline' | 'busy'
     ownedAgentIds?: string[]
     ownedAgents?: string[]
-    hardwareNode?: HardwareReport // 👈 Dùng lại type HardwareReport
+    hardwareNode?: HardwareReport
 }
 
+/**
+ * Thông tin tóm tắt người dùng phục vụ tìm kiếm và mời vào phòng cộng tác.
+ */
 export type InviteUser = {
     id: string
     username: string
@@ -25,6 +31,9 @@ export type InviteUser = {
     status?: string
 }
 
+/**
+ * Chuẩn hóa dữ liệu hồ sơ người dùng trả về từ Backend (hỗ trợ cả _id và id).
+ */
 function normalizeProfile(d: any): UserProfile {
     return {
         id: String(d.id || d._id),
@@ -41,12 +50,17 @@ function normalizeProfile(d: any): UserProfile {
     }
 }
 
+/**
+ * Module API quản lý thông tin tài khoản người dùng, trạng thái hoạt động và danh sách Agent sở hữu.
+ */
 export const usersApi = {
+    /** Lấy thông tin hồ sơ của người dùng hiện tại */
     getProfile: async (): Promise<UserProfile> => {
         const res = await request<{ success: boolean; data: any }>('/users/me')
         return normalizeProfile(res.data ?? res)
     },
 
+    /** Cập nhật tên hiển thị, tiểu sử (bio) hoặc ảnh đại diện */
     updateProfile: async (data: {
         name?: string
         username?: string
@@ -66,6 +80,7 @@ export const usersApi = {
         return normalizeProfile(res.data ?? res)
     },
 
+    /** Cập nhật trạng thái trực tuyến của người dùng (online | offline | busy) */
     updateStatus: async (status: 'online' | 'offline' | 'busy') => {
         const res = await request<{ success: boolean; data: any }>('/users/me/status', {
             method: 'PUT',
@@ -74,6 +89,7 @@ export const usersApi = {
         return res.data ?? res
     },
 
+    /** Tải lên file ảnh đại diện mới cho tài khoản hiện tại */
     updateAvatar: async (file: File): Promise<string> => {
         const token = getToken()
         const user = getUser()
@@ -95,6 +111,7 @@ export const usersApi = {
         return (data.avatarUrl || data.user?.avatarUrl || '') as string
     },
 
+    /** Lấy danh sách ID các Agent thuộc quyền sở hữu của người dùng */
     getMyAgents: async (): Promise<string[]> => {
         const res = await request<{ success: boolean; data: any }>('/users/me/agents')
         const d = res?.data ?? res
@@ -104,6 +121,7 @@ export const usersApi = {
         return []
     },
 
+    /** Thêm một Agent vào danh sách sở hữu của người dùng */
     addMyAgent: async (agentId: string) => {
         const res = await request<{ success: boolean; data: any }>(
             `/users/me/agents/${agentId}`,
@@ -112,6 +130,7 @@ export const usersApi = {
         return res.data
     },
 
+    /** Gỡ một Agent khỏi danh sách sở hữu của người dùng */
     removeMyAgent: async (agentId: string) => {
         const res = await request<{ success: boolean; data: any }>(
             `/users/me/agents/${agentId}`,
@@ -120,6 +139,7 @@ export const usersApi = {
         return res.data
     },
 
+    /** Liệt kê danh sách người dùng đang trực tuyến (hỗ trợ tìm kiếm theo từ khóa) */
     listOnline: async (q?: string): Promise<InviteUser[]> => {
         const qs = q ? `?q=${encodeURIComponent(q)}` : ''
         const res = await request<{ success: boolean; data: InviteUser[] }>(

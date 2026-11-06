@@ -368,6 +368,12 @@ def execute(arguments: dict) -> str:
     },
 ]
 
+/**
+ * Trang Xưởng Công cụ AI (ToolsStudioPage).
+ * Cho phép quản lý các công cụ hệ thống (Built-in Tools) và công cụ tùy chỉnh (Custom Python Tools):
+ * - Chạy kiểm tra sức khỏe hàng loạt (Batch Health Check) hoặc chạy thử từng công cụ với JSON arguments.
+ * - Viết mã Python trực tiếp cho Custom Tool và cấu hình biến môi trường / API Keys riêng biệt.
+ */
 export default function ToolsStudioPage() {
     const { confirm } = useConfirm()
     const [tools, setTools] = useState<Tool[]>([])

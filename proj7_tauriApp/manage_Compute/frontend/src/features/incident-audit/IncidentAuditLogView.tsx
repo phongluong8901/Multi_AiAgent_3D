@@ -1,3 +1,10 @@
+/**
+ * Màn hình Nhật ký Kiểm toán Sự cố & Báo cáo Post-Mortem (Incident Audit Log View):
+ * - Theo dõi danh sách các sự cố vi phạm tài nguyên hệ thống (Critical / Warning breaches).
+ * - Bộ lọc theo mức độ nghiêm trọng và tìm kiếm nhanh theo tên tiến trình, chỉ số vi phạm hoặc hành động can thiệp.
+ * - Hỗ trợ chụp ảnh màn hình thủ công (Capture Screen) và xuất báo cáo kiểm toán ra tệp CSV hoặc JSON.
+ */
+
 import { useState, useEffect } from 'react';
 import {
     ShieldAlert,
@@ -21,6 +28,9 @@ export function IncidentAuditLogView() {
 
     const addLog = useTelemetryStore((s) => s.addLog);
 
+    /**
+     * Tải danh sách các sự cố được ghi nhận từ backend.
+     */
     const fetchIncidents = async () => {
         setLoading(true);
         try {
@@ -33,12 +43,16 @@ export function IncidentAuditLogView() {
         }
     };
 
+    // Tự động làm mới danh sách mỗi 4 giây
     useEffect(() => {
         fetchIncidents();
         const timer = setInterval(fetchIncidents, 4000);
         return () => clearInterval(timer);
     }, [filterSeverity]);
 
+    /**
+     * Kích hoạt chụp ảnh màn hình Desktop ngay lập tức để lưu trữ chứng cứ.
+     */
     const handleManualCapture = async () => {
         setIsCapturing(true);
         try {
@@ -56,16 +70,23 @@ export function IncidentAuditLogView() {
         }
     };
 
+    /**
+     * Xuất tệp báo cáo sự cố định dạng CSV.
+     */
     const handleExportCSV = () => {
         window.open(httpClient.exportIncidentsUrl('csv'), '_blank');
         addLog('INFO', '[INCIDENT AUDIT] Exported audit trail CSV report.');
     };
 
+    /**
+     * Xuất tệp báo cáo sự cố định dạng JSON.
+     */
     const handleExportJSON = () => {
         window.open(httpClient.exportIncidentsUrl('json'), '_blank');
         addLog('INFO', '[INCIDENT AUDIT] Exported audit trail JSON report.');
     };
 
+    // Lọc danh sách sự cố theo chuỗi tìm kiếm
     const filtered = incidents.filter((inc) => {
         if (!searchQuery) return true;
         const q = searchQuery.toLowerCase();
@@ -82,7 +103,7 @@ export function IncidentAuditLogView() {
 
     return (
         <div className="h-full flex flex-col bg-zinc-950 text-zinc-100 select-none overflow-hidden">
-            {/* Header Control Toolbar */}
+            {/* Thanh công cụ Header */}
             <div className="h-12 bg-zinc-900/90 border-b border-zinc-800 px-4 flex items-center justify-between shrink-0">
                 <div className="flex items-center gap-3">
                     <div className="flex items-center gap-2">
@@ -94,7 +115,7 @@ export function IncidentAuditLogView() {
 
                     <div className="h-4 w-px bg-zinc-800" />
 
-                    {/* Stats Badges */}
+                    {/* Huy hiệu đếm số lượng sự cố */}
                     <div className="flex items-center gap-2 text-xs font-mono">
                         <span className="px-2 py-0.5 rounded bg-zinc-800 text-zinc-300 border border-zinc-700">
                             Total: {incidents.length}
@@ -109,7 +130,7 @@ export function IncidentAuditLogView() {
                 </div>
 
                 <div className="flex items-center gap-2">
-                    {/* Manual Desktop Screenshot */}
+                    {/* Nút chụp màn hình */}
                     <button
                         onClick={handleManualCapture}
                         disabled={isCapturing}
@@ -120,7 +141,7 @@ export function IncidentAuditLogView() {
                         <span>{isCapturing ? 'Capturing...' : 'Capture Screen'}</span>
                     </button>
 
-                    {/* Export CSV */}
+                    {/* Nút xuất CSV */}
                     <button
                         onClick={handleExportCSV}
                         className="px-2.5 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 text-xs rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
@@ -130,7 +151,7 @@ export function IncidentAuditLogView() {
                         <span>Export CSV</span>
                     </button>
 
-                    {/* Export JSON */}
+                    {/* Nút xuất JSON */}
                     <button
                         onClick={handleExportJSON}
                         className="px-2.5 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 text-xs rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
@@ -140,6 +161,7 @@ export function IncidentAuditLogView() {
                         <span>Export JSON</span>
                     </button>
 
+                    {/* Nút làm mới */}
                     <button
                         onClick={fetchIncidents}
                         className="p-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 rounded-lg transition-colors cursor-pointer"
@@ -150,7 +172,7 @@ export function IncidentAuditLogView() {
                 </div>
             </div>
 
-            {/* Filter Sub-bar */}
+            {/* Thanh lọc phụ: Lọc theo mức độ nghiêm trọng và ô tìm kiếm */}
             <div className="px-4 py-2 border-b border-zinc-800/80 bg-zinc-900/40 flex items-center justify-between shrink-0 text-xs">
                 <div className="flex items-center gap-2">
                     <span className="text-zinc-500 font-semibold uppercase text-[10px]">Severity Filter:</span>
@@ -183,7 +205,7 @@ export function IncidentAuditLogView() {
                 </div>
             </div>
 
-            {/* Incident Table */}
+            {/* Bảng danh sách sự cố */}
             <div className="flex-1 overflow-auto p-4">
                 {filtered.length === 0 ? (
                     <div className="h-64 flex flex-col items-center justify-center text-zinc-500 space-y-2">

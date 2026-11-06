@@ -8,10 +8,21 @@ import {
   ServerIcon,
 } from './Icons';
 
+/**
+ * Thuoc tinh dau vao cho SystemDetailTab
+ */
 interface SystemDetailTabProps {
   data: SystemData | null;
 }
 
+/**
+ * Tab Chi tiet cau hinh phan cung va he dieu hanh:
+ * - Hien thi chi tiet model CPU, xung nhip va so luong cores
+ * - Chi tiet dung luong RAM kha dung va da dung
+ * - Bang danh sach tat ca phan vung o dia (Disks) va dung luong con trong
+ * - Thong so Card do hoa roi (GPU VRAM, xung nhip, nhiet do)
+ * - Thong tin he dieu hanh, kien truc CPU va thoi gian khoi dong boot time
+ */
 export const SystemDetailTab: FC<SystemDetailTabProps> = ({ data }) => {
   const hw = data?.hardware;
   const os = data?.os;

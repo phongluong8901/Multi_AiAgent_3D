@@ -1,3 +1,8 @@
+/**
+ * Điểm khởi nhập chính của ứng dụng Frontend Compute Studio (Entry Point).
+ * Render cây thành phần React vào phần tử root trong index.html.
+ */
+
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './app/App';

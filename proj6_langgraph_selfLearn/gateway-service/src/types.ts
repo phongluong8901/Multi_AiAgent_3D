@@ -1,13 +1,27 @@
+/**
+ * Type definitions for Gateway Service communication protocols,
+ * WebSocket events, and AI Core Service payloads.
+ */
+
+/**
+ * Incoming chat message payload received from frontend clients.
+ */
 export interface UserMessagePayload {
   sessionId: string;
   message: string;
 }
 
+/**
+ * Summary metrics of active long-term memories stored in Qdrant.
+ */
 export interface MemoryStats {
   total_knowledge_facts: number;
   total_experiences: number;
 }
 
+/**
+ * Chat response payload emitted by AI Core Service LangGraph pipeline.
+ */
 export interface AICoreChatResponse {
   answer: string;
   used_web_search: boolean;
@@ -16,6 +30,9 @@ export interface AICoreChatResponse {
   memory_stats: MemoryStats;
 }
 
+/**
+ * Socket.IO events dispatched from Gateway server to connected client dashboards.
+ */
 export interface ServerToClientEvents {
   agent_status: (data: { status: string }) => void;
   agent_response: (data: AICoreChatResponse) => void;
@@ -24,7 +41,11 @@ export interface ServerToClientEvents {
   memory_updated: (data: { stats: MemoryStats; items: any[] }) => void;
 }
 
+/**
+ * Socket.IO events accepted by Gateway server from client dashboards.
+ */
 export interface ClientToServerEvents {
   user_message: (payload: UserMessagePayload) => void;
   trigger_learn_now: (payload: { topic: string }) => void;
 }
+

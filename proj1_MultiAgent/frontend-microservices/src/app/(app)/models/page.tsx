@@ -96,6 +96,14 @@ const PROVIDER_INFO: Record<
     },
 }
 
+/**
+ * Trang quản lý Mô hình AI (Models Management Page).
+ * Hỗ trợ 4 nhóm mô hình:
+ * 1. Cloud API (Gemini, OpenAI, Claude, DeepSeek, Groq, OpenRouter) + cấu hình API Key & thống kê Token.
+ * 2. Local Ollama (chạy mô hình nội bộ trên máy cá nhân qua cổng 11434).
+ * 3. Local WebGPU / ONNX (chạy trực tiếp trong trình duyệt qua WebGPU).
+ * 4. Rented P2P Seller Nodes (mô hình trên máy trạm GPU đã thuê từ chợ P2P).
+ */
 export default function ModelsManagementPage() {
     const { confirm } = useConfirm()
     // Tab chính: 'cloud' | 'local_ollama' | 'local_webgpu'
@@ -165,7 +173,9 @@ export default function ModelsManagementPage() {
     const [rentedTestOutput, setRentedTestOutput] = useState('')
     const [runningRentedInference, setRunningRentedInference] = useState<string | null>(null)
 
-    // Tải danh sách máy Seller đã thuê và danh sách Agent của người dùng
+    /**
+     * Tải danh sách phiên thuê máy P2P đang hoạt động (ACTIVE) và danh sách Agent của người dùng.
+     */
     const loadRentalsAndAgents = async () => {
         setLoadingRentals(true)
         try {
@@ -186,6 +196,9 @@ export default function ModelsManagementPage() {
         }
     }
 
+    /**
+     * Gán mô hình từ máy Seller đã thuê (`rented:<sessionId>`) cho một Agent cụ thể.
+     */
     const handleBindRentalToAgent = async (rental: RentalSessionData, targetAgentId: string) => {
         const rId = rental.sessionId || rental.id || rental._id || ''
         if (!rId || !targetAgentId) return
@@ -206,6 +219,9 @@ export default function ModelsManagementPage() {
         }
     }
 
+    /**
+     * Chạy thử suy luận (SSE Streaming) trực tiếp trên máy Seller đã thuê để kiểm tra tốc độ và độ trễ.
+     */
     const handleRunRentedTestInference = async (rental: RentalSessionData) => {
         const rId = rental.sessionId || rental.id || rental._id || ''
         if (!rId || !rentedTestPrompt.trim()) return
@@ -235,7 +251,7 @@ export default function ModelsManagementPage() {
     }
 
 
-    // 1. Tải API keys và Token Stats khi mở trang
+    // 1. Tải API keys, Token Stats, WebGPU info, Ollama host và danh sách máy thuê P2P khi mở trang
     useEffect(() => {
         const storedKeys = getStoredApiKeys()
         setApiKeys((prev) => ({ ...prev, ...storedKeys }))
@@ -270,6 +286,9 @@ export default function ModelsManagementPage() {
         const savedHost = getOllamaHost()
         setOllamaHostInput(savedHost)
         handleCheckOllama(savedHost)
+
+        // Tự động nạp danh sách máy thuê P2P và Agent khi mở trang
+        loadRentalsAndAgents()
     }, [])
 
     // Kiểm tra kết nối Ollama

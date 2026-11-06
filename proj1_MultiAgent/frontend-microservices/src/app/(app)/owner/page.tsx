@@ -768,7 +768,7 @@ export default function OwnerAgentRentalPage() {
 
                                         <div className="bg-background/60 p-2 rounded-lg border border-border/60 text-[10px] text-muted-foreground italic">
                                             &ldquo;Máy chạy rất mượt, xử lý đệ quy Fibonacci và tác vụ Agent chỉ mất ~1.2s, đường truyền P2P ổn định.&rdquo;
-                                            <span className="block not-italic text-right text-[9px] text-zinc-400 mt-0.5">— Hoàng Tuấn (AI Engineer) ★★★★★</span>
+                                            <span className="block not-italic text-right text-[9px] text-zinc-400 mt-0.5">— Hoàng Tuấn (AI Engineer) [5.0/5.0]</span>
                                         </div>
                                     </div>
 

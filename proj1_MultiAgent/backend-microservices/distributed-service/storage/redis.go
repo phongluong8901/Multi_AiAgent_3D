@@ -12,6 +12,8 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+// RedisStorage quản lý kết nối tới Redis để lưu trữ trạng thái phiên WebSocket (TTL),
+// bộ nhớ đệm Telemetry tốc độ cao và kênh truyền thông điệp Pub/Sub giữa các instance.
 type RedisStorage struct {
 	client *redis.Client
 }

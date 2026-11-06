@@ -1,17 +1,33 @@
+/**
+ * Thành phần Header hiển thị trạng thái thực thi của từng Node trên Canvas (Node Execution Header):
+ * - Hiển thị dải băng trạng thái khi chạy thử nghiệm (Live Progress Banner: Running, Passed, Skipped, Failed).
+ * - Hiển thị biểu tượng, tên node, phụ đề, và huy hiệu phân tầng (START / MIDDLE / END).
+ * - Cung cấp hàm tiện ích `getNodeCardBorderClass` tính toán viền phát sáng động cho card node.
+ */
+
 import React from 'react';
 import { Activity, CheckCircle2, AlertTriangle, ShieldCheck, X } from 'lucide-react';
 import { useWorkflowStore } from '../../../stores/useWorkflowStore';
 import type { NodeTier } from '../utils/connectionValidator';
 
 interface NodeExecutionHeaderProps {
+    /** Mã định danh node */
     id: string;
+    /** Phân tầng kết nối của node: START, MIDDLE, END */
     tier: NodeTier;
+    /** Tiêu đề chính của node */
     title: string;
+    /** Phụ đề hoặc thông số ngắn */
     subtitle?: string;
+    /** Biểu tượng Lucide React */
     icon: React.ReactNode;
+    /** Nhãn tùy biến cho huy hiệu phân tầng */
     tierBadge?: string;
+    /** Hàm callback xử lý xóa node khỏi canvas */
     onDelete?: () => void;
+    /** Phần tử phụ hiển thị bên phải header */
     extraRight?: React.ReactNode;
+    /** Hàm callback khi click vào tiêu đề */
     onTitleClick?: () => void;
 }
 
@@ -32,6 +48,7 @@ export function NodeExecutionHeader({
     const isExecuting = activeExecutingNodeId === id;
     const executionStatus = executionStatusMap[id];
 
+    // Kiểu màu sắc theo phân tầng node
     const tierStyles = {
         START: 'border-cyan-500/40 text-cyan-300 bg-cyan-950/60',
         MIDDLE: 'border-amber-500/40 text-amber-300 bg-amber-950/60',
@@ -159,4 +176,3 @@ export function getNodeCardBorderClass(
     }
     return defaultBorderClass || 'border-zinc-800 hover:border-zinc-700';
 }
-

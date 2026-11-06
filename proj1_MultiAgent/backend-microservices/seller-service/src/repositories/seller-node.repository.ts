@@ -1,5 +1,14 @@
 import { SellerNodeModel, ISellerNode } from "../models/seller-node.model";
 
+/**
+ * Tính toán khoảng cách địa lý (tính theo km) giữa 2 tọa độ GPS bằng công thức Haversine.
+ * 
+ * @param lat1 Vĩ độ điểm 1
+ * @param lon1 Kinh độ điểm 1
+ * @param lat2 Vĩ độ điểm 2
+ * @param lon2 Kinh độ điểm 2
+ * @returns Khoảng cách theo km làm tròn 1 chữ số thập phân
+ */
 function calculateDistanceKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
     const R = 6371; // Bán kính Trái Đất (km)
     const dLat = ((lat2 - lat1) * Math.PI) / 180;
@@ -11,24 +20,35 @@ function calculateDistanceKm(lat1: number, lon1: number, lat2: number, lon2: num
     return Number((R * c).toFixed(1));
 }
 
+/**
+ * Repository tầng truy cập dữ liệu (Data Access Layer) cho thực thể SellerNode trong MongoDB.
+ */
 export class SellerNodeRepository {
+    /** Tạo mới một Node cho thuê */
     async create(data: Partial<ISellerNode>): Promise<ISellerNode> {
         const node = new SellerNodeModel(data);
         return await node.save();
     }
 
+    /** Tìm Node theo nodeId duy nhất */
     async findByNodeId(nodeId: string): Promise<ISellerNode | null> {
         return await SellerNodeModel.findOne({ nodeId });
     }
 
+    /** Lấy tất cả các Node sắp xếp theo thời gian tạo mới nhất */
     async findAll(): Promise<ISellerNode[]> {
         return await SellerNodeModel.find().sort({ createdAt: -1 });
     }
 
+    /** Lấy danh sách các Node do một đối tác sở hữu */
     async findBySellerId(sellerId: string): Promise<ISellerNode[]> {
         return await SellerNodeModel.find({ sellerId }).sort({ createdAt: -1 });
     }
 
+    /**
+     * Tìm kiếm các Node đang mở cho thuê trên chợ (ONLINE hoặc BUSY).
+     * Tự động tính toán khoảng cách km so với tọa độ của người thuê nếu có truyền `userLng` và `userLat`.
+     */
     async findMarketNodes(userLng?: number, userLat?: number, maxDistanceKm?: number): Promise<any[]> {
         const nodes = await SellerNodeModel.find({ status: { $in: ["ONLINE", "BUSY"] } }).sort({ coinsPerHour: 1 });
 
@@ -54,6 +74,7 @@ export class SellerNodeRepository {
         return nodesWithDistance;
     }
 
+    /** Cập nhật trạng thái vận hành của Node */
     async updateStatus(nodeId: string, status: "ONLINE" | "BUSY" | "OFFLINE"): Promise<ISellerNode | null> {
         return await SellerNodeModel.findOneAndUpdate(
             { nodeId },
@@ -62,31 +83,16 @@ export class SellerNodeRepository {
         );
     }
 
-    async updateSpecsAndStatus(
-        nodeId: string,
-        specs: {
-            cpuCores?: number;
-            ramGB?: number;
-            gpuName?: string;
-            vramGB?: number;
-            coinsPerHour?: number;
-            status?: "ONLINE" | "BUSY" | "OFFLINE";
-            hostedModel?: string;
-            modelDisplayName?: string;
-        }
-    ): Promise<ISellerNode | null> {
+    /** Cập nhật thông số phần cứng và trạng thái hoạt động của Node */
+    async updateSpecsAndStatus(nodeId: string, specs: Partial<ISellerNode>): Promise<ISellerNode | null> {
         return await SellerNodeModel.findOneAndUpdate(
             { nodeId },
-            {
-                $set: {
-                    ...specs,
-                    lastPingAt: new Date(),
-                },
-            },
+            { $set: { ...specs, lastPingAt: new Date() } },
             { new: true }
         );
     }
 
+    /** Cập nhật đơn giá cho thuê tài nguyên */
     async updatePricing(nodeId: string, coinsPerHour: number, coinsPer1kTokens: number): Promise<ISellerNode | null> {
         return await SellerNodeModel.findOneAndUpdate(
             { nodeId },
@@ -95,18 +101,18 @@ export class SellerNodeRepository {
         );
     }
 
-    async incrementStats(nodeId: string, tokens: number, coins: number): Promise<ISellerNode | null> {
-        return await SellerNodeModel.findOneAndUpdate(
+    /** Cập nhật số liệu tích lũy doanh thu và token sau mỗi phiên suy luận */
+    async incrementStats(nodeId: string, tokens: number, coinsEarned: number): Promise<void> {
+        await SellerNodeModel.updateOne(
             { nodeId },
             {
                 $inc: {
                     totalInferenceRequests: 1,
                     totalTokensServed: tokens,
-                    totalCoinsEarned: coins,
+                    totalCoinsEarned: coinsEarned,
                 },
                 $set: { lastPingAt: new Date() },
-            },
-            { new: true }
+            }
         );
     }
 }

@@ -1,8 +1,17 @@
 import { Request, Response } from "express";
 import { MapDesignModel } from "../models/map.model";
 
+/**
+ * Controller quan ly Map Draw 3D (Thiet ke ban do khong gian 3D):
+ * - Luu / Cap nhat thiet ke ban do, mat san, do vat, robot, thiet bi IoT
+ * - Tinh thuong SaveCoin tu dong dua tren so luong robot / den / smart home
+ * - Clone va nhan ban map cong khai tu thanh vien khac
+ * - Xoa ban do do user so huu
+ */
 export class MapController {
-    // 1. Lưu hoặc Cập nhật Map (Upsert)
+    /**
+     * 1. Luu hoac Cap nhat Map 3D vao Database (Upsert)
+     */
     static async saveMap(req: Request, res: Response) {
         try {
             const { mapId, name, description, skyPreset, groundColor, groundSize, items, userId, userName, isPublic, tags } = req.body;

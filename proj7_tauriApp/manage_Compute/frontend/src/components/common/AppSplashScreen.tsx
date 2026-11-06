@@ -1,11 +1,25 @@
+/**
+ * Màn hình chờ khởi động ứng dụng (App Splash Screen):
+ * Hiển thị hiệu ứng kiểm tra từng thành phần hệ thống trước khi vào bàn làm việc:
+ * 1. UI Engine Mounted (Khởi tạo giao diện React).
+ * 2. Local Python Sidecar (Kết nối tiến trình nền FastAPI).
+ * 3. Telemetry Stream (Luồng dữ liệu WebSocket giám sát phần cứng).
+ */
+
 import { useEffect, useState } from 'react';
 import { Cpu, CheckCircle2, Loader2, Sparkles } from 'lucide-react';
 import { useTelemetryStore } from '../../stores/useTelemetryStore';
 
-export function AppSplashScreen({ onReady }: { onReady: () => void }) {
+interface AppSplashScreenProps {
+    /** Hàm callback được gọi khi quá trình khởi động hoàn tất */
+    onReady: () => void;
+}
+
+export function AppSplashScreen({ onReady }: AppSplashScreenProps) {
     const isConnected = useTelemetryStore((s) => s.connected);
     const [step, setStep] = useState(1);
 
+    // Kích hoạt tiến trình khởi động từng bước với độ trễ trực quan
     useEffect(() => {
         const timer1 = setTimeout(() => setStep(2), 250);
         const timer2 = setTimeout(() => setStep(3), 550);
@@ -20,7 +34,7 @@ export function AppSplashScreen({ onReady }: { onReady: () => void }) {
         };
     }, [onReady]);
 
-    // If socket connects faster, ready up smoothly
+    // Nếu socket kết nối thành công sớm, chuyển vào ứng dụng ngay lập tức
     useEffect(() => {
         if (isConnected && step >= 2) {
             const t = setTimeout(() => onReady(), 200);
@@ -30,11 +44,11 @@ export function AppSplashScreen({ onReady }: { onReady: () => void }) {
 
     return (
         <div className="fixed inset-0 bg-zinc-950 flex flex-col items-center justify-center select-none z-[99999]">
-            {/* Ambient background glow */}
+            {/* Vầng sáng nền mờ tạo chiều sâu */}
             <div className="absolute w-96 h-96 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none" />
 
             <div className="relative flex flex-col items-center max-w-sm w-full px-6">
-                {/* Logo with pulsing ring */}
+                {/* Logo trung tâm với hiệu ứng viền xung nhịp (pulse) */}
                 <div className="relative mb-6">
                     <div className="w-16 h-16 rounded-2xl bg-zinc-900 border border-zinc-800 flex items-center justify-center shadow-xl shadow-black/60">
                         <Cpu className="w-8 h-8 text-emerald-400" />
@@ -45,7 +59,7 @@ export function AppSplashScreen({ onReady }: { onReady: () => void }) {
                 <h1 className="text-lg font-bold text-zinc-100 tracking-wide mb-1">Compute Studio</h1>
                 <p className="text-xs text-zinc-500 mb-6 font-mono">v0.1.0 // Local Compute & Workflow Orchestrator</p>
 
-                {/* Status checklist */}
+                {/* Danh sách các kiểm tra thành phần khởi động */}
                 <div className="w-full bg-zinc-900/60 border border-zinc-800/80 rounded-xl p-3.5 space-y-2.5 backdrop-blur-sm shadow-lg mb-6">
                     <div className="flex items-center justify-between text-xs">
                         <span className="text-zinc-400 flex items-center gap-2">
@@ -77,7 +91,7 @@ export function AppSplashScreen({ onReady }: { onReady: () => void }) {
                     </div>
                 </div>
 
-                {/* Progress bar */}
+                {/* Thanh tiến trình nạp (Progress bar) */}
                 <div className="w-full h-1 bg-zinc-900 rounded-full overflow-hidden border border-zinc-800">
                     <div
                         className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-300 rounded-full"
@@ -88,4 +102,3 @@ export function AppSplashScreen({ onReady }: { onReady: () => void }) {
         </div>
     );
 }
-

@@ -1,6 +1,18 @@
 import mongoose from "mongoose";
 import { logger } from "./logger";
 
+/**
+ * Khởi tạo kết nối cơ sở dữ liệu MongoDB cho Seller Service.
+ * 
+ * Tính năng chính:
+ * 1. Cơ chế Retry tự động: Thử kết nối lại tối đa `maxRetries` lần (mặc định 10 lần, delay 2s).
+ * 2. Tự động kiểm tra và khởi tạo collection `seller_nodes` nếu chưa tồn tại.
+ * 3. Tự động dọn dẹp các node seed mẫu cũ (dummy legacy nodes) để bảo đảm danh sách Node trên giao diện luôn là thiết bị thực.
+ * 4. Chế độ Resilient Fallback: Nếu không kết nối được MongoDB khi chạy local dev offline, service vẫn tiếp tục chạy với in-memory cache mà không làm sập server.
+ * 
+ * @param maxRetries Số lần thử kết nối tối đa
+ * @param delay Khoảng thời gian chờ giữa mỗi lần thử (mili-giây)
+ */
 export const connectDB = async (maxRetries = 10, delay = 2000): Promise<void> => {
     const mongoUri = process.env.MONGO_URI || "mongodb://localhost:27017/seller_db";
 
@@ -48,7 +60,7 @@ export const connectDB = async (maxRetries = 10, delay = 2000): Promise<void> =>
                 logger.error("MongoDB Connection Failed after max retries. Running with resilient memory cache mode for development.");
                 return;
             }
-            await new Promise((res) => setTimeout(res, delay));
+            await new Promise((resolve) => setTimeout(resolve, delay));
         }
     }
 };

@@ -1,5 +1,14 @@
+/**
+ * Autonomous Learning Panel Component.
+ * Enables the user to direct the AI agent to independently research a specific topic,
+ * browse web documents, digest findings, and store distilled facts into Qdrant memory.
+ */
+
 import { CheckCircle2, FileText, Sparkles, Shuffle, X } from 'lucide-react';
 
+/**
+ * Result model representing the completed autonomous research summary.
+ */
 export interface AutonomousLearningResult {
   topic: string;
   summary: string;
@@ -15,6 +24,9 @@ interface AutonomousLearningPanelProps {
   onDismissResult?: () => void;
 }
 
+/**
+ * Categorized topic presets across technology, economics, business, strategy, and science.
+ */
 const TOPIC_PRESETS = [
   {
     category: 'IT / Tech',
@@ -72,12 +84,18 @@ export default function AutonomousLearningPanel({
   onLearn,
   onDismissResult,
 }: AutonomousLearningPanelProps) {
+  /**
+   * Selects a random topic across all preset categories.
+   */
   const handleRandomAny = () => {
     const all = TOPIC_PRESETS.flatMap((p) => p.topics);
     const pick = all[Math.floor(Math.random() * all.length)];
     onTopicChange(pick);
   };
 
+  /**
+   * Selects a random topic within a specific chosen category.
+   */
   const handlePickCategory = (category: string) => {
     const group = TOPIC_PRESETS.find((p) => p.category === category);
     if (group) {
@@ -141,7 +159,7 @@ export default function AutonomousLearningPanel({
         </button>
       </div>
 
-      {/* Hiển thị kết quả nghiên cứu độc lập (không nhồi vào khung chat) */}
+      {/* Render independent research summary when available */}
       {latestResult && (
         <div className="mt-1 rounded-xl border border-indigo-900/60 bg-indigo-950/40 p-3 text-xs">
           <div className="mb-2 flex items-center justify-between border-b border-indigo-900/50 pb-2">

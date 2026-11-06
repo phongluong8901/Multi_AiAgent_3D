@@ -1,3 +1,9 @@
+/**
+ * Interactive Conversational Chat Panel Component.
+ * Displays message feed with role-based styling, web search badge annotations,
+ * smooth auto-scroll to latest turn, and message dispatch form.
+ */
+
 import { useEffect, useRef, type FormEvent } from 'react';
 import { Globe, Send, Sparkles, MessageSquare } from 'lucide-react';
 import type { ChatMessage } from '../types';
@@ -19,6 +25,7 @@ export default function ChatPanel({
 }: ChatPanelProps) {
   const chatEndRef = useRef<HTMLDivElement>(null);
 
+  // Auto-scroll downward when new messages arrive
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
@@ -49,8 +56,7 @@ export default function ChatPanel({
         {messages.map((msg) => (
           <div
             key={msg.id}
-            className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'
-              }`}
+            className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}
           >
             <div
               className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${msg.role === 'user'

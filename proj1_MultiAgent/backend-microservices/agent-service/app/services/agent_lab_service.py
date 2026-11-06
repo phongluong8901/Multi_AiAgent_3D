@@ -45,7 +45,7 @@ class AgentLabService:
         target_model: Optional[str] = None,
         save_to_db: bool = True
     ) -> Dict[str, Any]:
-        logger.info(f"🧪 [AgentLab] Bắt đầu chế tạo Agent mới với yêu cầu: {user_goal}")
+        logger.info(f"[INFO] [AgentLab] Bắt đầu chế tạo Agent mới với yêu cầu: {user_goal}")
         
         # 1. Thu thập thông tin & Gọi LLM để sinh kiến trúc phối hợp
         client = llm_registry.get_client()

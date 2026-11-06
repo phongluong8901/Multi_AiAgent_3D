@@ -69,6 +69,14 @@ interface TimelinePoint {
     requests: number
 }
 
+/**
+ * Trang Bảng điều khiển Trung tâm (DashboardPage).
+ * Tổng hợp thời gian thực toàn bộ trạng thái hệ thống Multi-Agent Microservices:
+ * - Danh sách AI Agents, Phòng làm việc (Rooms), và Lượng người dùng/Agent trực tuyến.
+ * - Mạng lưới Distributed GPU Nodes (P2P Worker Nodes) và hiệu năng suy luận.
+ * - Thống kê tiêu thụ Token theo mô hình AI (Cloud / Local Ollama / Rented P2P).
+ * - Tiến trình huấn luyện Reinforcement Learning (RL Policies) và Nhật ký hệ thống (Audit Logs).
+ */
 export default function DashboardPage() {
     const { t } = useLanguage()
 

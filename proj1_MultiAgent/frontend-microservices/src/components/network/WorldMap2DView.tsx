@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react'
 import type LType from 'leaflet'
-import 'leaflet/dist/leaflet.css'
+// Leaflet CSS duoc nap toan cuc tai app/layout.tsx tu public/leaflet/leaflet.css
 import { GeoNode, GeoLink } from './Globe3DView'
 import { MapPin, Radio, Layers, Crosshair, Zap, Activity } from 'lucide-react'
 

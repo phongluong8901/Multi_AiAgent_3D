@@ -5,8 +5,23 @@ import { OrderModel } from "../models/order.model";
 import { InventoryModel } from "../models/inventory.model";
 import { publishEvent } from "../config/rabbitmq";
 
+/**
+ * Controller xử lý toàn bộ quy trình giao dịch đặt mua đứt (Buy Once) và thuê (Rent-to-Work) AI Agent.
+ * Tích hợp chặt chẽ với hệ thống Ví Coin nội bộ và phát tán sự kiện (RabbitMQ event stream) tới toàn cụm Microservices.
+ */
 export class OrderController {
-    // 1. Mua đứt Agent vĩnh viễn (Buy Once - Use Forever)
+    /**
+     * Mua đứt bản quyền sử dụng vĩnh viễn AI Agent (Buy Once - Use Forever).
+     * 
+     * Quy trình xử lý:
+     * 1. Kiểm tra tồn tại của Agent trên marketplace.
+     * 2. Kiểm tra xem người dùng đã sở hữu vĩnh viễn Agent này trước đó chưa.
+     * 3. Kiểm tra số dư ví Coin (nếu thiếu ví tự động tạo với số dư khởi tạo trải nghiệm).
+     * 4. Khấu trừ coin trong ví và tạo bản ghi biến động số dư.
+     * 5. Tạo đơn hàng (Order) với trạng thái `completed`.
+     * 6. Cập nhật quyền sở hữu vào kho đồ (Inventory) với `ownershipType: "owned"`.
+     * 7. Tăng biến đếm `totalBought` của sản phẩm và phát sự kiện `agent.purchased` lên RabbitMQ.
+     */
     async buyAgent(req: Request, res: Response) {
         try {
             const { userId, userName, agentId } = req.body;
@@ -39,7 +54,7 @@ export class OrderController {
                 });
             }
 
-            // Trừ tiền
+            // Trừ tiền trong ví
             wallet.balance -= price;
             wallet.transactions.unshift({
                 amount: -price,
@@ -49,7 +64,7 @@ export class OrderController {
             });
             await wallet.save();
 
-            // Tạo đơn hàng
+            // Tạo đơn hàng mua
             const order = await OrderModel.create({
                 userId,
                 userName: userName || "User",
@@ -63,7 +78,7 @@ export class OrderController {
                 endDate: null,
             });
 
-            // Cập nhật Inventory
+            // Cập nhật Inventory của người dùng
             const inventory = await InventoryModel.findOneAndUpdate(
                 { userId, agentId },
                 {
@@ -76,11 +91,11 @@ export class OrderController {
                 { upsert: true, new: true }
             );
 
-            // Tăng thống kê lượt mua
+            // Tăng thống kê lượt mua của sản phẩm
             product.totalBought += 1;
             await product.save();
 
-            // Bắn sự kiện RabbitMQ
+            // Phát sự kiện mua thành công sang RabbitMQ
             await publishEvent("agent.purchased", {
                 orderId: order._id,
                 userId,
@@ -100,7 +115,17 @@ export class OrderController {
         }
     }
 
-    // 2. Thuê Agent theo Giờ / Ngày / Tháng (Rent-to-Work)
+    /**
+     * Thuê AI Agent theo các chu kỳ: Giờ (Hourly), Ngày (Daily), Tháng (Monthly).
+     * 
+     * Quy trình xử lý:
+     * 1. Xác thực tham số đầu vào và lấy giá thuê tương ứng theo chu kỳ đã chọn.
+     * 2. Nếu người dùng đang còn thời hạn thuê trước đó, thời gian thuê mới sẽ được cộng dồn (nối tiếp).
+     * 3. Khấu trừ số dư Coin trong ví người dùng.
+     * 4. Tạo đơn hàng thuê với trạng thái `active`.
+     * 5. Cập nhật hạn dùng `rentExpiresAt` trong Inventory và kích hoạt trạng thái `isActive: true`.
+     * 6. Phát sự kiện `agent.rented` lên RabbitMQ để các dịch vụ khác (Room, Agent, Notification) cập nhật quyền.
+     */
     async rentAgent(req: Request, res: Response) {
         try {
             const { userId, userName, agentId, rentalDuration = "daily", durationUnits = 1 } = req.body;
@@ -118,7 +143,7 @@ export class OrderController {
                 return res.status(400).json({ success: false, message: "Bạn đã sở hữu vĩnh viễn Agent này rồi, không cần thuê!" });
             }
 
-            // Tính chi phí thuê
+            // Tính chi phí thuê và khoảng thời gian tính theo mili-giây
             const units = Math.max(1, Number(durationUnits));
             let unitPrice = product.pricing.rentDailyRate;
             let durationMs = units * 24 * 60 * 60 * 1000;
@@ -133,7 +158,7 @@ export class OrderController {
 
             const totalAmount = unitPrice * units;
 
-            // Kiểm tra ví
+            // Kiểm tra số dư trong ví
             let wallet = await WalletModel.findOne({ userId });
             if (!wallet) {
                 wallet = await WalletModel.create({ userId, balance: 1000, transactions: [] });
@@ -146,7 +171,7 @@ export class OrderController {
                 });
             }
 
-            // Trừ tiền
+            // Khấu trừ tiền thuê
             wallet.balance -= totalAmount;
             wallet.transactions.unshift({
                 amount: -totalAmount,
@@ -184,7 +209,7 @@ export class OrderController {
                 endDate,
             });
 
-            // Cập nhật Inventory
+            // Cập nhật hoặc tạo mới thông tin trong Inventory
             const inventory = await InventoryModel.findOneAndUpdate(
                 { userId, agentId },
                 {
@@ -197,11 +222,11 @@ export class OrderController {
                 { upsert: true, new: true }
             );
 
-            // Tăng thống kê lượt thuê
+            // Tăng thống kê lượt thuê của sản phẩm
             product.totalRented += 1;
             await product.save();
 
-            // Bắn sự kiện RabbitMQ
+            // Phát tán sự kiện thuê Agent lên RabbitMQ
             await publishEvent("agent.rented", {
                 orderId: order._id,
                 userId,
@@ -222,7 +247,9 @@ export class OrderController {
         }
     }
 
-    // 3. Lịch sử đơn hàng của User
+    /**
+     * Truy vấn toàn bộ lịch sử đơn hàng của người dùng, sắp xếp theo thời gian mới nhất.
+     */
     async getUserOrders(req: Request, res: Response) {
         try {
             const { userId } = req.params;

@@ -1,3 +1,10 @@
+/**
+ * Tab chi tiết tiến trình kèm đồ thị dạng sóng thời gian thực (Process Detail Chart Tab Component):
+ * - Hiển thị đồ thị đo lường riêng biệt CPU Waveform (%) và RAM (MB) của tiến trình được chỉ định.
+ * - Cung cấp các nút điều khiển trực tiếp: Tạm dừng (Suspend), Tiếp tục (Resume), và Tiêu diệt (Terminate).
+ * - Hiển thị chi tiết siêu dữ liệu thực thi: Số luồng, cổng socket đang mở và toàn bộ chuỗi dòng lệnh khởi chạy (cmdline).
+ */
+
 import { useState } from 'react';
 import {
     Activity,
@@ -13,8 +20,13 @@ import { useTelemetryStore } from '../../stores/useTelemetryStore';
 import { Sparkline } from '../../components/common/Sparkline';
 import { httpClient } from '../../services/httpClient';
 
-export function ProcessDetailChartTab({ tabId }: { tabId: string }) {
-    // Trích xuất PID từ tabId (ví dụ tab-proc-chart-6080 -> 6080)
+interface ProcessDetailChartTabProps {
+    /** Mã định danh tab kèm PID, ví dụ: tab-proc-chart-6080 */
+    tabId: string;
+}
+
+export function ProcessDetailChartTab({ tabId }: ProcessDetailChartTabProps) {
+    // Trích xuất mã số PID từ chuỗi tabId
     const rawPid = tabId.replace('tab-proc-chart-', '');
     const pid = Number(rawPid) || 0;
 
@@ -25,7 +37,7 @@ export function ProcessDetailChartTab({ tabId }: { tabId: string }) {
 
     const [actionMsg, setActionMsg] = useState<string | null>(null);
 
-    // Lấy thông tin realtime từ store hoặc tìm trong snapshot
+    // Lấy thông tin thời gian thực từ store hoặc tìm trong snapshot
     const liveProc =
         processLookup[pid] || snapshot?.processes?.find((p) => p.pid === pid);
     const history = processHistory[pid] || [];
@@ -38,6 +50,9 @@ export function ProcessDetailChartTab({ tabId }: { tabId: string }) {
     const threads = liveProc?.num_threads ?? 1;
     const cmdline = liveProc?.cmdline ?? [];
 
+    /**
+     * Gửi tín hiệu điều khiển tới tiến trình (suspend, resume, terminate).
+     */
     const handleAction = async (action: 'suspend' | 'resume' | 'terminate') => {
         if (!pid) return;
         try {
@@ -77,25 +92,28 @@ export function ProcessDetailChartTab({ tabId }: { tabId: string }) {
                     </div>
                 </div>
 
-                {/* Các nút hành động nhanh */}
+                {/* Các nút hành động nhanh điều khiển tiến trình */}
                 <div className="flex items-center gap-2">
                     {actionMsg && (
                         <span className="text-xs font-mono text-emerald-400 bg-emerald-950/80 px-2.5 py-1 rounded border border-emerald-500/30">
                             {actionMsg}
                         </span>
                     )}
+                    {/* Tạm dừng tiến trình */}
                     <button
                         onClick={() => handleAction('suspend')}
                         className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-amber-300 border border-zinc-700 rounded-lg text-xs flex items-center gap-1.5 cursor-pointer transition-colors"
                     >
                         <Pause className="w-3.5 h-3.5" /> Suspend
                     </button>
+                    {/* Tiếp tục thực thi tiến trình */}
                     <button
                         onClick={() => handleAction('resume')}
                         className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-emerald-300 border border-zinc-700 rounded-lg text-xs flex items-center gap-1.5 cursor-pointer transition-colors"
                     >
                         <Play className="w-3.5 h-3.5" /> Resume
                     </button>
+                    {/* Tiêu diệt tiến trình ngay lập tức */}
                     <button
                         onClick={() => handleAction('terminate')}
                         className="px-3 py-1.5 bg-rose-950/70 hover:bg-rose-900/80 text-rose-300 border border-rose-500/30 rounded-lg text-xs flex items-center gap-1.5 cursor-pointer transition-colors"
@@ -108,7 +126,7 @@ export function ProcessDetailChartTab({ tabId }: { tabId: string }) {
             <div className="p-4 space-y-4 flex-1">
                 {/* 2 Đồ thị Lớn Realtime: CPU Waveform & RAM Waveform */}
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                    {/* Đồ thị CPU */}
+                    {/* Đồ thị tải CPU của tiến trình */}
                     <div className="bg-zinc-900/60 border border-zinc-800 rounded-xl p-4 flex flex-col justify-between shadow-sm">
                         <div className="flex items-center justify-between mb-2">
                             <span className="text-xs font-semibold text-zinc-400 flex items-center gap-1.5 uppercase font-mono">
@@ -131,7 +149,7 @@ export function ProcessDetailChartTab({ tabId }: { tabId: string }) {
                         </div>
                     </div>
 
-                    {/* Đồ thị RAM */}
+                    {/* Đồ thị bộ nhớ RAM thực tế đang dùng (Resident Memory) */}
                     <div className="bg-zinc-900/60 border border-zinc-800 rounded-xl p-4 flex flex-col justify-between shadow-sm">
                         <div className="flex items-center justify-between mb-2">
                             <span className="text-xs font-semibold text-zinc-400 flex items-center gap-1.5 uppercase font-mono">
@@ -182,6 +200,7 @@ export function ProcessDetailChartTab({ tabId }: { tabId: string }) {
                         </div>
                     </div>
 
+                    {/* Danh sách tham số dòng lệnh thực thi */}
                     {cmdline.length > 0 && (
                         <div>
                             <div className="text-[11px] font-semibold text-zinc-400 mb-1 font-mono">
@@ -197,4 +216,3 @@ export function ProcessDetailChartTab({ tabId }: { tabId: string }) {
         </div>
     );
 }
-

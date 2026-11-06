@@ -1,10 +1,17 @@
 import { Schema, model, Document } from "mongoose";
 
+/**
+ * Cấu trúc tọa độ địa lý GeoJSON Point hỗ trợ tìm kiếm khoảng cách gần nhất theo chuẩn 2dsphere.
+ */
 export interface IGeoLocation {
     type: "Point";
     coordinates: [number, number]; // [Kinh độ - longitude, Vĩ độ - latitude]
 }
 
+/**
+ * Interface biểu diễn thực thể Node tài nguyên phần cứng cho thuê (ISellerNode).
+ * Lưu trữ cấu hình phần cứng CPU/RAM/GPU, mô hình AI đang host, bảng giá và tọa độ địa lý.
+ */
 export interface ISellerNode extends Document {
     nodeId: string;
     sellerId: string;
@@ -32,6 +39,10 @@ export interface ISellerNode extends Document {
     updatedAt: Date;
 }
 
+/**
+ * Mongoose Schema cho bảng `seller_nodes`.
+ * Tích hợp chỉ mục 2dsphere index trên trường `location` hỗ trợ tính toán khoảng cách km chính xác.
+ */
 const SellerNodeSchema = new Schema<ISellerNode>(
     {
         nodeId: { type: String, required: true, unique: true, index: true },
@@ -71,7 +82,7 @@ const SellerNodeSchema = new Schema<ISellerNode>(
     }
 );
 
-// Tạo 2dsphere index để hỗ trợ truy vấn không gian địa lý $near / $geoNear
+// Khởi tạo chỉ mục không gian địa lý phục vụ truy vấn $near / $geoWithin
 SellerNodeSchema.index({ location: "2dsphere" });
 
 export const SellerNodeModel = model<ISellerNode>("SellerNode", SellerNodeSchema, "seller_nodes");

@@ -11,6 +11,16 @@ from app.services.langgraph_flow.agent_graph import AgentWorkflow, AgentState
 
 
 class AgentRunner:
+    """
+    Bộ điều phối thực thi trung tâm cho tất cả AI Agent trong hệ thống (`AgentRunner`).
+    Chịu trách nhiệm:
+    1. Tải cấu hình Agent, System Prompt và danh sách công cụ từ PostgreSQL.
+    2. Xây dựng Ma trận Năng lực & Công cụ theo phòng (`_build_room_collaboration_matrix`).
+    3. Tích hợp bộ nhớ ngắn hạn (Redis `short_memory`) và bộ nhớ dài hạn (PostgreSQL `long_memory`).
+    4. Thực thi đồ thị suy luận LangGraph (`run_agent`) hoặc luồng SSE thời gian thực (`stream_agent`).
+    5. Phát sự kiện token streaming (`agent.stream`) và kết quả hoàn tất (`agent.reply`) lên RabbitMQ.
+    """
+
     def __init__(self):
         self.llm_client = llm_registry.get_client()
         self.tool_executor = tool_executor
@@ -501,7 +511,7 @@ class AgentRunner:
         preferred_model = (
             (context or {}).get("model")
             or agent_data.get("model")
-            or "gemini-2.5-flash-lite"
+            or "gemini-3.5-flash-lite"
         )
         m_lower = str(preferred_model).lower()
         is_local_model = (
@@ -865,7 +875,7 @@ class AgentRunner:
         preferred_model = (
             (context or {}).get("model")
             or agent_data.get("model")
-            or "gemini-2.5-flash-lite"
+            or "gemini-3.5-flash-lite"
         )
         m_lower = str(preferred_model).lower()
         is_local_model = (
@@ -914,27 +924,58 @@ class AgentRunner:
 
             from app.core.llm.llm_registry import llm_registry
             dynamic_client = llm_registry.get_client(preferred_model) or self.llm_client
-
-            stream_gen = dynamic_client.stream_chat_completion(
-                messages=current_messages,
-                tools=tool_definitions if tool_definitions else None,
-                agent_id=agent_id,
-                model=preferred_model,
-            )
+            effective_tools = None if (is_local_model and tools_used) else (tool_definitions if tool_definitions else None)
 
             tool_calls = None
             step_text = ""
-            for item in stream_gen:
-                if isinstance(item, str):
-                    step_text += item
-                    yield f"data: {json.dumps({'type': 'token', 'content': item}, ensure_ascii=False)}\n\n"
-                elif isinstance(item, dict):
-                    if item.get("type") == "token":
-                        token_content = item.get("content", "")
-                        step_text += token_content
-                        yield f"data: {json.dumps({'type': 'token', 'content': token_content}, ensure_ascii=False)}\n\n"
-                    elif item.get("type") == "tool_calls":
-                        tool_calls = item.get("tool_calls")
+
+            try:
+                stream_gen = dynamic_client.stream_chat_completion(
+                    messages=current_messages,
+                    tools=effective_tools,
+                    agent_id=agent_id,
+                    model=preferred_model,
+                )
+                for item in stream_gen:
+                    if isinstance(item, str):
+                        step_text += item
+                        yield f"data: {json.dumps({'type': 'token', 'content': item}, ensure_ascii=False)}\n\n"
+                    elif isinstance(item, dict):
+                        if item.get("type") == "token":
+                            token_content = item.get("content", "")
+                            step_text += token_content
+                            yield f"data: {json.dumps({'type': 'token', 'content': token_content}, ensure_ascii=False)}\n\n"
+                        elif item.get("type") == "tool_calls":
+                            tool_calls = item.get("tool_calls")
+            except Exception as stream_err:
+                print(f"[WARN] [AgentRunner.stream_agent] Primary LLM error ({stream_err}), attempting fallback...")
+                if is_local_model and self.llm_client and self.llm_client is not dynamic_client:
+                    try:
+                        fb_gen = self.llm_client.stream_chat_completion(
+                            messages=current_messages,
+                            tools=effective_tools,
+                            agent_id=agent_id,
+                            model="gemini-3.5-flash-lite",
+                        )
+                        for item in fb_gen:
+                            if isinstance(item, str):
+                                step_text += item
+                                yield f"data: {json.dumps({'type': 'token', 'content': item}, ensure_ascii=False)}\n\n"
+                            elif isinstance(item, dict):
+                                if item.get("type") == "token":
+                                    token_content = item.get("content", "")
+                                    step_text += token_content
+                                    yield f"data: {json.dumps({'type': 'token', 'content': token_content}, ensure_ascii=False)}\n\n"
+                                elif item.get("type") == "tool_calls":
+                                    tool_calls = item.get("tool_calls")
+                    except Exception:
+                        step_text = AgentWorkflow._synthesize_from_tool_messages(current_messages)
+                        if step_text:
+                            yield f"data: {json.dumps({'type': 'token', 'content': step_text}, ensure_ascii=False)}\n\n"
+                else:
+                    step_text = AgentWorkflow._synthesize_from_tool_messages(current_messages)
+                    if step_text:
+                        yield f"data: {json.dumps({'type': 'token', 'content': step_text}, ensure_ascii=False)}\n\n"
 
             if tool_calls:
                 lc_tool_calls = []
@@ -965,6 +1006,13 @@ class AgentRunner:
                     try:
                         safe_call_args = tool_args if isinstance(tool_args, dict) else {"input": str(tool_args)}
                         tool_result = self.tool_executor.execute(tool_name, safe_call_args)
+                        if tool_name in ["web_search_tool", "tavily_search_tool", "google_search_tool"]:
+                            try:
+                                parsed_res = json.loads(tool_result)
+                                if isinstance(parsed_res, dict) and (parsed_res.get("success") is False or not parsed_res.get("results")):
+                                    tool_result = self.tool_executor.execute("duckduckgo_search", safe_call_args)
+                            except Exception:
+                                pass
                     except Exception as e:
                         tool_result = f"Error: {str(e)}"
 

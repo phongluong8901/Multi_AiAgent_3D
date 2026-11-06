@@ -1,6 +1,16 @@
 import { ProductModel } from "../models/product.model";
 
-export async function seedProducts() {
+/**
+ * Khởi tạo dữ liệu mẫu (Seeder) cho danh mục sản phẩm AI Agent trên sàn Marketplace.
+ * Tự động cập nhật (upsert) danh mục 6 mẫu Robot tiêu chuẩn gồm:
+ * 1. NVIDIA MicroDuck Orin (Robot Vịt vàng Debugger)
+ * 2. Nova Carter AMR Industrial (Robot Tự Hành Nhà Kho)
+ * 3. Unitree H1 Bipedal Humanoid (Robot Dáng Người Sinh Học)
+ * 4. CyberQuad 4-Rotor Heavy Drone (Máy Bay Khảo Sát Không Gian 3D)
+ * 5. KUKA CyberArm 6-DoF Industrial (Cánh Tay Robot Gia Công Cơ Khí)
+ * 6. Oracle CyberCrawler Sentinel (AI Agent Thu Thập Dữ Liệu Tự Động)
+ */
+export async function seedProducts(): Promise<void> {
     try {
         const defaultProducts = [
             // 1. NVIDIA MICRODUCK DEBUGGER

@@ -1,3 +1,10 @@
+/**
+ * Màn hình bảng điều khiển trung tâm (Compute & Telemetry Dashboard):
+ * - Hiển thị 4 thẻ KPI chính: Tải CPU, Bộ nhớ RAM, Nhiệt độ GPU / VRAM và Số lượt can thiệp Auto-Guard.
+ * - Cho phép chuyển đổi trạng thái vũ trang (Armed/Disarmed) của hệ thống bảo vệ Auto-Guard.
+ * - Bảng danh sách các tiến trình tiêu thụ tài nguyên hàng đầu kèm nút bấm nhanh đưa tiến trình vào Canvas ("+ Guard In Canvas").
+ */
+
 import { useState, useEffect } from 'react';
 import {
     Activity,
@@ -17,6 +24,7 @@ import { Sparkline } from '../../components/common/Sparkline';
 import { httpClient, type GuardStatus } from '../../services/httpClient';
 
 export function DashboardMetricsView() {
+    // Trích xuất dữ liệu Telemetry từ Zustand Store
     const snapshot = useTelemetryStore((s) => s.snapshot);
     const cpuHistory = useTelemetryStore((s) => s.cpuHistory);
     const ramHistory = useTelemetryStore((s) => s.ramHistory);
@@ -30,22 +38,29 @@ export function DashboardMetricsView() {
 
     const [guardStatus, setGuardStatus] = useState<GuardStatus | null>(null);
 
+    /**
+     * Lấy tình trạng hoạt động và số lần can thiệp của Auto-Guard từ backend.
+     */
     const fetchGuard = async () => {
         try {
             const res = await httpClient.getGuardStatus();
             setGuardStatus(res);
             setGuardArmed(res.guard_armed);
         } catch {
-            // Ignore when offline/initializing
+            // Bỏ qua lỗi khi backend đang khởi động
         }
     };
 
+    // Chu kỳ thăm dò trạng thái Auto-Guard mỗi 3 giây
     useEffect(() => {
         fetchGuard();
         const interval = setInterval(fetchGuard, 3000);
         return () => clearInterval(interval);
     }, []);
 
+    /**
+     * Bật hoặc tắt trạng thái vũ trang (Armed) của Auto-Guard.
+     */
     const handleToggleGuard = async () => {
         try {
             const res = await httpClient.toggleGuard();
@@ -60,7 +75,9 @@ export function DashboardMetricsView() {
         }
     };
 
-    // Nút tắt đưa nhanh 1 tiến trình vào Auto-Guard Canvas
+    /**
+     * Đưa nhanh một tiến trình được chọn vào Canvas Auto-Guard và mở Tab Canvas.
+     */
     const handleProtectProcess = (proc: any) => {
         const id = `proc-${Date.now()}`;
         setNodes((nds) => [
@@ -83,6 +100,7 @@ export function DashboardMetricsView() {
         openTab({ id: 'tab-canvas-1', title: 'Auto-Guard GPU Pipeline', type: 'workflow-canvas' });
     };
 
+    // Trích xuất các thông số hiển thị
     const cpuPercent = snapshot?.cpu?.percent ?? 0;
     const ramPercent = snapshot?.ram?.percent ?? 0;
     const ramUsedGb = snapshot?.ram?.used_gb ?? 0;
@@ -112,6 +130,7 @@ export function DashboardMetricsView() {
                 </div>
 
                 <div className="flex items-center gap-2">
+                    {/* Nút bấm vũ trang/giải trừ Auto-Guard */}
                     <button
                         onClick={handleToggleGuard}
                         className={`px-3 py-1.5 rounded-lg border text-xs font-semibold flex items-center gap-2 cursor-pointer transition-all ${
@@ -133,6 +152,7 @@ export function DashboardMetricsView() {
                         )}
                     </button>
 
+                    {/* Nút mở nhanh Guard Canvas */}
                     <button
                         onClick={() =>
                             openTab({
@@ -146,6 +166,7 @@ export function DashboardMetricsView() {
                         <Workflow className="w-3.5 h-3.5 text-emerald-400" /> Open Guard Canvas
                     </button>
 
+                    {/* Nút làm mới dữ liệu */}
                     <button
                         onClick={fetchGuard}
                         title="Refresh metrics"
@@ -159,7 +180,7 @@ export function DashboardMetricsView() {
             <div className="p-4 space-y-4 flex-1">
                 {/* 4 Khối Telemetry KPI Cards */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-                    {/* Card 1: CPU */}
+                    {/* Thẻ 1: CPU Load */}
                     <div className="bg-zinc-900/70 border border-zinc-800 rounded-xl p-3.5 flex flex-col justify-between shadow-sm">
                         <div className="flex items-center justify-between mb-2">
                             <span className="text-[11px] font-semibold text-zinc-400 flex items-center gap-1.5 uppercase tracking-wider">
@@ -176,7 +197,7 @@ export function DashboardMetricsView() {
                         </div>
                     </div>
 
-                    {/* Card 2: RAM */}
+                    {/* Thẻ 2: System RAM */}
                     <div className="bg-zinc-900/70 border border-zinc-800 rounded-xl p-3.5 flex flex-col justify-between shadow-sm">
                         <div className="flex items-center justify-between mb-2">
                             <span className="text-[11px] font-semibold text-zinc-400 flex items-center gap-1.5 uppercase tracking-wider">
@@ -193,7 +214,7 @@ export function DashboardMetricsView() {
                         </div>
                     </div>
 
-                    {/* Card 3: GPU Thermal & VRAM */}
+                    {/* Thẻ 3: GPU Thermal & VRAM */}
                     <div className="bg-zinc-900/70 border border-zinc-800 rounded-xl p-3.5 flex flex-col justify-between shadow-sm">
                         <div className="flex items-center justify-between mb-2">
                             <span className="text-[11px] font-semibold text-zinc-400 flex items-center gap-1.5 uppercase tracking-wider">
@@ -210,7 +231,7 @@ export function DashboardMetricsView() {
                         </div>
                     </div>
 
-                    {/* Card 4: Auto-Guard Watchdog State */}
+                    {/* Thẻ 4: Trạng thái can thiệp của Auto-Guard */}
                     <div className="bg-zinc-900/70 border border-zinc-800 rounded-xl p-3.5 flex flex-col justify-between shadow-sm">
                         <div className="flex items-center justify-between mb-2">
                             <span className="text-[11px] font-semibold text-zinc-400 flex items-center gap-1.5 uppercase tracking-wider">
@@ -235,7 +256,7 @@ export function DashboardMetricsView() {
                     </div>
                 </div>
 
-                {/* Phần Bảng Top Tiến Trình & Khả năng Bảo Vệ Nhanh */}
+                {/* Bảng Top các tiến trình & hành động ghim vào Canvas */}
                 <div className="bg-zinc-900/60 border border-zinc-800 rounded-xl overflow-hidden shadow-sm">
                     <div className="px-4 py-3 bg-zinc-900/90 border-b border-zinc-800 flex items-center justify-between">
                         <div className="flex items-center gap-2">
@@ -306,4 +327,3 @@ export function DashboardMetricsView() {
         </div>
     );
 }
-

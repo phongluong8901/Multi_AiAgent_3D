@@ -1,3 +1,12 @@
+/**
+ * Frontend Type Definitions for Cognitive Self-Learning AI Agent Dashboard.
+ * Includes data models for interactive chat, memory statistics, multi-tier knowledge,
+ * conceptual bridges, synthesized insights, and empirical sandbox verifications.
+ */
+
+/**
+ * Chat message representation in the user chat feed.
+ */
 export interface ChatMessage {
   id: string;
   role: "user" | "ai" | "system";
@@ -6,11 +15,17 @@ export interface ChatMessage {
   timestamp: string;
 }
 
+/**
+ * Basic memory counters for active knowledge facts and experiences.
+ */
 export interface MemoryStats {
   total_knowledge_facts: number;
   total_experiences: number;
 }
 
+/**
+ * Learned memory record shown in the knowledge feed.
+ */
 export interface LearnedMemoryItem {
   id: string;
   kind: 'knowledge' | 'experience';
@@ -19,6 +34,9 @@ export interface LearnedMemoryItem {
   learned_at: string;
 }
 
+/**
+ * Response payload delivered by the cognitive agent loop.
+ */
 export interface AICoreChatResponse {
   answer: string;
   used_web_search: boolean;
@@ -27,6 +45,9 @@ export interface AICoreChatResponse {
   memory_stats: MemoryStats;
 }
 
+/**
+ * Tiered statistics broken down by memory depth.
+ */
 export interface TieredMemoryStats {
   tier_1_raw: number;
   tier_2_bridge: number;
@@ -37,6 +58,9 @@ export interface TieredMemoryStats {
   status: string;
 }
 
+/**
+ * Synthesized insight derived from multi-hop reasoning and verified by sandbox code.
+ */
 export interface SynthesizedInsight {
   id: string;
   new_law: string;
@@ -51,6 +75,9 @@ export interface SynthesizedInsight {
   created_at: string;
 }
 
+/**
+ * Refuted hypothesis recorded in Negative Knowledge Memory.
+ */
 export interface FalsifiedHypothesis {
   id: string;
   hypothesis: string;
@@ -61,6 +88,9 @@ export interface FalsifiedHypothesis {
   created_at: string;
 }
 
+/**
+ * Conceptual relational bridge connecting disparate knowledge domains.
+ */
 export interface ConceptBridge {
   id: string;
   entity_a: string;
@@ -73,6 +103,9 @@ export interface ConceptBridge {
   created_at: string;
 }
 
+/**
+ * Empirical sandbox execution logs and status.
+ */
 export interface SandboxVerification {
   verification_code: string;
   simulation_stdout: string;
@@ -82,6 +115,9 @@ export interface SandboxVerification {
   execution_time_ms: number;
 }
 
+/**
+ * Result data structure returned by the multi-hop synthesis workflow.
+ */
 export interface SynthesisResult {
   complex_query: string;
   sub_questions: string[];
@@ -95,8 +131,12 @@ export interface SynthesisResult {
   status: string;
 }
 
+/**
+ * Offline sleep-phase memory consolidation result summary.
+ */
 export interface SleepPhaseResult {
   status: string;
   discovered_insights_count: number;
   details: any[];
 }
+

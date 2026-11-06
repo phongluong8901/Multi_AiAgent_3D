@@ -1,3 +1,12 @@
+/**
+ * Thanh công cụ bên trái ngoài cùng (Activity Bar Component):
+ * Cho phép chuyển đổi nhanh giữa các phân mục chính của bàn làm việc:
+ * 1. Dashboard: Giám sát chỉ số và đồ thị phần cứng thời gian thực.
+ * 2. Workflows: Trình biên soạn đồ thị DAG Auto-Guard và tự động hóa.
+ * 3. Processes: Bảng điều khiển tiến trình hệ điều hành, dịch vụ và mạng.
+ * 4. Nút bấm tạo nhanh một Tab Canvas mới.
+ */
+
 import { Workflow, Cpu, PlusCircle, LineChart } from 'lucide-react';
 import { useWorkbenchStore } from '../../stores/useWorkbenchStore';
 
@@ -6,7 +15,9 @@ export function ActivityBar() {
 
     return (
         <aside className="w-12 bg-zinc-900 border-r border-zinc-800 flex flex-col items-center py-3 justify-between select-none shrink-0">
+            {/* Nhóm các nút chuyển phân mục chính */}
             <div className="flex flex-col gap-3">
+                {/* Nút phân mục Dashboard */}
                 <button
                     onClick={() => {
                         setActiveSection('dashboard');
@@ -22,6 +33,7 @@ export function ActivityBar() {
                     <LineChart className="w-5 h-5" />
                 </button>
 
+                {/* Nút phân mục Workflows */}
                 <button
                     onClick={() => {
                         setActiveSection('workflows');
@@ -37,6 +49,7 @@ export function ActivityBar() {
                     <Workflow className="w-5 h-5" />
                 </button>
 
+                {/* Nút phân mục Quản lý tiến trình & Dịch vụ */}
                 <button
                     onClick={() => {
                         setActiveSection('processes');
@@ -53,6 +66,7 @@ export function ActivityBar() {
                 </button>
             </div>
 
+            {/* Nút tạo thêm Tab pipeline mới ở chân thanh công cụ */}
             <button
                 onClick={() =>
                     openTab({

@@ -2,11 +2,20 @@ import { useRef, useEffect, useState } from 'react';
 import type { FC } from 'react';
 import { TerminalIcon, CopyIcon, TrashIcon, CheckCircleIcon, ChevronDownIcon, ChevronUpIcon } from './Icons';
 
+/**
+ * Thuoc tinh dau vao cho TerminalLog component
+ */
 interface TerminalLogProps {
   logs: string[];
   onClearLogs?: () => void;
 }
 
+/**
+ * Component Console Terminal ghi log thoi gian thuc tren giao dien Desktop:
+ * - Hien thi nhat ky phat telemetry va su kien ket noi mang
+ * - Bo loc log theo danh muc: tat ca, telemetry, online, error
+ * - Ho tro sao chep clipboard va xoa nhat ky console
+ */
 export const TerminalLog: FC<TerminalLogProps> = ({ logs, onClearLogs }) => {
   const logContainerRef = useRef<HTMLDivElement>(null);
   const [filter, setFilter] = useState<'all' | 'telemetry' | 'online' | 'error'>('all');

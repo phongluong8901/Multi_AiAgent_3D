@@ -400,7 +400,7 @@ async def stream_room_firmware_interaction(
             ev_type = ev.get("type")
             if ev_type == "token":
                 tok = ev.get("content", "")
-                if tok and not tok.startswith("⚠️") and "API key" not in tok:
+                if tok and not tok.startswith("[WARN]") and "API key" not in tok:
                     streamed_from_live_llm = True
                     full_spoken_reply += tok
                     seq_id += 1

@@ -5,6 +5,10 @@ import app from "./app";
 import { connectDB } from "./config/db";
 import { logger } from "./config/logger";
 
+/**
+ * Điểm khởi chạy của Seller Service.
+ * Nạp cấu hình biến môi trường, thiết lập kết nối cơ sở dữ liệu MongoDB và khởi động HTTP Server.
+ */
 const envPath = path.resolve(process.cwd(), ".env");
 if (fs.existsSync(envPath)) {
     dotenv.config({ path: envPath });
@@ -15,6 +19,7 @@ if (fs.existsSync(envPath)) {
 
 const PORT = process.env.PORT || 5011;
 
+// Kết nối cơ sở dữ liệu trước khi mở cổng lắng nghe HTTP request
 connectDB().then(() => {
     app.listen(PORT, () => {
         logger.info(`Server is running on http://localhost:${PORT}`);

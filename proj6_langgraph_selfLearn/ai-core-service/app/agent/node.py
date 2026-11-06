@@ -1,3 +1,8 @@
+"""
+Execution Nodes for LangGraph Autonomous Cognitive Agent.
+Includes memory recall, knowledge evaluation, web search, answer synthesis, and self-critique nodes.
+"""
+
 from typing import cast, Optional
 from pydantic import BaseModel, Field
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -7,6 +12,7 @@ from ..memory.long_term import long_memory
 from ..tools.web_search import search_the_web
 from .state import AgentState
 
+# Initialize Google Generative AI LLM client with fast inference parameters
 llm = ChatGoogleGenerativeAI(
     model=settings.FAST_MODEL,
     google_api_key=settings.GOOGLE_API_KEY,
@@ -14,11 +20,19 @@ llm = ChatGoogleGenerativeAI(
 )
 
 class KnowledgeEvaluation(BaseModel):
+    """
+    Schema for structured LLM evaluation of retrieved knowledge sufficiency.
+    Determines whether external web retrieval is required to answer the user query.
+    """
     needs_search: bool = Field(description="True nếu bộ nhớ hiện tại thiếu thông tin hoặc thông tin có thể đã lỗi thời.")
     search_queries: list[str] = Field(description="Tối đa 2 câu lệnh tìm kiếm ngắn gọn bằng tiếng Việt hoặc Anh nếu needs_search=True")
     reason: str = Field(description="Lý do vì sao đủ hoặc thiếu kiến thức")
 
 class ResponseCritique(BaseModel):
+    """
+    Schema for self-correction critique and quality scoring.
+    Verifies grounding, relevance, and supplies refined response if necessary.
+    """
     score: int = Field(ge=1, le=10, description="Điểm đánh giá chất lượng câu trả lời từ 1 đến 10.")
     is_grounded: bool = Field(description="True nếu thông tin trung thực, không bịa đặt hoặc mâu thuẫn với tài liệu nguồn.")
     is_relevant: bool = Field(description="True nếu trả lời trực diện câu hỏi của người dùng.")
@@ -26,8 +40,20 @@ class ResponseCritique(BaseModel):
     refined_answer: Optional[str] = Field(default=None, description="Câu trả lời đã được tinh chỉnh nếu score < 7 hoặc có chi tiết cần sửa.")
 
 async def recall_memory_node(state: AgentState) -> dict:
+    """
+    Retrieves conversational short-term context from Redis and long-term memories
+    (declarative knowledge and episodic experiences) from Qdrant vector database.
+
+    Args:
+        state: Current graph state containing query and session ID.
+
+    Returns:
+        Updated state dictionary with recalled context and updated reasoning trace.
+    """
     query = state["query"]
+    # Fetch recent chat turns from Redis short-term cache
     history = await short_memory.get_history(state["session_id"])
+    # Fetch semantic knowledge and past experiences from Qdrant vector store
     knowledge = long_memory.recall_knowledge(query)
     experiences = long_memory.recall_experiences(query)
     
@@ -43,6 +69,16 @@ async def recall_memory_node(state: AgentState) -> dict:
     }
 
 async def evaluate_knowledge_node(state: AgentState) -> dict:
+    """
+    Evaluates whether the recalled memories provide sufficient and up-to-date
+    information to answer the user query, or if active web search is required.
+
+    Args:
+        state: Current graph state with recalled knowledge and experiences.
+
+    Returns:
+        Updated state dictionary with search requirement flag, queries, and trace.
+    """
     structured_llm = llm.with_structured_output(KnowledgeEvaluation)
     
     prompt = f"""
@@ -79,6 +115,15 @@ async def evaluate_knowledge_node(state: AgentState) -> dict:
     }
 
 async def web_search_node(state: AgentState) -> dict:
+    """
+    Executes real-time web searches using Tavily search engine for each generated query.
+
+    Args:
+        state: Current graph state containing search queries.
+
+    Returns:
+        Updated state dictionary with aggregated web search results and trace.
+    """
     results = []
     queries = state.get("search_queries", [])
     for q in queries:
@@ -91,6 +136,16 @@ async def web_search_node(state: AgentState) -> dict:
     return {"web_results": combined, "reasoning_trace": trace}
 
 async def synthesize_response_node(state: AgentState) -> dict:
+    """
+    Synthesizes the initial draft answer by grounding the prompt with chat history,
+    episodic experiences, recalled knowledge, and web search findings.
+
+    Args:
+        state: Current graph state with all gathered context and user query.
+
+    Returns:
+        Updated state dictionary with the generated draft answer and trace.
+    """
     prompt = f"""
     Bạn là một AI có khả năng tự học và ghi nhớ liên tục.
     
@@ -109,7 +164,16 @@ async def synthesize_response_node(state: AgentState) -> dict:
     return {"final_answer": response.content, "reasoning_trace": trace}
 
 async def critique_response_node(state: AgentState) -> dict:
-    """Node tự phản biện (Self-Correction & CRAG Critic) kiểm định câu trả lời trước khi xuất xưởng"""
+    """
+    Performs self-correction and CRAG (Corrective Retrieval-Augmented Generation) critique.
+    Validates factual grounding and relevancy, scoring the answer and refining it if sub-par.
+
+    Args:
+        state: Current graph state with draft answer and ground truth sources.
+
+    Returns:
+        Updated state dictionary with quality score, critique feedback, refined answer, and trace.
+    """
     structured_critic = llm.with_structured_output(ResponseCritique)
     prompt = f"""
     Bạn là bộ phận phản biện và kiểm định chất lượng câu trả lời của AI Agent (Self-Correction Critic).

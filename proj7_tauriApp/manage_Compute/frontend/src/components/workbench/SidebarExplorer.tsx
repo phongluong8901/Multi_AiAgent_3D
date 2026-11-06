@@ -1,3 +1,10 @@
+/**
+ * Khung Sidebar điều hướng tài nguyên và giám sát phần cứng (Sidebar Explorer Component):
+ * - Hiển thị các Sparkline trực quan hóa tải CPU, RAM và GPU thời gian thực.
+ * - Cung cấp danh mục các công cụ điều hướng: Compute Dashboard, Auto-Guard Pipeline,
+ *   OS Process & Port Inspector, Network Traffic, Memory Partitions, Incident Audit Trail, Health & AI Advisor.
+ */
+
 import { Server, Layers, HardDrive, Activity, ShieldAlert, Sparkles, Globe } from 'lucide-react';
 import { useTelemetryStore } from '../../stores/useTelemetryStore';
 import { useWorkbenchStore } from '../../stores/useWorkbenchStore';
@@ -12,6 +19,7 @@ export function SidebarExplorer() {
 
     return (
         <div className="h-full w-full bg-zinc-900/70 flex flex-col text-xs select-none overflow-hidden">
+            {/* Tiêu đề khung Sidebar */}
             <div className="px-3 py-2.5 font-bold tracking-wider text-zinc-400 border-b border-zinc-800 flex items-center justify-between shrink-0">
                 <span className="truncate whitespace-nowrap">COMPUTE EXPLORER</span>
                 <span className="text-[10px] font-mono text-emerald-400 shrink-0">LOCAL</span>
@@ -19,7 +27,7 @@ export function SidebarExplorer() {
 
             {/* Tóm tắt phần cứng Realtime với Live Sparklines */}
             <div className="p-3 border-b border-zinc-800 space-y-3 bg-zinc-950/40 shrink-0">
-                {/* CPU Section */}
+                {/* Phần đo lường CPU */}
                 <div className="space-y-1">
                     <div className="flex items-center justify-between">
                         <span className="text-zinc-400 flex items-center gap-1.5 whitespace-nowrap truncate">
@@ -30,7 +38,7 @@ export function SidebarExplorer() {
                     <Sparkline data={cpuHistory} color="emerald" height={26} />
                 </div>
 
-                {/* RAM Section */}
+                {/* Phần đo lường RAM */}
                 <div className="space-y-1 pt-1 border-t border-zinc-800/60">
                     <div className="flex items-center justify-between">
                         <span className="text-zinc-400 flex items-center gap-1.5 whitespace-nowrap truncate">
@@ -43,7 +51,7 @@ export function SidebarExplorer() {
                     <Sparkline data={ramHistory} color="blue" height={26} />
                 </div>
 
-                {/* GPU Section */}
+                {/* Phần đo lường GPU NVIDIA (nếu có card đồ họa) */}
                 {snapshot?.gpus && snapshot.gpus.length > 0 && (
                     <div className="space-y-1 pt-1 border-t border-zinc-800/60">
                         <div className="flex justify-between text-purple-300 font-medium">
@@ -63,6 +71,7 @@ export function SidebarExplorer() {
             <div className="p-2 space-y-1 flex-1 overflow-y-auto">
                 <div className="px-2 py-1 text-[10px] font-semibold text-zinc-500 uppercase tracking-wider whitespace-nowrap">Pipelines & Services</div>
 
+                {/* Mở Tab Dashboard */}
                 <button
                     onClick={() => openTab({ id: 'tab-dash-1', title: 'Compute Dashboard', type: 'dashboard-metrics' })}
                     className="w-full px-2.5 py-2 rounded hover:bg-zinc-800/70 flex items-center gap-2 text-zinc-300 text-left transition-colors cursor-pointer"
@@ -71,6 +80,7 @@ export function SidebarExplorer() {
                     <span className="truncate whitespace-nowrap">Compute Dashboard</span>
                 </button>
 
+                {/* Mở Tab Auto-Guard Canvas */}
                 <button
                     onClick={() => openTab({ id: 'tab-canvas-1', title: 'Auto-Guard GPU Pipeline', type: 'workflow-canvas' })}
                     className="w-full px-2.5 py-2 rounded hover:bg-zinc-800/70 flex items-center gap-2 text-zinc-300 text-left transition-colors cursor-pointer"
@@ -79,6 +89,7 @@ export function SidebarExplorer() {
                     <span className="truncate whitespace-nowrap">Auto-Guard GPU Pipeline</span>
                 </button>
 
+                {/* Mở Tab Khảo sát tiến trình & Cổng */}
                 <button
                     onClick={() => openTab({ id: 'tab-proc-1', title: 'OS Process & Port Inspector', type: 'service-inspector' })}
                     className="w-full px-2.5 py-2 rounded hover:bg-zinc-800/70 flex items-center gap-2 text-zinc-300 text-left transition-colors cursor-pointer"
@@ -87,6 +98,7 @@ export function SidebarExplorer() {
                     <span className="truncate whitespace-nowrap">OS Process & Port Inspector</span>
                 </button>
 
+                {/* Mở Tab Lưu lượng mạng & API */}
                 <button
                     onClick={() => openTab({ id: 'tab-network-1', title: 'API & Network Traffic', type: 'network-traffic' })}
                     className="w-full px-2.5 py-2 rounded hover:bg-zinc-800/70 flex items-center gap-2 text-zinc-300 text-left transition-colors cursor-pointer"
@@ -95,6 +107,7 @@ export function SidebarExplorer() {
                     <span className="truncate whitespace-nowrap">API &amp; Network Traffic</span>
                 </button>
 
+                {/* Mở Tab Quản lý phân vùng bộ nhớ */}
                 <button
                     onClick={() => openTab({ id: 'tab-partitions-1', title: 'Memory & Partitions', type: 'memory-partitions' })}
                     className="w-full px-2.5 py-2 rounded hover:bg-zinc-800/70 flex items-center gap-2 text-zinc-300 text-left transition-colors cursor-pointer"
@@ -103,6 +116,7 @@ export function SidebarExplorer() {
                     <span className="truncate whitespace-nowrap">Memory &amp; Storage Partitions</span>
                 </button>
 
+                {/* Mở Tab Nhật ký kiểm toán sự cố */}
                 <button
                     onClick={() => openTab({ id: 'tab-incidents-1', title: 'Incident Audit Trail', type: 'incident-log' })}
                     className="w-full px-2.5 py-2 rounded hover:bg-zinc-800/70 flex items-center gap-2 text-zinc-300 text-left transition-colors cursor-pointer"
@@ -111,6 +125,7 @@ export function SidebarExplorer() {
                     <span className="truncate whitespace-nowrap">Incident Audit Trail</span>
                 </button>
 
+                {/* Mở Tab Cố vấn sức khỏe hệ thống AI */}
                 <button
                     onClick={() => openTab({ id: 'tab-advisor-1', title: 'Health Score & AI Advisor', type: 'health-advisor' })}
                     className="w-full px-2.5 py-2 rounded hover:bg-zinc-800/70 flex items-center gap-2 text-zinc-300 text-left transition-colors cursor-pointer"

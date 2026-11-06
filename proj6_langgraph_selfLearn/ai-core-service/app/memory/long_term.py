@@ -1,3 +1,11 @@
+"""
+Long-Term Episodic, Semantic, and Synthesized Vector Memory Management via Qdrant.
+Includes belief revision (conflict resolution & deduplication), sleep phase discovery,
+multi-tiered memory querying (Tier 1 raw facts, Tier 2 concept bridges, Tier 3 synthesized knowledge,
+and Negative Knowledge/Falsified hypotheses).
+"""
+
+import json
 import uuid
 from datetime import datetime
 from typing import Optional
@@ -15,13 +23,40 @@ from qdrant_client.http.models import (
 from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
 from ..core.config import settings
 
+def _extract_text_content(res: object) -> str:
+    """
+    Trích xuất và chuẩn hóa nội dung văn bản (str) từ phản hồi LLM hoặc đối tượng tin nhắn.
+    Xử lý an toàn cả kiểu str đơn giản và list các khối nội dung (content blocks / dict).
+    """
+    raw = getattr(res, "content", res)
+    if isinstance(raw, str):
+        return raw
+    if isinstance(raw, list):
+        parts: list[str] = []
+        for item in raw:
+            if isinstance(item, str):
+                parts.append(item)
+            elif isinstance(item, dict) and "text" in item:
+                parts.append(str(item["text"]))
+            else:
+                parts.append(str(item))
+        return "\n".join(parts)
+    return str(raw) if raw is not None else ""
+
+
 class ConflictCheck(BaseModel):
+    """
+    Schema for structured LLM evaluation of factual contradiction or supersession.
+    """
     is_conflict_or_update: bool = Field(
         description="True nếu fact MỚI cập nhật, thay thế hoặc mâu thuẫn trực tiếp với fact CŨ."
     )
     reason: str = Field(default="", description="Lý do mâu thuẫn hoặc thay thế")
 
 class AbductiveHypothesis(BaseModel):
+    """
+    Schema for abductive reasoning over pairs of facts during offline sleep phase consolidation.
+    """
     has_breakthrough: bool = Field(
         description="True nếu phát hiện ra quy luật chung, hệ quả tất yếu hoặc giải pháp mới bắc cầu giữa 2 sự thật độc lập."
     )
@@ -30,7 +65,17 @@ class AbductiveHypothesis(BaseModel):
     confidence_score: int = Field(ge=1, le=10, description="Độ tin cậy và giá trị logic từ 1 đến 10.")
 
 class LongTermMemory:
+    """
+    High-capacity long-term memory engine backed by Qdrant vector database.
+    Supports semantic embeddings via Google Gemini text-embedding models,
+    belief revision upon detecting conflicting assertions, multi-tier knowledge
+    categorization, sleep-phase offline dreaming/synthesis, and empirical failure tracking.
+    """
     def __init__(self):
+        """
+        Initializes Google Gemini embedding generator, chat model for memory operations,
+        and connects to Qdrant vector store.
+        """
         self.embeddings = GoogleGenerativeAIEmbeddings(
             model=settings.EMBEDDING_MODEL,
             google_api_key=settings.GOOGLE_API_KEY
@@ -42,7 +87,7 @@ class LongTermMemory:
             temperature=0.1
         )
         
-        # Tự động nhận diện Local hay Qdrant Cloud qua QDRANT_API_KEY
+        # Connect to local or cloud Qdrant instance
         api_key = settings.QDRANT_API_KEY if settings.QDRANT_API_KEY else None
         self.client = QdrantClient(
             url=settings.QDRANT_URL,
@@ -55,13 +100,25 @@ class LongTermMemory:
         self._init_collections()
 
     def _embed_text(self, text: str) -> list[float]:
+        """
+        Computes dense semantic embedding vector for input text with configured dimensions.
+
+        Args:
+            text: Raw input text.
+
+        Returns:
+            List of floating-point embedding values.
+        """
         return self.embeddings.embed_query(
             text,
             output_dimensionality=settings.EMBEDDING_DIM,
         )
 
     def _init_collections(self):
-        """Khởi tạo 2 bảng Vector nếu chưa tồn tại"""
+        """
+        Initializes Qdrant vector collections for knowledge base and agent experiences
+        if they do not currently exist.
+        """
         existing = [col.name for col in self.client.get_collections().collections]
         
         for col_name in [self.knowledge_col, self.experience_col]:
@@ -75,7 +132,16 @@ class LongTermMemory:
                 )
 
     def recall_knowledge(self, query: str, n_results: int = 4) -> list[str]:
-        """Truy xuất tri thức dài hạn - Tự động lọc bỏ các fact đã bị vô hiệu hóa (deprecated)"""
+        """
+        Retrieves top relevant knowledge facts from Qdrant, filtering out deprecated facts.
+
+        Args:
+            query: Semantic search query string.
+            n_results: Maximum number of active facts to retrieve.
+
+        Returns:
+            List of matching document texts.
+        """
         vec = self._embed_text(query)
         
         active_filter = Filter(
@@ -96,6 +162,16 @@ class LongTermMemory:
         return [hit.payload["document"] for hit in hits if hit.payload and hit.payload.get("document")]
 
     def recall_experiences(self, query: str, n_results: int = 2) -> list[str]:
+        """
+        Retrieves top relevant procedural lessons and past experiences from Qdrant.
+
+        Args:
+            query: Search query string.
+            n_results: Number of experiences to recall.
+
+        Returns:
+            List of past lesson document strings.
+        """
         vec = self._embed_text(query)
         hits = self.client.search(
             collection_name=self.experience_col,
@@ -105,7 +181,17 @@ class LongTermMemory:
         return [hit.payload["document"] for hit in hits if hit.payload and hit.payload.get("document")]
 
     def _detect_conflict(self, new_fact: str, old_fact: str) -> bool:
-        """Sử dụng LLM để phát hiện mâu thuẫn tri thức hoặc thông tin bị lỗi thời"""
+        """
+        Uses structured LLM prompting to detect factual conflicts, negation,
+        or state updates between a proposed new fact and an existing memory fact.
+
+        Args:
+            new_fact: Incoming candidate fact.
+            old_fact: Existing stored fact from memory.
+
+        Returns:
+            True if new_fact supersedes or contradicts old_fact, False otherwise.
+        """
         try:
             checker = self.llm.with_structured_output(ConflictCheck)
             prompt = f"""
@@ -127,6 +213,18 @@ class LongTermMemory:
             return False
 
     def _save_knowledge_point(self, point_id: str, vec: list[float], fact: str, topic: str, source: str, memory_tier: str = "tier_1_raw", status: str = "active"):
+        """
+        Internal helper to insert or replace a vector point in the knowledge base collection.
+
+        Args:
+            point_id: Unique deterministic point UUID.
+            vec: Vector embedding list.
+            fact: Text document string.
+            topic: Category or domain subject.
+            source: Ingestion source origin.
+            memory_tier: Memory categorization tier.
+            status: Active or deprecated lifecycle state.
+        """
         self.client.upsert(
             collection_name=self.knowledge_col,
             points=[
@@ -146,7 +244,14 @@ class LongTermMemory:
         )
 
     def _deprecate_point(self, point_id: str, superseded_by: str, reason: str):
-        """Vô hiệu hóa tri thức cũ khi có tri thức mới cập nhật thay thế"""
+        """
+        Marks an existing knowledge point as deprecated due to supersession by newer information.
+
+        Args:
+            point_id: Target point UUID to mark as deprecated.
+            superseded_by: UUID of the replacement point.
+            reason: Human/machine readable justification for deprecation.
+        """
         try:
             points = self.client.retrieve(collection_name=self.knowledge_col, ids=[point_id], with_payload=True)
             if points and points[0].payload:
@@ -160,7 +265,20 @@ class LongTermMemory:
             print(f"[Deprecate Point Warning]: {e}")
 
     def upsert_knowledge(self, fact: str, topic: str, source: str = "web_search", memory_tier: str = "tier_1_raw") -> str:
-        """Tự động phát hiện và giải quyết mâu thuẫn tri thức (Belief Revision & Conflict Resolution)"""
+        """
+        Inserts new knowledge with automated belief revision and semantic deduplication.
+        If similarity > 0.85, updates in place; if neighboring memories conflict (0.65-0.85),
+        deprecates the obsolete memories.
+
+        Args:
+            fact: Knowledge statement to commit.
+            topic: Knowledge domain topic.
+            source: Source of the fact (web, conversation, synthesis).
+            memory_tier: Knowledge hierarchy tier.
+
+        Returns:
+            Status indicator string with point ID.
+        """
         vec = self._embed_text(fact)
         
         hits = self.client.search(
@@ -169,7 +287,7 @@ class LongTermMemory:
             limit=3
         )
         
-        # Nếu độ tương đồng cực cao (> 0.85) -> Ghi đè trực tiếp (Deduplication)
+        # Deduplication: overwrite existing point if semantic similarity > 0.85
         if hits and hits[0].score > 0.85:
             point_id = str(hits[0].id)
             self._save_knowledge_point(point_id, vec, fact, topic, source, memory_tier=memory_tier, status="active")
@@ -177,7 +295,7 @@ class LongTermMemory:
             
         point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, fact))
         
-        # Cơ chế Belief Revision: So sánh với các fact lân cận (score 0.65 - 0.85) để phát hiện mâu thuẫn
+        # Belief Revision: detect and deprecate obsolete conflicting facts
         for hit in hits:
             if 0.65 <= hit.score <= 0.85 and hit.payload and hit.payload.get("status") != "deprecated":
                 old_doc = hit.payload.get("document", "")
@@ -205,7 +323,25 @@ class LongTermMemory:
         verification_code: str = "",
         benchmark_output: str = ""
     ) -> str:
-        """Lưu trữ Tri thức mới bậc cao (Tier 3: Synthesized Knowledge) do AI tự đúc kết kèm mã kiểm nghiệm thực tế"""
+        """
+        Stores higher-order synthesized knowledge (Tier 3) deduced from multi-hop reasoning
+        and verified through empirical sandbox execution.
+
+        Args:
+            insight: Primary thesis or synthesized principle.
+            topic: Domain topic.
+            bridge_concept: Discovered intermediate bridge.
+            analysis: Dialectical reasoning breakdown.
+            confidence: Estimated confidence metric.
+            new_law: Short formulaic law description.
+            contradiction_resolved: Description of resolved dialectical tensions.
+            causal_chain: Multi-step inference sequence.
+            verification_code: Python code executed to verify the insight.
+            benchmark_output: Execution stdout/metric logs.
+
+        Returns:
+            Deterministic Qdrant point UUID string.
+        """
         vec = self._embed_text(insight)
         point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"synth_{insight}"))
         law_title = new_law or topic or insight[:80]
@@ -249,9 +385,19 @@ class LongTermMemory:
         execution_output: str = ""
     ) -> str:
         """
-        Lưu trữ Tri thức Phủ định (Negative Knowledge Memory / Falsified Hypothesis):
-        Ghi nhận các giả thuyết đã được kiểm nghiệm thực tế trong Sandbox và bị BÁC BỎ hoặc THẤT BẠI.
-        Giúp AI không bao giờ lặp lại các phương án sai lầm trong tương lai.
+        Stores Negative Knowledge Memory (Falsified Hypothesis).
+        Documents empirically refuted hypotheses from failed sandbox simulations,
+        preventing future iterations from repeating invalidated reasoning paths.
+
+        Args:
+            hypothesis: The refuted hypothesis text.
+            topic: Problem domain topic.
+            falsified_reason: Failure reason or assertion message.
+            failed_code: The simulation script that failed.
+            execution_output: Execution trace or error output.
+
+        Returns:
+            Deterministic Qdrant point UUID string.
         """
         doc = f"[GIẢ THUYẾT BÁC BỎ]: {hypothesis}. Lý do bác bỏ: {falsified_reason}"
         vec = self._embed_text(doc)
@@ -288,7 +434,20 @@ class LongTermMemory:
         confidence: float = 0.90,
         bridge_node: str = ""
     ) -> str:
-        """Lưu trữ Cầu nối khái niệm (Tier 2: Concept Bridge) kết nối các miền tri thức"""
+        """
+        Stores conceptual relational bridges (Tier 2) mapping relations between disparate entities.
+
+        Args:
+            entity_a: Origin entity or concept.
+            relation: Semantic or causal link.
+            entity_b: Destination entity or concept.
+            context: Supporting context or source statement.
+            confidence: Confidence score.
+            bridge_node: Identifying intermediary node.
+
+        Returns:
+            Deterministic Qdrant point UUID string.
+        """
         text = f"{entity_a} -> {relation} -> {entity_b}. {context}"
         vec = self._embed_text(text)
         point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"bridge_{entity_a}_{entity_b}"))
@@ -318,11 +477,17 @@ class LongTermMemory:
 
     def run_sleep_phase_discovery(self, sample_limit: int = 15) -> dict:
         """
-        Pha ngủ - Giấc mơ AI (Background Memory Consolidation / Sleep Phase):
-        1. Lấy mẫu các facts trong Qdrant.
-        2. Tìm các cặp facts có liên quan nhưng khác ngữ cảnh để suy luận bắc cầu.
-        3. Dùng LLM Abductive Synthesis suy diễn giả thuyết và định luật mới ('X + Z -> W').
-        4. Ghi nhận thành công vào Tier 3 và Tier 2.
+        Executes offline memory consolidation (Sleep Phase / AI Dreaming).
+        1. Samples active non-synthesized facts in Qdrant.
+        2. Compares fact pairs for potential latent bridges across disparate contexts.
+        3. Invokes LLM Abductive Synthesis to deduce new laws (X + Z -> W).
+        4. Persists verified discoveries into Tier 3 knowledge and Tier 2 concept bridges.
+
+        Args:
+            sample_limit: Maximum number of candidate facts to cross-reference.
+
+        Returns:
+            Dictionary summary with status, count of new insights, and insight details.
         """
         points, _ = self.client.scroll(
             collection_name=self.knowledge_col,
@@ -331,7 +496,7 @@ class LongTermMemory:
             with_vectors=True
         )
         
-        # Lấy tất cả facts còn hiệu lực không phải Tier 3 đã tổng hợp
+        # Collect valid active facts excluding existing synthesized tier 3 items
         raw_facts = [
             p for p in points 
             if p.payload and p.payload.get("status") != "deprecated" and p.payload.get("memory_tier") != "tier_3_synthesized"
@@ -350,13 +515,13 @@ class LongTermMemory:
         synthesizer = self.llm.with_structured_output(AbductiveHypothesis)
         new_insights = []
         
-        # Quét các cặp sự thật
+        # Scan cross-product pairs of facts
         for i in range(min(len(raw_facts), sample_limit)):
             for j in range(i + 1, min(len(raw_facts), sample_limit)):
                 fact_a = raw_facts[i].payload.get("document", "")
                 fact_b = raw_facts[j].payload.get("document", "")
                 
-                # Bỏ qua nếu 2 fact quá ngắn
+                # Skip facts that are too short to hold meaningful context
                 if len(fact_a) < 15 or len(fact_b) < 15:
                     continue
                     
@@ -397,7 +562,7 @@ class LongTermMemory:
                         score = int(res.get("confidence_score", 8))
                     else:
                         plain = self.llm.invoke(prompt)
-                        content = plain.content if hasattr(plain, "content") else str(plain)
+                        content = _extract_text_content(plain)
                         cleaned = content.replace("```json", "").replace("```", "").strip()
                         data = json.loads(cleaned)
                         breakthrough = bool(data.get("has_breakthrough"))
@@ -452,7 +617,16 @@ class LongTermMemory:
         }
 
     def save_experience(self, lesson: str, task_type: str) -> str:
-        """Lưu bài học kinh nghiệm kèm khử trùng lặp theo ngữ nghĩa"""
+        """
+        Saves a procedural experience lesson with semantic deduplication (threshold > 0.80).
+
+        Args:
+            lesson: Text description of the procedural lesson.
+            task_type: Categorical identifier of the task domain.
+
+        Returns:
+            Point UUID in the experience collection.
+        """
         vec = self._embed_text(lesson)
         hits = self.client.search(collection_name=self.experience_col, query_vector=vec, limit=1)
         if hits and hits[0].score > 0.80:
@@ -477,7 +651,12 @@ class LongTermMemory:
         return point_id
 
     def consolidate_memory(self) -> dict:
-        """Dọn dẹp các bản ghi lỗi thời (deprecated) và tối ưu hóa chỉ mục"""
+        """
+        Prunes all deprecated facts from Qdrant storage and refreshes collection statistics.
+
+        Returns:
+            Dictionary with count of purged facts, remaining active count, and overall status.
+        """
         points, _ = self.client.scroll(collection_name=self.knowledge_col, limit=200, with_payload=True)
         deprecated_ids = [str(p.id) for p in points if p.payload and p.payload.get("status") == "deprecated"]
         if deprecated_ids:
@@ -492,7 +671,14 @@ class LongTermMemory:
         }
 
     def get_tiered_stats(self) -> dict:
-        """Thống kê chi tiết theo các tầng bộ nhớ: Tier 1, Tier 2, Tier 3 và Negative Knowledge"""
+        """
+        Computes detailed point counts partitioned by memory tier:
+        Tier 1 raw facts, Tier 2 concept bridges, Tier 3 synthesized knowledge,
+        and Negative Knowledge (falsified hypotheses).
+
+        Returns:
+            Dictionary of tier counts and totals.
+        """
         points, _ = self.client.scroll(collection_name=self.knowledge_col, limit=500, with_payload=True)
         active_points = [p for p in points if p.payload and p.payload.get("status") != "deprecated"]
         
@@ -517,7 +703,15 @@ class LongTermMemory:
         }
 
     def list_synthesized_insights(self, limit: int = 50) -> list[dict]:
-        """Danh sách tri thức mới Tier 3 tự đúc kết kèm bằng chứng kiểm nghiệm sandbox"""
+        """
+        Retrieves recent Tier 3 synthesized knowledge insights with verification logs.
+
+        Args:
+            limit: Maximum items to return.
+
+        Returns:
+            List of insight dictionaries sorted by updated_at descending.
+        """
         points, _ = self.client.scroll(collection_name=self.knowledge_col, limit=500, with_payload=True)
         insights = []
         for p in points:
@@ -553,7 +747,15 @@ class LongTermMemory:
         return insights[:limit]
 
     def list_falsified_hypotheses(self, limit: int = 50) -> list[dict]:
-        """Danh sách các giả thuyết bị bác bỏ (Negative Knowledge: Học từ thất bại)"""
+        """
+        Retrieves list of empirically refuted hypotheses (Negative Knowledge Memory).
+
+        Args:
+            limit: Maximum items to return.
+
+        Returns:
+            List of falsified hypothesis items sorted by updated_at descending.
+        """
         points, _ = self.client.scroll(collection_name=self.knowledge_col, limit=500, with_payload=True)
         items = []
         for p in points:
@@ -571,7 +773,15 @@ class LongTermMemory:
         return items[:limit]
 
     def list_concept_bridges(self, limit: int = 50) -> list[dict]:
-        """Danh sách cầu nối khái niệm Tier 2"""
+        """
+        Retrieves list of active Tier 2 relational concept bridges.
+
+        Args:
+            limit: Maximum items to return.
+
+        Returns:
+            List of concept bridge dictionaries sorted descending by created_at.
+        """
         points, _ = self.client.scroll(collection_name=self.knowledge_col, limit=500, with_payload=True)
         bridges = []
         for p in points:
@@ -593,6 +803,15 @@ class LongTermMemory:
         return bridges[:limit]
 
     def list_knowledge(self, limit: int = 100) -> list[dict]:
+        """
+        Lists active knowledge facts from the knowledge base collection.
+
+        Args:
+            limit: Maximum records to return.
+
+        Returns:
+            List of raw knowledge records.
+        """
         points, _ = self.client.scroll(collection_name=self.knowledge_col, limit=limit, with_payload=True, with_vectors=False)
         return [
             {
@@ -609,6 +828,15 @@ class LongTermMemory:
         ]
 
     def list_experiences(self, limit: int = 100) -> list[dict]:
+        """
+        Lists stored experiences and procedural lessons.
+
+        Args:
+            limit: Maximum items to return.
+
+        Returns:
+            List of experience records.
+        """
         points, _ = self.client.scroll(collection_name=self.experience_col, limit=limit, with_payload=True, with_vectors=False)
         return [
             {
@@ -622,6 +850,15 @@ class LongTermMemory:
         ]
 
     def list_memory_items(self, limit: int = 100) -> list[dict]:
+        """
+        Returns combined chronological feed of knowledge facts and procedural experiences.
+
+        Args:
+            limit: Maximum total items.
+
+        Returns:
+            Merged list sorted by learned_at descending.
+        """
         knowledge = [
             {
                 "id": item["id"],
@@ -649,6 +886,12 @@ class LongTermMemory:
         return items[:limit]
 
     def get_stats(self) -> dict:
+        """
+        Retrieves aggregate counts of active knowledge facts and total experiences.
+
+        Returns:
+            Dictionary containing 'total_knowledge_facts' and 'total_experiences'.
+        """
         points, _ = self.client.scroll(collection_name=self.knowledge_col, limit=500, with_payload=True)
         active_k_count = sum(1 for p in points if p.payload and p.payload.get("status") != "deprecated")
         e_count = self.client.count(collection_name=self.experience_col).count

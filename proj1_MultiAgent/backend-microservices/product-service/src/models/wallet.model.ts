@@ -1,5 +1,8 @@
 import { Schema, model, Document } from "mongoose";
 
+/**
+ * Interface định nghĩa một bản ghi giao dịch biến động số dư trong ví Coin.
+ */
 export interface ITransaction {
     amount: number;
     type: "deposit" | "purchase" | "rental" | "refund";
@@ -7,6 +10,9 @@ export interface ITransaction {
     createdAt: Date;
 }
 
+/**
+ * Interface biểu diễn thực thể Ví Coin (IWallet) của người dùng trong hệ thống Marketplace.
+ */
 export interface IWallet extends Document {
     userId: string;
     balance: number;
@@ -15,10 +21,13 @@ export interface IWallet extends Document {
     updatedAt: Date;
 }
 
+/**
+ * Mongoose Schema cho bảng lưu trữ Ví Coin (Wallets).
+ */
 const WalletSchema = new Schema<IWallet>(
     {
         userId: { type: String, required: true, unique: true, index: true },
-        balance: { type: Number, required: true, default: 1000 }, // Tặng sẵn 1000 Coin trải nghiệm
+        balance: { type: Number, required: true, default: 1000 }, // Khởi tạo sẵn 1000 Coin trải nghiệm
         transactions: [
             {
                 amount: { type: Number, required: true },

@@ -4,10 +4,18 @@ import { useCallback, useEffect, useState } from 'react'
 import { usersApi } from '@/lib/api'
 import { notify } from '@/lib/toast'
 
+/**
+ * Custom Hook quan ly danh sach Agent do nguoi dung hien tai so huu:
+ * - Lay danh sach `ownedIds` tu user-service
+ * - Cho phep nhan them (`addMyAgent`) hoac bo so huu (`removeMyAgent`) thong qua ham `toggleAgent`
+ */
 export function useOwnedAgents() {
     const [ownedIds, setOwnedIds] = useState<string[]>([])
     const [loading, setLoading] = useState(true)
 
+    /**
+     * Tai lai danh sach agent so huu tu backend
+     */
     const refresh = useCallback(async () => {
         try {
             const ids = await usersApi.getMyAgents()
@@ -23,6 +31,10 @@ export function useOwnedAgents() {
         refresh()
     }, [refresh])
 
+    /**
+     * Chuyen doi trang thai so huu cua mot Agent
+     * @param agentId Dinh danh cua Agent can thao tac
+     */
     const toggleAgent = async (agentId: string) => {
         const has = ownedIds.includes(agentId)
         try {

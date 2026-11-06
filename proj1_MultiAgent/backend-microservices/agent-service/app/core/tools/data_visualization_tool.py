@@ -4,6 +4,12 @@ from typing import Dict, Any, List
 from .base_tool import BaseTool
 
 class DataVisualizationTool(BaseTool):
+    """
+    Công cụ trực quan hóa dữ liệu chuyên dụng cho Agent (`data_visualization_tool`).
+    Nhận đầu vào dạng chuỗi hoặc mảng số liệu, chuẩn hóa thành cấu trúc `chart_json`
+    và bảng dữ liệu Markdown để Frontend dựng biểu đồ tương tác (Line, Bar, Pie, Area).
+    """
+
     name = "data_visualization_tool"
     description = (
         "Công cụ trực quan hóa dữ liệu và biểu đồ: sinh biểu đồ đường (line), cột (bar), tròn (pie/doughnut), diện tích (area). "
@@ -134,7 +140,7 @@ class DataVisualizationTool(BaseTool):
             chart_embed = f"```chart_json\n{json.dumps(chart_payload, ensure_ascii=False, indent=2)}\n```"
 
             display_output = (
-                f"### 📊 {title}\n\n"
+                f"### [CHART] {title}\n\n"
                 f"{chart_embed}\n\n"
                 f"**Bảng số liệu chi tiết:**\n{markdown_table}\n\n"
                 f"{'**Nhận định xu hướng:** ' + summary if summary else ''}"

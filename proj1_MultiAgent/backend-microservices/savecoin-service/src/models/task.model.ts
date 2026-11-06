@@ -1,5 +1,8 @@
 import mongoose, { Document, Schema } from "mongoose";
 
+/**
+ * Dinh nghia cac tieu chi nhiem vu Plan Task trong he sinh thai SaveCoin
+ */
 export interface IPlanTaskDefinition {
     code: string;
     title: string;
@@ -11,6 +14,9 @@ export interface IPlanTaskDefinition {
     unit: string;
 }
 
+/**
+ * Danh sach cac Plan Tasks mac dinh do he thong khoi tao
+ */
 export const SYSTEM_PLAN_TASKS: IPlanTaskDefinition[] = [
     {
         code: "TASK_CREATE_MAP",
@@ -18,7 +24,7 @@ export const SYSTEM_PLAN_TASKS: IPlanTaskDefinition[] = [
         description: "Vẽ và lưu trữ thành công 1 bản đồ 3D mới lên Cloud",
         category: "map_creation",
         rewardCoins: 50,
-        icon: "🗺️",
+        icon: "map",
         targetCount: 1,
         unit: "bản đồ",
     },
@@ -28,7 +34,7 @@ export const SYSTEM_PLAN_TASKS: IPlanTaskDefinition[] = [
         description: "Đặt thiết bị đèn Smart LED hoặc đèn đường thông minh vào bản đồ",
         category: "iot_devices",
         rewardCoins: 15,
-        icon: "💡",
+        icon: "lightbulb",
         targetCount: 3,
         unit: "thiết bị",
     },
@@ -38,7 +44,7 @@ export const SYSTEM_PLAN_TASKS: IPlanTaskDefinition[] = [
         description: "Bố trí xe AMR, Vịt Rubber Duck hoặc Cyber Drone vào thế giới 3D",
         category: "robotics",
         rewardCoins: 30,
-        icon: "🤖",
+        icon: "bot",
         targetCount: 2,
         unit: "robot",
     },
@@ -48,7 +54,7 @@ export const SYSTEM_PLAN_TASKS: IPlanTaskDefinition[] = [
         description: "Lắp đặt rèm cửa thông minh, vòi tưới tự động hoặc điều hòa",
         category: "iot_devices",
         rewardCoins: 25,
-        icon: "🏠",
+        icon: "home",
         targetCount: 2,
         unit: "thiết bị",
     },
@@ -58,7 +64,7 @@ export const SYSTEM_PLAN_TASKS: IPlanTaskDefinition[] = [
         description: "Bố trí băng chuyền hoặc cánh tay robot công nghiệp vào xưởng",
         category: "robotics",
         rewardCoins: 40,
-        icon: "🏭",
+        icon: "factory",
         targetCount: 2,
         unit: "linh kiện",
     },
@@ -68,12 +74,15 @@ export const SYSTEM_PLAN_TASKS: IPlanTaskDefinition[] = [
         description: "Đăng nhập và truy cập Map Studio / Agent Store mỗi ngày",
         category: "engagement",
         rewardCoins: 20,
-        icon: "⚡",
+        icon: "zap",
         targetCount: 1,
         unit: "lần",
     },
 ];
 
+/**
+ * Interface theo doi tien do thuc hien nhiem vu cua tung User
+ */
 export interface IUserTaskProgress extends Document {
     userId: string;
     taskCode: string;

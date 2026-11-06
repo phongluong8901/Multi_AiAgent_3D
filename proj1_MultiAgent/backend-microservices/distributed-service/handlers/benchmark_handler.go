@@ -9,17 +9,20 @@ import (
 	"distributed-service/service"
 )
 
+// BenchmarkHandler xử lý các yêu cầu HTTP liên quan đến đánh giá cấu hình phần cứng (Benchmark),
+// tra cứu danh mục mô hình AI và tải kịch bản cài đặt tự động.
 type BenchmarkHandler struct {
 	engine *service.BenchmarkEngine
 }
 
+// NewBenchmarkHandler khởi tạo BenchmarkHandler với dịch vụ BenchmarkEngine.
 func NewBenchmarkHandler(engine *service.BenchmarkEngine) *BenchmarkHandler {
 	return &BenchmarkHandler{
 		engine: engine,
 	}
 }
 
-// HandleBenchmark tiếp nhận thông số RAM, GPU, CPU và trả về đánh giá model phù hợp
+// HandleBenchmark tiếp nhận thông số RAM, GPU, CPU và trả về đánh giá các mô hình AI phù hợp.
 func (h *BenchmarkHandler) HandleBenchmark(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -27,6 +30,7 @@ func (h *BenchmarkHandler) HandleBenchmark(w http.ResponseWriter, r *http.Reques
 		http.Error(w, `{"error":"Method not allowed, use POST"}`, http.StatusMethodNotAllowed)
 		return
 	}
+	defer r.Body.Close()
 
 	var hw models.HardwareReport
 	if err := json.NewDecoder(r.Body).Decode(&hw); err != nil {

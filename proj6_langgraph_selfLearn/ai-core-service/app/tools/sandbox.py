@@ -1,8 +1,15 @@
+"""
+Isolated Code Execution Sandbox.
+Executes generated verification benchmarks, simulations, and validation scripts
+within a subprocess boundary with strict timeout limits and static safety filtering.
+"""
+
 import sys
 import time
 import subprocess
 from typing import Dict, Any
 
+# Dangerous operational keywords barred from execution in the sandbox
 FORBIDDEN_KEYWORDS = [
     "shutil.rmtree",
     "os.remove",
@@ -16,10 +23,19 @@ FORBIDDEN_KEYWORDS = [
 
 def execute_code_sandbox(code: str, timeout_seconds: int = 8) -> Dict[str, Any]:
     """
-    Thực thi mã kiểm nghiệm (Simulation / Benchmark / Solver) trong môi trường con cô lập.
-    Đo đạc thời gian, bắt toàn bộ stdout, stderr và mã thoát.
+    Executes a Python validation/benchmark script in a subprocess with output capture.
+    Performs pre-execution security keyword inspection, tracks execution duration in ms,
+    and captures stdout, stderr, and process return codes.
+
+    Args:
+        code: Python source code string to execute.
+        timeout_seconds: Subprocess execution timeout ceiling (default 8s).
+
+    Returns:
+        Dictionary containing 'success', 'exit_code', 'stdout', 'stderr',
+        'execution_time_ms', and 'error'.
     """
-    # 1. Kiểm tra an toàn tĩnh (Static safety check)
+    # 1. Static security validation
     for kw in FORBIDDEN_KEYWORDS:
         if kw in code:
             return {
@@ -33,6 +49,7 @@ def execute_code_sandbox(code: str, timeout_seconds: int = 8) -> Dict[str, Any]:
 
     start_time = time.perf_counter()
     try:
+        # Run isolated Python subprocess executing code string via -c
         process = subprocess.run(
             [sys.executable, "-c", code],
             capture_output=True,
@@ -72,4 +89,5 @@ def execute_code_sandbox(code: str, timeout_seconds: int = 8) -> Dict[str, Any]:
             "execution_time_ms": round(elapsed_ms, 2),
             "error": str(e)
         }
+
 

@@ -1,10 +1,21 @@
 import { toast } from 'sonner'
 
+/**
+ * Tuy chon bo sung cho thong bao toast
+ */
 type Opts = {
     description?: string
     duration?: number
 }
 
+/**
+ * Tien ich hien thi thong bao he thong (Toast Notification) su dung sonner:
+ * - success: Thong bao hanh dong thanh cong
+ * - error: Thong bao that bai hoac loi ngoai le
+ * - info: Thong bao thong tin hoac huong dan
+ * - loading: Thong bao dang xu ly tien trinh
+ * - promise: Tu dong cap nhat trang thai tu Promise (loading -> success/error)
+ */
 export const notify = {
     success: (title: string, opts?: Opts) =>
         toast.success(title, {

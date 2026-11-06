@@ -1,20 +1,30 @@
 import { Request, Response } from "express";
 import { ProductModel } from "../models/product.model";
 
+/**
+ * Controller quản lý danh mục sản phẩm AI Agent trên Marketplace.
+ * Cung cấp các thao tác truy vấn, tìm kiếm đa tiêu chí, xem chi tiết và tạo mới sản phẩm Agent.
+ */
 export class ProductController {
+    /**
+     * Lấy danh sách sản phẩm AI Agent theo bộ lọc (category, modelTier, search từ khóa) và sắp xếp.
+     */
     async getProducts(req: Request, res: Response) {
         try {
             const { category, search, modelTier, sort = "featured" } = req.query;
             const query: any = {};
 
+            // Lọc theo phân loại nghiệp vụ (vd: business, coding, creative, general)
             if (category && category !== "all") {
                 query.category = category;
             }
 
+            // Lọc theo cấp độ mô hình AI (vd: fast, standard, premium)
             if (modelTier && modelTier !== "all") {
                 query.modelTier = modelTier;
             }
 
+            // Tìm kiếm đa trường không phân biệt hoa thường
             if (search) {
                 query.$or = [
                     { name: { $regex: String(search), $options: "i" } },
@@ -24,6 +34,7 @@ export class ProductController {
                 ];
             }
 
+            // Tiêu chí sắp xếp danh sách sản phẩm
             let sortOptions: any = { isFeatured: -1, rating: -1 };
             if (sort === "price_asc") sortOptions = { "pricing.rentDailyRate": 1 };
             if (sort === "price_desc") sortOptions = { "pricing.rentDailyRate": -1 };
@@ -37,12 +48,20 @@ export class ProductController {
         }
     }
 
+    /**
+     * Xem thông tin chi tiết của một Agent theo Mongo ObjectId hoặc chuỗi agentId duy nhất.
+     */
     async getProductById(req: Request, res: Response) {
         try {
             const { id } = req.params;
-            const product = await ProductModel.findOne({
-                $or: [{ _id: id.match(/^[0-9a-fA-F]{24}$/) ? id : null }, { agentId: id }]
-            });
+            const queryConditions: any[] = [{ agentId: id }];
+
+            // Nếu id khớp định dạng 24 ký tự hex của MongoDB ObjectId, tìm kiếm thêm theo _id
+            if (/^[0-9a-fA-F]{24}$/.test(id)) {
+                queryConditions.push({ _id: id });
+            }
+
+            const product = await ProductModel.findOne({ $or: queryConditions });
 
             if (!product) {
                 return res.status(404).json({ success: false, message: "Agent product not found" });
@@ -54,6 +73,9 @@ export class ProductController {
         }
     }
 
+    /**
+     * Đăng bán hoặc niêm yết một Agent mới lên Marketplace.
+     */
     async createProduct(req: Request, res: Response) {
         try {
             const existing = await ProductModel.findOne({ agentId: req.body.agentId });

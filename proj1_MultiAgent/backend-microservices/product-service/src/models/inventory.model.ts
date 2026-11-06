@@ -1,18 +1,26 @@
 import { Schema, model, Document, Types } from "mongoose";
 
+/**
+ * Interface biểu diễn thực thể Kho đồ AI Agent (IInventory) của người dùng.
+ * Phản ánh quyền sở hữu vĩnh viễn (owned) hoặc quyền thuê giới hạn thời gian (rented).
+ */
 export interface IInventory extends Document {
     userId: string;
     agentId: string;
     agentName: string;
     productId: Types.ObjectId;
     ownershipType: "owned" | "rented";
-    rentExpiresAt?: Date | null; // null nếu là owned
+    rentExpiresAt?: Date | null; // null nếu là quyền sở hữu vĩnh viễn (owned)
     isActive: boolean;
     autoRenew: boolean;
     createdAt: Date;
     updatedAt: Date;
 }
 
+/**
+ * Mongoose Schema cho bảng lưu trữ Kho đồ Agent.
+ * Ràng buộc unique index trên cặp `(userId, agentId)` đảm bảo tính toàn vẹn dữ liệu.
+ */
 const InventorySchema = new Schema<IInventory>(
     {
         userId: { type: String, required: true, index: true },

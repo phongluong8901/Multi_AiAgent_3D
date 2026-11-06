@@ -1,3 +1,8 @@
+/**
+ * Long-Term Vector Memory Metrics Display Component.
+ * Displays count cards for Declarative/Semantic Knowledge Facts and Episodic Experiences.
+ */
+
 import { Database } from 'lucide-react';
 import type { MemoryStats } from '../types';
 

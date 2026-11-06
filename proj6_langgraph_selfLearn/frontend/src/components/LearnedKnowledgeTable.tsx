@@ -1,3 +1,9 @@
+/**
+ * Learned Knowledge & Experience Table Component.
+ * Visualizes active Qdrant memories separated into Declarative Knowledge facts
+ * and Procedural Experience lessons, with sorting and refresh controls.
+ */
+
 import { useState } from 'react';
 import { BookOpen, Lightbulb, RefreshCw } from 'lucide-react';
 import type { LearnedMemoryItem } from '../types';
@@ -15,8 +21,10 @@ export default function LearnedKnowledgeTable({
   error,
   onRefresh,
 }: LearnedKnowledgeTableProps) {
+  // Toggle between Declarative Knowledge and Procedural Experience
   const [activeTab, setActiveTab] = useState<'knowledge' | 'experience'>('knowledge');
 
+  // Filter and sort items chronologically descending
   const knowledgeItems = items
     .filter((item) => item.kind === 'knowledge')
     .sort((a, b) => new Date(b.learned_at).getTime() - new Date(a.learned_at).getTime());

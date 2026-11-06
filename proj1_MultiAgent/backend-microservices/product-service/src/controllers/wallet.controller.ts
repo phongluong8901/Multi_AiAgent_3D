@@ -1,10 +1,17 @@
 import { Request, Response } from "express";
 import { WalletModel } from "../models/wallet.model";
 
+/**
+ * Controller quản lý Ví Coin (Wallet) và giao dịch nạp thử nghiệm (Faucet) cho người dùng.
+ */
 export class WalletController {
+    /**
+     * Lấy thông tin số dư ví Coin và lịch sử biến động giao dịch gần nhất của người dùng.
+     * Tự động khởi tạo ví với 1,000 Coin trải nghiệm nếu đây là lần đầu người dùng truy cập.
+     */
     async getWallet(req: Request, res: Response) {
         try {
-            const userId = req.headers["x-user-id"] as string || (req.query.userId as string);
+            const userId = (req.headers["x-user-id"] as string) || (req.query.userId as string);
             if (!userId) {
                 return res.status(400).json({ success: false, message: "Missing userId" });
             }
@@ -32,6 +39,10 @@ export class WalletController {
         }
     }
 
+    /**
+     * Nạp thêm Coin thử nghiệm vào ví người dùng (Faucet Coin).
+     * Phục vụ mục đích thử nghiệm tính năng mua bán hoặc chạy tải hệ thống.
+     */
     async faucet(req: Request, res: Response) {
         try {
             const { userId, amount = 500 } = req.body;

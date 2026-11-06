@@ -13,11 +13,11 @@ router.use(
         on: {
             proxyReq: (proxyReq, req: any) => {
                 const fullPath = req.url || "";
-                console.log(`[Gateway Proxy] 🗺️ Chuyển tiếp MapDraw: ${req.method} ${fullPath} -> ${MAPDRAW_SERVICE_URL}`);
+                console.log(`[INFO] [Gateway Proxy] Chuyển tiếp MapDraw: ${req.method} ${fullPath} -> ${MAPDRAW_SERVICE_URL}`);
                 fixRequestBody(proxyReq, req);
             },
             error: (err, req, res) => {
-                console.error(`[Gateway Proxy] ❌ Lỗi kết nối xuống MapDraw Service:`, err);
+                console.error(`[ERROR] [Gateway Proxy] Lỗi kết nối xuống MapDraw Service:`, err);
                 const expressRes = res as Response;
                 if (expressRes && !expressRes.headersSent) {
                     expressRes.status(502).json({ success: false, message: "Bad Gateway: MapDraw Service đang gặp sự cố" });

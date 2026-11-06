@@ -1,3 +1,10 @@
+"""
+Module Workflow DAG Engine & Auto-Guard Runner:
+Quản lý việc thực thi đồ thị quy trình DAG (Directed Acyclic Graph) tự động hóa,
+đánh giá các node Trigger, Condition rẽ nhánh True/False, Cổng logic AND/OR,
+và điều phối các hành động can thiệp (Action Nodes) bảo vệ phần cứng.
+"""
+
 import asyncio
 import time
 from typing import Dict, List, Optional, Set
@@ -8,7 +15,13 @@ from app.modules.workflow_engine.actions import execute_node_action
 from app.modules.service_manager.resource_quota_manager import resource_quota_manager
 
 class WorkflowDAGRunner:
+    """
+    Trình thông dịch và thực thi luồng quy trình DAG tự động hóa.
+    Hỗ trợ chạy một lần (Dry-run / Run Once) hoặc chạy nền theo chu kỳ (Continuous Loop).
+    """
+
     def __init__(self):
+        """Khởi tạo trạng thái và bộ nhớ theo dõi quá trình thực thi workflow."""
         self.active_tasks: Dict[str, asyncio.Task] = {}
         self.active_schedules: Dict[str, dict] = {}
         self.execution_logs: List[dict] = []
@@ -20,6 +33,15 @@ class WorkflowDAGRunner:
         self.last_tick_time: Optional[float] = None
 
     def toggle_guard(self, armed: Optional[bool] = None) -> bool:
+        """
+        Bật hoặc tắt cơ chế Auto-Guard (chốt an toàn cho phép hoặc chặn thực thi can thiệp).
+
+        Tham số:
+            armed (Optional[bool]): Trạng thái mong muốn (True: Bật, False: Tắt, None: Đảo trạng thái).
+
+        Trả về:
+            bool: Trạng thái mới của Auto-Guard.
+        """
         if armed is not None:
             self.guard_armed = armed
         else:
@@ -27,6 +49,12 @@ class WorkflowDAGRunner:
         return self.guard_armed
 
     def get_guard_status(self) -> dict:
+        """
+        Lấy thông tin tổng quan về trạng thái giám sát của Auto-Guard.
+
+        Trả về:
+            dict: Thống kê số lần can thiệp, trạng thái armed, số lượng workflow đang chạy nền.
+        """
         return {
             "guard_armed": self.guard_armed,
             "interventions_count": self.interventions_count,
@@ -38,35 +66,45 @@ class WorkflowDAGRunner:
         }
 
     def execute_once(self, graph: WorkflowGraphRequest) -> list[dict]:
+        """
+        Thực thi duyệt đồ thị DAG một lần duy nhất từ các Node Trigger gốc tới các Action đích.
+
+        Tham số:
+            graph (WorkflowGraphRequest): Cấu trúc đồ thị gồm danh sách node và edge.
+
+        Trả về:
+            list[dict]: Danh sách sự kiện và hành động đã được kích hoạt trong lượt chạy.
+        """
         snapshot = telemetry_collector.get_snapshot()
         nodes_map: Dict[str, FlowNode] = {n.id: n for n in graph.nodes}
         edge_map: Dict[str, List[FlowEdge]] = {n.id: [] for n in graph.nodes}
         incoming_map: Dict[str, List[FlowEdge]] = {n.id: [] for n in graph.nodes}
 
+        # Xây dựng bảng ánh xạ cạnh liên kết hai chiều (Forward và Backward)
         for edge in graph.edges:
             if edge.source in edge_map:
                 edge_map[edge.source].append(edge)
             if edge.target in incoming_map:
                 incoming_map[edge.target].append(edge)
 
-        # Build lookup for active processes by PID
+        # Tạo bảng tra cứu nhanh thông tin tiến trình theo PID
         proc_lookup = {p.pid: p.model_dump() for p in snapshot.processes}
 
         # Tìm các Trigger & Root Node (Node khởi đầu: metric_trigger, schedule_trigger, hoặc node không có incoming)
         trigger_nodes = [n for n in graph.nodes if n.type in ["metric_trigger", "schedule_trigger"]]
         if not trigger_nodes:
-            # Fallback nếu đồ thị không có trigger rõ ràng thì lấy root nodes
+            # Dự phòng: Nếu đồ thị không có trigger rõ ràng thì lấy các root node không có cạnh đi vào
             trigger_nodes = [n for n in graph.nodes if len(incoming_map[n.id]) == 0]
 
         events = []
         trace = []
         is_force_test = bool(graph.force_breach)
 
-        # Đánh dấu các node đã kích hoạt thành công để xử lý cổng logic (AND / OR)
+        # Tập hợp các node đã kích hoạt thành công để xử lý cổng logic (AND / OR)
         triggered_set: Set[str] = set()
 
         for trigger in trigger_nodes:
-            # Thu thập context process liên kết
+            # Thu thập ngữ cảnh tiến trình (context process) liên kết trực tiếp
             connected_node_ids = [e.target for e in edge_map.get(trigger.id, [])] + [e.source for e in incoming_map.get(trigger.id, [])]
             direct_proc = None
             for cid in connected_node_ids:
@@ -84,12 +122,12 @@ class WorkflowDAGRunner:
                         }
                     break
 
-            # Đánh giá kích hoạt Trigger
+            # Đánh giá điều kiện kích hoạt của Trigger
             if trigger.type == "metric_trigger":
                 node_force = is_force_test or bool(trigger.data.get("force_breach", False))
                 is_triggered = node_force or evaluate_metric_trigger(trigger.data, snapshot, direct_proc)
             else:
-                # schedule_trigger hoặc root node luôn phát xung
+                # Node schedule_trigger hoặc root node mặc định luôn phát xung
                 is_triggered = True
 
             trigger_label = trigger.data.get("name") or ("Metric Alert Trigger" if trigger.type == "metric_trigger" else "Schedule Timer Trigger")
@@ -117,7 +155,7 @@ class WorkflowDAGRunner:
                     if not node:
                         continue
 
-                    # 1. Process Node: Trích xuất PID và chuyển tiếp xuống downstream
+                    # 1. Process Node: Trích xuất PID và lan truyền ngữ cảnh xuống hạ lưu (downstream)
                     if node.type == "process_node":
                         context_pid = int(node.data.get("pid", 0))
                         if context_pid in proc_lookup:
@@ -135,7 +173,7 @@ class WorkflowDAGRunner:
                         })
                         queue.extend([e.target for e in edge_map.get(current_id, [])])
 
-                    # 2. Condition Node (If/Else Branching): Rẽ nhánh True/False dựa trên Handle
+                    # 2. Condition Node: Rẽ nhánh luồng dựa trên cổng ra True hoặc False
                     elif node.type == "condition_node":
                         cond_res = is_force_test or evaluate_metric_trigger(node.data, snapshot, direct_proc)
                         target_handle = "true" if cond_res else "false"
@@ -160,13 +198,13 @@ class WorkflowDAGRunner:
                         events.append(log_entry)
                         self.execution_logs.append(log_entry)
 
-                        # Chỉ kích hoạt các edge khớp với nhánh True hoặc False
+                        # Chỉ thêm vào hàng đợi các cạnh khớp chính xác với nhánh kết quả
                         next_edges = edge_map.get(current_id, [])
                         for e in next_edges:
                             if not e.sourceHandle or e.sourceHandle == target_handle:
                                 queue.append(e.target)
 
-                    # 3. Logic Gate Node (AND / OR Gate)
+                    # 3. Logic Gate Node: Đánh giá cổng logic tổng hợp AND hoặc OR
                     elif node.type == "logic_gate":
                         gate_type = str(node.data.get("gate_type", "AND")).upper()
                         inc_edges = incoming_map.get(current_id, [])
@@ -197,7 +235,7 @@ class WorkflowDAGRunner:
                             events.append(log_entry)
                             queue.extend([e.target for e in edge_map.get(current_id, [])])
 
-                    # 4. Service Action, Automation & Resource Quota Node: Thực thi can thiệp
+                    # 4. Action & Webhook Node: Thực thi các lệnh can thiệp bảo vệ tài nguyên
                     elif node.type in ["service_action", "automation_node", "resource_quota", "quota_node", "webhook_node"]:
                         action_data = dict(node.data)
                         if is_force_test:
@@ -213,6 +251,7 @@ class WorkflowDAGRunner:
                         elif direct_proc and direct_proc.get("name"):
                             action_data["proc_name"] = direct_proc.get("name")
 
+                        # Chỉ tiến hành can thiệp thật nếu Auto-Guard đang ở trạng thái vũ trang (armed)
                         if self.guard_armed or is_force_test:
                             res = execute_node_action(action_data)
                             if is_force_test:
@@ -269,6 +308,12 @@ class WorkflowDAGRunner:
         return events
 
     async def _loop_runner(self, graph: WorkflowGraphRequest):
+        """
+        Vòng lặp bất đồng bộ thực hiện quét định kỳ workflow và áp đặt định mức tài nguyên.
+
+        Tham số:
+            graph (WorkflowGraphRequest): Cấu hình đồ thị workflow cần duy trì chạy nền.
+        """
         while True:
             try:
                 self.total_ticks += 1
@@ -284,11 +329,21 @@ class WorkflowDAGRunner:
                 self.execution_logs.append({"workflow_id": graph.workflow_id, "error": str(e)})
             await asyncio.sleep(graph.interval_sec)
 
-    def deploy_loop(self, graph: WorkflowGraphRequest):
+    def deploy_loop(self, graph: WorkflowGraphRequest) -> dict:
+        """
+        Triển khai một workflow vào tác vụ nền (background asyncio task) theo tần suất lặp.
+
+        Tham số:
+            graph (WorkflowGraphRequest): Đồ thị quy trình cần kích hoạt.
+
+        Trả về:
+            dict: Thông tin xác nhận triển khai thành công.
+        """
         schedule_node = next((n for n in graph.nodes if n.type == "schedule_trigger"), None)
         interval = float(schedule_node.data.get("interval_sec", graph.interval_sec)) if schedule_node else graph.interval_sec
         graph.interval_sec = max(0.5, interval)
 
+        # Hủy bỏ tác vụ cũ nếu cùng workflow_id đang hoạt động
         if graph.workflow_id in self.active_tasks:
             self.active_tasks[graph.workflow_id].cancel()
 
@@ -310,10 +365,20 @@ class WorkflowDAGRunner:
             "interval_sec": graph.interval_sec
         }
 
-    def start_background_workflow(self, graph: WorkflowGraphRequest):
+    def start_background_workflow(self, graph: WorkflowGraphRequest) -> dict:
+        """Bí danh cho phương thức deploy_loop."""
         return self.deploy_loop(graph)
 
-    def stop_background_workflow(self, workflow_id: str):
+    def stop_background_workflow(self, workflow_id: str) -> dict:
+        """
+        Dừng một workflow nền đang chạy theo ID.
+
+        Tham số:
+            workflow_id (str): Mã định danh workflow cần dừng.
+
+        Trả về:
+            dict: Trạng thái dừng tiến trình.
+        """
         if workflow_id in self.active_tasks:
             self.active_tasks[workflow_id].cancel()
             del self.active_tasks[workflow_id]
@@ -322,5 +387,6 @@ class WorkflowDAGRunner:
             return {"status": "stopped", "workflow_id": workflow_id}
         return {"status": "not_running", "workflow_id": workflow_id}
 
+# Đối tượng Singleton của trình điều phối quy trình DAG
 dag_runner = WorkflowDAGRunner()
 workflow_runner = dag_runner

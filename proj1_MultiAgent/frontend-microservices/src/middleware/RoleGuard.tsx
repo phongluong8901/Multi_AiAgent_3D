@@ -1,4 +1,3 @@
-// src/middleware/RoleGuard.tsx
 'use client'
 
 import { useEffect, useState } from 'react'
@@ -6,6 +5,13 @@ import Link from 'next/link'
 import { getUser, isLoggedIn, User } from '@/lib/auth'
 import { ShieldAlert, LogIn, ArrowLeft } from 'lucide-react'
 
+/**
+ * Thuoc tinh cho RoleGuard:
+ * - allowedRoles: Danh sach role duoc phep truy cap (admin, seller, user, guest)
+ * - readOnlyRoles: Danh sach role chi duoc xem (cam thao tac chinh sua/nut bam)
+ * - actionBehavior: Hanh vi khi thuoc nhom read-only ('disable' lam mo hay 'hide' an hoan toan)
+ * - fallback: Giao dien tuy bien thay the khi khong du tham quyen
+ */
 interface RoleGuardProps {
     allowedRoles: string[]
     readOnlyRoles?: string[]
@@ -14,6 +20,13 @@ interface RoleGuardProps {
     fallback?: React.ReactNode
 }
 
+/**
+ * Component bao ve tuyen duong va phan quyen truy cap (Role-Based Access Control):
+ * - Kiem tra trang thai dang nhap cua nguoi dung
+ * - Chan truy cap va hien thi hop thoai yeu cau dang nhap neu chua xac thuc
+ * - Tu choi truy cap (403 Forbidden) neu nguoi dung khong so huu vai tro phu hop
+ * - Ho tro che do chi xem (Read-only view mode) bang cach vo hieu hoa cac su kien chuot
+ */
 export default function RoleGuard({
     allowedRoles,
     readOnlyRoles = [],
@@ -39,14 +52,14 @@ export default function RoleGuard({
     }
 
     const authenticated = Boolean(user && isLoggedIn())
-    // Nếu đã đăng nhập mà không có role cụ thể thì mặc định là 'user'
+    // Neu da dang nhap ma khong co role cu the thi mac dinh la 'user'
     const userRole = (user?.role || (authenticated ? 'user' : 'guest')).toLowerCase()
 
-    // Chuẩn hóa mảng allowedRoles và readOnlyRoles về chữ thường
+    // Chuan hoa mang allowedRoles va readOnlyRoles ve chu thuong
     const normalizedAllowed = allowedRoles.map((r) => r.toLowerCase())
     const normalizedReadOnly = readOnlyRoles.map((r) => r.toLowerCase())
 
-    // 1. Kiểm tra nếu chưa đăng nhập và route yêu cầu quyền
+    // 1. Kiem tra neu chua dang nhap va route yeu cau quyen
     if (!authenticated && !normalizedAllowed.includes('guest')) {
         if (fallback) return <>{fallback}</>
 
@@ -83,7 +96,7 @@ export default function RoleGuard({
         )
     }
 
-    // 2. Kiểm tra quyền truy cập trang (403)
+    // 2. Kiem tra quyen truy cap trang (403)
     if (!normalizedAllowed.includes(userRole)) {
         if (fallback) return <>{fallback}</>
 
@@ -111,7 +124,7 @@ export default function RoleGuard({
         )
     }
 
-    // 3. Kiểm tra nhóm Read-only (chỉ xem, cấm thao tác)
+    // 3. Kiem tra nhom Read-only (chi xem, cam thao tac)
     const isViewOnly = normalizedReadOnly.includes(userRole)
 
     if (isViewOnly) {

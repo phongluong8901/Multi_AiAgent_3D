@@ -6,6 +6,7 @@ import (
 	"time"
 )
 
+// HealthCheckHandler phản hồi trạng thái hoạt động (Health Check) của Distributed Service.
 func HealthCheckHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)

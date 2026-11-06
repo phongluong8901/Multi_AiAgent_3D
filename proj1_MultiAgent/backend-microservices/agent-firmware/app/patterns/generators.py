@@ -212,7 +212,7 @@ void setupConnection() {{
   WiFi.mode(WIFI_STA);
   esp_wifi_set_ps(WIFI_PS_NONE); // Tắt ngủ WiFi để nhận LLM stream tức thì
   if (!WiFi.config(local_IP, gateway, subnet, primaryDNS)) {{
-    Serial.println("[NET_IP] ⚠️ Lỗi cấu hình Static IP, chuyển sang DHCP...");
+    Serial.println("[NET_IP] [WARN] Lỗi cấu hình Static IP, chuyển sang DHCP...");
   }}
   WiFi.begin("{ssid}", "{password}");
   Serial.print("[NET_IP] Đang kết nối mạng LAN ");
@@ -220,7 +220,7 @@ void setupConnection() {{
     delay(350);
     Serial.print(".");
   }}
-  Serial.println("\\n[NET_IP] ✅ Đã kết nối! Static IP: " + WiFi.localIP().toString());
+  Serial.println("\\n[NET_IP] [SUCCESS] Đã kết nối! Static IP: " + WiFi.localIP().toString());
 }}
 """
     elif conn_type == "ble":
@@ -243,11 +243,11 @@ String pendingVoicePrompt = "";
 class AgentBleServerCallbacks : public BLEServerCallbacks {{
   void onConnect(BLEServer* pServer) override {{
     bleClientConnected = true;
-    Serial.println("[BLE] ✅ Thiết bị trung tâm đã kết nối GATT!");
+    Serial.println("[BLE] [SUCCESS] Thiết bị trung tâm đã kết nối GATT!");
   }}
   void onDisconnect(BLEServer* pServer) override {{
     bleClientConnected = false;
-    Serial.println("[BLE] ⚠️ Ngắt kết nối GATT, đang quảng bá lại...");
+    Serial.println("[BLE] [WARN] Ngắt kết nối GATT, đang quảng bá lại...");
     BLEDevice::startAdvertising();
   }}
 }};
@@ -256,7 +256,7 @@ class AgentBleRxCallbacks : public BLECharacteristicCallbacks {{
   void onWrite(BLECharacteristic* pCharacteristic) override {{
     String rxValue = pCharacteristic->getValue().c_str();
     if (rxValue.length() > 0) {{
-      Serial.println("[BLE_RX] 🎙️ Nhận câu hỏi từ BLE: " + rxValue);
+      Serial.println("[BLE_RX] [VOICE] Nhận câu hỏi từ BLE: " + rxValue);
       pendingVoicePrompt = rxValue;
     }}
   }}
@@ -287,7 +287,7 @@ void setupConnection() {{
   pAdvertising->addServiceUUID(BLE_SERVICE_UUID);
   pAdvertising->setScanResponse(true);
   BLEDevice::startAdvertising();
-  Serial.println("[BLE] ✅ Đang phát BLE GATT '{profile.ble.device_name}' (MTU={profile.ble.mtu_size})");
+  Serial.println("[BLE] [SUCCESS] Đang phát BLE GATT '{profile.ble.device_name}' (MTU={profile.ble.mtu_size})");
 
   WiFi.mode(WIFI_STA);
   esp_wifi_set_ps(WIFI_PS_NONE);
@@ -310,9 +310,9 @@ void setupConnection() {{
     retries++;
   }}
   if (WiFi.status() == WL_CONNECTED) {{
-    Serial.println("\\n[WIFI] ✅ Đã kết nối! IP: " + WiFi.localIP().toString() + " | RSSI: " + String(WiFi.RSSI()) + " dBm");
+    Serial.println("\\n[WIFI] [SUCCESS] Đã kết nối! IP: " + WiFi.localIP().toString() + " | RSSI: " + String(WiFi.RSSI()) + " dBm");
   }} else {{
-    Serial.println("\\n[WIFI] ⚠️ Chưa kết nối được WiFi, sẽ tự động thử lại trong vòng lặp.");
+    Serial.println("\\n[WIFI] [WARN] Chưa kết nối được WiFi, sẽ tự động thử lại trong vòng lặp.");
   }}
 }}
 """
@@ -325,15 +325,15 @@ void setupConnection() {{
 // -> Nhận luồng token trực tiếp (data: {{...}}) và phát ra Loa I2S ngay lập tức!
 void askRoomAgentStream(const String& userPrompt) {{
   if (WiFi.status() != WL_CONNECTED) {{
-    Serial.println("[SSE] ❌ Chưa có kết nối mạng để stream!");
+    Serial.println("[SSE] [ERROR] Chưa có kết nối mạng để stream!");
     return;
   }}
 
   HTTPClient http;
   WiFiClient client;
   String streamUrl = "{http_base}/api/v1/firmware/room-stream";
-  Serial.println("\\n[ROOM_BRIDGE] 🎙️ User nói: \\"" + userPrompt + "\\"");
-  Serial.println("[ROOM_BRIDGE] 📡 Đang mở luồng SSE tới Room '{req.room_id}' (Agent: @{req.agent_id})...");
+  Serial.println("\\n[ROOM_BRIDGE] [VOICE] User nói: \\"" + userPrompt + "\\"");
+  Serial.println("[ROOM_BRIDGE] [STREAM] Đang mở luồng SSE tới Room '{req.room_id}' (Agent: @{req.agent_id})...");
 
   http.begin(client, streamUrl);
   http.addHeader("Content-Type", "application/json");
@@ -356,7 +356,7 @@ void askRoomAgentStream(const String& userPrompt) {{
 
   int httpCode = http.POST(body);
   if (httpCode != HTTP_CODE_OK) {{
-    Serial.printf("[SSE] ❌ Lỗi HTTP %d\\n", httpCode);
+    Serial.printf("[SSE] [ERROR] Lỗi HTTP %d\\n", httpCode);
     http.end();
     return;
   }}
@@ -365,7 +365,7 @@ void askRoomAgentStream(const String& userPrompt) {{
   String lineBuffer = "";
   String fullSpeech = "";
 
-  Serial.print("[LLM_VOICE_STREAM] 🔊 ");
+  Serial.print("[LLM_VOICE_STREAM] [AUDIO] ");
   while (http.connected() || stream->available()) {{
     if (stream->available()) {{
       char c = stream->read();
@@ -380,7 +380,7 @@ void askRoomAgentStream(const String& userPrompt) {{
             if (evType == "agent_step") {{
               String sender = ev["agent_id"] | "agent_manager";
               String note = ev["content"] | "";
-              Serial.printf("\\n  🤖 [@%s] %s\\n  🔊 ", sender.c_str(), note.c_str());
+              Serial.printf("\\n  [AGENT @%s] %s\\n  [AUDIO] ", sender.c_str(), note.c_str());
             }} else if (evType == "token") {{
               String token = ev["content"] | "";
               fullSpeech += token;
@@ -390,7 +390,7 @@ void askRoomAgentStream(const String& userPrompt) {{
               int actVal = ev["value"] | 0;
               executeHardwareAction(actType, actVal);
             }} else if (evType == "done") {{
-              Serial.println("\\n[SSE_DONE] ✅ Hoàn tất phản hồi từ Room Multi-Agent!");
+              Serial.println("\\n[SSE_DONE] [SUCCESS] Hoàn tất phản hồi từ Room Multi-Agent!");
               break;
             }}
           }}
@@ -415,7 +415,7 @@ WebSocketsClient webSocket;
 void onWebSocketEvent(WStype_t type, uint8_t * payload, size_t length) {{
   switch (type) {{
     case WStype_CONNECTED:
-      Serial.println("[WS] ✅ Đã kết nối kênh WebSocket thời gian thực vào Room '{req.room_id}'!");
+      Serial.println("[WS] [SUCCESS] Đã kết nối kênh WebSocket thời gian thực vào Room '{req.room_id}'!");
       break;
     case WStype_TEXT: {{
       StaticJsonDocument<1024> doc;
@@ -488,7 +488,7 @@ void askRoomAgentStream(const String& userPrompt) {{
   String payload;
   serializeJson(doc, payload);
   mqttClient.publish(TOPIC_PROMPT, payload.c_str(), false);
-  Serial.println("[MQTT] 📤 Đã gửi câu hỏi lên Topic: " + String(TOPIC_PROMPT));
+  Serial.println("[MQTT] [SENT] Đã gửi câu hỏi lên Topic: " + String(TOPIC_PROMPT));
 }}
 """
     elif transport == "esp_now":
@@ -527,7 +527,7 @@ void OnEspNowDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len)
 
 void setupEspNowMesh() {{
   if (esp_now_init() != ESP_OK) {{
-    Serial.println("[ESP-NOW] ❌ Lỗi khởi tạo ESP-NOW!");
+    Serial.println("[ESP-NOW] [ERROR] Lỗi khởi tạo ESP-NOW!");
     return;
   }}
   esp_now_register_recv_cb(OnEspNowDataRecv);
@@ -536,7 +536,7 @@ void setupEspNowMesh() {{
   peerInfo.channel = {profile.esp_now.wifi_channel};
   peerInfo.encrypt = {str(profile.esp_now.encrypted).lower()};
   esp_now_add_peer(&peerInfo);
-  Serial.println("[ESP-NOW] ✅ Đã sẵn sàng nhận luồng LLM Token tốc độ cao qua ESP-NOW!");
+  Serial.println("[ESP-NOW] [SUCCESS] Đã sẵn sàng nhận luồng LLM Token tốc độ cao qua ESP-NOW!");
 }}
 
 void askRoomAgentStream(const String& userPrompt) {{
@@ -547,7 +547,7 @@ void askRoomAgentStream(const String& userPrompt) {{
   strncpy(frame.agent_id, "{req.agent_id}", sizeof(frame.agent_id) - 1);
   strncpy(frame.text_chunk, userPrompt.c_str(), sizeof(frame.text_chunk) - 1);
   esp_now_send(gatewayBridgeMac, (uint8_t*)&frame, sizeof(frame));
-  Serial.println("[ESP-NOW] 📡 Đã bắn gói tin câu hỏi tới Gateway Bridge Node: " + userPrompt);
+  Serial.println("[ESP-NOW] [STREAM] Đã bắn gói tin câu hỏi tới Gateway Bridge Node: " + userPrompt);
 }}
 """
     else:
@@ -583,7 +583,7 @@ void askRoomAgentStream(const String& userPrompt) {{
 """
 
     return f"""// ============================================================================
-// 🤖 MULTI-AGENT EMBODIED FIRMWARE — {board_label.upper()}
+// [FIRMWARE] MULTI-AGENT EMBODIED FIRMWARE — {board_label.upper()}
 // • Thiết bị      : {req.agent_name} ({req.board_type})
 // • Room kết nối  : {req.room_id}
 // • Agent chỉ huy : @{req.agent_id} (Phối hợp: {sub_agents_str})
@@ -642,7 +642,7 @@ void speakTokenChunk(const String& token) {{
 
 // ─── HÀM THỰC THI LỆNH ĐIỀU KHIỂN PHẦN CỨNG ROBOT ────────────────────────
 void executeHardwareAction(const String& actionType, int value) {{
-  Serial.printf("\\n[HARDWARE_ACT] ⚡ %s (value=%d)\\n", actionType.c_str(), value);
+  Serial.printf("\\n[HARDWARE_ACT] [ACTION] %s (value=%d)\\n", actionType.c_str(), value);
   if (actionType == "FORWARD") {{
     digitalWrite(MOTOR_IN1, HIGH); digitalWrite(MOTOR_IN2, LOW);
     digitalWrite(MOTOR_IN3, HIGH); digitalWrite(MOTOR_IN4, LOW);
@@ -671,9 +671,9 @@ void setup() {{
   pinMode(BOOT_BTN_PIN, INPUT_PULLUP);
 
   Serial.println("============================================================");
-  Serial.println("🚀 KHỞI ĐỘNG AGENT FIRMWARE: {req.agent_name} ({req.board_type})");
-  Serial.println("🏠 Room: {req.room_id} | Chỉ huy: @{req.agent_id}");
-  Serial.println("🔗 Kết nối: {conn_type.upper()} | Giao thức: {transport.upper()}");
+  Serial.println("[INIT] KHỞI ĐỘNG AGENT FIRMWARE: {req.agent_name} ({req.board_type})");
+  Serial.println("[ROOM] Room: {req.room_id} | Chỉ huy: @{req.agent_id}");
+  Serial.println("[CONN] Kết nối: {conn_type.upper()} | Giao thức: {transport.upper()}");
   Serial.println("============================================================");
 
   setupConnection();
@@ -721,7 +721,7 @@ def _generate_python_edge_firmware(
     http_base = req.server_url.rstrip("/").split("/api/")[0]
     return f'''#!/usr/bin/env python3
 """
-🤖 Multi-Agent Embodied Edge Client ({req.board_type.upper()})
+[EDGE] Multi-Agent Embodied Edge Client ({req.board_type.upper()})
 - Device Name : {req.agent_name}
 - Target Room : {req.room_id}
 - Lead Agent  : @{req.agent_id} (Sub-agents: {sub_agents_str})
@@ -750,7 +750,7 @@ def stream_room_conversation(prompt: str) -> None:
         "transport_protocol": "{transport}",
         "sync_to_room_chat": True,
     }}
-    print(f"\\n🎙️ [User -> Room '{{ROOM_ID}}']: {{prompt}}")
+    print(f"\\n[VOICE] [User -> Room '{{ROOM_ID}}']: {{prompt}}")
     with httpx.Client(timeout=60.0) as client:
         with client.stream("POST", url, json=payload) as resp:
             for line in resp.iter_lines():
@@ -759,14 +759,14 @@ def stream_room_conversation(prompt: str) -> None:
                 event = json.loads(line[5:].strip())
                 ev_type = event.get("type")
                 if ev_type == "agent_step":
-                    print(f"\\n🤖 [@{{event.get('agent_id')}}] {{event.get('content')}}")
+                    print(f"\\n[AGENT @{{event.get('agent_id')}}] {{event.get('content')}}")
                 elif ev_type == "token":
                     sys.stdout.write(event.get("content", ""))
                     sys.stdout.flush()
                 elif ev_type == "action":
-                    print(f"\\n⚡ [ACTION] {{event.get('action_type')}} ({{event.get('value')}})")
+                    print(f"\\n[ACTION] {{event.get('action_type')}} ({{event.get('value')}})")
                 elif ev_type == "done":
-                    print("\\n✅ [Hoàn tất đồng bộ Room & Phát giọng nói]")
+                    print("\\n[SUCCESS] [Hoàn tất đồng bộ Room & Phát giọng nói]")
 
 
 if __name__ == "__main__":

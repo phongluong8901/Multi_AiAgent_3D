@@ -5,12 +5,22 @@ import { usersApi, UserProfile } from '@/lib/api'
 import { getToken, getUser, setSession } from '@/lib/auth'
 import { notify } from '@/lib/toast'
 
+/**
+ * Custom Hook quan ly ho so nguoi dung ca nhan (User Profile Hook):
+ * - Tai thong tin ca nhan (`getProfile`) va dong bo vao session local
+ * - Cap nhat ten hien thi, tieu su bio va avatar ca nhan
+ * - Cap nhat trang thai online / offline / busy
+ * - Tai len anh dai dien len Cloudinary thong qua user-service
+ */
 export function useUser() {
     const [profile, setProfile] = useState<UserProfile | null>(null)
     const [loading, setLoading] = useState(true)
     const [saving, setSaving] = useState(false)
     const [error, setError] = useState<string | null>(null)
 
+    /**
+     * Tai lai thong tin ho so nguoi dung tu user-service
+     */
     const refresh = useCallback(async () => {
         setError(null)
         try {
@@ -49,6 +59,9 @@ export function useUser() {
         refresh()
     }, [refresh])
 
+    /**
+     * Cap nhat thong tin profile ca nhan (name, bio, avatar)
+     */
     const updateProfile = async (data: {
         name?: string
         bio?: string
@@ -61,53 +74,61 @@ export function useUser() {
             setProfile(updated)
 
             const token = getToken()
-            if (token) {
+            const local = getUser()
+            if (token && local) {
                 setSession(token, {
-                    id: updated.id,
-                    name: updated.name,
-                    email: updated.email,
-                    role: updated.role || 'user',
+                    ...local,
+                    name: updated.name || local.name,
                 })
             }
-
-            notify.success('Đã cập nhật hồ sơ')
+            notify.success('Cập nhật hồ sơ thành công')
             return updated
         } catch (e) {
             const msg = e instanceof Error ? e.message : 'Cập nhật thất bại'
             setError(msg)
-            notify.error('Cập nhật hồ sơ thất bại', { description: msg })
+            notify.error('Cập nhật thất bại', { description: msg })
             throw e
         } finally {
             setSaving(false)
         }
     }
 
-    const uploadAvatar = async (file: File) => {
+    /**
+     * Tai len file anh dai dien (Avatar) moi
+     */
+    const updateAvatar = async (file: File) => {
+        setSaving(true)
+        setError(null)
+        try {
+            const newUrl = await usersApi.updateAvatar(file)
+            notify.success('Cập nhật avatar thành công')
+            await refresh()
+            return newUrl
+        } catch (e) {
+            const msg = e instanceof Error ? e.message : 'Tải avatar thất bại'
+            setError(msg)
+            notify.error('Tải avatar thất bại', { description: msg })
+            throw e
+        } finally {
+            setSaving(false)
+        }
+    }
+
+    /**
+     * Cap nhat trang thai hoat dong (online | offline | busy)
+     */
+    const updateStatus = async (status: 'online' | 'offline' | 'busy') => {
         setSaving(true)
         try {
-            const url = await usersApi.updateAvatar(file)
-            setProfile((p: any) => (p ? { ...p, avatar: url, avatarUrl: url } : p))
-            notify.success('Đã cập nhật ảnh đại diện')
-            return url
+            await usersApi.updateStatus(status)
+            setProfile((prev) => (prev ? { ...prev, status } : prev))
+            notify.success('Đã cập nhật trạng thái')
         } catch (e) {
-            const msg = e instanceof Error ? e.message : 'Upload avatar thất bại'
+            const msg = e instanceof Error ? e.message : 'Cập nhật trạng thái thất bại'
             notify.error(msg)
             throw e
         } finally {
             setSaving(false)
-        }
-    }
-
-    const updateStatus = async (status: 'online' | 'offline' | 'busy') => {
-        if (!getToken()) return   // chưa login → bỏ qua, tránh 401
-        try {
-            await usersApi.updateStatus(status)
-            setProfile((p: any) => (p ? { ...p, status } : p))
-            notify.success(`Trạng thái: ${status}`)
-        } catch (e) {
-            const msg = e instanceof Error ? e.message : 'Đổi status thất bại'
-            notify.error(msg)
-            throw e
         }
     }
 
@@ -118,7 +139,8 @@ export function useUser() {
         error,
         refresh,
         updateProfile,
-        uploadAvatar,
+        updateAvatar,
+        uploadAvatar: updateAvatar,
         updateStatus,
     }
 }

@@ -1,19 +1,21 @@
 import { Request } from "express";
 import multer from "multer";
-import "multer"; // Đảm bảo load type của Express.Multer.File
+import "multer";
 
-// Sử dụng memoryStorage để lưu file tạm trên RAM dưới dạng Buffer
+// Su dung memoryStorage de luu file tam tren RAM duoi dang Buffer
 const storage = multer.memoryStorage();
 
-// Bộ lọc định dạng file cho phép
+/**
+ * Bo loc kiem tra dinh dang MIME type va duoi file hop le:
+ * - Dinh dang anh: JPEG, PNG, WEBP, GIF
+ * - Dinh dang du lieu & tai lieu: CSV, XLSX, XLS, PDF, TXT, MD
+ */
 const fileFilter = (req: Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
     const allowedMimeTypes = [
-        // Ảnh
         "image/jpeg",
         "image/png",
         "image/webp",
         "image/gif",
-        // Dữ liệu / Tài liệu
         "text/csv",
         "application/vnd.ms-excel",
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -31,10 +33,14 @@ const fileFilter = (req: Request, file: Express.Multer.File, cb: multer.FileFilt
     }
 };
 
+/**
+ * Middleware Multer upload file dinh kem:
+ * Gioi han toi da 20MB moi file, luu tru tam thoi trong Memory Buffer de day len Cloudinary.
+ */
 export const upload = multer({
     storage,
     fileFilter,
     limits: {
-        fileSize: 20 * 1024 * 1024, // Giới hạn tối đa 20MB mỗi file
+        fileSize: 20 * 1024 * 1024, // Gioi han toi da 20MB moi file
     },
 });

@@ -1,3 +1,10 @@
+/**
+ * Màn hình Khảo sát Lưu lượng Mạng & Các Điểm cuối API (API & Network Traffic Inspector):
+ * - Giám sát các socket mạng đang mở (ESTABLISHED, LISTEN, TIME_WAIT) của các tiến trình hệ điều hành.
+ * - Phân giải tên miền (DNS Hostname Resolution) và phân loại lưu lượng: AI / Cloud API / Database / Local IPC.
+ * - Modal chi tiết khảo sát socket (Inspect Sockets) xem từng URL, IP từ xa, cổng dịch vụ và trạng thái kết nối.
+ */
+
 import { useState, useEffect, useCallback } from 'react';
 import {
     Globe,
@@ -24,6 +31,9 @@ export function NetworkTrafficView() {
 
     const addLog = useTelemetryStore((s) => s.addLog);
 
+    /**
+     * Tải dữ liệu tóm tắt mạng toàn hệ thống từ backend.
+     */
     const loadSummary = useCallback(async () => {
         try {
             setIsLoading(true);
@@ -36,6 +46,7 @@ export function NetworkTrafficView() {
         }
     }, [addLog]);
 
+    // Chu kỳ làm mới dữ liệu mạng mỗi 4 giây
     useEffect(() => {
         void loadSummary();
         const timer = setInterval(() => {
@@ -44,6 +55,9 @@ export function NetworkTrafficView() {
         return () => clearInterval(timer);
     }, [loadSummary]);
 
+    /**
+     * Xem chi tiết các kết nối socket mạng của một tiến trình cụ thể theo PID.
+     */
     const handleInspectProcess = async (pid: number) => {
         try {
             const data = await httpClient.getProcessNetwork(pid);
@@ -56,6 +70,7 @@ export function NetworkTrafficView() {
     const topProcesses = summary?.top_processes || [];
     const topDomains = summary?.top_domains || [];
 
+    // Lọc tiến trình theo chuỗi tìm kiếm
     const filteredProcesses = topProcesses.filter((p) => {
         const matchesSearch =
             p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -65,7 +80,7 @@ export function NetworkTrafficView() {
 
     return (
         <div className="h-full bg-zinc-950 text-zinc-100 flex flex-col overflow-hidden select-none font-sans">
-            {/* Header Toolbar */}
+            {/* Thanh công cụ Header */}
             <div className="h-12 border-b border-zinc-800 bg-zinc-900/80 px-4 flex items-center justify-between shrink-0">
                 <div className="flex items-center gap-2.5">
                     <div className="p-1.5 rounded-lg bg-blue-950/60 border border-blue-500/30 text-blue-400">
@@ -91,7 +106,7 @@ export function NetworkTrafficView() {
                 </div>
             </div>
 
-            {/* Quick KPI Overview Cards */}
+            {/* Thẻ KPI tổng quan mạng */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 p-4 shrink-0 bg-zinc-950">
                 <div className="bg-zinc-900/60 border border-zinc-800/80 rounded-xl p-3 flex items-center justify-between">
                     <div>
@@ -196,7 +211,7 @@ export function NetworkTrafficView() {
                             </span>
                         </div>
 
-                        {/* Search Input */}
+                        {/* Ô tìm kiếm tiến trình */}
                         <div className="relative w-56">
                             <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-2.5 top-2" />
                             <input
@@ -301,7 +316,7 @@ export function NetworkTrafficView() {
 
                         {/* Modal Content */}
                         <div className="p-4 space-y-3 overflow-y-auto flex-1">
-                            {/* Target Domains Badge */}
+                            {/* Danh sách tên miền đã gọi */}
                             <div className="space-y-1">
                                 <span className="text-zinc-400 font-medium text-[11px]">Contacted Domains &amp; Endpoints:</span>
                                 <div className="flex flex-wrap gap-1.5">
@@ -320,7 +335,7 @@ export function NetworkTrafficView() {
                                 </div>
                             </div>
 
-                            {/* Sockets Table */}
+                            {/* Bảng chi tiết từng socket */}
                             <div className="border border-zinc-800 rounded-lg overflow-hidden bg-zinc-950">
                                 <table className="w-full text-left border-collapse text-xs">
                                     <thead className="bg-zinc-900 border-b border-zinc-800 text-zinc-400 font-mono text-[10px]">

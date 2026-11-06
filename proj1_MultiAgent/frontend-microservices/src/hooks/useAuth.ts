@@ -41,6 +41,13 @@ function errMsg(err: unknown, fallback: string) {
     return fallback
 }
 
+/**
+ * Custom Hook quan ly xac thuc nguoi dung (Authentication Hook):
+ * - Dang ky, Dang nhap truyen thong bang Email / Mat khau
+ * - Xac thuc va gui lai ma OTP kich hoat tai khoan
+ * - Dang nhap mang xa hoi SSO: Google OAuth, GitHub OAuth, Hugging Face OAuth
+ * - Tu dong luu token va user session vao localStorage va Cookie
+ */
 export function useAuth() {
     const router = useRouter()
     const [loading, setLoading] = useState(false)

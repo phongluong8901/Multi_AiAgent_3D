@@ -52,10 +52,17 @@ class GeminiProvider(BaseLLMProvider):
     """
 
     FALLBACK_MODELS = [
-        "gemini-3.5-flash-lite",
+        "gemini-2.5-flash-lite",
         "gemini-2.5-flash",
         "gemini-2.0-flash",
     ]
+
+    # Bảng ánh xạ các mã model hiển thị trên hệ thống sang mã model thực tế của Google GenAI API
+    MODEL_API_ALIASES = {
+        "gemini-3.5-flash-lite": "gemini-2.5-flash-lite",
+        "gemini-3.5-flash": "gemini-2.5-flash",
+        "gemini-3.5-pro": "gemini-2.5-pro",
+    }
 
     def __init__(self, model_name: Optional[str] = None):
         raw_model_key = (
@@ -109,11 +116,13 @@ class GeminiProvider(BaseLLMProvider):
         return True
 
     def _resolve_gemini_model_name(self, requested_model: str) -> str:
-        """Đảm bảo tên model gửi tới Google GenAI luôn hợp lệ."""
-        m = (requested_model or "gemini-2.5-flash").strip()
+        """Đảm bảo tên model gửi tới Google GenAI luôn hợp lệ và khớp API thực tế."""
+        m = (requested_model or "gemini-3.5-flash-lite").strip()
+        if m in self.MODEL_API_ALIASES:
+            return self.MODEL_API_ALIASES[m]
         if m.startswith("gemini-"):
             return m
-        return "gemini-2.5-flash"
+        return "gemini-2.5-flash-lite"
 
     def _get_model_candidates(self) -> List[str]:
         """Trả về danh sách các model Gemini sẽ thử lần lượt."""
@@ -388,6 +397,19 @@ class GeminiProvider(BaseLLMProvider):
                 text_content = response.text
         except Exception:
             text_content = ""
+
+        # Nếu có callback on_chunk (dùng trong LangGraph / RabbitMQ streaming), phát từng cụm token mượt mà
+        on_chunk = kwargs.get("on_chunk")
+        if text_content and not tool_calls and callable(on_chunk):
+            try:
+                step_size = max(24, len(text_content) // 12)
+                acc = ""
+                for idx in range(0, len(text_content), step_size):
+                    piece = text_content[idx : idx + step_size]
+                    acc += piece
+                    on_chunk(piece, acc)
+            except Exception:
+                pass
 
         return _ResponseMock(content=text_content, tool_calls=tool_calls)
 

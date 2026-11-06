@@ -1,3 +1,15 @@
+"""
+Module thực thi hành động tự động hóa trong Workflow Engine (Actions Executor).
+Bao gồm:
+- Điều khiển tiến trình: Kill, Terminate, Suspend, Resume
+- Tối ưu bộ nhớ: EmptyWorkingSet trim
+- Điều chỉnh ưu tiên và gán lõi: Set Priority, CPU Affinity Cores
+- Quản lý mạng: Release Port, Notify Webhook (Telegram, Discord, Slack)
+- Tự động hóa Desktop: Chụp ảnh màn hình sự cố, Dump cây tiến trình, Mở trình duyệt tìm giải pháp, Mở thư mục, Mở Task Manager
+- Áp đặt hạn mức: Resource Partitioning & Quota
+- Cơ chế Cooldown tránh spam hành động (5 giây).
+"""
+
 import time
 import os
 import sys
@@ -10,10 +22,19 @@ from app.modules.workflow_engine.notifier import dispatch_notification
 from app.modules.workflow_engine.incident_manager import incident_manager
 from app.schemas.process_schema import ProcessActionType
 
-# Cooldown cache theo PID hoặc loại action (giây): tránh lặp lại hành động trong 5s
+# Bộ đệm thời gian cooldown theo PID hoặc loại hành động (giây): tránh lặp lại hành động trong 5s
 _action_cooldowns: dict[str, float] = {}
 
 def execute_node_action(node_data: dict) -> dict:
+    """
+    Thực thi hành động can thiệp tương ứng với cấu hình của một Action Node trên Canvas n8n.
+
+    Args:
+        node_data: Dictionary dữ liệu chứa action_type, PID, thông số cấu hình và cờ is_test.
+
+    Returns:
+        Dictionary chứa trạng thái kết quả thực thi và thông tin chi tiết.
+    """
     action_type = node_data.get("action_type")
     raw_pid = node_data.get("pid")
     pid = int(raw_pid) if raw_pid is not None else None
@@ -24,7 +45,7 @@ def execute_node_action(node_data: dict) -> dict:
     now = time.time()
     cooldown_key = f"pid_{pid}" if pid is not None else f"action_{action_type}"
 
-    # Bỏ qua cooldown nếu người dùng đang chủ động click 'Test Action'
+    # Bỏ qua thời gian cooldown nếu người dùng đang chủ động click 'Test Action' trên giao diện
     if not is_test:
         last_time = _action_cooldowns.get(cooldown_key, 0.0)
         if now - last_time < 5.0 and action_type in [

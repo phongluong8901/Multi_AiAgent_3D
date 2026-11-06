@@ -13,6 +13,9 @@ import {
   ActivityIcon,
 } from './Icons';
 
+/**
+ * Thuoc tinh dau vao cho OverviewTab
+ */
 interface OverviewTabProps {
   data: SystemData | null;
   isWorkerRunning: boolean;
@@ -22,6 +25,12 @@ interface OverviewTabProps {
   isPinging: boolean;
 }
 
+/**
+ * Tab Tong quan tai nguyen phan cung va hieu suat mo hinh LLM:
+ * - Theo doi CPU, RAM, Disk, GPU load va nhiet do
+ * - Theo doi so luot token thoi gian thuc va toc do sinh token/giay
+ * - Hien thi thong tin node mang, dia chi IP, khu vuc dia ly
+ */
 export const OverviewTab: FC<OverviewTabProps> = ({ data }) => {
   const cpuPercent = data?.cpu_percent ?? data?.hardware?.cpu?.percent ?? 0;
   const ramPercent = data?.ram_percent ?? data?.hardware?.memory?.percent ?? 0;

@@ -1,3 +1,4 @@
+// Package storage cung cấp lớp lưu trữ bền vững trên Neon PostgreSQL và bộ nhớ đệm thời gian thực trên Redis.
 package storage
 
 import (
@@ -13,6 +14,7 @@ import (
 	_ "github.com/lib/pq"
 )
 
+// PostgresStorage quản lý kết nối cơ sở dữ liệu PostgreSQL (Neon DB) để lưu trữ cấu hình và trạng thái của các Partner Node.
 type PostgresStorage struct {
 	db *sql.DB
 }

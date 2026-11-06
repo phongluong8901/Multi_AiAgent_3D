@@ -23,7 +23,7 @@ import path from "path";
 const envPath = path.resolve(process.cwd(), ".env");
 if (fs.existsSync(envPath)) {
     dotenv.config({ path: envPath });
-    console.log("◇ Loaded env from local .env file");
+    console.log("[INFO] Loaded env from local .env file");
 } else {
     // Nếu ở trên Docker (không có file .env), giữ nguyên biến do Docker Compose cung cấp
     dotenv.config();
@@ -98,9 +98,9 @@ app.get("/api/v1/models", async (req, res) => {
                 const sessions: any[] = data?.sessions || [];
                 const rentalModels = sessions.map((s) => ({
                     id: `rental:${s.sessionId}`,
-                    name: `⚡ [Đang Thuê] ${s.modelDisplayName} (${s.nodeName})`,
+                    name: `[Đang Thuê] ${s.modelDisplayName} (${s.nodeName})`,
                     provider: `Seller Node (${s.sessionId.slice(-6)})`,
-                    description: `Phiên thuê P2P đang ACTIVE • Giá: ${s.coinsPer1kTokens || 0.5} Coins/1k tokens`,
+                    description: `Phiên thuê P2P đang ACTIVE - Giá: ${s.coinsPer1kTokens || 0.5} Coins/1k tokens`,
                 }));
                 return res.status(200).json([...rentalModels, ...baseModels]);
             }

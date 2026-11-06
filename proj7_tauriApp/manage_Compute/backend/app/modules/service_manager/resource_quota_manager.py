@@ -1,3 +1,10 @@
+"""
+Module quản lý phân bổ và thực thi hạn mức tài nguyên (Resource Quota Manager).
+Hỗ trợ kiểm soát CPU Affinity, áp đặt trần RAM (RAM Cap MB) qua Windows Job Object & EmptyWorkingSet,
+giới hạn băng thông CPU (CPU Throttle %), gán GPU index và thực thi chính sách khi vi phạm hạn mức
+(Trim & Throttle, Suspend, Kill hoặc Log Only).
+"""
+
 import os
 import sys
 import time
@@ -7,6 +14,9 @@ from app.modules.service_manager.os_process import process_manager
 from app.modules.workflow_engine.incident_manager import incident_manager
 
 class ResourceQuotaPolicy:
+    """
+    Các chính sách xử lý khi tiến trình vi phạm hạn mức tài nguyên được chỉ định.
+    """
     TRIM_AND_THROTTLE = "TRIM_AND_THROTTLE"
     SUSPEND = "SUSPEND"
     KILL = "KILL"
@@ -14,14 +24,15 @@ class ResourceQuotaPolicy:
 
 class ResourceQuotaManager:
     """
-    Dịch vụ Phân bổ & Giới hạn Tài nguyên (Resource Partitioning & Quota Enforcement)
-    - Quản lý CPU Cores Affinity (gán nhân độc quyền cho từng tác vụ)
-    - Quản lý Hạn mức RAM tối đa (RAM Cap MB) qua Windows Job Object & Win32 EmptyWorkingSet
-    - Quản lý Giới hạn băng thông CPU (CPU Throttle %)
-    - Quản lý GPU Index (CUDA_VISIBLE_DEVICES)
+    Dịch vụ Phân bổ & Giới hạn Tài nguyên (Resource Partitioning & Quota Enforcement).
+    - Quản lý CPU Cores Affinity (gán nhân độc quyền cho từng tác vụ).
+    - Quản lý Hạn mức RAM tối đa (RAM Cap MB) qua Windows Job Object & Win32 EmptyWorkingSet.
+    - Quản lý Giới hạn băng thông CPU (CPU Throttle %).
+    - Quản lý GPU Index (CUDA_VISIBLE_DEVICES).
     """
 
     def __init__(self):
+        """Khởi tạo cấu trúc lưu trữ hạn mức đang hoạt động và con trỏ Job Object."""
         # Lưu trữ cấu hình quota theo PID: { pid: { cores, max_ram_mb, max_cpu_percent, gpu_index, policy, last_breach } }
         self.active_quotas: Dict[int, Dict[str, Any]] = {}
         # Lưu trữ handle Job Object trên Windows: { pid: job_handle }
@@ -38,6 +49,17 @@ class ResourceQuotaManager:
     ) -> Dict[str, Any]:
         """
         Áp dụng hạn mức tài nguyên cho một tiến trình đang chạy.
+
+        Args:
+            pid: Định danh tiến trình mục tiêu.
+            cores: Danh sách lõi CPU được phép sử dụng.
+            max_ram_mb: Dung lượng RAM tối đa (MB).
+            max_cpu_percent: Ngưỡng sử dụng CPU tối đa (%).
+            gpu_index: Chỉ số card đồ họa NVIDIA (CUDA index).
+            policy: Chính sách xử lý vi phạm.
+
+        Returns:
+            Dictionary trạng thái áp dụng và thông số quota.
         """
         try:
             proc = psutil.Process(pid)
@@ -67,10 +89,9 @@ class ResourceQuotaManager:
                 import ctypes
                 from ctypes import wintypes
 
-                # Tạo Job Object
+                # Tạo Job Object trên Windows
                 job_handle = ctypes.windll.kernel32.CreateJobObjectW(None, None)
                 if job_handle:
-                    # Mở tiến trình với quyền gán vào Job
                     PROCESS_SET_QUOTA = 0x0100
                     PROCESS_TERMINATE = 0x0001
                     h_proc = ctypes.windll.kernel32.OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, False, pid)
@@ -78,7 +99,7 @@ class ResourceQuotaManager:
                         if ctypes.windll.kernel32.AssignProcessToJobObject(job_handle, h_proc):
                             self._job_handles[pid] = job_handle
                             job_applied = True
-                            applied_actions.append(f"Assigned to Windows Job Object (Hard Sandbox)")
+                            applied_actions.append("Assigned to Windows Job Object (Hard Sandbox)")
                         ctypes.windll.kernel32.CloseHandle(h_proc)
             except Exception:
                 pass
@@ -110,6 +131,12 @@ class ResourceQuotaManager:
     def remove_quota(self, pid: int) -> Dict[str, Any]:
         """
         Hủy bỏ hạn mức tài nguyên, khôi phục lại toàn bộ CPU Cores và mức ưu tiên bình thường.
+
+        Args:
+            pid: Định danh tiến trình cần gỡ hạn mức.
+
+        Returns:
+            Dictionary trạng thái gỡ bỏ.
         """
         if pid in self._job_handles:
             try:
@@ -135,6 +162,9 @@ class ResourceQuotaManager:
         """
         Được gọi bởi Background Watchdog định kỳ:
         Kiểm tra và thực thi các chế độ can thiệp khi tiến trình vượt quá hạn mức RAM hoặc CPU đã gán.
+
+        Returns:
+            Danh sách các hành động can thiệp đã thực hiện đối với các tiến trình vi phạm.
         """
         actions_taken = []
         pids_to_remove = []
@@ -210,10 +240,12 @@ class ResourceQuotaManager:
         return actions_taken
 
     def list_quotas(self) -> List[Dict[str, Any]]:
+        """Trả về toàn bộ danh sách hạn mức quota đang áp dụng."""
         return list(self.active_quotas.values())
 
     def get_quota(self, pid: int) -> Optional[Dict[str, Any]]:
+        """Lấy thông tin quota chi tiết của một tiến trình theo PID."""
         return self.active_quotas.get(pid)
 
+# Instance duy nhất của trình quản lý hạn mức tài nguyên
 resource_quota_manager = ResourceQuotaManager()
-

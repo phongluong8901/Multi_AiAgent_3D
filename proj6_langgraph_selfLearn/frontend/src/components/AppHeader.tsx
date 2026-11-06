@@ -1,3 +1,9 @@
+/**
+ * Header Navigation Component.
+ * Displays application branding, real-time connection status indicator,
+ * tab switcher between Chat and Synthesis engines, and session reset action.
+ */
+
 import { Brain, MessageSquare, Sparkles, RefreshCw } from 'lucide-react';
 
 interface AppHeaderProps {

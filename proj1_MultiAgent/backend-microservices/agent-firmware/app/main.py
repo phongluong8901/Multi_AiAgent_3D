@@ -19,9 +19,9 @@ def init_db() -> None:
             run_all_seeders(db)
         finally:
             db.close()
-        print("[agent-firmware] ✅ Database tables and seeders initialized on Neon PostgreSQL.")
+        print("[SUCCESS] [agent-firmware] Database tables and seeders initialized on Neon PostgreSQL.")
     except Exception as exc:
-        print(f"[agent-firmware] ⚠️ Database initialization warning: {exc}")
+        print(f"[WARN] [agent-firmware] Database initialization warning: {exc}")
 
 
 @asynccontextmanager

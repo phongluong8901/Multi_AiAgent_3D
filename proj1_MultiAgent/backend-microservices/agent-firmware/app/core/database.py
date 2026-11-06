@@ -25,10 +25,10 @@ def _build_resilient_engine():
             eng = create_engine(db_url, pool_pre_ping=True, connect_args=connect_args)
             with eng.connect() as conn:
                 conn.execute(text("SELECT 1"))
-            print(f"[agent-firmware DB] ✅ Connected to {label}")
+            print(f"[SUCCESS] [agent-firmware DB] Connected to {label}")
             return eng
         except Exception as exc:
-            print(f"[agent-firmware DB] ⚠️ Could not connect to {label}: {exc}")
+            print(f"[WARN] [agent-firmware DB] Could not connect to {label}: {exc}")
 
     return create_engine("sqlite:///./firmware_local.db", connect_args={"check_same_thread": False})
 

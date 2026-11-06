@@ -1,6 +1,15 @@
+"""
+Dich vu quan ly cau hinh Worker Client (`config_service.py`):
+- Tu dong nap bien moi truong tu file `.env`
+- Doc va ghi cau hinh tu tep `worker-config.json`
+- Tu dong sinh dinh danh phan cung duy nhat (`nodeId`) dua tren MAC address
+- Chuan hoa thong tin ket noi WebSocket, Auth Token, Ollama URL va Rent Config
+"""
+
 import json
 import os
 import argparse
+from typing import Any, Dict
 
 try:
     from dotenv import load_dotenv
@@ -21,7 +30,16 @@ except ImportError:
 DEFAULT_SERVER_WS = "ws://localhost:4000/api/v1/distributed/ws"
 DEFAULT_OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 
+
 def parse_args():
+    """
+    Phan tich tham so dong lenh CLI cho Worker Client:
+    - --config (-c): Duong dan toi file worker-config.json
+    - --server (-s): Dia chi WebSocket endpoint cua Server
+    - --token (-t): Token xac thuc Seller Partner
+    - --node-id (-n): Dinh danh phan cung cua Node
+    - --interval (-i): Tan suat gui telemetry (giay)
+    """
     parser = argparse.ArgumentParser(description="Multi-Agent Distributed Hardware Worker")
     parser.add_argument("--config", "-c", default="worker-config.json", help="Path to worker-config.json")
     parser.add_argument("--server", "-s", default="", help="Distributed Service WebSocket URL")
@@ -30,8 +48,12 @@ def parse_args():
     parser.add_argument("--interval", "-i", type=float, default=2.0, help="Telemetry send interval (seconds)")
     return parser.parse_args()
 
-def load_config_file(config_path="worker-config.json"):
-    """Search and load configuration from worker-config.json"""
+
+def load_config_file(config_path="worker-config.json") -> Dict[str, Any]:
+    """
+    Tim kiem va doc noi dung cau hinh tu tep worker-config.json.
+    Tra ve dictionary chua cau hinh hoac dict rong neu khong tim thay.
+    """
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     search_paths = [
         config_path,
@@ -53,8 +75,11 @@ def load_config_file(config_path="worker-config.json"):
                 print(f"[WARN] Error reading config file {p}: {e}")
     return {}
 
+
 def save_config_file(config_data, config_path="worker-config.json"):
-    """Write updated configuration to worker-config.json"""
+    """
+    Ghi de va cap nhat noi dung cau hinh moi vao tep worker-config.json.
+    """
     try:
         with open(config_path, "w", encoding="utf-8") as f:
             json.dump(config_data, f, indent=2, ensure_ascii=False)
@@ -64,8 +89,15 @@ def save_config_file(config_data, config_path="worker-config.json"):
         print(f"[ERROR] Failed to save config to {config_path}: {e}")
         return False
 
-def resolve_connection_info(args=None):
-    """Resolve WebSocket URL, Auth Token, Node ID, and Rental Configuration"""
+
+def resolve_connection_info(args=None) -> Dict[str, Any]:
+    """
+    Tong hop va giai quyet thong tin ket noi day du tu cac nguon uu tien:
+    1. Tham so dong lenh (CLI args)
+    2. Bien moi truong (Environment Variables)
+    3. Tep cau hinh JSON (worker-config.json)
+    4. Gia tri mac dinh cua he thong
+    """
     if args is None:
         cfg = load_config_file()
         server_arg = ""
@@ -77,7 +109,7 @@ def resolve_connection_info(args=None):
         token_arg = args.token
         node_id_arg = args.node_id
 
-    # 1. Server WS URL
+    # 1. Dia chi WebSocket Server
     ws_url = (
         server_arg
         or os.environ.get("WS_URL")
@@ -86,7 +118,7 @@ def resolve_connection_info(args=None):
         or DEFAULT_SERVER_WS
     )
 
-    # 2. Token
+    # 2. Token xac thuc
     token = (
         token_arg
         or os.environ.get("AUTH_TOKEN")
@@ -95,7 +127,7 @@ def resolve_connection_info(args=None):
         or ""
     )
 
-    # 3. Node ID: Thiết bị tự sinh định danh phần cứng duy nhất (không cần người dùng cấu hình)
+    # 3. Node ID: Tu dong sinh dinh danh dua tren dia chi MAC phan cung neu chua co
     node_id = (
         node_id_arg
         or os.environ.get("NODE_ID")
@@ -115,7 +147,7 @@ def resolve_connection_info(args=None):
         save_config_file(cfg, args.config if args else "worker-config.json")
         print(f"[DEVICE] Auto-generated persistent device Node ID: {node_id}")
 
-    # 3.1 Node Name: Tên máy do người dùng cấu hình trên Electron để phân biệt giữa các máy trên Web
+    # 3.1 Node Name: Ten may nguoi dung dat de phan biet tren Web
     node_name = (
         os.environ.get("NODE_NAME")
         or cfg.get("nodeName")
@@ -123,7 +155,7 @@ def resolve_connection_info(args=None):
         or "phong 01"
     )
 
-    # 4. Ollama / Local LLM Endpoint
+    # 4. Dia chi endpoint cua Ollama Local
     ollama_url = (
         os.environ.get("OLLAMA_URL")
         or cfg.get("localEndpoint")
@@ -131,7 +163,7 @@ def resolve_connection_info(args=None):
         or DEFAULT_OLLAMA_URL
     )
 
-    # 5. Rent Config
+    # 5. Cau hinh chia se tai nguyen va thong so thue
     rent_config = {
         "allocatedCores": int(
             os.environ.get("ALLOCATED_CORES")
@@ -160,7 +192,6 @@ def resolve_connection_info(args=None):
             or cfg.get("minPricePerHourCoin")
             or 35.0
         ),
-        # Dedicated LLM serving configuration
         "maxTokens": int(
             os.environ.get("MAX_TOKENS")
             or cfg.get("maxTokens")
@@ -188,7 +219,6 @@ def resolve_connection_info(args=None):
         ),
     }
 
-    # Append token, nodeId, and nodeName to query params if present
     import urllib.parse
     sep = "&" if "?" in ws_url else "?"
     params = []

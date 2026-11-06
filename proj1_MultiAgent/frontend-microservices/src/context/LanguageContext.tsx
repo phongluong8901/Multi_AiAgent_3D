@@ -2,8 +2,16 @@
 
 import React, { createContext, useContext, useEffect, useState } from 'react'
 
+/**
+ * Ngon ngu ho tro trong he thong:
+ * - 'vi': Tieng Viet
+ * - 'en': English
+ */
 export type Language = 'vi' | 'en'
 
+/**
+ * Tu dien dich thuat da ngon ngu cho toan bo giao dien
+ */
 export interface Translations {
     common: {
         loading: string
@@ -274,6 +282,10 @@ interface LanguageContextType {
 
 const LanguageContext = createContext<LanguageContextType | undefined>(undefined)
 
+/**
+ * Provider quan ly trang thai da ngon ngu (i18n):
+ * Tu dong dong bo ngon ngu vao localStorage va thuoc tinh lang cua the html
+ */
 export function LanguageProvider({ children }: { children: React.ReactNode }) {
     const [language, setLanguageState] = useState<Language>('vi')
     const [mounted, setMounted] = useState(false)
@@ -303,6 +315,9 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     )
 }
 
+/**
+ * Custom hook de lay ngon ngu hien tai va doi tuong tu dien dich thuat `t`
+ */
 export function useLanguage() {
     const context = useContext(LanguageContext)
     if (!context) {

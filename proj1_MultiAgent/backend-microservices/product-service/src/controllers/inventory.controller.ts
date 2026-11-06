@@ -2,18 +2,26 @@ import { Request, Response } from "express";
 import { InventoryModel } from "../models/inventory.model";
 import { ProductModel } from "../models/product.model";
 
+/**
+ * Controller quản lý kho lưu trữ Agent (Inventory) của người dùng.
+ * Quản lý cả quyền sở hữu vĩnh viễn (owned) và quyền thuê giới hạn theo thời gian (rented).
+ */
 export class InventoryController {
-    // 1. Lấy danh sách Agent trong kho của User
+    /**
+     * Lấy danh sách các AI Agent trong kho của một User cụ thể.
+     * Tự động tính toán hạn thuê còn lại (ms, giờ, ngày) và cờ hết hạn (isExpired).
+     */
     async getUserInventory(req: Request, res: Response) {
         try {
             const { userId } = req.params;
             const items = await InventoryModel.find({ userId, isActive: true }).populate("productId");
 
             const now = new Date();
-            const enriched = items.map((item) => {
+            const enriched = items.map((item: any) => {
                 let isExpired = false;
                 let remainingMs = 0;
 
+                // Nếu là hình thức thuê và có thời hạn hết hạn
                 if (item.ownershipType === "rented" && item.rentExpiresAt) {
                     const expiry = new Date(item.rentExpiresAt);
                     remainingMs = expiry.getTime() - now.getTime();
@@ -38,7 +46,10 @@ export class InventoryController {
         }
     }
 
-    // 2. Kiểm tra xem User có quyền dùng Agent này không (dành cho Room/Agent-service)
+    /**
+     * Kiểm tra nhanh quyền truy cập và sử dụng Agent của một User.
+     * Sử dụng cho các dịch vụ khác (như Room-service hoặc Agent-service) trước khi kích hoạt Agent.
+     */
     async checkAgentAccess(req: Request, res: Response) {
         try {
             const { userId, agentId } = req.query;
@@ -55,6 +66,7 @@ export class InventoryController {
                 });
             }
 
+            // Quyền sở hữu vĩnh viễn
             if (item.ownershipType === "owned") {
                 return res.status(200).json({
                     success: true,
@@ -64,7 +76,7 @@ export class InventoryController {
                 });
             }
 
-            // Nếu là thuê, kiểm tra hạn
+            // Kiểm tra hiệu lực thời gian nếu là hình thức thuê
             const now = new Date();
             if (item.rentExpiresAt && new Date(item.rentExpiresAt) <= now) {
                 return res.status(200).json({

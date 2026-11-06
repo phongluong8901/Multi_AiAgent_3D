@@ -1,3 +1,10 @@
+"""
+Module quản lý và dọn dẹp phân vùng bộ nhớ và lưu trữ (Memory Partition Manager).
+Cung cấp khả năng phân tách trực quan các phân vùng: RAM Working Set, Standby Cache,
+Kernel Memory, Swap Pagefile, các ổ đĩa SSD/HDD, thư mục Temp (%TEMP%) và Crash Dumps,
+cùng các cơ chế dọn dẹp / thu hồi bộ nhớ an toàn (Purge Partition).
+"""
+
 import psutil
 import os
 import sys
@@ -12,12 +19,26 @@ from app.schemas.partition_schema import (
 )
 
 class MemoryPartitionManager:
+    """
+    Trình quản lý phân vùng bộ nhớ đa tầng (RAM, Swap, Disk, Cache Temp).
+    """
     def __init__(self):
+        """Khởi tạo đường dẫn thư mục lưu ảnh chụp sự cố (dumps) và bộ đệm kích thước file (size cache)."""
         self.dumps_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "dumps"))
         os.makedirs(self.dumps_dir, exist_ok=True)
         self._size_cache: Dict[str, tuple[float, float]] = {}
 
     def _get_directory_size_mb(self, path: str, max_depth: int = 2) -> float:
+        """
+        Tính toán dung lượng MB của một thư mục với cơ chế đệm cache 45 giây và giới hạn độ sâu quét.
+
+        Args:
+            path: Đường dẫn thư mục cần tính kích thước.
+            max_depth: Độ sâu tối đa khi duyệt thư mục đệ quy.
+
+        Returns:
+            Dung lượng tính bằng MB.
+        """
         now = time.time()
         if path in self._size_cache:
             sz, ts = self._size_cache[path]
@@ -56,6 +77,18 @@ class MemoryPartitionManager:
         return size_mb
 
     def get_system_partitions(self) -> SystemPartitionsOverview:
+        """
+        Thu thập và phân tách toàn diện các phân vùng bộ nhớ và lưu trữ của hệ thống:
+        - RAM Working Set (Bộ nhớ tiến trình hoạt động)
+        - Windows Standby Memory Cache (Bộ nhớ đệm đọc trước)
+        - Kernel Core Memory Pool (Vùng nhớ nhân hệ điều hành)
+        - Virtual Memory Pagefile (Bộ nhớ ảo Swap)
+        - Các phân vùng ổ đĩa vật lý (Ổ C: SSD, Ổ D: Data)
+        - Bộ nhớ đệm Temp (%TEMP%) và thư mục Crash Dumps
+
+        Returns:
+            Báo cáo SystemPartitionsOverview.
+        """
         partitions: List[MemoryPartitionItem] = []
 
         # 1. RAM Physical Partitions
@@ -64,12 +97,10 @@ class MemoryPartitionManager:
         used_ram_mb = round(mem.used / (1024 ** 2), 1)
         free_ram_mb = round(mem.available / (1024 ** 2), 1)
 
-        # Windows Standby memory estimate: Available memory includes Standby Cache
-        # In task manager, Standby is typically Available - Free
+        # Ước lượng vùng Standby Cache trên Windows từ Available và Free memory
         free_phys_mb = round(getattr(mem, "free", mem.available) / (1024 ** 2), 1)
         standby_cache_mb = max(0.0, round(free_ram_mb - free_phys_mb, 1))
         if standby_cache_mb == 0.0:
-            # Ước lượng vùng đệm cache RAM từ tỷ lệ tải
             standby_cache_mb = round(free_ram_mb * 0.45, 1)
 
         active_working_set_mb = max(100.0, round(used_ram_mb * 0.75, 1))
@@ -256,6 +287,14 @@ class MemoryPartitionManager:
     def purge_partition(self, partition_id: str, mode: str = "safe") -> PartitionPurgeResult:
         """
         Thực hiện giải phóng / dọn dẹp phân vùng bộ nhớ chỉ định.
+        Hỗ trợ dọn dẹp Standby Cache, Working Set ứng dụng, tệp tin Temp, Crash Dumps và Swap Pagefile.
+
+        Args:
+            partition_id: Mã phân vùng cần dọn dẹp.
+            mode: Chế độ dọn dẹp ("safe" hoặc "force").
+
+        Returns:
+            Đối tượng PartitionPurgeResult chứa số MB giải phóng và thông báo kết quả.
         """
         # 1. Thu hồi toàn bộ Standby Cache & Inactive RAM
         if partition_id in ["ram_standby_cache", "flush_standby_list", "ram_all"]:
@@ -390,4 +429,5 @@ class MemoryPartitionManager:
             message=f"Partition {partition_id} does not support direct purging or is a protected OS kernel volume.",
         )
 
+# Instance duy nhất của trình quản lý phân vùng bộ nhớ
 partition_manager = MemoryPartitionManager()

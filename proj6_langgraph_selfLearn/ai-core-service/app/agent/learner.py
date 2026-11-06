@@ -1,3 +1,9 @@
+"""
+Background Continual Learning Pipeline.
+Analyzes conversational exchanges post-response, extracts high-value facts and lessons,
+upserts memories into Qdrant, updates Redis short-term cache, and notifies Gateway via webhook.
+"""
+
 import httpx
 from typing import cast
 from pydantic import BaseModel, Field
@@ -6,9 +12,18 @@ from ..core.config import settings
 from ..memory.long_term import long_memory
 from ..memory.short_term import short_memory
 
-llm = ChatGoogleGenerativeAI(model=settings.FAST_MODEL, google_api_key=settings.GOOGLE_API_KEY, temperature=0.1)
+# LLM instance initialized for low-temperature structured knowledge extraction
+llm = ChatGoogleGenerativeAI(
+    model=settings.FAST_MODEL,
+    google_api_key=settings.GOOGLE_API_KEY,
+    temperature=0.1
+)
 
 class ExtractedLearning(BaseModel):
+    """
+    Schema for structured extraction of facts, topical tags, and self-improvement lessons
+    distilled from the conversation turn.
+    """
     facts_to_remember: list[str] = Field(
         default_factory=list,
         description="Danh sách dữ kiện, số liệu, thông tin cá nhân thực sự mới đáng lưu. Nếu không có gì mới hoặc chỉ là chào hỏi/xã giao thì trả về danh sách rỗng []."
@@ -20,7 +35,10 @@ class ExtractedLearning(BaseModel):
     )
 
 async def notify_gateway_memory_updated():
-    """Gửi webhook tới Gateway để Socket.IO phát sóng realtime tới tất cả Frontend clients"""
+    """
+    Sends an internal webhook trigger to Gateway Service to broadcast realtime
+    Socket.IO memory synchronization events to active frontend client dashboards.
+    """
     gateway_url = settings.GATEWAY_INTERNAL_URL.rstrip("/")
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
@@ -29,12 +47,22 @@ async def notify_gateway_memory_updated():
         pass
 
 async def background_continual_learning(session_id: str, query: str, web_results: str, final_answer: str):
-    """Hàm chạy ngầm sau khi đã trả lời user để AI tự tiêu hóa kiến thức có chọn lọc"""
-    # 1. Lưu vào bộ nhớ ngắn hạn (Redis)
+    """
+    Asynchronous background process executed after delivering the assistant's answer.
+    Commits turns to Redis short-term history, prompts LLM for selective fact and lesson extraction,
+    stores verified insights in Qdrant, and triggers gateway memory updates.
+
+    Args:
+        session_id: Unique chat session identifier.
+        query: User input query text.
+        web_results: Retrieved external web content, if any.
+        final_answer: Assistant generated response text.
+    """
+    # 1. Append message turn to Redis short-term sliding window
     await short_memory.add_message(session_id, "user", query)
     await short_memory.add_message(session_id, "assistant", final_answer)
 
-    # 2. Dùng Gemini trích xuất tinh hoa với quy tắc lọc chống trùng lặp nghiêm ngặt
+    # 2. Extract novel facts and lessons using structured Gemini schema
     extractor = llm.with_structured_output(ExtractedLearning)
     prompt = f"""
     Bạn là bộ phận quản lý tri thức dài hạn của AI Agent.
@@ -64,17 +92,19 @@ async def background_continual_learning(session_id: str, query: str, web_results
         
         has_new_updates = False
 
+        # Store newly learned facts into Qdrant knowledge vector collection
         if learned.facts_to_remember:
             for fact in learned.facts_to_remember:
                 if fact and len(fact.strip()) > 8:
                     long_memory.upsert_knowledge(fact=fact.strip(), topic=learned.topic or "Tri thức chung", source="continual_learning")
                     has_new_updates = True
             
+        # Store procedural or retrieval lessons into Qdrant experience vector collection
         if learned.self_improvement_lesson and len(learned.self_improvement_lesson.strip()) > 15:
             long_memory.save_experience(lesson=learned.self_improvement_lesson.strip(), task_type=learned.topic or "Kinh nghiệm chung")
             has_new_updates = True
             
-        # Chỉ bắn webhook Socket.IO khi thực sự có tri thức/kinh nghiệm mới được lưu
+        # Emit webhook notification to sync frontend dashboard if memory state changed
         if has_new_updates:
             await notify_gateway_memory_updated()
             

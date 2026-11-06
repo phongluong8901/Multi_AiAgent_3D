@@ -9,6 +9,7 @@ import (
 	"distributed-service/service"
 )
 
+// NodeHandler quản lý các endpoint HTTP liên quan đến đăng ký, tra cứu và điều khiển trạng thái của Partner Node.
 type NodeHandler struct {
 	registry        *service.NodeRegistry
 	benchmarkEngine *service.BenchmarkEngine
@@ -16,6 +17,7 @@ type NodeHandler struct {
 	wsHandler       *WSHandler
 }
 
+// NewNodeHandler khởi tạo NodeHandler với các dịch vụ NodeRegistry, BenchmarkEngine và AppDistributor.
 func NewNodeHandler(registry *service.NodeRegistry, benchmarkEngine *service.BenchmarkEngine, distributor *service.AppDistributor) *NodeHandler {
 	return &NodeHandler{
 		registry:        registry,
@@ -24,11 +26,12 @@ func NewNodeHandler(registry *service.NodeRegistry, benchmarkEngine *service.Ben
 	}
 }
 
+// SetWSHandler gắn tham chiếu WSHandler để NodeHandler có thể đẩy thông điệp điều khiển xuống Worker qua WebSocket.
 func (h *NodeHandler) SetWSHandler(ws *WSHandler) {
 	h.wsHandler = ws
 }
 
-// HandleRegisterNode đăng ký đối tác mô hình và cấu hình cho thuê phần cứng (mặc định OFFLINE cho tới khi bật Electron Worker)
+// HandleRegisterNode đăng ký đối tác mô hình và cấu hình cho thuê phần cứng (mặc định OFFLINE cho tới khi bật Electron Worker).
 func (h *NodeHandler) HandleRegisterNode(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -36,6 +39,7 @@ func (h *NodeHandler) HandleRegisterNode(w http.ResponseWriter, r *http.Request)
 		http.Error(w, `{"error":"Method not allowed, use POST"}`, http.StatusMethodNotAllowed)
 		return
 	}
+	defer r.Body.Close()
 
 	var req struct {
 		UserID     string                   `json:"userId"`
@@ -177,7 +181,7 @@ func (h *NodeHandler) HandleListNodes(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// HandleToggleNodeStatus cho phép người dùng bật/tắt chia sẻ tài nguyên trực tiếp trên Web
+// HandleToggleNodeStatus cho phép người dùng bật/tắt chia sẻ tài nguyên trực tiếp trên Web.
 func (h *NodeHandler) HandleToggleNodeStatus(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -185,6 +189,7 @@ func (h *NodeHandler) HandleToggleNodeStatus(w http.ResponseWriter, r *http.Requ
 		http.Error(w, `{"error":"Method not allowed, use POST"}`, http.StatusMethodNotAllowed)
 		return
 	}
+	defer r.Body.Close()
 
 	var req struct {
 		NodeID string `json:"nodeId"`

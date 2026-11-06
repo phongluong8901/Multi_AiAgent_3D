@@ -9,6 +9,12 @@ from .base_tool import BaseTool
 logger = logging.getLogger(__name__)
 
 class PDFAnalyzerTool(BaseTool):
+    """
+    Công cụ phân tích tài liệu PDF đa phương thức (`pdf_analyzer_tool`).
+    Tự động tải nội dung PDF từ URL hoặc ổ đĩa cục bộ và gửi qua Gemini Multimodal
+    để bóc tách văn bản, bảng số liệu kế toán/tài chính và nhận định xu hướng.
+    """
+
     name = "pdf_analyzer_tool"
     description = (
         "Công cụ Phân tích Tài liệu PDF & OCR Văn bản Bảng biểu: "
@@ -61,7 +67,7 @@ class PDFAnalyzerTool(BaseTool):
                                 match = re.search(r"https?://[^\s\)\"']+", content)
                                 if match:
                                     pdf_url = match.group(0)
-                                    logger.info(f"🔍 [PDFAnalyzerTool] Tìm thấy PDF URL từ chat history: {pdf_url}")
+                                    logger.info(f"[INFO] [PDFAnalyzerTool] Tìm thấy PDF URL từ chat history: {pdf_url}")
                                     break
                         if pdf_url:
                             break
@@ -73,7 +79,7 @@ class PDFAnalyzerTool(BaseTool):
             # 1. Tải file PDF từ URL hoặc đọc từ disk
             if pdf_url and (pdf_url.startswith("http://") or pdf_url.startswith("https://")):
                 try:
-                    logger.info(f"📥 [PDFAnalyzerTool] Đang tải file PDF từ URL: {pdf_url}")
+                    logger.info(f"[INFO] [PDFAnalyzerTool] Đang tải file PDF từ URL: {pdf_url}")
                     req = urllib.request.Request(
                         pdf_url,
                         headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
@@ -105,8 +111,14 @@ class PDFAnalyzerTool(BaseTool):
             from google import genai
             from google.genai import types
 
-            api_key = os.getenv("GOOGLE_API_KEY_MODEL", "")
-            client = genai.Client(api_key=api_key) if api_key else genai.Client()
+            raw_keys = (
+                os.getenv("GOOGLE_API_KEY_MODEL")
+                or os.getenv("GOOGLE_API_KEY")
+                or os.getenv("GEMINI_API_KEY")
+                or ""
+            )
+            first_key = next((k.strip() for k in raw_keys.split(",") if k.strip()), "")
+            client = genai.Client(api_key=first_key) if first_key else genai.Client()
 
             instruction = (
                 "Bạn là Chuyên gia Phân tích Tài liệu & Báo cáo PDF cao cấp (Senior Document Intelligence). "
@@ -119,12 +131,12 @@ class PDFAnalyzerTool(BaseTool):
             if user_prompt:
                 instruction += f"\nYêu cầu đặc biệt từ người dùng: {user_prompt}"
 
-            models_to_try = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-3.5-flash-lite"]
+            models_to_try = ["gemini-2.5-flash-lite", "gemini-2.5-flash", "gemini-2.0-flash"]
             last_err = None
 
             for m in models_to_try:
                 try:
-                    logger.info(f"🤖 [PDFAnalyzerTool] Đang phân tích PDF bằng model {m}...")
+                    logger.info(f"[INFO] [PDFAnalyzerTool] Đang phân tích PDF bằng model {m}...")
                     response = client.models.generate_content(
                         model=m,
                         contents=[
@@ -140,7 +152,7 @@ class PDFAnalyzerTool(BaseTool):
                             "model_used": m
                         }, ensure_ascii=False)
                 except Exception as ex:
-                    logger.warning(f"⚠️ [PDFAnalyzerTool] Model {m} gặp sự cố: {ex}")
+                    logger.warning(f"[WARN] [PDFAnalyzerTool] Model {m} gặp sự cố: {ex}")
                     last_err = ex
 
             return json.dumps({
@@ -149,5 +161,5 @@ class PDFAnalyzerTool(BaseTool):
             }, ensure_ascii=False)
 
         except Exception as e:
-            logger.error(f"❌ [PDFAnalyzerTool] Error: {str(e)}", exc_info=True)
+            logger.error(f"[ERROR] [PDFAnalyzerTool] Error: {str(e)}", exc_info=True)
             return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)

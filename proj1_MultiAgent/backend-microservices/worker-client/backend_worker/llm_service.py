@@ -2,6 +2,7 @@ import json
 import time
 import urllib.request
 import threading
+from typing import Any, Dict, List, Tuple
 
 DEFAULT_OLLAMA_URL = "http://localhost:11434"
 
@@ -29,7 +30,7 @@ def get_llm_metrics():
         data["is_busy"] = active_count > 0
         return data
 
-def check_ollama_status(ollama_url=DEFAULT_OLLAMA_URL):
+def check_ollama_status(ollama_url: str = DEFAULT_OLLAMA_URL) -> Tuple[bool, str]:
     """
     Check if the local Ollama instance is currently running.
     Returns (is_running: bool, version: str)
@@ -48,7 +49,7 @@ def check_ollama_status(ollama_url=DEFAULT_OLLAMA_URL):
         except Exception:
             return False, ""
 
-def get_ollama_models(ollama_url=DEFAULT_OLLAMA_URL):
+def get_ollama_models(ollama_url: str = DEFAULT_OLLAMA_URL) -> List[str]:
     """
     Query local Ollama for the list of downloaded / installed models.
     Returns list of model names (e.g. ['qwen2.5-coder:1.5b', 'llama3:8b'])
@@ -62,7 +63,7 @@ def get_ollama_models(ollama_url=DEFAULT_OLLAMA_URL):
     except Exception:
         return []
 
-def get_llm_info(ollama_url=DEFAULT_OLLAMA_URL):
+def get_llm_info(ollama_url: str = DEFAULT_OLLAMA_URL) -> Dict[str, Any]:
     """
     Get consolidated LLM runtime information.
     """

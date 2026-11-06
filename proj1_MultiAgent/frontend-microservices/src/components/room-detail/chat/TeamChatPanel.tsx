@@ -27,6 +27,9 @@ import {
 } from '@/components/ui/icons'
 import InteractiveChartRenderer, { parseContentWithCharts } from '@/components/ui/InteractiveChartRenderer'
 
+/**
+ * Thuộc tính đầu vào cho bảng hội thoại nhóm & đa phương thức (TeamChatPanel).
+ */
 interface TeamChatPanelProps {
     messages: ChatMessage[]
     chatLoading: boolean

@@ -3,8 +3,6 @@
 import { useParams, useRouter } from 'next/navigation'
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { AgentAction } from '@/components/agents/Agent'
-import { OFFICE_ACTION_SPOTS, OFFICE_DESK_SLOTS } from '@/components/office/Room'
-import { OUTDOOR_ACTION_SPOTS } from '@/components/outdoor/OutdoorPark'
 import { agentsApi, Agent, ChatAttachment, ChatType } from '@/lib/api'
 import { roomsApi } from '@/lib/api/rooms'
 import { getUser } from '@/lib/auth'
@@ -20,8 +18,10 @@ import { useChat } from '@/hooks/useChat'
 import { toast } from 'sonner'
 import { useConfirm } from '@/context/ConfirmContext'
 
+/** Chế độ hiển thị không gian làm việc: chia đôi màn hình (3D + Chat), chỉ 3D hoặc chỉ Chat */
 type ViewMode = 'split' | '3d' | 'chat'
 
+/** Danh sách các Agent cốt lõi mặc định trong phòng cộng tác */
 const DEFAULT_AGENTS = [
     'agent_manager',
     'agent_ml',
@@ -30,6 +30,13 @@ const DEFAULT_AGENTS = [
     'agent_summarizer',
 ]
 
+/**
+ * Trang Không gian Phòng Cộng Tác Đa Tác Tử (Collaborative 3D & Multi-Agent Room).
+ * Tích hợp:
+ * - Mô phỏng 3D thời gian thực các Robot Agent (GR00T, MicroDuck, Nova Carter, Cyber Falcon)
+ * - Hệ thống hội thoại đa kênh (Toàn phòng, Chat 1-1, Hỏi đáp Agent, Họp bàn tròn, Pipeline)
+ * - Theo dõi trạng thái suy nghĩ, tiến trình công cụ (`activeTool`) và vết thực thi (`WorkflowTrace`)
+ */
 export default function CollaborativeRoomPage() {
     const { confirm } = useConfirm()
     const params = useParams()
@@ -66,8 +73,9 @@ export default function CollaborativeRoomPage() {
     const chatScrollRef = useRef<HTMLDivElement | null>(null)
     const prevMsgCountRef = useRef(0)
     const isFirstScrollRef = useRef(true)
+    const pipelineTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-    // 1. Sử dụng useRoom (quản lý thông tin phòng, password phòng private & socket room)
+    // 1. Quản lý thông tin phòng, xác thực mật khẩu phòng riêng tư & danh sách thành viên qua Socket
     const {
         room,
         setRoom,
@@ -76,7 +84,7 @@ export default function CollaborativeRoomPage() {
         loadRoomData,
     } = useRoom(roomId, currentUserId, currentUserName)
 
-    // 2. Sử dụng useChat (quản lý tin nhắn, socket chat, upload file, agent status & workflow traces)
+    // 2. Quản lý tin nhắn, streaming token, đính kèm file, trạng thái Agent & Workflow Trace
     const {
         messages,
         onlineUsers,
@@ -87,7 +95,7 @@ export default function CollaborativeRoomPage() {
         connected,
         chatLoading,
         sendMessage,
-        uploadAndAttachFile, // <--- Đã lấy thêm hàm upload từ hook useChat
+        uploadAndAttachFile,
     } = useChat({
         roomId,
         onRoomUpdated: loadRoomData,
@@ -95,7 +103,25 @@ export default function CollaborativeRoomPage() {
 
     const hasJoinedRoomRef = useRef<string | null>(null)
 
-    // Load danh sách agents hệ thống và tự động join phòng lần đầu khi vào phòng
+    // Dọn dẹp bộ đếm thời gian chạy Pipeline khi rời trang (unmount)
+    useEffect(() => {
+        return () => {
+            if (pipelineTimerRef.current) {
+                clearTimeout(pipelineTimerRef.current)
+            }
+        }
+    }, [])
+
+    // Tự động tắt cờ chờ `isWaitingReply` sau tối đa 25 giây nếu mạng bị gián đoạn để tránh treo UI
+    useEffect(() => {
+        if (!isWaitingReply) return
+        const timeoutId = setTimeout(() => {
+            setIsWaitingReply(false)
+        }, 25000)
+        return () => clearTimeout(timeoutId)
+    }, [isWaitingReply])
+
+    // Tải danh sách Agents hệ thống và tự động tham gia phòng lần đầu khi mở trang
     useEffect(() => {
         if (!roomId) return
         if (hasJoinedRoomRef.current === roomId) return
@@ -115,14 +141,14 @@ export default function CollaborativeRoomPage() {
                         const roomData = await roomsApi.join(roomId, { name: currentUserName })
                         if (roomData && !cancelled) setRoom(roomData)
                     } catch {
-                        /* Đã là thành viên thì bỏ qua */
+                        // Người dùng đã là thành viên trong phòng
                     }
                 }
                 if (!cancelled) {
                     setAllAgents(agentsList ?? [])
                 }
             } catch (err) {
-                console.error(err)
+                console.error('[ERROR] [CollaborativeRoomPage] Lỗi khởi tạo dữ liệu phòng:', err)
             }
         })()
 
@@ -131,7 +157,7 @@ export default function CollaborativeRoomPage() {
         }
     }, [roomId, currentUserId, currentUserName, loadRoomData, setRoom])
 
-    // Lắng nghe sự kiện cấu hình từ trang Agent Setup & RL Training 3D để cập nhật tức thời
+    // Lắng nghe sự kiện cập nhật cấu hình từ trang Agent Setup & RL Training 3D để đồng bộ tức thời
     useEffect(() => {
         const refreshAgentsList = async () => {
             try {
@@ -159,7 +185,7 @@ export default function CollaborativeRoomPage() {
         }
     }, [])
 
-    // Kiểm tra quyền: Bị đá ra khỏi phòng
+    // Kiểm tra quyền thành viên: Chuyển hướng về trang danh sách nếu bị mời ra khỏi phòng
     useEffect(() => {
         if (!room || !currentUserId) return
         if (isLeavingRef.current) return
@@ -173,16 +199,20 @@ export default function CollaborativeRoomPage() {
         }
     }, [room, currentUserId, router])
 
-    // Đồng bộ trạng thái Agent
+    // Đồng bộ danh sách Agent hoạt động trong phòng kèm trạng thái trực tiếp từ WebSocket
     useEffect(() => {
         if (!room) return
         const activeIds = room.activeAgents?.length ? room.activeAgents : DEFAULT_AGENTS
-        
-        // Nếu có bất kỳ Agent nào chuyển sang thinking hoặc working, tắt cờ isWaitingReply
-        const hasAgentBusy = Object.values(agentStatuses).some(
-            (s: any) => s?.status === 'thinking' || s?.status === 'working' || s?.status === 'speaking'
+
+        // Nếu có bất kỳ Agent nào chuyển sang thinking, working, speaking hoặc error -> tắt cờ chờ chung
+        const hasAgentRespondedOrStatusChanged = Object.values(agentStatuses).some(
+            (s) =>
+                s?.status === 'thinking' ||
+                s?.status === 'working' ||
+                s?.status === 'speaking' ||
+                s?.status === 'error'
         )
-        if (hasAgentBusy) {
+        if (hasAgentRespondedOrStatusChanged) {
             setIsWaitingReply(false)
         }
 
@@ -208,7 +238,8 @@ export default function CollaborativeRoomPage() {
                         status: (live?.status || found.status || 'idle') as Agent['status'],
                         speech: live?.speech ?? found.speech ?? null,
                         ownerName: owner?.userName,
-                    }
+                        activeTool: live?.activeTool || null,
+                    } as Agent & { activeTool?: string | null }
                 }
                 return {
                     id,
@@ -221,12 +252,13 @@ export default function CollaborativeRoomPage() {
                     speech: live?.speech ?? null,
                     position: [0, 0, 0] as [number, number, number],
                     ownerName: owner?.userName,
-                }
+                    activeTool: live?.activeTool || null,
+                } as Agent & { activeTool?: string | null }
             })
         )
     }, [room, allAgents, agentStatuses])
 
-    // Tự động cuộn chat và clear cờ chờ khi có tin nhắn hoặc luồng streaming từ Agent
+    // Tự động cuộn khung chat xuống cuối khi có tin nhắn mới hoặc luồng token streaming từ Agent
     const lastMsgLen = messages[messages.length - 1]?.message?.length || 0
     useEffect(() => {
         const lastMsg = messages[messages.length - 1]
@@ -251,7 +283,7 @@ export default function CollaborativeRoomPage() {
         prevMsgCountRef.current = messages.length
     }, [messages.length, lastMsgLen, messages])
 
-    // Lọc danh sách online users
+    // Tổng hợp danh sách thành viên đang trực tuyến trong phòng
     const visibleOnlineUsers = useMemo(() => {
         const sourceList = socketOnlineUsers.length > 0 ? socketOnlineUsers : (onlineUsers ?? [])
         if (!room) return sourceList
@@ -275,6 +307,9 @@ export default function CollaborativeRoomPage() {
         return filtered
     }, [socketOnlineUsers, onlineUsers, room, currentUserId, currentUserName])
 
+    /**
+     * Xử lý khi người dùng chọn một Agent trên thanh đội hình hoặc trong cảnh 3D để thanh tra cấu hình.
+     */
     const handleSelectAgent = (agentId: string) => {
         setSelected3dAgentId(agentId)
         setTargetAgentId(agentId)
@@ -311,6 +346,7 @@ export default function CollaborativeRoomPage() {
         }
     }
 
+    /** Di chuyển Agent đang chọn tới tọa độ điểm chạm trên mặt sàn 3D */
     const handleFloorClick = (point: [number, number, number]) => {
         if (!selected3dAgentId) return
         setAgentTargetActions((prev) => ({
@@ -319,6 +355,7 @@ export default function CollaborativeRoomPage() {
         }))
     }
 
+    /** Kích hoạt hành động vị trí (ngồi bàn làm việc, họp, uống cà phê...) cho Agent trên bản đồ 3D */
     const handleTriggerAction = (agentId: string, action: AgentAction) => {
         const idx = roomAgents.findIndex((a) => a.id === agentId)
         const targetPos = resolveTargetPositionForAction(mapType, action, idx !== -1 ? idx : 0)
@@ -328,7 +365,10 @@ export default function CollaborativeRoomPage() {
         }))
     }
 
-    // Cập nhật hàm handleSend nhận thêm file đính kèm và options typeChat/targetUserId/targetAgentId
+    /**
+     * Gửi tin nhắn hoặc tệp đính kèm tới phòng / Agent mục tiêu.
+     * Tự động khôi phục trạng thái chờ nếu quá trình gửi gặp lỗi.
+     */
     const handleSend = async (
         e: React.FormEvent,
         attachment?: ChatAttachment,
@@ -340,7 +380,7 @@ export default function CollaborativeRoomPage() {
         setInput('')
         setMentionPopupOpen(false)
 
-        // Nếu gửi vào các kênh agent/meeting/workflow hoặc có mention agent -> bật cờ chờ
+        // Nếu gửi vào các kênh agent/meeting/workflow hoặc có mention agent -> bật cờ chờ phản hồi
         const isAgentDest =
             options?.typeChat === 'agent' ||
             options?.typeChat === 'meeting' ||
@@ -353,30 +393,44 @@ export default function CollaborativeRoomPage() {
             setIsWaitingReply(true)
         }
 
-        // Gọi hàm sendMessage từ useChat với đầy đủ typeChat và targets
-        const attachmentsList = attachment ? [attachment] : undefined
-        await sendMessage(
-            text,
-            attachmentsList,
-            options?.targetAgentId || targetAgentId || undefined,
-            options?.targetUserId || undefined,
-            options?.typeChat || undefined
-        )
+        try {
+            const attachmentsList = attachment ? [attachment] : undefined
+            await sendMessage(
+                text,
+                attachmentsList,
+                options?.targetAgentId || targetAgentId || undefined,
+                options?.targetUserId || undefined,
+                options?.typeChat || undefined
+            )
+        } catch (err: any) {
+            setIsWaitingReply(false)
+            toast.error(err?.message || 'Không thể gửi tin nhắn, vui lòng thử lại.')
+        }
     }
 
+    /** Kích hoạt nhanh quy trình phối hợp nhóm (Team Pipeline) thông qua Agent Manager */
     const runTeamPipeline = async () => {
         if (pipelineRunning) return
         setPipelineRunning(true)
-        await sendMessage(
-            '@agent_manager Hãy kích hoạt workflow phân tích dữ liệu và tóm tắt báo cáo nhóm.',
-            undefined,
-            'agent_manager',
-            undefined,
-            'workflow'
-        )
-        setTimeout(() => setPipelineRunning(false), 3000)
+        try {
+            await sendMessage(
+                '@agent_manager Hãy kích hoạt workflow phân tích dữ liệu và tóm tắt báo cáo nhóm.',
+                undefined,
+                'agent_manager',
+                undefined,
+                'workflow'
+            )
+        } catch {
+            // Đã xử lý log tại useChat
+        } finally {
+            if (pipelineTimerRef.current) clearTimeout(pipelineTimerRef.current)
+            pipelineTimerRef.current = setTimeout(() => {
+                setPipelineRunning(false)
+            }, 3000)
+        }
     }
 
+    /** Thêm một AI Agent mới vào danh sách hoạt động của phòng */
     const handleAddAgentToRoom = async (agentId: string) => {
         if (!room) return
         try {
@@ -398,6 +452,7 @@ export default function CollaborativeRoomPage() {
         }
     }
 
+    /** Rời khỏi phòng cộng tác hiện tại */
     const handleLeaveRoom = async () => {
         const isConfirmed = await confirm({
             title: 'Rời phòng',
@@ -475,7 +530,7 @@ export default function CollaborativeRoomPage() {
                 pipelineRunning={pipelineRunning}
                 runTeamPipeline={runTeamPipeline}
                 handleSend={handleSend}
-                uploadAndAttachFile={uploadAndAttachFile} // <-- TRUYỀN HÀM UPLOAD VÀO ĐÂY
+                uploadAndAttachFile={uploadAndAttachFile}
                 setActiveTrace={setActiveTrace}
                 setTraceModalOpen={setTraceModalOpen}
                 chatEndRef={chatEndRef}
@@ -540,6 +595,7 @@ export default function CollaborativeRoomPage() {
     )
 }
 
+/** Chuyển đổi mã ID mặc định của Agent sang tên hiển thị thân thiện */
 function formatAgentName(id: string) {
     const map: Record<string, string> = {
         agent_manager: 'Manager Agent',
@@ -551,6 +607,7 @@ function formatAgentName(id: string) {
     return map[id] || id
 }
 
+/** Lấy mã màu nhận diện mặc định cho từng Agent cốt lõi */
 function getAgentDefaultColor(id: string) {
     const map: Record<string, string> = {
         agent_manager: '#3182ce',

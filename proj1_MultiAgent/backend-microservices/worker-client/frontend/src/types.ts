@@ -1,3 +1,11 @@
+/**
+ * Dinh nghia cac kieu du lieu TypeScript cho Worker Client Desktop Dashboard (`types.ts`):
+ * Bao gom thong tin phan cung (CPU, RAM, GPU, Disk, Network), trang thai mo hinh LLM, vi tri dia ly va cau hinh thue.
+ */
+
+/**
+ * Mo rong Window interface de ho tro IPC Renderer tren Electron
+ */
 export interface WindowWithElectron extends Window {
   require?: (module: string) => {
     ipcRenderer: {
@@ -8,6 +16,9 @@ export interface WindowWithElectron extends Window {
   };
 }
 
+/**
+ * Thong so ky thuat va tai nguyen CPU
+ */
 export interface CpuInfo {
   percent: number;
   count_logical: number;
@@ -16,6 +27,9 @@ export interface CpuInfo {
   freq_max: number | null;
 }
 
+/**
+ * Thong so bo nho RAM
+ */
 export interface MemoryInfo {
   total: number;
   available: number;
@@ -23,6 +37,9 @@ export interface MemoryInfo {
   percent: number;
 }
 
+/**
+ * Thong so o dia phan vung luu tru
+ */
 export interface DiskInfo {
   device: string;
   mountpoint: string;
@@ -33,6 +50,9 @@ export interface DiskInfo {
   percent: number;
 }
 
+/**
+ * Luu luong truyen nhan mang
+ */
 export interface NetworkInfo {
   bytes_sent: number;
   bytes_recv: number;
@@ -40,12 +60,18 @@ export interface NetworkInfo {
   packets_recv: number;
 }
 
+/**
+ * Trang thai pin thiet bi di dong (Laptop)
+ */
 export interface BatteryInfo {
   percent: number;
   plugged: boolean;
   secsleft: number | null;
 }
 
+/**
+ * Thong so card do hoa chuyen dung NVIDIA GPU
+ */
 export interface GpuInfo {
   name: string;
   vram_gb: number;
@@ -53,6 +79,9 @@ export interface GpuInfo {
   temperature: number;
 }
 
+/**
+ * Goi thong tin tong hop ve phan cung may tinh
+ */
 export interface HardwareInfo {
   cpu: CpuInfo;
   memory: MemoryInfo;
@@ -62,6 +91,9 @@ export interface HardwareInfo {
   gpu?: GpuInfo | null;
 }
 
+/**
+ * Thong tin he dieu hanh va phan cung co ban
+ */
 export interface OsInfo {
   hostname: string;
   platform: string;
@@ -72,6 +104,9 @@ export interface OsInfo {
   boot_time: string;
 }
 
+/**
+ * Vi tri dia ly IP cong cong
+ */
 export interface LocationInfo {
   lat: number;
   lon: number;
@@ -83,6 +118,9 @@ export interface LocationInfo {
   source?: string;
 }
 
+/**
+ * Thong ke hoat dong suy luan cua mo hinh LLM thoi gian thuc
+ */
 export interface LLMActivityStats {
   total_requests: number;
   active_requests: number;
@@ -96,6 +134,9 @@ export interface LLMActivityStats {
   status: string;
 }
 
+/**
+ * Ban tin Telemetry tong hop nhan tu Backend Daemon
+ */
 export interface SystemData {
   type: string;
   nodeId?: string;
@@ -125,8 +166,14 @@ export interface SystemData {
   llm_tokens_per_sec?: number;
 }
 
+/**
+ * Cac tab giao dien Desktop
+ */
 export type TabType = 'overview' | 'map' | 'detail' | 'config';
 
+/**
+ * Cau hinh Worker Client trong worker-config.json
+ */
 export interface WorkerConfig {
   serverWsUrl: string;
   authToken: string;
@@ -144,4 +191,3 @@ export interface WorkerConfig {
   defaultModel?: string;
   maxConcurrentTasks?: number;
 }
-

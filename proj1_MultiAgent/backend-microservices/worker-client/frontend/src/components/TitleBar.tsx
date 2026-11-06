@@ -16,6 +16,9 @@ import {
   SlidersIcon,
 } from './Icons';
 
+/**
+ * Thuoc tinh dau vao cho TitleBar
+ */
 interface TitleBarProps {
   wsStatus: string;
   activeTab: TabType;
@@ -28,6 +31,12 @@ interface TitleBarProps {
   isPinging: boolean;
 }
 
+/**
+ * Thanh tieu de tuy bien (Custom Frameless Window TitleBar) cua ung dung Electron:
+ * - Tich hop cac tab dieu huong chinh (Tong quan, Ban do, He thong, Cau hinh)
+ * - Nut dieu khien tien trinh Worker (Play/Pause) va nut kiem tra do tre ping
+ * - Nut thu nho, phong to va dong cua so ung dung thong qua Electron IPC
+ */
 export const TitleBar: FC<TitleBarProps> = ({
   wsStatus,
   activeTab,

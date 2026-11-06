@@ -1,5 +1,9 @@
 import { Schema, model, Document } from "mongoose";
 
+/**
+ * Interface định nghĩa thực thể Sản phẩm AI Agent (IProduct) trong MongoDB.
+ * Chứa cấu hình diện mạo 3D, năng lực tính toán phần cứng, bảng giá và công cụ đính kèm.
+ */
 export interface IProduct extends Document {
     agentId: string;
     name: string;
@@ -9,7 +13,7 @@ export interface IProduct extends Document {
     color: string;
     category: string;
     formType?: "duck" | "amr" | "humanoid" | "drone";
-    computeTier?: string; // e.g. "Jetson Orin Nano 40 TOPS", "AGX Orin 275 TOPS", "DGX Spark"
+    computeTier?: string; // Ví dụ: "Jetson Orin Nano 40 TOPS", "AGX Orin 275 TOPS", "DGX Spark"
     pricing: {
         buyPrice: number;        // Giá mua đứt vĩnh viễn (Coin)
         rentHourlyRate: number;  // Giá thuê theo giờ (Coin/giờ)
@@ -30,6 +34,9 @@ export interface IProduct extends Document {
     updatedAt: Date;
 }
 
+/**
+ * Mongoose Schema cho bảng lưu trữ Sản phẩm AI Agent trên sàn Marketplace.
+ */
 const ProductSchema = new Schema<IProduct>(
     {
         agentId: { type: String, required: true, unique: true, index: true },
@@ -51,8 +58,8 @@ const ProductSchema = new Schema<IProduct>(
             rentDailyRate: { type: Number, required: true, default: 50 },
             rentMonthlyRate: { type: Number, required: true, default: 800 },
         },
-        skills: [{ type: String }],
-        tools: [{ type: String }],
+        skills: { type: [String], default: [] },
+        tools: { type: [String], default: [] },
         modelTier: { type: String, default: "gemini-3.5-flash-lite" },
         rating: { type: Number, default: 5.0 },
         reviewsCount: { type: Number, default: 0 },

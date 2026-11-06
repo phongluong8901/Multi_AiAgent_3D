@@ -1,3 +1,14 @@
+/**
+ * Bố cục giao diện bàn làm việc trung tâm (Workbench Layout):
+ * Cấu trúc phân chia ô linh hoạt (Resizable Split Panes phong cách VS Code):
+ * - Thanh tiêu đề trên cùng (TitleBar)
+ * - Cột biểu tượng bên trái (ActivityBar)
+ * - Khung cây thư mục / danh sách (SidebarExplorer)
+ * - Vùng nội dung Tab (TabBar & CanvasEditor / Dashboard / Inspector / Network / Health)
+ * - Bảng điều khiển Console phía dưới (BottomConsole)
+ * - Thanh trạng thái chân trang (Footer Status Bar)
+ */
+
 import { useEffect } from 'react';
 import { Group, Panel, Separator } from 'react-resizable-panels';
 import { ReactFlowProvider } from '@xyflow/react';
@@ -23,11 +34,13 @@ export function WorkbenchLayout() {
     const { tabs, activeTabId } = useWorkbenchStore();
     const connected = useTelemetryStore((s) => s.connected);
 
+    // Tự động kết nối WebSocket khi khởi động và dọn dẹp khi thoát
     useEffect(() => {
         socketClient.connect();
         return () => socketClient.disconnect();
     }, []);
 
+    // Tìm tab đang được chọn
     const currentTab = tabs.find((t) => t.id === activeTabId);
 
     return (
@@ -36,21 +49,24 @@ export function WorkbenchLayout() {
             <TitleBar />
 
             <div className="flex-1 flex overflow-hidden">
-                {/* Cột Icon bên trái */}
+                {/* Cột Icon phân mục bên trái */}
                 <ActivityBar />
 
                 {/* Hệ thống khung kéo giãn Split-Pane có chia sẻ context ReactFlow */}
                 <ReactFlowProvider>
                     <Group orientation="horizontal" className="flex-1 h-full">
+                        {/* Khung Sidebar duyệt cây tài nguyên bên trái */}
                         <Panel defaultSize="260px" minSize="200px" maxSize="420px">
                             <SidebarExplorer />
                         </Panel>
 
+                        {/* Thanh ngăn cách có thể kéo dãn ngang */}
                         <Separator className="w-1 bg-zinc-800 hover:bg-emerald-500 transition-colors cursor-col-resize shrink-0" />
 
+                        {/* Vùng làm việc chính gồm Tab trên và Console dưới */}
                         <Panel defaultSize="100%">
                             <Group orientation="vertical" className="h-full">
-                                {/* Vùng làm việc chính theo từng Tab */}
+                                {/* Vùng hiển thị nội dung theo từng Tab */}
                                 <Panel defaultSize="72%" minSize="40%" className="flex flex-col">
                                     <TabBar />
                                     <div className="flex-1 overflow-hidden">
@@ -76,9 +92,10 @@ export function WorkbenchLayout() {
                                     </div>
                                 </Panel>
 
+                                {/* Thanh ngăn cách có thể kéo dãn dọc */}
                                 <Separator className="h-1 bg-zinc-800 hover:bg-emerald-500 transition-colors cursor-row-resize shrink-0" />
 
-                                {/* Ngăn kéo Console dưới đáy */}
+                                {/* Ngăn kéo Console thời gian thực dưới đáy */}
                                 <Panel defaultSize="28%" minSize="120px">
                                     <BottomConsole />
                                 </Panel>
@@ -88,7 +105,7 @@ export function WorkbenchLayout() {
                 </ReactFlowProvider>
             </div>
 
-            {/* Thanh trạng thái dưới cùng */}
+            {/* Thanh trạng thái dưới cùng (Status Bar) */}
             <footer className="h-6 bg-zinc-900 border-t border-zinc-800 px-3 flex items-center justify-between text-[11px] text-zinc-400 select-none shrink-0">
                 <div className="flex items-center gap-2">
                     <span

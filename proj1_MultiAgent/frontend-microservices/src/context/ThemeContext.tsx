@@ -2,6 +2,13 @@
 
 import React, { createContext, useContext, useEffect, useState } from 'react'
 
+/**
+ * Cac chu de giao dien (Theme) duoc ho tro:
+ * - 'dark': Che do toi tieu chuan
+ * - 'light': Che do sang
+ * - 'cyberpunk': Che do neon neon cyberpunk dac trung
+ * - 'system': Tu dong theo thiet lap he dieu hanh cua nguoi dung
+ */
 export type Theme = 'dark' | 'light' | 'cyberpunk' | 'system'
 
 interface ThemeContextType {
@@ -12,6 +19,12 @@ interface ThemeContextType {
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined)
 
+/**
+ * Provider quan ly chu de mau sac toan cuc (Theme Provider):
+ * - Tu dong doc va luu chu de lua chon vao localStorage (`app-theme`)
+ * - Lang nghe `prefers-color-scheme` khi nguoi dung chon che do `system`
+ * - Cap nhat class `dark`, `light` va `theme-cyberpunk` tren the html goc
+ */
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
     const [theme, setThemeState] = useState<Theme>('dark')
     const [mounted, setMounted] = useState(false)
@@ -71,6 +84,9 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     )
 }
 
+/**
+ * Custom hook de lay va thay doi chu de giao dien hien tai
+ */
 export function useTheme() {
     const context = useContext(ThemeContext)
     if (!context) {
@@ -78,4 +94,3 @@ export function useTheme() {
     }
     return context
 }
-

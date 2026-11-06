@@ -2,8 +2,17 @@ import { Request, Response } from "express";
 import { AgentBodyDesignModel } from "../models/agentBody.model";
 import { computeBodyStats, generateURDF, validateKinematicTree } from "../utils/agentBody.utils";
 
+/**
+ * Controller quan ly Agent Body Studio (Thiet ke khung the Agent):
+ * - Luu / Cap nhat thiet ke khung xuong, khop noi (kinematic links & joints)
+ * - Tinh toan thong so vat ly (khoi luong, so bac tu do DOF, momen quan tinh)
+ * - Xuat dinh dang URDF chuan cho ROS/Gazebo/PyBullet/Isaac Gym
+ * - Chuyen doi sang tham so RL Training (action_dim, observation_dim)
+ */
 export class AgentBodyController {
-    // 1. Lưu hoặc cập nhật Agent Body (Upsert)
+    /**
+     * 1. Luu hoac cap nhat thiet ke Agent Body vao Database (Upsert)
+     */
     static async saveBody(req: Request, res: Response) {
         try {
             const {

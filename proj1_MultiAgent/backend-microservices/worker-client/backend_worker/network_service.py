@@ -1,3 +1,11 @@
+"""
+Dich vu mang truyen tai Telemetry va xu ly yeu cau P2P qua WebSocket (`network_service.py`):
+- Thu thap so lieu phan cung tu `hardware_service` va mo hinh tu `llm_service`
+- Duy tri ket noi WebSocket ben vung voi co che Exponential Backoff Retry va Fallback URLs
+- Lang nghe cac goi tin `INFERENCE_REQUEST` va dieu phoi thuc thi mo hinh Ollama cuc bo
+- Tu dong tam dung (`PAUSE_SHARING`) hoac tiep tuc (`RESUME_SHARING`) theo lenh dieu khien tu he thong
+"""
+
 import json
 import threading
 import time
@@ -36,9 +44,14 @@ except ImportError:
         handle_inference_request,
     )
 
+
 def collect_telemetry(node_id="", node_name="", ollama_url="http://localhost:11434", rent_config=None):
     """
-    Collect comprehensive hardware metrics, GPU status, LLM availability, and rental configuration.
+    Thu thap goi tin thong so telemetry toan dien cua may tram:
+    - cpu_info, memory_info, disks, network_info, battery_info, os_info, location
+    - Trang thai card do hoa GPU NVIDIA va nhiet do
+    - Tinh san sang cua Engine Ollama kem danh sach cac model AI da tai ve
+    - Thong ke thoi gian thuc ve so luot token va do tre suy luan
     """
     cpu_info = get_cpu_info()
     memory_info = get_memory_info()
@@ -48,14 +61,14 @@ def collect_telemetry(node_id="", node_name="", ollama_url="http://localhost:114
     os_info = get_os_info()
     location = get_location()
 
-    # Check GPU availability
+    # Kiem tra card do hoa GPU
     has_gpu, gpu_info = check_gpu_availability()
 
-    # Query LLM runtime & real-time metrics
+    # Kiem tra trang thai Engine LLM
     llm_info = get_llm_info(ollama_url)
     llm_metrics = get_llm_metrics()
 
-    # Normalize rental config
+    # Chuan hoa cau hinh cho thue tai nguyen
     effective_rent_config = dict(rent_config) if rent_config else {
         "allocatedCores": 4,
         "allocatedRAMGB": 8,
@@ -64,7 +77,7 @@ def collect_telemetry(node_id="", node_name="", ollama_url="http://localhost:114
         "minPricePerHourCoin": 35.0,
     }
 
-    # If no physical GPU exists, automatically disable GPU sharing
+    # Neu may khong co card GPU vat ly, tu dong tat chia se GPU
     if not has_gpu:
         effective_rent_config["enableGPU"] = False
 
@@ -84,12 +97,12 @@ def collect_telemetry(node_id="", node_name="", ollama_url="http://localhost:114
             "battery": battery_info,
             "gpu": gpu_info,
         },
-        # Dedicated hardware flags
+        # Co trang thai phan cung
         "has_gpu": has_gpu,
         "gpu_name": gpu_info["name"] if gpu_info else "CPU Mode (No GPU)",
         "vram_gb": gpu_info["vram_gb"] if gpu_info else 0.0,
-        
-        # Dedicated LLM status flags
+
+        # Co trang thai LLM
         "is_llm_running": llm_info["is_llm_running"],
         "ollama_running": llm_info["is_llm_running"],
         "llm_provider": llm_info["llm_provider"],
@@ -98,7 +111,7 @@ def collect_telemetry(node_id="", node_name="", ollama_url="http://localhost:114
         "installed_models": llm_info["installed_models"],
         "active_model": llm_info["active_model"],
 
-        # Live LLM Activity & Token Tracking
+        # Thong ke hoat dong va so luong token suy luan
         "llm_stats": {
             "total_requests": llm_metrics["total_requests"],
             "active_requests": llm_metrics["active_requests"],
@@ -118,27 +131,38 @@ def collect_telemetry(node_id="", node_name="", ollama_url="http://localhost:114
         "llm_tokens_per_sec": llm_metrics["last_tokens_per_sec"],
         "llm_last_latency_ms": llm_metrics["last_latency_ms"],
 
-        # OS and Location
+        # He dieu hanh va vi tri dia ly
         "os": os_info,
         "location": location,
 
-        # Real-time metrics
+        # Ty le su dung phan cung thoi gian thuc
         "cpu_percent": cpu_info["percent"],
         "ram_percent": memory_info["percent"],
         "disk_percent": disks[0]["percent"] if len(disks) > 0 else 0.0,
         "gpu_percent": gpu_info["load_percent"] if gpu_info else 0.0,
         "gpu_temp": gpu_info["temperature"] if gpu_info else 0.0,
 
-        # Rental parameters
+        # Tham so chia se tai nguyen
         "rentConfig": effective_rent_config,
     }
 
     return payload
 
+
 class WorkerNetworkClient:
-    """Manages WebSocket connection, telemetry transmission, and P2P inference requests"""
+    """
+    Lop quan ly ket noi mang WebSocket cua Worker Client:
+    - Tu dong ket noi toi endpoint WebSocket cua Distributed Service / Gateway
+    - Dinh ky gui ban tin telemetry thong so phan cung va token
+    - Lang nghe va phuc vu yeu cau goi ham suy luan AI tu xa (P2P Inference)
+    """
 
     def __init__(self, conn_info, interval=2.0):
+        """
+        Khoi tao WorkerNetworkClient:
+        @param conn_info Thong tin ket noi gom ws_url, token, node_id, ollama_url, rent_config
+        @param interval Khoang thoi gian giua cac lan phat telemetry (giay)
+        """
         self.conn_info = conn_info
         self.interval = interval
         self.ws = None
@@ -150,6 +174,9 @@ class WorkerNetworkClient:
         ]
 
     def start(self):
+        """
+        Bat dau vong lap duy tri ket noi mang WebSocket va phat telemetry lien tuc.
+        """
         retry_count = 0
 
         while not self.stop_event.is_set():
@@ -193,7 +220,7 @@ class WorkerNetworkClient:
                     pass
 
             if not self.ws:
-                # Vẫn đo đạc thông số máy cục bộ để giao diện Desktop hiển thị ngay cả khi chưa thông mạng
+                # Van do dac thong so may cuc bo de giao dien Desktop hien thi ngay ca khi chua thong mang
                 try:
                     local_payload = collect_telemetry(node_id=node_id, node_name=node_name, ollama_url=ollama_url, rent_config=rent_config)
                     print(f"[LOCAL_TELEMETRY] {json.dumps(local_payload)}", flush=True)
@@ -210,6 +237,7 @@ class WorkerNetworkClient:
             session_stop = threading.Event()
 
             def reader_loop():
+                """Vong lap doc tin nhan tu server qua kenh WebSocket."""
                 while not session_stop.is_set() and not self.stop_event.is_set():
                     try:
                         raw_msg = self.ws.recv()
@@ -279,6 +307,9 @@ class WorkerNetworkClient:
                 time.sleep(2)
 
     def stop(self):
+        """
+        Dung an toan tien trinh Worker Client va dong ket noi WebSocket.
+        """
         self.stop_event.set()
         if self.ws:
             try:

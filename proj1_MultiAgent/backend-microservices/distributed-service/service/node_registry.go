@@ -13,13 +13,16 @@ import (
 	"distributed-service/storage"
 )
 
+// NodeRegistry quản lý danh sách các Partner Node trong bộ nhớ (kết hợp đồng bộ xuống Neon PostgreSQL).
+// Hỗ trợ cơ chế kiểm tra liveness tự động dựa trên nhịp tim telemetry từ Electron Worker.
 type NodeRegistry struct {
 	mu           sync.RWMutex
-	nodes        map[string]*models.PartnerNode // Key: NodeID
-	manualPaused map[string]bool                // Key: NodeID -> true nếu người dùng bấm Tạm Dừng trên Web
-	postgres     *storage.PostgresStorage
+	nodes        map[string]*models.PartnerNode // Key: NodeID -> Thông tin chi tiết Partner Node
+	manualPaused map[string]bool                // Key: NodeID -> true nếu người dùng chủ động bấm Tạm Dừng trên Web
+	postgres     *storage.PostgresStorage       // Kết nối lưu trữ bền vững trên Neon PostgreSQL (có thể nil nếu chạy in-memory)
 }
 
+// NewNodeRegistry khởi tạo NodeRegistry và nạp danh sách các node đã đăng ký từ PostgreSQL.
 func NewNodeRegistry(pg *storage.PostgresStorage) *NodeRegistry {
 	nr := &NodeRegistry{
 		nodes:        make(map[string]*models.PartnerNode),
@@ -95,17 +98,19 @@ func (nr *NodeRegistry) RegisterOrUpdateNode(node *models.PartnerNode) *models.P
 	nr.nodes[node.ID] = node
 
 	if nr.postgres != nil {
-		go func(n *models.PartnerNode) {
-			if err := nr.postgres.UpsertNode(n); err != nil {
-				log.Printf("[POSTGRES ERROR] Lưu node %s thất bại: %v\n", n.ID, err)
+		// Sao chép snapshot giá trị của Node trước khi đẩy sang goroutine ghi DB để tránh data race
+		nodeSnapshot := *node
+		go func(n models.PartnerNode) {
+			if err := nr.postgres.UpsertNode(&n); err != nil {
+				log.Printf("[ERROR] [POSTGRES] Lưu node %s thất bại: %v\n", n.ID, err)
 			}
-		}(node)
+		}(nodeSnapshot)
 	}
 
 	return node
 }
 
-// GetNodeByID lấy node theo ID (tự động kiểm tra timeout của Electron Worker)
+// GetNodeByID lấy thông tin node theo ID và tự động làm mới trạng thái liveness của Electron Worker.
 func (nr *NodeRegistry) GetNodeByID(nodeID string) (*models.PartnerNode, bool) {
 	nr.mu.Lock()
 	defer nr.mu.Unlock()
@@ -118,7 +123,7 @@ func (nr *NodeRegistry) GetNodeByID(nodeID string) (*models.PartnerNode, bool) {
 	return node, true
 }
 
-// GetNodeByToken tìm node qua AuthToken
+// GetNodeByToken tìm kiếm node dựa trên mã xác thực AuthToken.
 func (nr *NodeRegistry) GetNodeByToken(token string) (*models.PartnerNode, bool) {
 	nr.mu.Lock()
 	defer nr.mu.Unlock()
@@ -132,6 +137,8 @@ func (nr *NodeRegistry) GetNodeByToken(token string) (*models.PartnerNode, bool)
 	return nil, false
 }
 
+// refreshNodeLivenessLocked kiểm tra thời gian gửi telemetry gần nhất để tự động chuyển node sang OFFLINE nếu quá hạn 15 giây.
+// Hàm này yêu cầu caller đã giữ khóa nr.mu.Lock().
 func (nr *NodeRegistry) refreshNodeLivenessLocked(n *models.PartnerNode) {
 	if nr.manualPaused[n.ID] {
 		n.Status = "OFFLINE"
@@ -326,21 +333,23 @@ func (nr *NodeRegistry) UpsertWorkerTelemetry(
 	}
 
 	if nr.postgres != nil {
-		go func(n *models.PartnerNode, s models.TelemetryStats) {
-			_ = nr.postgres.UpsertNode(n)
+		// Tạo bản sao snapshot để ghi bất đồng bộ xuống PostgreSQL mà không gây xung đột bộ nhớ (data race)
+		nodeSnapshot := *target
+		go func(n models.PartnerNode, s models.TelemetryStats) {
+			_ = nr.postgres.UpsertNode(&n)
 			_ = nr.postgres.UpdateTelemetry(n.ID, s)
-		}(target, stats)
+		}(nodeSnapshot, stats)
 	}
 
 	return target
 }
 
-// UpdateTelemetry giữ tương thích ngược
+// UpdateTelemetry cập nhật thông số telemetry cho một node theo ID (giữ tương thích ngược).
 func (nr *NodeRegistry) UpdateTelemetry(nodeID string, stats models.TelemetryStats) {
 	nr.UpsertWorkerTelemetry(nodeID, "", "", nil, nil, stats)
 }
 
-// MarkNodeOffline chuyển trạng thái sang OFFLINE khi đóng Electron Worker hoặc người dùng bấm Tạm Dừng
+// MarkNodeOffline chuyển trạng thái của Node sang OFFLINE khi Electron Worker đóng kết nối hoặc người dùng bấm Tạm Dừng.
 func (nr *NodeRegistry) MarkNodeOffline(nodeID string, isManualPause ...bool) {
 	nodeID = strings.TrimSpace(nodeID)
 	if nodeID == "" || strings.HasPrefix(nodeID, "web_listener_") {
@@ -371,7 +380,7 @@ func (nr *NodeRegistry) MarkNodeOffline(nodeID string, isManualPause ...bool) {
 	}
 }
 
-// MarkNodeOnline bỏ trạng thái Tạm Dừng để nhận lại kết nối từ Electron Worker
+// MarkNodeOnline gỡ bỏ trạng thái Tạm Dừng để Node sẵn sàng nhận kết nối và tác vụ từ Electron Worker.
 func (nr *NodeRegistry) MarkNodeOnline(nodeID string) {
 	nodeID = strings.TrimSpace(nodeID)
 	if nodeID == "" {
@@ -384,17 +393,19 @@ func (nr *NodeRegistry) MarkNodeOnline(nodeID string) {
 	for id, node := range nr.nodes {
 		if id == nodeID || (len(nodeID) > 5 && (strings.Contains(id, nodeID) || strings.Contains(nodeID, id))) {
 			delete(nr.manualPaused, id)
-			if node.LastTelemetry != nil && time.Since(node.LastTelemetry.Timestamp) <= 30*time.Second {
-				node.Status = "IDLE"
-			} else {
-				node.Status = "IDLE"
-			}
+			node.Status = "IDLE"
 			node.UpdatedAt = time.Now()
+
+			if nr.postgres != nil {
+				go func(nid string) {
+					_ = nr.postgres.UpdateStatus(nid, "IDLE")
+				}(id)
+			}
 		}
 	}
 }
 
-// MarkNodeBusy đặt trạng thái Node sang BUSY khi đang có người dùng thuê hoặc suy luận P2P
+// MarkNodeBusy đặt trạng thái Node sang BUSY khi đang phục vụ phiên thuê hoặc suy luận P2P.
 func (nr *NodeRegistry) MarkNodeBusy(nodeID string) {
 	nodeID = strings.TrimSpace(nodeID)
 	if nodeID == "" {
@@ -409,6 +420,12 @@ func (nr *NodeRegistry) MarkNodeBusy(nodeID string) {
 			delete(nr.manualPaused, id)
 			node.Status = "BUSY"
 			node.UpdatedAt = time.Now()
+
+			if nr.postgres != nil {
+				go func(nid string) {
+					_ = nr.postgres.UpdateStatus(nid, "BUSY")
+				}(id)
+			}
 		}
 	}
 }

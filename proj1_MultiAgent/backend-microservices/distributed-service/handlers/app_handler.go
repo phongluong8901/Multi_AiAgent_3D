@@ -12,11 +12,14 @@ import (
 	"distributed-service/service"
 )
 
+// AppHandler xử lý các endpoint phục vụ thông tin gói cài đặt Electron Client App (.exe)
+// và xuất file cấu hình worker-config.json cho từng đối tác phần cứng.
 type AppHandler struct {
 	distributor *service.AppDistributor
 	registry    *service.NodeRegistry
 }
 
+// NewAppHandler khởi tạo AppHandler với dịch vụ AppDistributor và NodeRegistry.
 func NewAppHandler(distributor *service.AppDistributor, registry *service.NodeRegistry) *AppHandler {
 	return &AppHandler{
 		distributor: distributor,

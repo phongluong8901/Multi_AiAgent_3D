@@ -4,13 +4,22 @@ import { useState, useEffect } from 'react'
 import { HardwareReport, hardwareApi } from '@/lib/api/hardware'
 import { HARDWARE_RAM_TIERS } from '@/constants/hardware'
 
+/**
+ * Hook kiểm định cấu hình phần cứng trình duyệt/máy trạm cục bộ (CPU, RAM, WebGPU)
+ * và quản lý trạng thái đăng ký Worker Node với hệ thống.
+ */
 export function useHardwareNode() {
     const [loading, setLoading] = useState(true)
     const [submitting, setSubmitting] = useState(false)
     const [report, setReport] = useState<HardwareReport | null>(null)
-    const [isRegistered, setIsRegistered] = useState(false) // 👉 Thêm trạng thái kiểm tra đã đăng ký chưa
+    // Trạng thái kiểm tra thiết bị đã đăng ký làm Node trên server chưa
+    const [isRegistered, setIsRegistered] = useState(false)
 
     useEffect(() => {
+        /**
+         * Quét thông số phần cứng thông qua Web APIs (navigator.hardwareConcurrency, deviceMemory, WebGPU)
+         * và đồng bộ trạng thái node đã lưu từ backend.
+         */
         async function inspectHardware() {
             setLoading(true)
 
@@ -48,10 +57,10 @@ export function useHardwareNode() {
                 if (nodeData && nodeData.canRunAI !== undefined) {
                     savedStatus = nodeData.status || 'IDLE'
                     if (nodeData.lastSeen) lastSeen = nodeData.lastSeen
-                    registeredFlag = true // 👉 Đã có thông tin đăng ký trên server
+                    registeredFlag = true // Đã có thông tin đăng ký trên server
                 }
             } catch {
-                // User chưa từng đăng ký node trước đó
+                // Người dùng chưa từng đăng ký node trước đó
             }
 
             setReport({
@@ -71,13 +80,16 @@ export function useHardwareNode() {
         inspectHardware()
     }, [])
 
+    /**
+     * Đăng ký thông số phần cứng hiện tại làm nút tính toán (Worker Node).
+     */
     const registerNode = async () => {
         if (!report) return { success: false, error: 'Không có dữ liệu phần cứng' }
         setSubmitting(true)
         try {
             const res = await hardwareApi.registerNode(report)
             setIsRegistered(true) // Cập nhật lại cờ sau khi đăng ký thành công
-            setReport(prev => prev ? { ...prev, status: 'IDLE' } : null)
+            setReport((prev) => (prev ? { ...prev, status: 'IDLE' } : null))
             setSubmitting(false)
             return { success: true, data: res }
         } catch (err: any) {
@@ -86,12 +98,15 @@ export function useHardwareNode() {
         }
     }
 
+    /**
+     * Hủy kích hoạt và gỡ đăng ký nút phần cứng khỏi hệ thống.
+     */
     const unregisterNode = async () => {
         setSubmitting(true)
         try {
             await hardwareApi.deleteNode()
             setIsRegistered(false)
-            setReport(prev => prev ? { ...prev, status: 'OFFLINE' } : null)
+            setReport((prev) => (prev ? { ...prev, status: 'OFFLINE' } : null))
             setSubmitting(false)
             return { success: true }
         } catch (err: any) {

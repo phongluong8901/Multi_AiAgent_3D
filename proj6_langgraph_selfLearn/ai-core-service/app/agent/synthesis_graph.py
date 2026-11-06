@@ -1,3 +1,10 @@
+"""
+Deep Knowledge Synthesis Graph (Tier 3 Autonomous Discovery Pipeline).
+Orchestrates multi-hop hypothesis generation, iterative web/memory exploration,
+dialectical synthesis (deriving new laws/insights), sandbox code simulation verification,
+and write-back to Qdrant (either verified tier-3 knowledge or falsified negative memory).
+"""
+
 import json
 from typing import Any, Optional, cast
 from pydantic import BaseModel, Field
@@ -9,29 +16,63 @@ from ..memory.long_term import long_memory
 from ..tools.web_search import search_the_web
 from ..tools.sandbox import execute_code_sandbox
 
+# Initialize LLM instance for knowledge synthesis reasoning
 llm = ChatGoogleGenerativeAI(
     model=settings.FAST_MODEL,
     google_api_key=settings.GOOGLE_API_KEY,
     temperature=0.2
 )
 
+def extract_text_content(res: Any) -> str:
+    """
+    Trích xuất và chuẩn hóa nội dung văn bản (str) từ phản hồi LLM hoặc đối tượng tin nhắn.
+    Xử lý an toàn cả kiểu str đơn giản và list các khối nội dung (content blocks / dict).
+    """
+    raw = getattr(res, "content", res)
+    if isinstance(raw, str):
+        return raw
+    if isinstance(raw, list):
+        parts: list[str] = []
+        for item in raw:
+            if isinstance(item, str):
+                parts.append(item)
+            elif isinstance(item, dict) and "text" in item:
+                parts.append(str(item["text"]))
+            else:
+                parts.append(str(item))
+        return "\n".join(parts)
+    return str(raw) if raw is not None else ""
+
 class DecomposedHypothesis(BaseModel):
+    """
+    Schema for decomposed hypothesis and targeted sub-queries.
+    Represents the output of the first stage cognitive decomposer.
+    """
     initial_hypothesis: str = Field(description="Giả thuyết ban đầu cần chứng minh hoặc làm sáng tỏ.")
     sub_queries: list[str] = Field(description="2-3 truy vấn nối tiếp để đào sâu các tầng kiến thức.")
     target_bridge_concept: str = Field(description="Khái niệm hoặc điểm nối tiềm năng cần tìm kiếm.")
 
 class BridgeExtraction(BaseModel):
+    """
+    Schema for identifying the intermediate bridge concept connecting multi-hop evidence.
+    """
     bridge_found: str = Field(description="Khái niệm trung gian làm cầu nối giữa các miền dữ liệu.")
     relationship: str = Field(description="Mối quan hệ nhân quả hoặc kiến trúc giữa các khái niệm.")
     next_drill_down_query: Optional[str] = Field(default=None, description="Truy vấn đuổi để đào sâu vào cầu nối này nếu cần.")
 
 class DialecticalResult(BaseModel):
+    """
+    Schema for the synthesized law, principle, or insight deduced from combining concepts.
+    """
     new_law_or_insight: str = Field(description="Quy luật mới, kiến trúc đề xuất hoặc phát hiện mới được đúc kết từ việc bắc cầu (X + Z -> W).")
     dialectical_analysis: str = Field(description="Phân tích đối chiếu biện chứng giữa các mảnh ghép kiến thức.")
     validity_score: int = Field(ge=1, le=10, description="Độ tin cậy và giá trị thực tiễn từ 1 đến 10.")
     is_verified: bool = Field(description="True nếu phát hiện có căn cứ logic vững chắc và không bịa đặt.")
 
 class SynthesisState(TypedDict, total=False):
+    """
+    State tracking schema for the multi-step knowledge synthesis graph.
+    """
     complex_query: str
     initial_hypothesis: str
     sub_queries: list[str]
@@ -52,7 +93,17 @@ class SynthesisState(TypedDict, total=False):
     reasoning_steps: list[str]
 
 async def decomposer_node(state: SynthesisState) -> dict:
-    """Bước 1: Phân rã bài toán phức tạp thành chuỗi giả thuyết bắc cầu"""
+    """
+    Step 1: Cognitive Decomposer.
+    Breaks down a complex research query into an overarching initial hypothesis,
+    a target bridge concept, and structured multi-hop search queries.
+
+    Args:
+        state: SynthesisState with complex_query and previous steps.
+
+    Returns:
+        Updated state dictionary with hypothesis, sub-queries, and initial bridge concept.
+    """
     query = state["complex_query"]
     steps = state.get("reasoning_steps", [])
     
@@ -91,7 +142,7 @@ async def decomposer_node(state: SynthesisState) -> dict:
             bridge_concept = raw_res.get("target_bridge_concept") or bridge_concept
         else:
             plain_res = await llm.ainvoke(prompt)
-            content = plain_res.content if hasattr(plain_res, "content") else str(plain_res)
+            content = extract_text_content(plain_res)
             cleaned = content.replace("```json", "").replace("```", "").strip()
             data = json.loads(cleaned)
             hypothesis_text = data.get("initial_hypothesis") or hypothesis_text
@@ -111,16 +162,26 @@ async def decomposer_node(state: SynthesisState) -> dict:
     }
 
 async def multi_hop_explorer_node(state: SynthesisState) -> dict:
-    """Bước 2: Truy vấn đuổi nhiều chặng (Iterative Hopping) qua Qdrant và Web Search"""
+    """
+    Step 2: Multi-Hop Evidence Gathering & Hidden Bridge Discovery.
+    Iteratively executes retrieval queries against Qdrant memory and web search,
+    then prompts LLM to discover the underlying conceptual bridge between disparate domains.
+
+    Args:
+        state: SynthesisState containing sub-queries and initial hypothesis.
+
+    Returns:
+        Updated state dictionary with collected evidence and refined bridge concept.
+    """
     sub_queries = state.get("sub_queries", [])
     evidence_list = []
     steps = state.get("reasoning_steps", [])
     
     for i, q in enumerate(sub_queries[:3]):
-        # 1. Tìm trong Qdrant
+        # 1. Retrieve relevant facts from local Qdrant memory
         local_facts = long_memory.recall_knowledge(q, n_results=2)
         
-        # 2. Tìm thêm từ Web
+        # 2. Gather external findings via Tavily web search
         web_res = await search_the_web(q, max_results=2)
         
         evidence_list.append({
@@ -153,7 +214,7 @@ async def multi_hop_explorer_node(state: SynthesisState) -> dict:
             bridge_str = f"{raw_bridge.get('bridge_found', '')} ({raw_bridge.get('relationship', '')})"
         else:
             plain_res = await llm.ainvoke(prompt)
-            content = plain_res.content if hasattr(plain_res, "content") else str(plain_res)
+            content = extract_text_content(plain_res)
             cleaned = content.replace("```json", "").replace("```", "").strip()
             data = json.loads(cleaned)
             bridge_str = f"{data.get('bridge_found', '')} ({data.get('relationship', '')})"
@@ -169,7 +230,17 @@ async def multi_hop_explorer_node(state: SynthesisState) -> dict:
     }
 
 async def dialectical_synthesizer_node(state: SynthesisState) -> dict:
-    """Bước 3: Tổng hợp biện chứng và đúc kết định luật/tri thức mới (X + Z -> W)"""
+    """
+    Step 3: Dialectical Synthesis.
+    Performs cross-domain dialectical reasoning (X + Z -> W) across gathered evidence
+    to synthesize a novel law, architectural pattern, or insight.
+
+    Args:
+        state: SynthesisState containing explored evidence and discovered bridge.
+
+    Returns:
+        Updated state dictionary with new law/insight, dialectical analysis, and validity score.
+    """
     steps = state.get("reasoning_steps", [])
     query = state.get("complex_query", "")
     bridge = state.get("discovered_bridge", "")
@@ -216,7 +287,7 @@ async def dialectical_synthesizer_node(state: SynthesisState) -> dict:
             is_verified = raw_res.get("is_verified", True)
         else:
             plain_res = await llm.ainvoke(prompt)
-            content = plain_res.content if hasattr(plain_res, "content") else str(plain_res)
+            content = extract_text_content(plain_res)
             cleaned = content.replace("```json", "").replace("```", "").strip()
             data = json.loads(cleaned)
             default_law = data.get("new_law_or_insight") or default_law
@@ -237,7 +308,17 @@ async def dialectical_synthesizer_node(state: SynthesisState) -> dict:
     }
 
 async def sandbox_verifier_node(state: SynthesisState) -> dict:
-    """Bước 4: Kiểm nghiệm thực tế trong Sandbox Code / Simulation Verifier"""
+    """
+    Step 4: Empirical Code Simulation & Sandbox Verification.
+    Generates and executes an isolated Python simulation/benchmark script with assertions
+    to experimentally falsify or confirm the synthesized hypothesis.
+
+    Args:
+        state: SynthesisState containing synthesized insight and bridge context.
+
+    Returns:
+        Updated state dictionary with verification code, stdout, execution metrics, and verification flag.
+    """
     steps = state.get("reasoning_steps", [])
     new_insight = state.get("new_law_or_insight", "")
     query = state.get("complex_query", "")
@@ -262,7 +343,7 @@ async def sandbox_verifier_node(state: SynthesisState) -> dict:
     code = ""
     try:
         plain_res = await llm.ainvoke(prompt)
-        content = plain_res.content if hasattr(plain_res, "content") else str(plain_res)
+        content = extract_text_content(plain_res)
         if "```python" in content:
             code = content.split("```python")[1].split("```")[0].strip()
         elif "```" in content:
@@ -308,7 +389,17 @@ print('[VERIFIED] Định luật được kiểm nghiệm thực nghiệm thành
     }
 
 async def write_back_node(state: SynthesisState) -> dict:
-    """Bước 5: Ghi ngược tri thức vào Qdrant (Tier 3 nếu THÀNH CÔNG, hoặc Negative Memory nếu THẤT BẠI)"""
+    """
+    Step 5: Write-Back to Qdrant Memory.
+    Persists successfully verified insights into the Tier 3 synthesized collection,
+    or stores failed/refuted trials into the Negative Knowledge Memory to avoid repeated mistakes.
+
+    Args:
+        state: SynthesisState with verification results and generated insights.
+
+    Returns:
+        Updated state dictionary with the generated point ID in Qdrant.
+    """
     steps = state.get("reasoning_steps", [])
     new_insight = state.get("new_law_or_insight", "")
     bridge = state.get("discovered_bridge", "")
@@ -348,6 +439,13 @@ async def write_back_node(state: SynthesisState) -> dict:
     }
 
 def build_synthesis_graph():
+    """
+    Compiles the 5-stage Knowledge Synthesis LangGraph workflow:
+    Decompose -> Multi-hop Explore -> Dialectical Synthesize -> Sandbox Verify -> Write Back.
+
+    Returns:
+        Compiled LangGraph runnable workflow.
+    """
     workflow = StateGraph(cast(Any, SynthesisState))
     
     workflow.add_node("decomposer", decomposer_node)
@@ -365,4 +463,5 @@ def build_synthesis_graph():
     
     return workflow.compile()
 
+# Global compiled instance of synthesis graph
 synthesis_graph = build_synthesis_graph()

@@ -1,3 +1,9 @@
+/**
+ * Cognitive Reasoning Trace Panel Component.
+ * Displays step-by-step cognitive execution steps logged by LangGraph nodes
+ * (Recall, Evaluate, Web Search, Synthesize, Critique, Self-Correction).
+ */
+
 import { Terminal } from 'lucide-react';
 
 interface ReasoningTracePanelProps {
