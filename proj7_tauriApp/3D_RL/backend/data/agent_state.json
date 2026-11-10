@@ -1,0 +1,52 @@
+{
+  "saved_at": 0,
+  "step": 0,
+  "world_size": 100.0,
+  "robot": [14.0, 20.0],
+  "robot2": [70.0, 70.0],
+  "goal": [50.0, 50.0],
+  "food": [74.0, 58.0],
+  "water": [68.0, 14.0],
+  "bed": [12.0, 12.0],
+  "play": [12.0, 90.0],
+  "pool": [72.0, 14.0],
+  "park": [14.0, 78.0],
+  "obstacles": [
+    [12.0, 12.0],
+    [24.0, 10.0],
+    [10.0, 24.0],
+    [24.0, 24.0],
+    [30.0, 16.0],
+    [46.0, 36.0]
+  ],
+  "energy_state": {
+    "energy": 800.0,
+    "energy_max": 1000.0,
+    "energy_ratio": 0.8,
+    "digesting": 0.0,
+    "fatigue": 0.0,
+    "alpha_motor": 1.0,
+    "alpha_cognitive": 1.0
+  },
+  "drives_state": {
+    "drives": {
+      "hunger": 0.2,
+      "thirst": 0.15,
+      "fatigue": 0.1,
+      "pain": 0.0,
+      "fear": 0.0,
+      "curiosity": 0.55,
+      "comfort": 0.85
+    },
+    "urgencies": {
+      "pain": 0.0,
+      "fear": 0.0,
+      "thirst": 0.0338,
+      "hunger": 0.056,
+      "fatigue": 0.0103,
+      "curiosity": 0.441
+    },
+    "dominant_drive": "curiosity",
+    "survival_override": false
+  }
+}

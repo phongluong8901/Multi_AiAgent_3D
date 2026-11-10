@@ -1,0 +1,432 @@
+services:
+  # --- PostgreSQL Database (for agent-service) ---
+  # db:
+  #   image: postgres:15-alpine
+  #   container_name: agents_db_postgres
+  #   environment:
+  #     POSTGRES_USER: postgres_user
+  #     POSTGRES_PASSWORD: postgres_password
+  #     POSTGRES_DB: agents_db
+  #   ports:
+  #     - "5432:5432"
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+  #   healthcheck:
+  #     test:
+  #       [
+  #         "CMD-SHELL",
+  #         "pg_isready -h 127.0.0.1 -U postgres_user -d agents_db || exit 1",
+  #       ]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 10
+  #     start_period: 30s
+  #   restart: always
+  #   networks:
+  #     - multi-agent-network
+
+  # --- Shared MongoDB Database ---
+  # mongo:
+  #   image: mongo:latest
+  #   container_name: shared_mongo_db
+  #   ports:
+  #     - "27017:27017"
+  #   volumes:
+  #     - mongo_data:/data/db
+  #   healthcheck:
+  #     test:
+  #       [
+  #         "CMD-SHELL",
+  #         "echo 'db.runCommand({ping: 1}).ok' | mongosh localhost:27017/test --quiet || exit 1",
+  #       ]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 10
+  #     start_period: 30s
+  #   restart: always
+  #   networks:
+  #     - multi-agent-network
+
+  # --- RabbitMQ Message Broker ---
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: rabbitmq_broker
+    ports:
+      - "5672:5672" # AMQP protocol port
+      - "15672:15672" # Management UI (admin / admin)
+    environment:
+      RABBITMQ_DEFAULT_USER: admin
+      RABBITMQ_DEFAULT_PASS: admin123
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: always
+    networks:
+      - multi-agent-network
+
+  # --- Redis (Short-term Memory Cache) ---
+  redis:
+    image: redis:7-alpine
+    container_name: redis_cache
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: always
+    networks:
+      - multi-agent-network
+
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: redis_commander_dashboard
+    environment:
+      - REDIS_HOSTS=local:redis:6379
+    ports:
+      - "8081:8081"
+    depends_on:
+      - redis
+    restart: always
+    networks:
+      - multi-agent-network
+
+  # --- Node.js TypeScript User Microservice ---
+  user-service:
+    build: ./user-service
+    container_name: users_service
+    env_file:
+      - ./user-service/.env
+    ports:
+      - "5001:5001"
+    depends_on:
+      # - mongo
+      - redis
+      - rabbitmq
+    restart: always
+    networks:
+      - multi-agent-network
+
+  # --- Node.js TypeScript Room Microservice ---
+  room-service:
+    build: ./room-service
+    container_name: rooms_service
+    env_file:
+      - ./room-service/.env
+    ports:
+      - "5002:5002"
+    depends_on:
+      # - mongo
+      - rabbitmq
+    restart: always
+    networks:
+      - multi-agent-network
+
+  # --- Node.js TypeScript Chat & Real-time Microservice ---
+  chat-service:
+    build: ./chat-service
+    container_name: chats_service
+    env_file:
+      - ./chat-service/.env
+    ports:
+      - "5003:5003"
+    depends_on:
+      # - mongo
+      - rabbitmq
+    restart: always
+    networks:
+      - multi-agent-network
+
+  # --- FastAPI Agent Microservice ---
+  agent-service:
+    build: ./agent-service
+    container_name: agents_service
+    env_file:
+      - ./agent-service/.env
+    # Ghi đè host cho môi trường Docker (file .env dùng localhost cho chạy local)
+    environment:
+      - RABBITMQ_URL=amqp://admin:admin123@rabbitmq:5672
+      - REDIS_URL=redis://redis:6379/0
+      - SANDBOX_SERVICE_URL=http://python-sandbox:5008
+      - DISTRIBUTED_SERVICE_URL=http://distributed-service:5010
+      - OWER_SERVICE_URL=http://ower-service:5012
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./agent-service/app:/app/app
+    depends_on:
+      # - db
+      - redis
+      - rabbitmq
+      - python-sandbox
+    restart: always
+    networks:
+      - multi-agent-network
+
+  # --- Node.js TypeScript Product & Marketplace Microservice ---
+  product-service:
+    build: ./product-service
+    container_name: products_service
+    env_file:
+      - ./product-service/.env
+    ports:
+      - "5004:5004"
+    depends_on:
+      - rabbitmq
+    restart: always
+    networks:
+      - multi-agent-network
+
+  # --- Node.js TypeScript 3D MapDraw Microservice ---
+  mapdraw-service:
+    build: ./mapdraw-service
+    container_name: mapdraw_service
+    env_file:
+      - ./mapdraw-service/.env
+    environment:
+      - SAVECOIN_SERVICE_URL=http://savecoin-service:5006
+    ports:
+      - "5005:5005"
+    depends_on:
+      - savecoin-service
+    restart: always
+    networks:
+      - multi-agent-network
+
+  # --- Node.js TypeScript SaveCoin & PlanTask Microservice ---
+  savecoin-service:
+    build: ./savecoin-service
+    container_name: savecoin_service
+    env_file:
+      - ./savecoin-service/.env
+    ports:
+      - "5006:5006"
+    restart: always
+    networks:
+      - multi-agent-network
+
+  # --- Isolated Python Sandbox Microservice (Safe Execution Environment) ---
+  python-sandbox:
+    build: ./sandbox-service
+    container_name: python_sandbox_service
+    ports:
+      - "5008:5008"
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+    restart: always
+    networks:
+      - multi-agent-network
+
+  # --- Reinforcement Learning Training Service (3D Navigation Agent) ---
+  rltrain-service:
+    build: ./rltrain-service
+    container_name: rltrain_service
+    env_file:
+      - ./rltrain-service/.env
+    ports:
+      - "5009:5009"
+    volumes:
+      - ./rltrain-service:/app
+    restart: always
+    networks:
+      - multi-agent-network
+
+  # --- API Gateway (Cổng giao tiếp duy nhất cho Client) ---
+  api-gateway:
+    build: ./gateway-service
+    container_name: api_gateway_service
+    ports:
+      - "4000:4000"
+    environment:
+      - PORT=4000
+      - USER_SERVICE_URL=http://user-service:5001
+      - ROOM_SERVICE_URL=http://room-service:5002
+      - CHAT_SERVICE_URL=http://chat-service:5003
+      - AGENT_SERVICE_URL=http://agent-service:8000
+      - PRODUCT_SERVICE_URL=http://product-service:5004
+      - MAPDRAW_SERVICE_URL=http://mapdraw-service:5005
+      - SAVECOIN_SERVICE_URL=http://savecoin-service:5006
+      - RL_SERVICE_URL=http://rltrain-service:5009
+      - DISTRIBUTED_SERVICE_URL=http://distributed-service:5010
+      - SELLER_SERVICE_URL=http://seller-service:5011
+      - OWER_SERVICE_URL=http://ower-service:5012
+      - FIRMWARE_SERVICE_URL=http://agent-firmware:5014
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=super_secret_key_2026
+    depends_on:
+      - redis
+      - user-service
+      - room-service
+      - chat-service
+      - agent-service
+      - product-service
+      - mapdraw-service
+      - savecoin-service
+      - rltrain-service
+      - distributed-service
+      - seller-service
+      - ower-service
+      - agent-firmware
+    restart: always
+    networks:
+      - multi-agent-network
+
+  # --- Python FastAPI Embedded Agent Firmware & Room Bridge Service (ESP32 / ESP32-S3) ---
+  agent-firmware:
+    build: ./agent-firmware
+    container_name: agent_firmware_service
+    env_file:
+      - ./agent-firmware/.env
+    environment:
+      - PORT=5014
+      - AGENT_SERVICE_URL=http://agent-service:8000
+      - CHAT_SERVICE_URL=http://chat-service:5003
+      - ROOM_SERVICE_URL=http://room-service:5002
+      - GATEWAY_URL=http://api-gateway:4000
+    ports:
+      - "5014:5014"
+    depends_on:
+      - chat-service
+      - agent-service
+    restart: always
+    networks:
+      - multi-agent-network
+
+  # --- Node.js TypeScript Seller Compute & Local AI Host Service ---
+  seller-service:
+    build: ./seller-service
+    container_name: seller_service
+    env_file:
+      - ./seller-service/.env
+    ports:
+      - "5011:5011"
+    restart: always
+    networks:
+      - multi-agent-network
+
+  # --- Node.js TypeScript Owner / Renter & Agent Model Service ---
+  ower-service:
+    build: ./ower-service
+    container_name: ower_service
+    env_file:
+      - ./ower-service/.env
+    environment:
+      - SELLER_SERVICE_URL=http://seller-service:5011
+      - DISTRIBUTED_SERVICE_URL=http://distributed-service:5010
+      - SAVECOIN_SERVICE_URL=http://savecoin-service:5006
+      - AGENT_SERVICE_URL=http://agent-service:8000
+    ports:
+      - "5012:5012"
+    depends_on:
+      - seller-service
+    restart: always
+    networks:
+      - multi-agent-network
+
+  # --- Golang Distributed Compute & Electron App Delivery Service ---
+  distributed-service:
+    build: ./distributed-service
+    container_name: distributed_service
+    environment:
+      - PORT=5010
+      - CLIENT_APP_PATH=/app/release/Go-Python Worker Monitor Setup 1.0.0.exe
+      - GATEWAY_WS_URL=ws://localhost:4000/api/v1/distributed/ws
+      - JWT_SECRET=super_secret_key_2026
+      - DATABASE_URL=postgresql://neondb_owner:npg_nGjr85EBbXPw@ep-fragrant-fire-a1icbw9e-pooler.ap-southeast-1.aws.neon.tech/distributed_db?sslmode=require
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - ./worker-client/release:/app/release:ro
+    ports:
+      - "5010:5010"
+    depends_on:
+      - redis
+    restart: always
+    networks:
+      - multi-agent-network
+
+  # --- Next.js Frontend ---
+  # frontend:
+  #   build: ./frontend-microservices
+  #   container_name: frontend_app
+  #   ports:
+  #     - "3000:3000"
+  #   environment:
+  #     - NEXT_PUBLIC_GATEWAY_URL=http://localhost:4000
+  #     - NEXT_PUBLIC_SOCKET_URL=http://localhost:4000
+  #   depends_on:
+  #     - api-gateway
+  #   restart: always
+
+  # # --- 1. Prometheus (Thu thập Metrics) ---
+  # prometheus:
+  #   image: prom/prometheus:latest
+  #   container_name: monitoring_prometheus
+  #   ports:
+  #     - "9090:9090"
+  #   volumes:
+  #     - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+  #   restart: always
+  #   networks:
+  #     - multi-agent-network
+
+  # # --- 2. Loki (Thu thập và lưu trữ Logs) ---
+  # loki:
+  #   image: grafana/loki:latest
+  #   container_name: monitoring_loki
+  #   ports:
+  #     - "3100:3100"
+  #   restart: always
+  #   networks:
+  #     - multi-agent-network
+
+  # # --- 3. Tempo (Thu thập Traces từ OpenTelemetry) ---
+  # tempo:
+  #   image: grafana/tempo:latest
+  #   container_name: monitoring_tempo
+  #   command: ["-config.file=/etc/tempo.yaml"]
+  #   volumes:
+  #     - ./monitoring/tempo.yaml:/etc/tempo.yaml
+  #   ports:
+  #     - "4317:4317" # OTLP gRPC receiver
+  #     - "4318:4318" # OTLP HTTP receiver (Dùng cho user-service đẩy trace lên)
+  #   restart: always
+  #   networks:
+  #     - multi-agent-network
+
+  # # --- 4. Grafana (Giao diện Dashboard tổng hợp Metrics, Logs, Traces) ---
+  # grafana:
+  #   image: grafana/grafana:latest
+  #   container_name: monitoring_grafana
+  #   ports:
+  #     - "3003:3000" # Truy cập giao diện tại http://localhost:3000 (admin / admin)
+  #   environment:
+  #     - GF_SECURITY_ADMIN_USER=admin
+  #     - GF_SECURITY_ADMIN_PASSWORD=admin
+  #   depends_on:
+  #     - prometheus
+  #     - loki
+  #     - tempo
+  #   restart: always
+  #   networks:
+  #     - multi-agent-network
+
+volumes:
+  postgres_data:
+  mongo_data:
+  rabbitmq_data:
+  redis_data:
+
+networks:
+  multi-agent-network:
+    driver: bridge
