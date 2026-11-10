@@ -1,3 +1,15 @@
+/**
+ * ==============================================================================
+ * HOOK ĐIỀU KHIỂN BÀN PHÍM TEACHER (KEYBOARD DIRECT DRIVE HOOK)
+ * ==============================================================================
+ * Khi Người Hướng Dẫn bật chế độ "Lái trực tiếp (WASD)" trong TeacherConsole:
+ * - Lắng nghe các phím W, A, S, D và 4 phím mũi tên.
+ * - Tránh bắt sự kiện khi người dùng đang nhập text vào INPUT/TEXTAREA.
+ * - Chuẩn hóa vector vận tốc 2D [vx, vz] theo tốc độ tối đa MAX_TEACHER_SPEED (1.2m/s).
+ * - Gửi vector hành động qua WebSocket tới backend mỗi 90ms.
+ * - Nếu đang bật ghi hình (isRecordingDemo), backend sẽ tự động ghi mẫu vào SQLite.
+ */
+
 import { useEffect, useRef } from "react";
 import { useTrainingStore } from "../stores/useTrainingStore";
 
@@ -37,6 +49,7 @@ export function useTeacherInput() {
         window.addEventListener("keydown", handleKeyDown);
         window.addEventListener("keyup", handleKeyUp);
 
+        // Vòng lặp phát tín hiệu hành động 90ms/lần khi có phím đang giữ
         const interval = window.setInterval(() => {
             const keys = pressedKeys.current;
             if (keys.size === 0) return;
@@ -66,4 +79,3 @@ export function useTeacherInput() {
         };
     }, [isTeacherMode, sendTeacherAction]);
 }
-

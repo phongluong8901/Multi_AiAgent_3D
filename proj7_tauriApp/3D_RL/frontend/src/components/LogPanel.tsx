@@ -1,3 +1,14 @@
+/**
+ * ==============================================================================
+ * BẢNG NHẬT KÝ HOẠT ĐỘNG KỸ THUẬT (TELEMETRY LOG PANEL)
+ * ==============================================================================
+ * Hiển thị dòng sự kiện và thông báo kỹ thuật theo thời gian thực:
+ * - Trạng thái kết nối WebSocket với backend.
+ * - Thông báo các mốc huấn luyện PPO, Behavioral Cloning, khen thưởng/nhắc nhở.
+ * - Ghi nhận các quyết định di chuyển, thay đổi tốc độ và kích hoạt giấc mộng.
+ * - Quy định chặt chẽ: Định dạng [THÀNH CÔNG], [LỖI], [CẤU HÌNH], tuyệt đối không dùng emoji.
+ */
+
 import { useTrainingStore } from "../stores/useTrainingStore";
 
 export default function LogPanel() {

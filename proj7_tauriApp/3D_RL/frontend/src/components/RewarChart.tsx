@@ -1,3 +1,10 @@
+/**
+ * ==============================================================================
+ * BIỂU ĐỒ & CHỈ SỐ ĐIỂM THƯỞNG (REWARD & METRICS COMPONENT)
+ * ==============================================================================
+ * Hiển thị chỉ số điểm thưởng (Reward) và bước tương tác (Step) hiện tại từ môi trường.
+ */
+
 import { useTrainingStore } from "../stores/useTrainingStore";
 
 export default function RewardChart() {
@@ -12,4 +19,3 @@ export default function RewardChart() {
         </div>
     );
 }
-

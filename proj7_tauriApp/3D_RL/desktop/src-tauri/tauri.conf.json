@@ -1,19 +1,19 @@
 {
-  "productName": "RL Obstacle Avoidance",
+  "productName": "AI Child Simulation",
   "version": "1.0.0",
-  "identifier": "com.rl.obstacle",
+  "identifier": "com.rl.childsimulation",
   "build": {
     "frontendDist": "../../frontend/dist",
     "devUrl": "http://localhost:5173",
-    "beforeDevCommand": "",
-    "beforeBuildCommand": ""
+    "beforeDevCommand": "npm --prefix ../frontend run dev",
+    "beforeBuildCommand": "npm --prefix ../frontend run build"
   },
   "app": {
     "windows": [
       {
-        "title": "RL Obstacle Avoidance",
-        "width": 1400,
-        "height": 900,
+        "title": "Mô Phỏng AI Trẻ Em (AI Child Simulation) — 3D Environment",
+        "width": 1440,
+        "height": 920,
         "resizable": true,
         "center": true
       }
