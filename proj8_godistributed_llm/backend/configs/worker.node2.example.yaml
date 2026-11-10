@@ -1,0 +1,25 @@
+# File cấu hình mẫu cho Máy thứ 2 (Worker GPU/LLM chạy ở máy khác trong mạng LAN)
+# Cách dùng:
+# 1. Đổi 192.168.1.100 thành IP LAN thật của Máy 1 (máy chạy Redis + Gateway).
+# 2. Trên Máy 1, nhớ sửa advertise_grpc_addr / advertise_http_addr trong configs/gateway.yaml thành IP LAN của Máy 1.
+# 3. Copy worker.exe và file này sang Máy 2, rồi chạy: .\worker.exe -config worker.node2.example.yaml
+
+worker:
+  id: "worker-node-02"
+  transport: "grpc" # Đổi sang "http" nếu không mở port 50051 trên firewall Máy 1
+  max_parallel_jobs: 2
+  supported_models:
+    - "qwen2.5:1.5b"
+  heartbeat_interval_sec: 5
+
+llm:
+  provider: "ollama"
+  base_url: "http://127.0.0.1:11434" # Gọi Ollama chạy trực tiếp trên Máy 2
+  timeout_sec: 120
+
+redis:
+  addr: "192.168.1.100:6379" # IP LAN của Máy 1 đang chạy Redis
+  password: ""
+  db: 0
+  consumer_group: "llm_cluster_group"
+

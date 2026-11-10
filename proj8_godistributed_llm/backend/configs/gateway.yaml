@@ -1,0 +1,18 @@
+server:
+  http_port: 8088 # Cổng HTTP cho User (SSE/REST), Admin (REST) và Internal HTTP Token Stream (tránh đụng 8080)
+  grpc_port: 50051 # Cổng gRPC nhận luồng Token tốc độ cao từ các máy Worker
+  enable_grpc: true # Đặt false nếu chỉ chạy thuần HTTP
+  advertise_grpc_addr: "127.0.0.1:50051" # Đổi sang IP LAN (VD: 192.168.1.100:50051) khi Worker dùng gRPC khác máy
+  advertise_http_addr: "http://127.0.0.1:8088" # Địa chỉ HTTP để Worker/Service không dùng gRPC đẩy token về
+
+redis:
+  addr: "127.0.0.1:6379"
+  password: ""
+  db: 0
+
+postgres:
+  driver: "postgres" # Đổi thành "noop" nếu muốn chạy không cần DB; dễ swap sang mysql/sqlite qua repositories.NewRepository
+  dsn: "postgres://user:password@127.0.0.1:5432/llm_distributed?sslmode=disable"
+
+auth:
+  api_key: "" # Để trống nếu tắt auth khi test local; đặt chuỗi bí mật để bật Bearer/X-API-Key cho /api/v1/*

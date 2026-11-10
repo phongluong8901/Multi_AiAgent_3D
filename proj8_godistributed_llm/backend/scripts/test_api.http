@@ -1,0 +1,60 @@
+@baseUrl = http://127.0.0.1:8088
+@model = qwen2.5:1.5b
+@conversationId = conv-demo-01
+@jobId = replace-with-job-id
+
+### 1. Healthcheck Gateway
+GET {{baseUrl}}/healthz
+
+### 2. User Chat - HTTP REST Dong bo (Non-Streaming JSON)
+POST {{baseUrl}}/api/v1/chat
+Content-Type: application/json
+
+{
+  "user_id": "user-01",
+  "conversation_id": "{{conversationId}}",
+  "model": "{{model}}",
+  "prompt": "Giai thich ngan gon Go goroutine trong 2 cau"
+}
+
+### 3. User Chat - HTTP SSE Streaming (Real-time)
+POST {{baseUrl}}/api/v1/chat/stream
+Content-Type: application/json
+
+{
+  "user_id": "user-01",
+  "conversation_id": "{{conversationId}}",
+  "model": "{{model}}",
+  "prompt": "Viet 1 ham hello world bang Go"
+}
+
+### 4. Lay lich su hoi thoai theo Conversation ID
+GET {{baseUrl}}/api/v1/chat/{{conversationId}}/history
+
+### 5. Huy job dang chay (Stop Generation)
+POST {{baseUrl}}/api/v1/chat/{{jobId}}/stop
+
+### 6. Admin - Xem danh sach Worker Node dang online (CPU, RAM, ActiveJobs)
+GET {{baseUrl}}/api/v1/admin/nodes
+
+### 7. Admin - Xem do dai hang doi Redis Stream theo model
+GET {{baseUrl}}/api/v1/admin/queues?models=qwen2.5:1.5b,qwen2.5:7b,llama3.2:3b
+
+### 8. Internal HTTP - Day luong NDJSON token (thay the gRPC)
+POST {{baseUrl}}/internal/v1/tokens/stream
+Content-Type: application/x-ndjson
+
+{"job_id":"{{jobId}}","worker_id":"http-worker-01","token":"Hello ","done":false}
+{"job_id":"{{jobId}}","worker_id":"http-worker-01","token":"World","done":true}
+
+### 9. Internal HTTP - Day 1 token don le
+POST {{baseUrl}}/internal/v1/tokens/push
+Content-Type: application/json
+
+{
+  "job_id": "{{jobId}}",
+  "worker_id": "http-worker-01",
+  "token": "ping",
+  "done": true
+}
+

@@ -1,0 +1,20 @@
+worker:
+  id: "worker-node-01"
+  transport: "grpc" # Giao thức đẩy token về Gateway: "grpc" (mặc định, tốc độ cao) hoặc "http" (nếu không mở port gRPC)
+  max_parallel_jobs: 2 # Số luồng suy luận tối đa chạy song song (Semaphore) để bảo vệ GPU/VRAM
+  supported_models: # Worker chỉ kéo job thuộc danh sách model này
+    - "qwen2.5:1.5b"
+    - "qwen2.5:7b"
+    - "llama3.2:3b"
+  heartbeat_interval_sec: 5
+
+llm:
+  provider: "ollama" # "ollama", "llamacpp", hoặc "vllm" (hỗ trợ vLLM / SGLang / LM Studio /v1/chat/completions)
+  base_url: "http://127.0.0.1:11434"
+  timeout_sec: 120
+
+redis:
+  addr: "127.0.0.1:6379" # Đổi sang IP Gateway/Redis trung tâm khi chạy nhiều máy
+  password: ""
+  db: 0
+  consumer_group: "llm_cluster_group"

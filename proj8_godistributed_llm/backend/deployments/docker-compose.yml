@@ -1,0 +1,115 @@
+services:
+  # ============================================================================
+  # Hạ tầng mặc định (chạy khi gõ: docker compose up -d)
+  # ============================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: llm_redis
+    ports:
+      - "6379:6379"
+    # --protected-mode no cho phép Worker ở máy khác trong mạng LAN kết nối tới Redis (nên đặt --requirepass khi lên production)
+    command: redis-server --appendonly yes --protected-mode no
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: llm_postgres
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: llm_distributed
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d llm_distributed"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ============================================================================
+  # Cụm giả lập 2 Local LLM + 2 Worker trong Docker (tùy chọn):
+  # Chạy bằng lệnh: docker compose --profile cluster up -d --build
+  # Sau đó pull model cho 2 container Ollama:
+  #   docker exec llm_ollama_1 ollama pull qwen2.5:1.5b
+  #   docker exec llm_ollama_2 ollama pull qwen2.5:1.5b
+  # ============================================================================
+  gateway:
+    profiles: ["cluster"]
+    build:
+      context: ..
+      dockerfile: deployments/Dockerfile.gateway
+    container_name: llm_gateway
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    environment:
+      HTTP_PORT: "8088"
+      GRPC_PORT: "50051"
+      ENABLE_GRPC: "true"
+      ADVERTISE_GRPC_ADDR: "gateway:50051"
+      ADVERTISE_HTTP_ADDR: "http://gateway:8088"
+      REDIS_ADDR: "redis:6379"
+      POSTGRES_DSN: "postgres://user:password@postgres:5432/llm_distributed?sslmode=disable"
+    ports:
+      - "8088:8088"
+      - "50051:50051"
+
+  ollama-1:
+    profiles: ["cluster"]
+    image: ollama/ollama:latest
+    container_name: llm_ollama_1
+    volumes:
+      - ollama_1_data:/root/.ollama
+
+  worker-1:
+    profiles: ["cluster"]
+    build:
+      context: ..
+      dockerfile: deployments/Dockerfile.worker
+    container_name: llm_worker_1
+    depends_on:
+      - redis
+      - ollama-1
+      - gateway
+    environment:
+      WORKER_ID: "docker-worker-01"
+      WORKER_TRANSPORT: "grpc"
+      SUPPORTED_MODELS: "qwen2.5:1.5b"
+      LLM_PROVIDER: "ollama"
+      LLM_BASE_URL: "http://ollama-1:11434"
+      REDIS_ADDR: "redis:6379"
+
+  ollama-2:
+    profiles: ["cluster"]
+    image: ollama/ollama:latest
+    container_name: llm_ollama_2
+    volumes:
+      - ollama_2_data:/root/.ollama
+
+  worker-2:
+    profiles: ["cluster"]
+    build:
+      context: ..
+      dockerfile: deployments/Dockerfile.worker
+    container_name: llm_worker_2
+    depends_on:
+      - redis
+      - ollama-2
+      - gateway
+    environment:
+      WORKER_ID: "docker-worker-02"
+      WORKER_TRANSPORT: "grpc"
+      SUPPORTED_MODELS: "qwen2.5:1.5b"
+      LLM_PROVIDER: "ollama"
+      LLM_BASE_URL: "http://ollama-2:11434"
+      REDIS_ADDR: "redis:6379"
+
+volumes:
+  ollama_1_data:
+  ollama_2_data:
