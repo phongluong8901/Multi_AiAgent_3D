@@ -8,9 +8,12 @@ require (
 	github.com/jackc/pgx/v5 v5.12.0
 	github.com/redis/go-redis/v9 v9.23.0
 	github.com/shirou/gopsutil/v4 v4.26.10
+	go-distributed-llm/shared v0.0.0
 	google.golang.org/grpc v1.85.0
 	gopkg.in/yaml.v3 v3.0.1
 )
+
+replace go-distributed-llm/shared => ../shared
 
 require (
 	github.com/bytedance/gopkg v0.1.3 // indirect

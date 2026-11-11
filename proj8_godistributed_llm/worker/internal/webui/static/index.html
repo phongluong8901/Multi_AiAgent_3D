@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Worker Node Console - Go Distributed LLM</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-icon" aria-hidden="true">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <rect x="4" y="4" width="16" height="16" rx="2"></rect>
+            <rect x="9" y="9" width="6" height="6"></rect>
+            <path d="M15 2v2M15 20v2M2 15h2M2 9h2M20 15h2M20 9h2M9 2v2M9 20v2"></path>
+          </svg>
+        </div>
+        <div>
+          <h1>Worker Node Console</h1>
+          <p class="subtitle">
+            <span id="worker-id">--</span>
+            <span class="sep">|</span>
+            <span>Transport: <strong id="transport-mode">--</strong></span>
+            <span class="sep">|</span>
+            <span>Uptime: <strong id="uptime">--</strong></span>
+          </p>
+        </div>
+      </div>
+
+      <div class="actions">
+        <span id="status-badge" class="badge badge-online">ONLINE</span>
+        <button id="btn-sync" class="btn btn-secondary" type="button">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+            <path d="M3 3v5h5" />
+            <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
+            <path d="M16 16h5v5" />
+          </svg>
+          <span>Sync Models</span>
+        </button>
+        <button id="btn-reset-breaker" class="btn btn-secondary" type="button">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+          </svg>
+          <span>Reset Breaker</span>
+        </button>
+        <button id="btn-drain" class="btn btn-warn" type="button">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <rect x="6" y="4" width="4" height="16" />
+            <rect x="14" y="4" width="4" height="16" />
+          </svg>
+          <span id="drain-label">Drain Node</span>
+        </button>
+      </div>
+    </header>
+
+    <section class="grid-cards">
+      <div class="card">
+        <div class="card-head">
+          <span>Active GPU Slots</span>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+          </svg>
+        </div>
+        <div class="metric-big" id="slots-value">0 / 0</div>
+        <div class="bar">
+          <div class="bar-fill" id="slots-bar" style="width: 0%"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <span>CPU / RAM Usage</span>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="2" y="3" width="20" height="14" rx="2" />
+            <line x1="8" y1="21" x2="16" y2="21" />
+            <line x1="12" y1="17" x2="12" y2="21" />
+          </svg>
+        </div>
+        <div class="metric-pair">
+          <div>CPU: <strong id="cpu-pct">0%</strong></div>
+          <div>RAM: <strong id="ram-pct">0%</strong></div>
+        </div>
+        <div class="bar">
+          <div class="bar-fill bar-cyan" id="ram-bar" style="width: 0%"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <span>GPU VRAM Usage</span>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path
+              d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z" />
+          </svg>
+        </div>
+        <div class="metric-big" id="vram-pct">0%</div>
+        <div class="bar">
+          <div class="bar-fill bar-amber" id="vram-bar" style="width: 0%"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <span>Circuit Breaker</span>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+          </svg>
+        </div>
+        <div class="metric-big" id="breaker-state">CLOSED</div>
+        <p class="card-note">Consecutive errors: <strong id="breaker-failures">0 / 3</strong></p>
+      </div>
+    </section>
+
+    <section class="grid-panels">
+      <div class="panel">
+        <h2>Throughput Counters</h2>
+        <div class="stats-row">
+          <div class="stat-box"><span>Completed</span><strong id="jobs-completed">0</strong></div>
+          <div class="stat-box"><span>Failed</span><strong id="jobs-failed">0</strong></div>
+          <div class="stat-box"><span>Canceled</span><strong id="jobs-canceled">0</strong></div>
+          <div class="stat-box"><span>Timed Out</span><strong id="jobs-timeout">0</strong></div>
+          <div class="stat-box"><span>Tokens Streamed</span><strong id="tokens-sent">0</strong></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Supported Models &amp; Runtime</h2>
+        <div id="models-list" class="chips"></div>
+        <div class="kv-grid">
+          <div><span>LLM Engine:</span> <strong id="llm-info">--</strong></div>
+          <div><span>Redis Queue:</span> <strong id="redis-info">--</strong></div>
+          <div><span>Hard Timeout:</span> <strong id="timeout-info">--</strong></div>
+          <div><span>gRPC Batching:</span> <strong id="batch-info">--</strong></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Recent Inference Jobs</h2>
+        <span class="refresh-note">Auto-refresh 2s</span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Job ID</th>
+              <th>Model</th>
+              <th>Priority</th>
+              <th>Status</th>
+              <th>Queue Wait</th>
+              <th>Duration</th>
+              <th>Tokens</th>
+              <th>Trace ID</th>
+            </tr>
+          </thead>
+          <tbody id="jobs-body">
+            <tr>
+              <td colspan="8" class="empty">Chua co job nao duoc xu ly tren node nay.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+
+</html>

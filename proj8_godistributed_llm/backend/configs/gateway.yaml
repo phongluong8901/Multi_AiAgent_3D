@@ -4,15 +4,20 @@ server:
   enable_grpc: true # Đặt false nếu chỉ chạy thuần HTTP
   advertise_grpc_addr: "127.0.0.1:50051" # Đổi sang IP LAN (VD: 192.168.1.100:50051) khi Worker dùng gRPC khác máy
   advertise_http_addr: "http://127.0.0.1:8088" # Địa chỉ HTTP để Worker/Service không dùng gRPC đẩy token về
+  max_queue_depth: 500 # Fail-fast trả 429 khi hàng đợi vượt ngưỡng này (0 = không giới hạn)
+  grpc_tls_cert: "" # Đường dẫn file cert TLS cho gRPC (để trống nếu chạy LAN insecure)
+  grpc_tls_key: ""  # Đường dẫn file private key TLS cho gRPC
 
 redis:
-  addr: "127.0.0.1:6379"
+  addr: "127.0.0.1:6379" # Hỗ trợ danh sách phân tách dấu phẩy cho Redis Cluster/Sentinel
+  master_name: "" # Đặt tên master nếu dùng Redis Sentinel HA
   password: ""
   db: 0
 
 postgres:
-  driver: "postgres" # Đổi thành "noop" nếu muốn chạy không cần DB; dễ swap sang mysql/sqlite qua repositories.NewRepository
+  driver: "postgres" # Đổi thành "memory" hoặc "noop" nếu không dùng DB; tự fallback memory nếu DB tắt
   dsn: "postgres://user:password@127.0.0.1:5432/llm_distributed?sslmode=disable"
 
 auth:
   api_key: "" # Để trống nếu tắt auth khi test local; đặt chuỗi bí mật để bật Bearer/X-API-Key cho /api/v1/*
+  rate_limit_rpm: 0 # Giới hạn request/phút mỗi client (0 = tắt; dùng Redis atomic INCR+EXPIRE khi bật)

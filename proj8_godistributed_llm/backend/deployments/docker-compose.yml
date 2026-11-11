@@ -40,8 +40,8 @@ services:
   gateway:
     profiles: ["cluster"]
     build:
-      context: ..
-      dockerfile: deployments/Dockerfile.gateway
+      context: ../..
+      dockerfile: backend/deployments/Dockerfile.gateway
     container_name: llm_gateway
     depends_on:
       redis:
@@ -70,8 +70,8 @@ services:
   worker-1:
     profiles: ["cluster"]
     build:
-      context: ..
-      dockerfile: deployments/Dockerfile.worker
+      context: ../..
+      dockerfile: worker/Dockerfile
     container_name: llm_worker_1
     depends_on:
       - redis
@@ -79,11 +79,14 @@ services:
       - gateway
     environment:
       WORKER_ID: "docker-worker-01"
+      WORKER_UI_ADDR: ":9091"
       WORKER_TRANSPORT: "grpc"
       SUPPORTED_MODELS: "qwen2.5:1.5b"
       LLM_PROVIDER: "ollama"
       LLM_BASE_URL: "http://ollama-1:11434"
       REDIS_ADDR: "redis:6379"
+    ports:
+      - "9091:9091"
 
   ollama-2:
     profiles: ["cluster"]
@@ -95,8 +98,8 @@ services:
   worker-2:
     profiles: ["cluster"]
     build:
-      context: ..
-      dockerfile: deployments/Dockerfile.worker
+      context: ../..
+      dockerfile: worker/Dockerfile
     container_name: llm_worker_2
     depends_on:
       - redis
@@ -104,11 +107,14 @@ services:
       - gateway
     environment:
       WORKER_ID: "docker-worker-02"
+      WORKER_UI_ADDR: ":9091"
       WORKER_TRANSPORT: "grpc"
       SUPPORTED_MODELS: "qwen2.5:1.5b"
       LLM_PROVIDER: "ollama"
       LLM_BASE_URL: "http://ollama-2:11434"
       REDIS_ADDR: "redis:6379"
+    ports:
+      - "9092:9091"
 
 volumes:
   ollama_1_data:

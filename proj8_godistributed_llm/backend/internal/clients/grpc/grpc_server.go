@@ -3,9 +3,9 @@ package grpcclient
 import (
 	"io"
 
-	pb "go-distributed-llm/api/proto"
-	"go-distributed-llm/internal/models"
 	"go-distributed-llm/internal/services"
+	pb "go-distributed-llm/shared/api/proto"
+	"go-distributed-llm/shared/models"
 )
 
 // GrpcTokenServer chạy trên API Gateway, lắng nghe gRPC Client-side Stream từ các Worker
@@ -30,11 +30,14 @@ func (s *GrpcTokenServer) PushTokens(stream pb.TokenStreamer_PushTokensServer) e
 		}
 
 		s.sseHub.PushToUser(models.TokenChunk{
-			JobID:    req.JobId,
-			WorkerID: req.WorkerId,
-			Token:    req.Token,
-			Done:     req.IsFinal,
-			Error:    req.ErrorMsg,
+			JobID:            req.JobId,
+			WorkerID:         req.WorkerId,
+			Token:            req.Token,
+			Done:             req.IsFinal,
+			Error:            req.ErrorMsg,
+			PromptTokens:     int(req.PromptTokens),
+			CompletionTokens: int(req.CompletionTokens),
+			TokenUnits:       int(req.TokenUnits),
 		})
 	}
 }

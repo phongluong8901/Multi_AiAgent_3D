@@ -58,3 +58,24 @@ Content-Type: application/json
   "done": true
 }
 
+### 10. OpenAI-Compatible - Liet ke model dang online
+GET {{baseUrl}}/v1/models
+
+### 11. OpenAI-Compatible - Chat Completions (Stream + system_prompt + temperature + max_tokens)
+POST {{baseUrl}}/v1/chat/completions
+Content-Type: application/json
+
+{
+  "model": "{{model}}",
+  "stream": true,
+  "temperature": 0.3,
+  "max_tokens": 256,
+  "messages": [
+    { "role": "system", "content": "Tra loi ngan gon bang tieng Viet." },
+    { "role": "user", "content": "So sanh ngan gon Go channel va mutex" }
+  ]
+}
+
+### 12. Prometheus Metrics (TTFT, TPS, Active Streams)
+GET {{baseUrl}}/metrics
+

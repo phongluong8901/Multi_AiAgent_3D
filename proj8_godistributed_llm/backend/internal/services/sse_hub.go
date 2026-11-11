@@ -2,8 +2,16 @@ package services
 
 import (
 	"sync"
+	"sync/atomic"
+	"time"
 
-	"go-distributed-llm/internal/models"
+	"go-distributed-llm/shared/models"
+)
+
+const (
+	defaultSubscriberBuffer = 256
+	normalPushWait          = 50 * time.Millisecond
+	criticalPushWait        = 500 * time.Millisecond
 )
 
 // subscriber bọc channel của một job kèm RWMutex để tránh panic "send on closed channel"
@@ -14,19 +22,30 @@ type subscriber struct {
 	ch     chan models.TokenChunk
 }
 
-// SSEHub quản lý bản đồ jobID -> Go Channel cho toàn bộ kết nối đang chờ token trên Gateway.
+// SSEHub quản lý bản đồ jobID -> Go Channel cho toàn bộ kết nối đang chờ token trên Gateway,
+// đồng thời truyền backpressure tự nhiên qua Go channel + timer trước khi ghi nhận drop.
 type SSEHub struct {
-	clients sync.Map // map[string]*subscriber
+	clients       sync.Map // map[string]*subscriber
+	droppedTokens atomic.Uint64
+	onDrop        func()
 }
 
 func NewSSEHub() *SSEHub {
 	return &SSEHub{}
 }
 
+func (h *SSEHub) SetDropObserver(fn func()) {
+	h.onDrop = fn
+}
+
+func (h *SSEHub) DroppedCount() uint64 {
+	return h.droppedTokens.Load()
+}
+
 // Register tạo channel nhận token mới cho jobID trước khi đẩy job vào Redis Stream.
 func (h *SSEHub) Register(jobID string) <-chan models.TokenChunk {
 	sub := &subscriber{
-		ch: make(chan models.TokenChunk, 64),
+		ch: make(chan models.TokenChunk, defaultSubscriberBuffer),
 	}
 	h.clients.Store(jobID, sub)
 	return sub.ch
@@ -48,6 +67,8 @@ func (h *SSEHub) Unregister(jobID string) {
 }
 
 // PushToUser bơm token vào channel của đúng job đang chờ.
+// Nếu buffer đầy, giữ RLock trong một khoảng ngắn để truyền backpressure thực thụ về Worker
+// thay vì drop âm thầm; nếu quá thời gian vẫn kẹt mới tăng counter droppedTokens.
 func (h *SSEHub) PushToUser(chunk models.TokenChunk) {
 	val, ok := h.clients.Load(chunk.JobID)
 	if !ok {
@@ -61,10 +82,26 @@ func (h *SSEHub) PushToUser(chunk models.TokenChunk) {
 		return
 	}
 
-	// Non-blocking send để tránh nghẽn gRPC/HTTP server nếu client đọc chậm.
 	select {
 	case sub.ch <- chunk:
+		return
 	default:
+	}
+
+	wait := normalPushWait
+	if chunk.Done || chunk.Error != "" {
+		wait = criticalPushWait
+	}
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+
+	select {
+	case sub.ch <- chunk:
+	case <-timer.C:
+		h.droppedTokens.Add(1)
+		if h.onDrop != nil {
+			h.onDrop()
+		}
 	}
 }
 

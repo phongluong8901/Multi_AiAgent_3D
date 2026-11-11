@@ -35,7 +35,11 @@ func (h *AdminHandler) GetQueueStats(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"queues": stats})
+	dlqLen, dlqErr := h.admin.GetDLQLength(c.Request.Context())
+	if dlqErr != nil {
+		dlqLen = 0
+	}
+	c.JSON(http.StatusOK, gin.H{"queues": stats, "dlq": dlqLen})
 }
 
 func (h *AdminHandler) DrainNode(c *gin.Context) {

@@ -39,109 +39,65 @@ flowchart LR
 ```text
 proj8_godistributed_llm/
 ├── README.md                            # Tài liệu hướng dẫn chính & Quick Start
+├── Makefile                             # Lệnh tắt ở root (make proto, make run-gateway, make run-worker, make run-worker-desktop, make run-frontend)
 ├── .gitignore                           # Ignore bin/, *.exe, .next/, node_modules/, .env
-├── go.work                              # Go Workspace trỏ tới ./backend cho IDE
+├── go.work                              # Go Workspace trỏ tới ./shared, ./backend, ./worker, ./frontend-worker
 │
 ├── docs/                                # Toàn bộ tài liệu kiến trúc & luồng vận hành
 │   ├── overview.md
 │   ├── tech-stack.md
 │   ├── structure.md
-│   └── workflow.md
+│   ├── workflow.md
+│   └── scalability-and-reliability.md   # Phân tích độ ổn định, sức chịu tải & tối ưu scale
 │
-├── backend/
-│   ├── api/
-│   │   └── proto/
-│   │       ├── llm_stream.proto         # Hợp đồng gRPC Protobuf
-│   │       ├── llm_stream.pb.go
-│   │       └── llm_stream_grpc.pb.go
-│   │
-│   ├── cmd/
-│   │   ├── gateway/main.go              # Entrypoint API Gateway (Wire repos -> services -> handlers + gRPC)
-│   │   └── worker/main.go               # Entrypoint Worker Node (Wire redis + llm client + streamer -> worker)
-│   │
-│   ├── configs/
-│   │   ├── gateway.yaml                 # Cấu hình HTTP (:8088), gRPC (:50051), Redis, Postgres driver, Auth API key
-│   │   ├── worker.yaml                  # Cấu hình Worker 1 (transport grpc/http, models, semaphore, ollama)
-│   │   └── worker.node2.example.yaml    # Cấu hình mẫu cho Máy 2 chạy Worker trong LAN
-│   │
-│   ├── internal/
-│   │   ├── models/                      # [MODELS] Struct thực thể thuần túy
-│   │   │   ├── job.go                   # JobPayload, TokenChunk, JobStatus
-│   │   │   ├── node.go                  # WorkerNodeInfo
-│   │   │   └── chat.go                  # User, Conversation, Message, UsageLog
-│   │   │
-│   │   ├── ports/                       # [INTERFACES] Chốt chặn Swap hạ tầng (DB, Queue, LLM, Streamer)
-│   │   │   ├── llm_provider.go          # LLMProvider
-│   │   │   ├── job_queue.go             # JobQueue
-│   │   │   ├── event_bus.go             # EventBus, NodeRegistry
-│   │   │   ├── token_streamer.go        # TokenStreamer
-│   │   │   └── repository.go            # Repository
-│   │   │
-│   │   ├── services/                    # [SERVICES] Business Logic & Real-time Hub
-│   │   │   ├── sse_hub.go               # SSEHub + sse_hub_test.go
-│   │   │   ├── sse_hub_test.go
-│   │   │   ├── chat_service.go          # EnqueueChat, CancelJob, SaveAssistantResult, GetHistory
-│   │   │   └── admin_service.go         # ListOnlineNodes, GetQueueStats, SetNodeDraining
-│   │   │
-│   │   ├── handlers/                    # [HANDLERS] HTTP Gin mỏng (Bind request -> Call service -> Write response)
-│   │   │   ├── router.go                # Đăng ký route /api/v1/*, /internal/v1/*, /healthz
-│   │   │   ├── middleware.go            # CORS + Optional API Key Auth (X-API-Key / Bearer)
-│   │   │   ├── chat_handler.go          # POST /chat, POST /chat/stream, POST /chat/:id/stop, GET /history
-│   │   │   ├── admin_handler.go         # GET /admin/nodes, GET /admin/queues, POST /drain, POST /resume
-│   │   │   ├── internal_handler.go      # POST /internal/v1/tokens/stream & /push
-│   │   │   └── api_routes_test.go       # Integration test cho toàn bộ HTTP API & Auth
-│   │   │
-│   │   ├── repositories/                # [REPOSITORIES] Lưu trữ & Hàng đợi (Swap qua Factory)
-│   │   │   ├── factory.go               # NewRepository(driver, dsn) -> postgres | noop
-│   │   │   ├── postgres/
-│   │   │   │   ├── db.go                # pgxpool + chạy migrations.InitSQL
-│   │   │   │   └── chat_repo.go         # ChatRepository + NoopRepository
-│   │   │   └── redis/
-│   │   │       ├── client.go            # Redis pool + Ping
-│   │   │       ├── stream_queue.go      # Redis Streams (XADD, XREADGROUP, XACK, XAUTOCLAIM)
-│   │   │       ├── pubsub_bus.go        # Redis Pub/Sub (STOP signals)
-│   │   │       └── node_registry.go     # Heartbeat TTL 12s, SCAN, Drain flags
-│   │   │
-│   │   ├── clients/                     # [CLIENTS] Kết nối Local LLM & Token Transport
-│   │   │   ├── llm/
-│   │   │   │   ├── factory.go           # NewLLMProvider(provider, baseURL) -> ollama | llamacpp
-│   │   │   │   ├── ollama_adapter.go
-│   │   │   │   ├── ollama_adapter_test.go
-│   │   │   │   └── llamacpp_adapter.go
-│   │   │   ├── grpc/
-│   │   │   │   ├── grpc_server.go       # Nhận gRPC stream đẩy vào services.SSEHub
-│   │   │   │   └── grpc_client_pool.go  # Worker pool kết nối gRPC tới các Gateway
-│   │   │   └── http/
-│   │   │       ├── token_client.go      # Worker stream HTTP NDJSON tới Gateway
-│   │   │       └── token_client_test.go
-│   │   │
-│   │   └── worker/                      # [WORKER] Điều phối máy trạm Local LLM
-│   │       ├── engine.go                # Semaphore, Drain check, XREADGROUP, XAUTOCLAIM
-│   │       ├── processor.go             # Job execution + Cancel listener + Stream + XACK
-│   │       ├── processor_test.go
-│   │       └── heartbeat.go             # Ticker 5s báo cáo CPU/RAM & ONLINE/DRAINING
-│   │
-│   ├── migrations/
-│   │   ├── 001_init.sql                 # SQL DDL cho chat_messages & usage_logs
-│   │   └── embed.go                     # //go:embed 001_init.sql
-│   │
+├── shared/                              # [SHARED MODULE: go-distributed-llm/shared]
+│   ├── api/proto/                       # Hợp đồng gRPC Protobuf (llm_stream.proto + generated Go files)
+│   ├── models/                          # JobPayload, TokenChunk, WorkerNodeInfo, Message, UsageLog
+│   ├── ports/                           # Interfaces Swap hạ tầng (LLMProvider, JobQueue, EventBus, NodeRegistry, TokenStreamer, Repository)
+│   ├── repositories/redis/              # Redis UniversalClient, StreamQueue (Priority/DLQ/Affinity), PubSub, NodeRegistry, RateLimiter
 │   ├── pkg/
-│   │   ├── config/loader.go             # Đọc YAML + ENV overrides
+│   │   ├── config/loader.go             # Đọc YAML + ENV overrides cho Gateway & Worker
 │   │   ├── logger/logger.go             # Structured Logging (log/slog)
-│   │   └── utils/sysinfo.go             # Đo % CPU & RAM qua gopsutil/v4
-│   │
-│   ├── scripts/
-│   │   ├── test_api.http                # 9 HTTP request mẫu dùng trực tiếp trong IDE
-│   │   └── test_api.ps1                 # Script PowerShell test tự động
-│   │
-│   ├── deployments/
-│   │   ├── Dockerfile.gateway
-│   │   ├── Dockerfile.worker
-│   │   └── docker-compose.yml           # Mặc định Redis + Postgres; --profile cluster chạy 2 LLM + 2 Worker
-│   │
+│   │   └── utils/sysinfo.go             # Đo % CPU, % RAM & % GPU VRAM (nvidia-smi)
+│   └── go.mod
+│
+├── backend/                             # [GATEWAY MODULE: go-distributed-llm]
+│   ├── cmd/gateway/main.go              # Entrypoint API Gateway (Wire repos -> services -> handlers + gRPC)
+│   ├── configs/gateway.yaml             # Cấu hình HTTP (:8088), gRPC (:50051), Redis, Postgres driver, Auth API key
+│   ├── internal/
+│   │   ├── services/                    # ChatService, AdminService, SSEHub (+ tests)
+│   │   ├── handlers/                    # router, middleware, chat, openai (/v1/*), admin, internal, /metrics
+│   │   ├── metrics/metrics.go           # Prometheus /metrics exposition
+│   │   ├── repositories/                # factory, async_repo, postgres/
+│   │   └── clients/grpc/grpc_server.go  # Nhận gRPC stream đẩy vào services.SSEHub
+│   ├── migrations/001_init.sql          # SQL DDL cho chat_messages & usage_logs
+│   ├── scripts/                         # test_api.http, test_api.ps1
+│   ├── deployments/                     # Dockerfile.gateway, docker-compose.yml
 │   ├── Makefile
-│   ├── go.mod
-│   └── go.sum
+│   └── go.mod
+│
+├── worker/                              # [WORKER MODULE + EMBEDDED UI: go-distributed-llm/worker]
+│   ├── cmd/worker/main.go               # Entrypoint Worker CLI (gọi pkg/agent)
+│   ├── pkg/agent/                       # Facade Runner + LogBuffer dùng chung cho CLI & Wails PC App
+│   ├── configs/
+│   │   ├── worker.yaml                  # Cấu hình Worker 1 (ui_addr :9091, transport, models, timeout, batching)
+│   │   └── worker.node2.example.yaml    # Cấu hình mẫu cho Máy 2 chạy Worker trong LAN
+│   ├── internal/
+│   │   ├── clients/
+│   │   │   ├── llm/                     # OllamaAdapter, LlamaCppAdapter, OpenAIAdapter (/v1) + tests
+│   │   │   ├── grpc/grpc_client_pool.go # Pool gRPC kết nối tới nhiều Gateway (hỗ trợ TLS)
+│   │   │   └── http/token_client.go     # HTTP NDJSON fallback streamer
+│   │   ├── worker/                      # ClusterWorker, CircuitBreaker, Snapshot telemetry, Micro-batching & tests
+│   │   └── webui/                       # Frontend cục bộ nhúng //go:embed (HTML/CSS/JS + Local API /api/status, /drain, /sync)
+│   ├── Dockerfile                       # Build worker binary từ shared/ + worker/
+│   ├── Makefile
+│   └── go.mod
+│
+├── frontend-worker/                     # [WORKER DESKTOP APP] Wails v2 + React + TypeScript
+│   ├── app.go                           # Bridge Go <-> React (Start/Stop/Drain/Sync/Settings/Logs)
+│   ├── main.go                          # Entrypoint cửa sổ Desktop (WebView2)
+│   ├── wails.json
+│   └── frontend/src/                    # Giao diện Monitor & GPU, Jobs & Console Logs, Node Settings
 │
 └── frontend/                            # [FRONTEND] Next.js 15 + TypeScript + Tailwind + Lucide React
     ├── src/

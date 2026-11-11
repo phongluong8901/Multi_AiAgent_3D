@@ -1,0 +1,27 @@
+worker:
+  id: "worker-node-01"
+  ui_addr: ":9091" # Web UI cục bộ tích hợp sẵn (go:embed) để giám sát & điều khiển máy Worker này
+  transport: "grpc" # Giao thức đẩy token về Gateway: "grpc" (mặc định, tốc độ cao) hoặc "http" (nếu không mở port gRPC)
+  grpc_tls_ca: "" # Đường dẫn CA cert nếu Gateway bật gRPC TLS (để trống nếu chạy LAN)
+  max_parallel_jobs: 2 # Số luồng suy luận tối đa chạy song song (Semaphore) để bảo vệ GPU/VRAM
+  supported_models: # Danh sách fallback nếu engine chưa bật discovery
+    - "qwen2.5:1.5b"
+    - "qwen2.5:7b"
+    - "llama3.2:3b"
+  heartbeat_interval_sec: 5
+  max_job_duration_sec: 300 # Hard timeout bảo vệ slot GPU không bị kẹt vô hạn
+  batch_flush_ms: 20 # Micro-batching gRPC token frame (0 = tắt; token đầu luôn flush 0ms)
+  dynamic_model_sync: true # Tự động đồng bộ danh sách model thật từ Ollama/vLLM mỗi 10s
+
+llm:
+  provider: "ollama" # "ollama", "llamacpp", hoặc "vllm" (hỗ trợ vLLM / SGLang / LM Studio /v1/chat/completions)
+  base_url: "http://127.0.0.1:11434"
+  timeout_sec: 120
+
+redis:
+  addr: "127.0.0.1:6379" # Hỗ trợ nhiều địa chỉ cách nhau dấu phẩy cho Sentinel/Cluster
+  master_name: "" # Đặt tên master nếu dùng Redis Sentinel HA
+  password: ""
+  db: 0
+  consumer_group: "llm_cluster_group"
+

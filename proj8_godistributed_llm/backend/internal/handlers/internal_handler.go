@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"go-distributed-llm/internal/models"
 	"go-distributed-llm/internal/services"
+	"go-distributed-llm/shared/models"
 
 	"github.com/gin-gonic/gin"
 )

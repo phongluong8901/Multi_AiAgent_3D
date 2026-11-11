@@ -1,5 +1,6 @@
 import type {
   ChatMessage,
+  ConversationSummary,
   NodesResponse,
   QueuesResponse,
   StreamErrorEvent,
@@ -44,7 +45,8 @@ export async function listWorkerNodes(): Promise<NodesResponse> {
 }
 
 export async function getQueueStats(models: string[]): Promise<QueuesResponse> {
-  const query = models.length > 0 ? `?models=${encodeURIComponent(models.join(","))}` : "";
+  const query =
+    models.length > 0 ? `?models=${encodeURIComponent(models.join(","))}` : "";
   const res = await fetch(`${GATEWAY_URL}/api/v1/admin/queues${query}`, {
     headers: authHeaders(),
     cache: "no-store",
@@ -56,7 +58,10 @@ export async function getQueueStats(models: string[]): Promise<QueuesResponse> {
   return { queues: data.queues ?? {} };
 }
 
-export async function setWorkerDraining(workerId: string, draining: boolean): Promise<void> {
+export async function setWorkerDraining(
+  workerId: string,
+  draining: boolean
+): Promise<void> {
   const action = draining ? "drain" : "resume";
   const res = await fetch(
     `${GATEWAY_URL}/api/v1/admin/nodes/${encodeURIComponent(workerId)}/${action}`,
@@ -70,7 +75,23 @@ export async function setWorkerDraining(workerId: string, draining: boolean): Pr
   }
 }
 
-export async function getChatHistory(conversationId: string): Promise<ChatMessage[]> {
+export async function listConversations(): Promise<ConversationSummary[]> {
+  const res = await fetch(`${GATEWAY_URL}/api/v1/chat/conversations`, {
+    headers: authHeaders(),
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    return [];
+  }
+  const data = (await res.json()) as {
+    conversations?: ConversationSummary[];
+  };
+  return data.conversations ?? [];
+}
+
+export async function getChatHistory(
+  conversationId: string
+): Promise<ChatMessage[]> {
   const res = await fetch(
     `${GATEWAY_URL}/api/v1/chat/${encodeURIComponent(conversationId)}/history`,
     {
@@ -84,7 +105,7 @@ export async function getChatHistory(conversationId: string): Promise<ChatMessag
   const data = (await res.json()) as {
     messages?: Array<{
       id: string;
-      role: "user" | "assistant";
+      role: "user" | "assistant" | "system";
       content: string;
       model: string;
       job_id?: string;
@@ -102,10 +123,13 @@ export async function getChatHistory(conversationId: string): Promise<ChatMessag
 }
 
 export async function stopJob(jobId: string): Promise<void> {
-  const res = await fetch(`${GATEWAY_URL}/api/v1/chat/${encodeURIComponent(jobId)}/stop`, {
-    method: "POST",
-    headers: authHeaders(),
-  });
+  const res = await fetch(
+    `${GATEWAY_URL}/api/v1/chat/${encodeURIComponent(jobId)}/stop`,
+    {
+      method: "POST",
+      headers: authHeaders(),
+    }
+  );
   if (!res.ok) {
     throw new Error(`Failed to stop job ${jobId}: HTTP ${res.status}`);
   }
@@ -115,7 +139,10 @@ export interface StreamChatParams {
   userId: string;
   conversationId: string;
   model: string;
+  systemPrompt?: string;
   prompt: string;
+  temperature?: number;
+  maxTokens?: number;
   signal: AbortSignal;
   onJobStarted?: (jobId: string, conversationId: string) => void;
   onToken: (event: StreamTokenEvent) => void;
@@ -131,7 +158,10 @@ export async function streamChat(params: StreamChatParams): Promise<void> {
       user_id: params.userId,
       conversation_id: params.conversationId,
       model: params.model,
+      system_prompt: params.systemPrompt || undefined,
       prompt: params.prompt,
+      temperature: params.temperature,
+      max_tokens: params.maxTokens,
     }),
     signal: params.signal,
   });
@@ -142,7 +172,8 @@ export async function streamChat(params: StreamChatParams): Promise<void> {
   }
 
   const headerJobId = res.headers.get("X-Job-Id") ?? "";
-  const headerConvId = res.headers.get("X-Conversation-Id") ?? params.conversationId;
+  const headerConvId =
+    res.headers.get("X-Conversation-Id") ?? params.conversationId;
   if (headerJobId && params.onJobStarted) {
     params.onJobStarted(headerJobId, headerConvId);
   }
@@ -183,7 +214,10 @@ export async function streamChat(params: StreamChatParams): Promise<void> {
     try {
       const parsed = JSON.parse(rawData) as StreamTokenEvent;
       if (parsed.job_id && params.onJobStarted) {
-        params.onJobStarted(parsed.job_id, parsed.conversation_id || headerConvId);
+        params.onJobStarted(
+          parsed.job_id,
+          parsed.conversation_id || headerConvId
+        );
       }
       params.onToken(parsed);
       if (parsed.done) {
@@ -191,7 +225,7 @@ export async function streamChat(params: StreamChatParams): Promise<void> {
         params.onComplete();
       }
     } catch {
-      // Ignore malformed non-JSON heartbeat lines
+      // Ignore non-JSON lines
     }
     currentEvent = "message";
   };
@@ -219,4 +253,3 @@ export async function streamChat(params: StreamChatParams): Promise<void> {
     params.onComplete();
   }
 }
-

@@ -4,8 +4,8 @@ import (
 	"context"
 	"strings"
 
-	"go-distributed-llm/internal/models"
-	"go-distributed-llm/internal/ports"
+	"go-distributed-llm/shared/models"
+	"go-distributed-llm/shared/ports"
 )
 
 // AdminService xử lý nghiệp vụ giám sát Worker Nodes, hàng đợi và điều phối Drain/Resume.
@@ -42,6 +42,10 @@ func (s *AdminService) GetQueueStats(ctx context.Context, rawModels string) (map
 		stats[model] = length
 	}
 	return stats, nil
+}
+
+func (s *AdminService) GetDLQLength(ctx context.Context) (int64, error) {
+	return s.queue.GetDLQLength(ctx)
 }
 
 func (s *AdminService) SetNodeDraining(ctx context.Context, workerID string, draining bool) error {

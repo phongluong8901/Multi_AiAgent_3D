@@ -140,6 +140,7 @@ export function AdminDashboard({
                   <th className="px-4 py-3 font-medium">Slots</th>
                   <th className="px-4 py-3 font-medium">CPU</th>
                   <th className="px-4 py-3 font-medium">RAM</th>
+                  <th className="px-4 py-3 font-medium">VRAM</th>
                   <th className="px-4 py-3 text-right font-medium">Control</th>
                 </tr>
               </thead>
@@ -180,6 +181,11 @@ export function AdminDashboard({
                       </td>
                       <td className="px-4 py-3 font-mono text-zinc-200">
                         {node.ram_usage_percent.toFixed(1)}%
+                      </td>
+                      <td className="px-4 py-3 font-mono text-zinc-200">
+                        {node.gpu_vram_percent > 0
+                          ? `${node.gpu_vram_percent.toFixed(1)}%`
+                          : "N/A"}
                       </td>
                       <td className="px-4 py-3 text-right">
                         <button
