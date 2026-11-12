@@ -41,3 +41,27 @@ func TestAsyncRepository_NonBlockingAndFlushOnClose(t *testing.T) {
 	}
 }
 
+func TestMemoryRepository_GetHistoryReturnsLatestChronological(t *testing.T) {
+	mem := postgresrepo.NewMemoryRepository()
+	base := time.Now().Add(-1 * time.Hour)
+	for i := 1; i <= 15; i++ {
+		_ = mem.SaveMessage(context.Background(), models.Message{
+			ID:             "m-" + string(rune('a'+i)),
+			ConversationID: "conv-long",
+			JobID:          "j-1",
+			Role:           "user",
+			Model:          "qwen2.5:1.5b",
+			Content:        "msg-" + string(rune('a'+i-1)),
+			CreatedAt:      base.Add(time.Duration(i) * time.Minute),
+		})
+	}
+
+	got, err := mem.GetHistory(context.Background(), "conv-long", 5)
+	if err != nil || len(got) != 5 {
+		t.Fatalf("expected 5 newest messages, got len=%d err=%v", len(got), err)
+	}
+	if got[0].Content != "msg-k" || got[4].Content != "msg-o" {
+		t.Fatalf("expected chronological slice from msg-k..msg-o, got first=%q last=%q", got[0].Content, got[4].Content)
+	}
+}
+

@@ -12,12 +12,13 @@ import (
 
 // GatewayRouterDeps gom các service, metrics, rate limiter và cấu hình bảo mật để dựng HTTP Router.
 type GatewayRouterDeps struct {
-	ChatService  *services.ChatService
-	AdminService *services.AdminService
-	Metrics      *metrics.GatewayMetrics
-	RateLimiter  ports.RateLimiter
-	APIKey       string
-	RateLimitRPM int
+	ChatService   *services.ChatService
+	AdminService  *services.AdminService
+	Metrics       *metrics.GatewayMetrics
+	RateLimiter   ports.RateLimiter
+	APIKey        string
+	InternalToken string
+	RateLimitRPM  int
 }
 
 // NewRouter cấu hình route công khai (/api/v1/*), chuẩn OpenAI (/v1/*), Prometheus (/metrics), và internal (/internal/v1/*).
@@ -64,7 +65,8 @@ func NewRouter(deps GatewayRouterDeps) *gin.Engine {
 	}
 
 	internalH := NewInternalHandler(deps.ChatService)
-	internal := r.Group("/internal/v1")
+	internalMW := internalTokenAuthMiddleware(deps.InternalToken)
+	internal := r.Group("/internal/v1", internalMW)
 	{
 		internal.POST("/tokens/stream", internalH.PushTokensHTTP)
 		internal.POST("/tokens/push", internalH.PushTokenHTTP)

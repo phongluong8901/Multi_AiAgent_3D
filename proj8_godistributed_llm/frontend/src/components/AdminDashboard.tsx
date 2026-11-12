@@ -23,6 +23,11 @@ interface AdminDashboardProps {
   isRefreshing: boolean;
 }
 
+/**
+ * Bảng điều khiển giám sát toàn cụm (Cluster Monitor):
+ * - Tổng hợp KPI: trạng thái Gateway, số Worker, Active Slots và tổng Queue Backlog.
+ * - Bảng chi tiết từng Worker Node (CPU/RAM/VRAM, models) kèm nút điều khiển Drain/Resume.
+ */
 export function AdminDashboard({
   nodes,
   queues,

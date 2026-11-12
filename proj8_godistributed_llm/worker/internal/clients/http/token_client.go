@@ -10,13 +10,16 @@ import (
 	"time"
 
 	"go-distributed-llm/shared/models"
+	"go-distributed-llm/shared/pkg/auth"
 )
 
 // HTTPTokenClient cài đặt ports.TokenStreamer qua giao thức HTTP/1.1 Chunked NDJSON.
 type HTTPTokenClient struct {
-	httpClient *http.Client
+	httpClient    *http.Client
+	internalToken string
 }
 
+// NewHTTPTokenClient tạo HTTP client truyền token stream về Gateway (dùng khi transport="http").
 func NewHTTPTokenClient(timeout time.Duration) *HTTPTokenClient {
 	if timeout <= 0 {
 		timeout = 180 * time.Second
@@ -26,6 +29,12 @@ func NewHTTPTokenClient(timeout time.Duration) *HTTPTokenClient {
 	}
 }
 
+// SetInternalToken gán shared secret gửi kèm trong header X-Internal-Token.
+func (c *HTTPTokenClient) SetInternalToken(token string) {
+	c.internalToken = strings.TrimSpace(token)
+}
+
+// StreamTokens đọc chunks từ channel, encode từng dòng JSON (NDJSON) qua io.Pipe và POST streaming về /internal/v1/tokens/stream.
 func (c *HTTPTokenClient) StreamTokens(ctx context.Context, targetHTTPAddr string, chunks <-chan models.TokenChunk) error {
 	base := strings.TrimRight(strings.TrimSpace(targetHTTPAddr), "/")
 	if base == "" {
@@ -68,6 +77,9 @@ func (c *HTTPTokenClient) StreamTokens(ctx context.Context, targetHTTPAddr strin
 		return err
 	}
 	req.Header.Set("Content-Type", "application/x-ndjson")
+	if c.internalToken != "" {
+		req.Header.Set(auth.InternalTokenHeader, c.internalToken)
+	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {

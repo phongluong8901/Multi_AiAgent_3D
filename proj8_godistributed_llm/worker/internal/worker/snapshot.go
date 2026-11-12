@@ -55,6 +55,9 @@ type WorkerSnapshot struct {
 	RecentJobs         []JobRecord `json:"recent_jobs"`
 }
 
+// --- Cụm ghi nhận Job Telemetry & Điều khiển Runtime từ UI ---
+
+// recordActiveJob đánh dấu job đang chạy vào map runningJobs để UI hiển thị real-time.
 func (w *ClusterWorker) recordActiveJob(job models.JobPayload, queueWaitMs int64) {
 	w.activeListMu.Lock()
 	defer w.activeListMu.Unlock()
@@ -69,6 +72,7 @@ func (w *ClusterWorker) recordActiveJob(job models.JobPayload, queueWaitMs int64
 	}
 }
 
+// recordJobFinish xóa job khỏi danh sách đang chạy và đẩy vào đầu ring buffer recentJobs (tối đa 30 bản ghi).
 func (w *ClusterWorker) recordJobFinish(rec JobRecord) {
 	w.activeListMu.Lock()
 	delete(w.runningJobs, rec.JobID)
@@ -82,6 +86,7 @@ func (w *ClusterWorker) recordJobFinish(rec JobRecord) {
 	}
 }
 
+// GetRecentJobs gộp danh sách job đang chạy (RUNNING) lên trước lịch sử job vừa hoàn tất.
 func (w *ClusterWorker) GetRecentJobs() []JobRecord {
 	w.activeListMu.Lock()
 	running := make([]JobRecord, 0, len(w.runningJobs))
@@ -98,6 +103,7 @@ func (w *ClusterWorker) GetRecentJobs() []JobRecord {
 	return append(running, history...)
 }
 
+// Snapshot tổng hợp toàn bộ chỉ số hệ thống, trạng thái breaker, bộ đếm job và recentJobs cho Web UI / Desktop App.
 func (w *ClusterWorker) Snapshot(ctx context.Context) WorkerSnapshot {
 	draining := false
 	if w.registry != nil {
@@ -148,6 +154,7 @@ func (w *ClusterWorker) Snapshot(ctx context.Context) WorkerSnapshot {
 	}
 }
 
+// SetDraining bật/tắt cờ DRAINING trên Redis cho Worker hiện tại.
 func (w *ClusterWorker) SetDraining(ctx context.Context, draining bool) error {
 	if w.registry == nil {
 		return nil
@@ -155,11 +162,13 @@ func (w *ClusterWorker) SetDraining(ctx context.Context, draining bool) error {
 	return w.registry.SetNodeDraining(ctx, w.id, draining)
 }
 
+// SyncNow kích hoạt đồng bộ lại danh sách model và kiểm tra sức khỏe engine ngay lập tức.
 func (w *ClusterWorker) SyncNow(ctx context.Context) []string {
 	w.syncModelsAndHealth(ctx)
 	return w.getSupportedModels()
 }
 
+// ResetBreaker đặt lại Circuit Breaker về trạng thái CLOSED thủ công qua UI.
 func (w *ClusterWorker) ResetBreaker() {
 	w.breaker.Reset()
 	w.log.Info("circuit breaker manually reset via local UI", "worker_id", w.id)

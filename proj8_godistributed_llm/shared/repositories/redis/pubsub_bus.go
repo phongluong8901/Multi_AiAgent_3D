@@ -14,14 +14,17 @@ type RedisEventBus struct {
 	client redis.UniversalClient
 }
 
+// NewRedisEventBus khởi tạo EventBus phát và lắng nghe tín hiệu hủy job qua Redis Pub/Sub.
 func NewRedisEventBus(client redis.UniversalClient) *RedisEventBus {
 	return &RedisEventBus{client: client}
 }
 
+// PublishCancel phát tín hiệu STOP một jobID tới toàn bộ Worker đang lắng nghe kênh ctrl:cancel:all.
 func (b *RedisEventBus) PublishCancel(ctx context.Context, jobID string) error {
 	return b.client.Publish(ctx, cancelAllChannel, jobID).Err()
 }
 
+// SubscribeCancelAll mở 1 goroutine đọc stream Pub/Sub và đẩy các jobID cần hủy ra channel cho Worker Engine.
 func (b *RedisEventBus) SubscribeCancelAll(ctx context.Context) (<-chan string, error) {
 	pubsub := b.client.Subscribe(ctx, cancelAllChannel)
 	if _, err := pubsub.Receive(ctx); err != nil {

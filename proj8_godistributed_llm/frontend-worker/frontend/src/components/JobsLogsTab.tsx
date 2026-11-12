@@ -1,11 +1,13 @@
 import { agent, worker } from '../../wailsjs/go/models';
 
+/** Props đầu vào cho tab Executions & Logs. */
 interface JobsLogsTabProps {
   jobs: worker.JobRecord[];
   logs: agent.LogEntry[];
   onClearLogs: () => void;
 }
 
+/** Hiển thị bảng các inference job gần nhất (Status, Queue Wait, Duration, Trace ID) và cửa sổ console log trực tiếp. */
 export function JobsLogsTab({ jobs, logs, onClearLogs }: JobsLogsTabProps) {
   return (
     <>

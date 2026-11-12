@@ -7,11 +7,15 @@ import type {
   StreamTokenEvent,
 } from "@/types/api";
 
+// --- Cụm cấu hình địa chỉ Gateway & Authentication Header ---
+
+/** Địa chỉ API Gateway mặc định (có thể ghi đè bằng NEXT_PUBLIC_GATEWAY_URL). */
 export const GATEWAY_URL =
   process.env.NEXT_PUBLIC_GATEWAY_URL ?? "http://127.0.0.1:8088";
 
 const GATEWAY_API_KEY = process.env.NEXT_PUBLIC_GATEWAY_API_KEY ?? "";
 
+/** Tự động gắn header X-API-Key nếu biến môi trường NEXT_PUBLIC_GATEWAY_API_KEY được cấu hình. */
 function authHeaders(extra?: Record<string, string>): Record<string, string> {
   const headers: Record<string, string> = { ...(extra ?? {}) };
   if (GATEWAY_API_KEY) {
@@ -20,6 +24,9 @@ function authHeaders(extra?: Record<string, string>): Record<string, string> {
   return headers;
 }
 
+// --- Cụm Admin & Health Check APIs (/healthz, /api/v1/admin/*) ---
+
+/** Kiểm tra Gateway có đang phản hồi tại /healthz hay không. */
 export async function checkGatewayHealth(): Promise<boolean> {
   try {
     const res = await fetch(`${GATEWAY_URL}/healthz`, { cache: "no-store" });
@@ -29,6 +36,7 @@ export async function checkGatewayHealth(): Promise<boolean> {
   }
 }
 
+/** Lấy danh sách toàn bộ Worker Nodes đang gửi heartbeat lên cụm. */
 export async function listWorkerNodes(): Promise<NodesResponse> {
   const res = await fetch(`${GATEWAY_URL}/api/v1/admin/nodes`, {
     headers: authHeaders(),
@@ -44,6 +52,7 @@ export async function listWorkerNodes(): Promise<NodesResponse> {
   };
 }
 
+/** Truy vấn độ sâu hàng đợi (backlog) hiện tại theo danh sách tên model. */
 export async function getQueueStats(models: string[]): Promise<QueuesResponse> {
   const query =
     models.length > 0 ? `?models=${encodeURIComponent(models.join(","))}` : "";
@@ -58,6 +67,7 @@ export async function getQueueStats(models: string[]): Promise<QueuesResponse> {
   return { queues: data.queues ?? {} };
 }
 
+/** Gửi lệnh Drain hoặc Resume để điều khiển Worker Node từ Cluster Monitor. */
 export async function setWorkerDraining(
   workerId: string,
   draining: boolean
@@ -75,6 +85,9 @@ export async function setWorkerDraining(
   }
 }
 
+// --- Cụm Chat History, Cancel Job & SSE Token Streaming ---
+
+/** Lấy danh sách các cuộc hội thoại gần đây từ PostgreSQL/Memory repository của Gateway. */
 export async function listConversations(): Promise<ConversationSummary[]> {
   const res = await fetch(`${GATEWAY_URL}/api/v1/chat/conversations`, {
     headers: authHeaders(),
@@ -89,6 +102,7 @@ export async function listConversations(): Promise<ConversationSummary[]> {
   return data.conversations ?? [];
 }
 
+/** Tải lịch sử tin nhắn của một phiên hội thoại và chuẩn hóa sang kiểu ChatMessage của UI. */
 export async function getChatHistory(
   conversationId: string
 ): Promise<ChatMessage[]> {
@@ -122,6 +136,7 @@ export async function getChatHistory(
   }));
 }
 
+/** Gửi yêu cầu hủy job đang sinh token lên Gateway để ngắt GPU ở Worker. */
 export async function stopJob(jobId: string): Promise<void> {
   const res = await fetch(
     `${GATEWAY_URL}/api/v1/chat/${encodeURIComponent(jobId)}/stop`,
@@ -135,6 +150,7 @@ export async function stopJob(jobId: string): Promise<void> {
   }
 }
 
+/** Tham số đầu vào và các callback xử lý sự kiện SSE khi gọi streamChat. */
 export interface StreamChatParams {
   userId: string;
   conversationId: string;
@@ -150,6 +166,7 @@ export interface StreamChatParams {
   onComplete: () => void;
 }
 
+/** Gửi prompt tới /api/v1/chat/stream, đọc ReadableStream SSE từng chunk và kích hoạt callback onToken/onError/onComplete. */
 export async function streamChat(params: StreamChatParams): Promise<void> {
   const res = await fetch(`${GATEWAY_URL}/api/v1/chat/stream`, {
     method: "POST",

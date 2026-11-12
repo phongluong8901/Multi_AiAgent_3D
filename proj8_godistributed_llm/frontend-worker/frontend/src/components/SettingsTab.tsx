@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { main } from '../../wailsjs/go/models';
 
+/** Props cho tab chỉnh sửa cấu hình worker.yaml trực tiếp từ Desktop App. */
 interface SettingsTabProps {
   config: main.WorkerConfigDTO;
   running: boolean;
@@ -8,17 +9,20 @@ interface SettingsTabProps {
   onTestEngine: (provider: string, baseURL: string) => Promise<main.EngineCheckResult>;
 }
 
+/** Form cấu hình Worker Node (ID, Transport, Parallel Slots, LLM Provider, Graceful Shutdown, Internal Token) kèm nút Test Engine. */
 export function SettingsTab({ config, running, onSave, onTestEngine }: SettingsTabProps) {
   const [form, setForm] = useState<main.WorkerConfigDTO>(config);
   const [modelsText, setModelsText] = useState((config.supported_models || []).join(', '));
   const [testMsg, setTestMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [saving, setSaving] = useState(false);
 
+  // Đồng bộ lại form state mỗi khi config trên đĩa/backend thay đổi.
   useEffect(() => {
     setForm(config);
     setModelsText((config.supported_models || []).join(', '));
   }, [config]);
 
+  // Chuẩn hóa danh sách models từ chuỗi phân tách dấu phẩy và gọi RPC lưu worker.yaml (tùy chọn restart).
   const handleSave = async (restart: boolean) => {
     setSaving(true);
     try {
@@ -32,6 +36,7 @@ export function SettingsTab({ config, running, onSave, onTestEngine }: SettingsT
     }
   };
 
+  // Gửi kiểm tra sức khỏe tới LLM Engine cục bộ trước khi lưu cấu hình.
   const handleProbe = async () => {
     setTestMsg(null);
     const res = await onTestEngine(form.llm_provider, form.llm_base_url);
@@ -101,6 +106,16 @@ export function SettingsTab({ config, running, onSave, onTestEngine }: SettingsT
         <div className="field">
           <label>Hard Job Timeout (sec)</label>
           <input type="number" min={0} value={form.max_job_duration_sec} onChange={(e) => setForm({ ...form, max_job_duration_sec: Number(e.target.value) || 0 })} />
+        </div>
+
+        <div className="field">
+          <label>Shutdown Grace Period (sec)</label>
+          <input type="number" min={0} value={form.shutdown_grace_sec} onChange={(e) => setForm({ ...form, shutdown_grace_sec: Number(e.target.value) || 0 })} />
+        </div>
+
+        <div className="field">
+          <label>Internal Token (shared secret)</label>
+          <input type="password" value={form.internal_token || ''} placeholder="Optional X-Internal-Token" onChange={(e) => setForm({ ...form, internal_token: e.target.value })} />
         </div>
 
         <div className="field">

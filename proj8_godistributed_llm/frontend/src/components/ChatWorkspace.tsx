@@ -30,6 +30,7 @@ interface ChatWorkspaceProps {
   gatewayOnline: boolean;
 }
 
+/** Sinh ID ngẫu nhiên ngắn (ưu tiên crypto.randomUUID) cho conversation hoặc message phía client. */
 function makeId(prefix: string): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
     return `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
@@ -37,6 +38,11 @@ function makeId(prefix: string): string {
   return `${prefix}-${Date.now()}`;
 }
 
+/**
+ * Không gian làm việc Chat chính (gồm sidebar lịch sử hội thoại, bộ chọn model/tham số và luồng SSE streaming):
+ * - Gửi prompt & stream token theo thời gian thực kèm hiển thị TTFT / Duration / TPS.
+ * - Hỗ trợ ngắt giữa chừng qua cả AbortController lẫn POST /api/v1/chat/:id/stop.
+ */
 export function ChatWorkspace({
   availableModels,
   gatewayOnline,
@@ -59,6 +65,9 @@ export function ChatWorkspace({
   const abortRef = useRef<AbortController | null>(null);
   const scrollEndRef = useRef<HTMLDivElement | null>(null);
 
+  // --- Cụm tải danh sách hội thoại & đồng bộ model mặc định ---
+
+  /** Tải lại danh sách hội thoại bên sidebar khi Gateway đang online. */
   const refreshConversations = useCallback(async () => {
     if (!gatewayOnline) return;
     const list = await listConversations();
@@ -79,18 +88,23 @@ export function ChatWorkspace({
     scrollEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  // --- Cụm xử lý tương tác UI: Copy, Tạo/Chọn hội thoại, Stop & Gửi Prompt SSE ---
+
+  /** Copy nội dung câu trả lời vào clipboard và bật trạng thái "Copied" trong 1.5s. */
   const handleCopy = async (id: string, text: string) => {
     await navigator.clipboard.writeText(text);
     setCopiedId(id);
     setTimeout(() => setCopiedId((prev) => (prev === id ? null : prev)), 1500);
   };
 
+  /** Bắt đầu một phiên hội thoại mới (chỉ cho phép khi không có luồng SSE đang chạy). */
   const handleNewChat = () => {
     if (isStreaming) return;
     setMessages([]);
     setConversationId(makeId("conv"));
   };
 
+  /** Tải toàn bộ lịch sử tin nhắn khi user chọn một cuộc hội thoại từ sidebar. */
   const handleSelectConversation = async (convId: string) => {
     if (isStreaming) return;
     setConversationId(convId);
@@ -102,6 +116,7 @@ export function ChatWorkspace({
     }
   };
 
+  /** Ngắt job đang sinh chữ cả ở phía Gateway/Worker (POST /stop) lẫn AbortController cục bộ. */
   const handleStop = async () => {
     if (activeJobId) {
       try {
@@ -116,6 +131,7 @@ export function ChatWorkspace({
     setActiveJobId(null);
   };
 
+  /** Tạo cặp message user/assistant tạm thời rồi mở luồng streamChat nhận từng token qua SSE. */
   const handleSubmit = async () => {
     const trimmed = prompt.trim();
     if (!trimmed || isStreaming) return;

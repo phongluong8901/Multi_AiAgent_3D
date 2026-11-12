@@ -32,8 +32,9 @@ type GatewayConfig struct {
 		DSN    string `yaml:"dsn"`
 	} `yaml:"postgres"`
 	Auth struct {
-		APIKey       string `yaml:"api_key"`
-		RateLimitRPM int    `yaml:"rate_limit_rpm"`
+		APIKey        string `yaml:"api_key"`
+		InternalToken string `yaml:"internal_token"`
+		RateLimitRPM  int    `yaml:"rate_limit_rpm"`
 	} `yaml:"auth"`
 }
 
@@ -43,11 +44,13 @@ type WorkerConfig struct {
 		ID                   string   `yaml:"id"`
 		UIAddr               string   `yaml:"ui_addr"`
 		Transport            string   `yaml:"transport"` // "grpc" hoặc "http"
+		InternalToken        string   `yaml:"internal_token"`
 		GRPCTLSCA            string   `yaml:"grpc_tls_ca"`
 		MaxParallelJobs      int      `yaml:"max_parallel_jobs"`
 		SupportedModels      []string `yaml:"supported_models"`
 		HeartbeatIntervalSec int      `yaml:"heartbeat_interval_sec"`
 		MaxJobDurationSec    int      `yaml:"max_job_duration_sec"`
+		ShutdownGraceSec     int      `yaml:"shutdown_grace_sec"`
 		BatchFlushMs         int      `yaml:"batch_flush_ms"`
 		DynamicModelSync     bool     `yaml:"dynamic_model_sync"`
 	} `yaml:"worker"`
@@ -65,6 +68,8 @@ type WorkerConfig struct {
 	} `yaml:"redis"`
 }
 
+// LoadGatewayConfig nạp cấu hình Gateway theo thứ tự ưu tiên:
+// giá trị mặc định an toàn -> đọc file YAML (nếu có) -> ghi đè từ biến môi trường (ENV).
 func LoadGatewayConfig(path string) (*GatewayConfig, error) {
 	cfg := &GatewayConfig{}
 	cfg.Server.HTTPPort = 8088
@@ -133,6 +138,9 @@ func LoadGatewayConfig(path string) (*GatewayConfig, error) {
 	if v := os.Getenv("GATEWAY_API_KEY"); v != "" {
 		cfg.Auth.APIKey = v
 	}
+	if v := os.Getenv("INTERNAL_TOKEN"); v != "" {
+		cfg.Auth.InternalToken = v
+	}
 	if v := os.Getenv("RATE_LIMIT_RPM"); v != "" {
 		if rpm, err := strconv.Atoi(v); err == nil {
 			cfg.Auth.RateLimitRPM = rpm
@@ -142,6 +150,8 @@ func LoadGatewayConfig(path string) (*GatewayConfig, error) {
 	return cfg, nil
 }
 
+// LoadWorkerConfig nạp cấu hình Worker theo thứ tự ưu tiên:
+// giá trị mặc định -> đọc file YAML (nếu có) -> ghi đè từ biến môi trường (ENV).
 func LoadWorkerConfig(path string) (*WorkerConfig, error) {
 	cfg := &WorkerConfig{}
 	cfg.Worker.ID = "worker-node-01"
@@ -151,6 +161,7 @@ func LoadWorkerConfig(path string) (*WorkerConfig, error) {
 	cfg.Worker.SupportedModels = []string{"qwen2.5:1.5b", "qwen2.5:7b", "llama3.2:3b"}
 	cfg.Worker.HeartbeatIntervalSec = 5
 	cfg.Worker.MaxJobDurationSec = 300
+	cfg.Worker.ShutdownGraceSec = 15
 	cfg.Worker.BatchFlushMs = 20
 	cfg.Worker.DynamicModelSync = true
 	cfg.LLM.Provider = "ollama"
@@ -176,12 +187,20 @@ func LoadWorkerConfig(path string) (*WorkerConfig, error) {
 	if v := os.Getenv("WORKER_TRANSPORT"); v != "" {
 		cfg.Worker.Transport = strings.ToLower(strings.TrimSpace(v))
 	}
+	if v := os.Getenv("INTERNAL_TOKEN"); v != "" {
+		cfg.Worker.InternalToken = v
+	}
 	if v := os.Getenv("GRPC_TLS_CA"); v != "" {
 		cfg.Worker.GRPCTLSCA = v
 	}
 	if v := os.Getenv("MAX_JOB_DURATION_SEC"); v != "" {
 		if sec, err := strconv.Atoi(v); err == nil {
 			cfg.Worker.MaxJobDurationSec = sec
+		}
+	}
+	if v := os.Getenv("SHUTDOWN_GRACE_SEC"); v != "" {
+		if sec, err := strconv.Atoi(v); err == nil {
+			cfg.Worker.ShutdownGraceSec = sec
 		}
 	}
 	if v := os.Getenv("BATCH_FLUSH_MS"); v != "" {

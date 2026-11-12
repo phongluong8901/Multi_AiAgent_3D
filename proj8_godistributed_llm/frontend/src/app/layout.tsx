@@ -6,6 +6,7 @@ export const metadata: Metadata = {
   description: "Distributed Local LLM Chat and Cluster Telemetry Console",
 };
 
+/** Layout gốc của ứng dụng Next.js (bật dark theme mặc định trên toàn trang). */
 export default function RootLayout({
   children,
 }: Readonly<{

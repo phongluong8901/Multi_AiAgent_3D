@@ -1,3 +1,4 @@
+/** Một tin nhắn hiển thị trong khung chat (bao gồm thông số TTFT, TPS và worker đã xử lý). */
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant" | "system";
@@ -13,12 +14,14 @@ export interface ChatMessage {
   createdAt: number;
 }
 
+/** Tóm tắt phiên hội thoại hiển thị ở danh sách Conversations bên trái. */
 export interface ConversationSummary {
   id: string;
   title: string;
   created_at: string;
 }
 
+/** Gói SSE event `message` trả về từ Gateway /api/v1/chat/stream. */
 export interface StreamTokenEvent {
   job_id: string;
   conversation_id: string;
@@ -31,11 +34,13 @@ export interface StreamTokenEvent {
   tokens_per_sec?: number;
 }
 
+/** Gói SSE event `error` trả về khi Worker/Gateway gặp sự cố hoặc quá thời gian chờ. */
 export interface StreamErrorEvent {
   job_id: string;
   error: string;
 }
 
+/** Trạng thái telemetry của một Worker Node đọc từ /api/v1/admin/nodes. */
 export interface WorkerNodeInfo {
   worker_id: string;
   supported_models: string[];
@@ -48,11 +53,13 @@ export interface WorkerNodeInfo {
   last_heartbeat: number;
 }
 
+/** Phản hồi danh sách Worker Nodes đang online trong cụm. */
 export interface NodesResponse {
   total_nodes: number;
   nodes: WorkerNodeInfo[];
 }
 
+/** Độ sâu hàng đợi hiện tại của từng model trả về từ /api/v1/admin/queues. */
 export interface QueuesResponse {
   queues: Record<string, number>;
 }

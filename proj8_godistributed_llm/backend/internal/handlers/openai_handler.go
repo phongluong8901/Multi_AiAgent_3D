@@ -22,6 +22,7 @@ type OpenAIHandler struct {
 	firstTokenTimeout time.Duration
 }
 
+// NewOpenAIHandler khởi tạo HTTP handler tương thích API chuẩn OpenAI (/v1/*).
 func NewOpenAIHandler(chat *services.ChatService, admin *services.AdminService, m *metrics.GatewayMetrics) *OpenAIHandler {
 	return &OpenAIHandler{
 		chat:              chat,
@@ -31,6 +32,7 @@ func NewOpenAIHandler(chat *services.ChatService, admin *services.AdminService, 
 	}
 }
 
+// openAICompletionRequest ánh xạ cấu trúc JSON request chuẩn OpenAI kèm trường mở rộng (conversation_id, priority).
 type openAICompletionRequest struct {
 	Model          string            `json:"model" binding:"required"`
 	Messages       []models.ChatTurn `json:"messages" binding:"required,min=1"`
@@ -42,6 +44,7 @@ type openAICompletionRequest struct {
 	Priority       string            `json:"priority"`
 }
 
+// ListModels tổng hợp danh sách model đang khả dụng từ tất cả Worker khỏe mạnh (GET /v1/models).
 func (h *OpenAIHandler) ListModels(c *gin.Context) {
 	nodes, err := h.admin.ListOnlineNodes(c.Request.Context())
 	if err != nil {
@@ -76,6 +79,7 @@ func (h *OpenAIHandler) ListModels(c *gin.Context) {
 	})
 }
 
+// ChatCompletions là điểm vào của POST /v1/chat/completions, rẽ nhánh sang SSE stream hoặc JSON sync tùy thuộc `stream`.
 func (h *OpenAIHandler) ChatCompletions(c *gin.Context) {
 	var req openAICompletionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -115,6 +119,7 @@ func (h *OpenAIHandler) ChatCompletions(c *gin.Context) {
 	h.handleOpenAISync(c, req, enqueued, completionID, createdUnix)
 }
 
+// handleOpenAIStream chuyển từng TokenChunk thành định dạng SSE `chat.completion.chunk` và kết thúc bằng `[DONE]`.
 func (h *OpenAIHandler) handleOpenAIStream(c *gin.Context, req openAICompletionRequest, enqueued *services.EnqueuedJob, completionID string, createdUnix int64) {
 	if h.metrics != nil {
 		h.metrics.IncActiveStreams()
@@ -232,6 +237,7 @@ func (h *OpenAIHandler) handleOpenAIStream(c *gin.Context, req openAICompletionR
 	}
 }
 
+// handleOpenAISync chờ Worker hoàn tất toàn bộ câu trả lời rồi gọi respondOpenAISync trả JSON một lần.
 func (h *OpenAIHandler) handleOpenAISync(c *gin.Context, req openAICompletionRequest, enqueued *services.EnqueuedJob, completionID string, createdUnix int64) {
 	c.Header("X-Trace-Id", enqueued.TraceID)
 	clientGone := c.Request.Context().Done()
@@ -286,6 +292,7 @@ func (h *OpenAIHandler) handleOpenAISync(c *gin.Context, req openAICompletionReq
 	}
 }
 
+// respondOpenAISync đóng gói kết quả cuối cùng theo schema `chat.completion` chuẩn OpenAI.
 func (h *OpenAIHandler) respondOpenAISync(c *gin.Context, model, completionID string, createdUnix int64, answer string, promptTokens, compTokens int) {
 	h.recordReq(http.StatusOK)
 	c.JSON(http.StatusOK, gin.H{
@@ -311,6 +318,7 @@ func (h *OpenAIHandler) respondOpenAISync(c *gin.Context, model, completionID st
 	})
 }
 
+// recordReq cập nhật bộ đếm Prometheus cho endpoint /v1/chat/completions.
 func (h *OpenAIHandler) recordReq(status int) {
 	if h.metrics != nil {
 		h.metrics.RecordRequest("/v1/chat/completions", status)

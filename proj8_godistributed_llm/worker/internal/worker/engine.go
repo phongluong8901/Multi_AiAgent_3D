@@ -12,37 +12,40 @@ import (
 	"go-distributed-llm/shared/ports"
 )
 
-// WorkerOptions chứa các cấu hình nâng cao cho ClusterWorker (Hard Timeout, Micro-Batching, Dynamic Sync, Metadata).
+// WorkerOptions chứa các cấu hình nâng cao cho ClusterWorker (Hard Timeout, Grace Period, Micro-Batching, Dynamic Sync).
 type WorkerOptions struct {
-	MaxJobDuration     time.Duration
-	BatchFlushInterval time.Duration
-	DynamicModelSync   bool
-	FailureThreshold   int
-	BreakerCooldown    time.Duration
-	LLMProviderName    string
-	LLMBaseURL         string
-	RedisAddr          string
+	MaxJobDuration      time.Duration
+	ShutdownGracePeriod time.Duration
+	BatchFlushInterval  time.Duration
+	DynamicModelSync    bool
+	FailureThreshold    int
+	BreakerCooldown     time.Duration
+	LLMProviderName     string
+	LLMBaseURL          string
+	RedisAddr           string
 }
 
 // ClusterWorker là bộ não điều phối phía máy trạm Local LLM:
 // - 1 kết nối Redis Pub/Sub duy nhất điều phối hủy job cho hàng nghìn job đồng thời.
 // - Circuit Breaker chống nhận job khi engine cục bộ chết, Hard Job Timeout chống kẹt slot.
+// - Graceful Shutdown chờ job đang sinh dở hoàn thành trong thời gian ân hạn trước khi ép hủy.
 // - Semaphore bảo vệ GPU/VRAM, Heartbeat 5s, XAUTOCLAIM tự cứu job + Rebalance affinity mồ côi.
 type ClusterWorker struct {
-	id                 string
-	transportMode      string
-	consumerGroup      string
-	modelsMu           sync.RWMutex
-	supportedModels    []string
-	maxSlots           int
-	heartbeatInterval  time.Duration
-	maxJobDuration     time.Duration
-	batchFlushInterval time.Duration
-	dynamicModelSync   bool
-	llmProviderName    string
-	llmBaseURL         string
-	redisAddr          string
-	startedAt          time.Time
+	id                  string
+	transportMode       string
+	consumerGroup       string
+	modelsMu            sync.RWMutex
+	supportedModels     []string
+	maxSlots            int
+	heartbeatInterval   time.Duration
+	maxJobDuration      time.Duration
+	shutdownGracePeriod time.Duration
+	batchFlushInterval  time.Duration
+	dynamicModelSync    bool
+	llmProviderName     string
+	llmBaseURL          string
+	redisAddr           string
+	startedAt           time.Time
 
 	queue    ports.JobQueue
 	eventBus ports.EventBus
@@ -66,9 +69,11 @@ type ClusterWorker struct {
 	jobsMu       sync.RWMutex
 	recentJobs   []JobRecord
 
-	wg sync.WaitGroup
+	jobsWg sync.WaitGroup
+	wg     sync.WaitGroup
 }
 
+// NewClusterWorker khởi tạo Worker Node với các tham số bảo vệ GPU mặc định (Hard Timeout 5m, Grace 15s, Batch 20ms).
 func NewClusterWorker(
 	id string,
 	transportMode string,
@@ -101,30 +106,35 @@ func NewClusterWorker(
 	copy(modelsCopy, supportedModels)
 
 	return &ClusterWorker{
-		id:                 id,
-		transportMode:      mode,
-		consumerGroup:      consumerGroup,
-		supportedModels:    modelsCopy,
-		maxSlots:           maxParallelJobs,
-		heartbeatInterval:  heartbeatInterval,
-		maxJobDuration:     5 * time.Minute,
-		batchFlushInterval: 20 * time.Millisecond,
-		startedAt:          time.Now(),
-		queue:              queue,
-		eventBus:           eventBus,
-		registry:           registry,
-		llm:                llm,
-		streamer:           streamer,
-		breaker:            NewCircuitBreaker(3, 15*time.Second),
-		log:                log,
-		sem:                make(chan struct{}, maxParallelJobs),
-		runningJobs:        make(map[string]JobRecord),
+		id:                  id,
+		transportMode:       mode,
+		consumerGroup:       consumerGroup,
+		supportedModels:     modelsCopy,
+		maxSlots:            maxParallelJobs,
+		heartbeatInterval:   heartbeatInterval,
+		maxJobDuration:      5 * time.Minute,
+		shutdownGracePeriod: 15 * time.Second,
+		batchFlushInterval:  20 * time.Millisecond,
+		startedAt:           time.Now(),
+		queue:               queue,
+		eventBus:            eventBus,
+		registry:            registry,
+		llm:                 llm,
+		streamer:            streamer,
+		breaker:             NewCircuitBreaker(3, 15*time.Second),
+		log:                 log,
+		sem:                 make(chan struct{}, maxParallelJobs),
+		runningJobs:         make(map[string]JobRecord),
 	}
 }
 
+// Configure áp dụng tùy chọn nâng cao từ file YAML / Desktop App vào ClusterWorker trước khi Start.
 func (w *ClusterWorker) Configure(opts WorkerOptions) {
 	if opts.MaxJobDuration > 0 {
 		w.maxJobDuration = opts.MaxJobDuration
+	}
+	if opts.ShutdownGracePeriod >= 0 {
+		w.shutdownGracePeriod = opts.ShutdownGracePeriod
 	}
 	if opts.BatchFlushInterval >= 0 {
 		w.batchFlushInterval = opts.BatchFlushInterval
@@ -144,6 +154,9 @@ func (w *ClusterWorker) Configure(opts WorkerOptions) {
 	}
 }
 
+// --- Cụm quản lý danh sách model (Thread-safe cho DynamicModelSync) ---
+
+// getSupportedModels trả về bản sao danh sách model hiện Worker đang phục vụ.
 func (w *ClusterWorker) getSupportedModels() []string {
 	w.modelsMu.RLock()
 	defer w.modelsMu.RUnlock()
@@ -152,6 +165,7 @@ func (w *ClusterWorker) getSupportedModels() []string {
 	return out
 }
 
+// setSupportedModels cập nhật danh sách model mới phát hiện từ engine cục bộ (Ollama/vLLM).
 func (w *ClusterWorker) setSupportedModels(modelsList []string) {
 	if len(modelsList) == 0 {
 		return
@@ -162,8 +176,15 @@ func (w *ClusterWorker) setSupportedModels(modelsList []string) {
 	w.modelsMu.Unlock()
 }
 
+// --- Cụm Vòng lặp Consumer Chính & Điều phối Graceful Shutdown ---
+
+// Start khởi động các goroutine nền (Heartbeat, Cancel Dispatcher, AutoClaim, Health Probe)
+// rồi chạy vòng lặp chính kéo job từ Redis Stream khi còn slot Semaphore và không ở trạng thái DRAINING/OPEN.
 func (w *ClusterWorker) Start(ctx context.Context) {
 	w.syncModelsAndHealth(ctx)
+
+	// jobsCtx tách khỏi ctx để các job đang sinh token dở có thời gian ân hạn hoàn tất khi Worker dừng.
+	jobsCtx, cancelJobs := context.WithCancel(context.Background())
 
 	w.wg.Add(1)
 	go func() {
@@ -174,13 +195,13 @@ func (w *ClusterWorker) Start(ctx context.Context) {
 	w.wg.Add(1)
 	go func() {
 		defer w.wg.Done()
-		w.runCancelDispatcher(ctx)
+		w.runCancelDispatcher(jobsCtx)
 	}()
 
 	w.wg.Add(1)
 	go func() {
 		defer w.wg.Done()
-		w.runAutoClaimLoop(ctx)
+		w.runAutoClaimLoop(ctx, jobsCtx)
 	}()
 
 	w.wg.Add(1)
@@ -195,6 +216,7 @@ func (w *ClusterWorker) Start(ctx context.Context) {
 		"models", w.getSupportedModels(),
 		"max_slots", w.maxSlots,
 		"max_job_duration", w.maxJobDuration.String(),
+		"shutdown_grace", w.shutdownGracePeriod.String(),
 		"batch_flush", w.batchFlushInterval.String(),
 		"dynamic_model_sync", w.dynamicModelSync,
 	)
@@ -204,7 +226,7 @@ func (w *ClusterWorker) Start(ctx context.Context) {
 			w.log.Warn("circuit breaker OPEN, pausing job pull until engine recovers", "worker_id", w.id)
 			select {
 			case <-ctx.Done():
-				w.wg.Wait()
+				w.shutdownAndDrain(cancelJobs)
 				return
 			case <-time.After(2 * time.Second):
 			}
@@ -213,8 +235,7 @@ func (w *ClusterWorker) Start(ctx context.Context) {
 
 		select {
 		case <-ctx.Done():
-			w.log.Info("worker shutting down, waiting for active jobs", "active_jobs", w.activeJobs.Load())
-			w.wg.Wait()
+			w.shutdownAndDrain(cancelJobs)
 			return
 		case w.sem <- struct{}{}:
 		}
@@ -226,7 +247,7 @@ func (w *ClusterWorker) Start(ctx context.Context) {
 			<-w.sem
 			select {
 			case <-ctx.Done():
-				w.wg.Wait()
+				w.shutdownAndDrain(cancelJobs)
 				return
 			case <-time.After(2 * time.Second):
 			}
@@ -237,10 +258,12 @@ func (w *ClusterWorker) Start(ctx context.Context) {
 		job, err := w.queue.PullJobFromModels(ctx, w.consumerGroup, w.id, currentModels, 2*time.Second)
 		if err != nil {
 			<-w.sem
-			if ctx.Err() == nil {
-				w.log.Error("pull job from redis stream failed", "err", err)
-				time.Sleep(1 * time.Second)
+			if ctx.Err() != nil {
+				w.shutdownAndDrain(cancelJobs)
+				return
 			}
+			w.log.Error("pull job from redis stream failed", "err", err)
+			time.Sleep(1 * time.Second)
 			continue
 		}
 
@@ -249,15 +272,56 @@ func (w *ClusterWorker) Start(ctx context.Context) {
 			continue
 		}
 
-		w.wg.Add(1)
-		go func(j models.JobPayload) {
-			defer w.wg.Done()
-			defer func() { <-w.sem }()
-			w.processJob(ctx, j)
-		}(*job)
+		w.spawnJob(jobsCtx, *job)
 	}
 }
 
+// spawnJob chạy processJob trên goroutine mới gắn jobsWg và tự động nhả slot Semaphore khi hoàn tất.
+func (w *ClusterWorker) spawnJob(jobsCtx context.Context, j models.JobPayload) {
+	w.jobsWg.Add(1)
+	go func() {
+		defer w.jobsWg.Done()
+		defer func() { <-w.sem }()
+		w.processJob(jobsCtx, j)
+	}()
+}
+
+// shutdownAndDrain ngừng kéo job mới nhưng giữ context các job đang chạy trong khoảng shutdownGracePeriod
+// để stream nốt phần trả lời dở trước khi ép hủy và chờ toàn bộ goroutine nền kết thúc.
+func (w *ClusterWorker) shutdownAndDrain(cancelJobs context.CancelFunc) {
+	w.log.Info("worker shutting down, draining active jobs",
+		"active_jobs", w.activeJobs.Load(),
+		"grace_period", w.shutdownGracePeriod.String(),
+	)
+
+	drained := make(chan struct{})
+	go func() {
+		w.jobsWg.Wait()
+		close(drained)
+	}()
+
+	if w.shutdownGracePeriod <= 0 {
+		cancelJobs()
+		<-drained
+	} else {
+		timer := time.NewTimer(w.shutdownGracePeriod)
+		select {
+		case <-drained:
+			timer.Stop()
+		case <-timer.C:
+			w.log.Warn("shutdown grace period exceeded, canceling remaining jobs", "active_jobs", w.activeJobs.Load())
+			cancelJobs()
+			<-drained
+		}
+	}
+
+	cancelJobs()
+	w.wg.Wait()
+}
+
+// --- Cụm Background Loops: Health/Model Sync, Cancel Pub/Sub & Tự cứu Job (XAUTOCLAIM) ---
+
+// syncModelsAndHealth thăm dò sức khỏe engine cục bộ (cập nhật Circuit Breaker) và đồng bộ danh sách model thực tế.
 func (w *ClusterWorker) syncModelsAndHealth(ctx context.Context) {
 	probeCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
@@ -282,6 +346,7 @@ func (w *ClusterWorker) syncModelsAndHealth(ctx context.Context) {
 	}
 }
 
+// runHealthAndDiscoveryLoop chạy định kỳ mỗi 10s để phát hiện engine chết/sống lại và cập nhật model mới pull.
 func (w *ClusterWorker) runHealthAndDiscoveryLoop(ctx context.Context) {
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
@@ -296,6 +361,7 @@ func (w *ClusterWorker) runHealthAndDiscoveryLoop(ctx context.Context) {
 	}
 }
 
+// runCancelDispatcher giữ kết nối subscribe tới kênh Pub/Sub ctrl:cancel:all và tự kết nối lại nếu đứt mạng.
 func (w *ClusterWorker) runCancelDispatcher(ctx context.Context) {
 	for {
 		if ctx.Err() != nil {
@@ -315,15 +381,31 @@ func (w *ClusterWorker) runCancelDispatcher(ctx context.Context) {
 			continue
 		}
 
-		for jobID := range cancelCh {
-			if fn, ok := w.activeCancels.Load(jobID); ok {
+		if !w.consumeCancelChannel(ctx, cancelCh) {
+			return
+		}
+	}
+}
+
+// consumeCancelChannel đọc liên tục jobID cần hủy từ cancelCh và kích hoạt hàm cancel lưu trong activeCancels.
+func (w *ClusterWorker) consumeCancelChannel(ctx context.Context, cancelCh <-chan string) bool {
+	for {
+		select {
+		case <-ctx.Done():
+			return false
+		case jobID, ok := <-cancelCh:
+			if !ok {
+				return true
+			}
+			if fn, exists := w.activeCancels.Load(jobID); exists {
 				fn.(func())()
 			}
 		}
 	}
 }
 
-func (w *ClusterWorker) runAutoClaimLoop(ctx context.Context) {
+// runAutoClaimLoop chạy mỗi 15s để cân bằng lại job affinity mồ côi của node offline và claim lại job treo (> 45s) via XAUTOCLAIM.
+func (w *ClusterWorker) runAutoClaimLoop(ctx context.Context, jobsCtx context.Context) {
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
 
@@ -372,12 +454,7 @@ func (w *ClusterWorker) runAutoClaimLoop(ctx context.Context) {
 			}
 
 			w.log.Warn("reclaimed stalled job via XAUTOCLAIM", "job_id", claimed[0].ID, "stream", claimed[0].StreamName)
-			w.wg.Add(1)
-			go func(j models.JobPayload) {
-				defer w.wg.Done()
-				defer func() { <-w.sem }()
-				w.processJob(ctx, j)
-			}(claimed[0])
+			w.spawnJob(jobsCtx, claimed[0])
 		}
 	}
 }

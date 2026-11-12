@@ -12,6 +12,7 @@ import (
 	"go-distributed-llm/worker/pkg/agent"
 )
 
+// main là entry point CLI của Worker Node: nạp worker.yaml/ENV, khởi tạo Runner và chờ tín hiệu SIGINT/SIGTERM để tắt êm.
 func main() {
 	configPath := flag.String("config", "configs/worker.yaml", "path to worker yaml config")
 	flag.Parse()

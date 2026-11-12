@@ -27,6 +27,7 @@ type ChatHandler struct {
 	keepaliveInterval time.Duration
 }
 
+// NewChatHandler khởi tạo HTTP handler cho các endpoint chat nội bộ (/api/v1/chat/*).
 func NewChatHandler(chat *services.ChatService, m *metrics.GatewayMetrics) *ChatHandler {
 	return &ChatHandler{
 		chat:              chat,
@@ -36,6 +37,7 @@ func NewChatHandler(chat *services.ChatService, m *metrics.GatewayMetrics) *Chat
 	}
 }
 
+// chatRequest là payload JSON đầu vào từ Web/API client cho luồng chat đồng bộ hoặc SSE.
 type chatRequest struct {
 	UserID         string   `json:"user_id"`
 	ConversationID string   `json:"conversation_id"`
@@ -47,6 +49,9 @@ type chatRequest struct {
 	MaxTokens      *int     `json:"max_tokens"`
 }
 
+// --- Cụm helper dùng chung cho cả ChatHandler và OpenAIHandler ---
+
+// extractTraceID lấy TraceID từ header X-Trace-Id hoặc X-Request-Id (nếu không có, ChatService sẽ tự sinh UUID).
 func extractTraceID(c *gin.Context) string {
 	if tid := strings.TrimSpace(c.GetHeader("X-Trace-Id")); tid != "" {
 		return tid
@@ -54,6 +59,7 @@ func extractTraceID(c *gin.Context) string {
 	return strings.TrimSpace(c.GetHeader("X-Request-Id"))
 }
 
+// classifyEnqueueError ánh xạ lỗi nội bộ lúc enqueue (model offline, queue đầy) sang HTTP Status Code phù hợp.
 func classifyEnqueueError(err error) (status int, errType string, retryAfter string) {
 	if errors.Is(err, services.ErrModelUnavailable) {
 		return http.StatusServiceUnavailable, "model_not_found", ""
@@ -64,6 +70,7 @@ func classifyEnqueueError(err error) (status int, errType string, retryAfter str
 	return http.StatusInternalServerError, "server_error", ""
 }
 
+// streamStats gom toàn bộ nội dung trả lời và bộ đếm token/TTFT trong suốt vòng đời một job stream.
 type streamStats struct {
 	answer           strings.Builder
 	streamedUnits    int
@@ -73,6 +80,7 @@ type streamStats struct {
 	ttftMs           int64
 }
 
+// consume cộng dồn từng TokenChunk nhận được từ Worker vào streamStats.
 func (s *streamStats) consume(chunk models.TokenChunk) {
 	if chunk.Token != "" {
 		s.answer.WriteString(chunk.Token)
@@ -93,6 +101,7 @@ func (s *streamStats) consume(chunk models.TokenChunk) {
 	}
 }
 
+// effectiveCompletionTokens ưu tiên trả về số token thật do LLM Engine báo cáo; fallback sang số chunk đã stream.
 func (s *streamStats) effectiveCompletionTokens() int {
 	if s.completionTokens > 0 {
 		return s.completionTokens
@@ -100,12 +109,16 @@ func (s *streamStats) effectiveCompletionTokens() int {
 	return s.streamedUnits
 }
 
+// recordReq ghi nhận bộ đếm Prometheus cho request chat theo endpoint và HTTP status.
 func (h *ChatHandler) recordReq(endpoint string, status int) {
 	if h.metrics != nil {
 		h.metrics.RecordRequest(endpoint, status)
 	}
 }
 
+// --- Cụm Endpoint Streaming (SSE), Sync Chat, Stop & Lịch sử hội thoại ---
+
+// StreamChat mở kết nối SSE, đẩy job vào Redis Stream và stream từng token về client kèm keepalive & first-token timeout.
 func (h *ChatHandler) StreamChat(c *gin.Context) {
 	var req chatRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -238,6 +251,7 @@ func (h *ChatHandler) StreamChat(c *gin.Context) {
 	}
 }
 
+// ChatSync tiếp nhận prompt, chờ Worker sinh đủ câu trả lời rồi trả JSON 1 lần (non-streaming).
 func (h *ChatHandler) ChatSync(c *gin.Context) {
 	var req chatRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -350,6 +364,7 @@ func (h *ChatHandler) ChatSync(c *gin.Context) {
 	}
 }
 
+// StopJob gửi tín hiệu hủy khẩn cấp jobID qua Redis Pub/Sub để Worker giải phóng GPU ngay.
 func (h *ChatHandler) StopJob(c *gin.Context) {
 	jobID := c.Param("id")
 	if err := h.chat.CancelJob(c.Request.Context(), jobID); err != nil {
@@ -359,6 +374,7 @@ func (h *ChatHandler) StopJob(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "cancel_signal_sent", "job_id": jobID})
 }
 
+// GetHistory trả về tối đa 50 tin nhắn gần nhất của một phiên hội thoại.
 func (h *ChatHandler) GetHistory(c *gin.Context) {
 	convID := c.Param("conversation_id")
 	msgs, err := h.chat.GetHistory(c.Request.Context(), convID, 50)
@@ -369,6 +385,7 @@ func (h *ChatHandler) GetHistory(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"conversation_id": convID, "messages": msgs})
 }
 
+// ListConversations liệt kê các cuộc hội thoại gần đây để hiển thị trên thanh bên UI.
 func (h *ChatHandler) ListConversations(c *gin.Context) {
 	userID := c.Query("user_id")
 	convs, err := h.chat.ListConversations(c.Request.Context(), userID, 30)

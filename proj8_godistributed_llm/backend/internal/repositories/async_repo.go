@@ -19,6 +19,7 @@ type AsyncRepository struct {
 	log   *slog.Logger
 }
 
+// NewAsyncRepository khởi tạo lớp bọc ghi bất đồng bộ kèm 1 goroutine nền tiêu thụ hàng đợi.
 func NewAsyncRepository(inner ports.Repository, bufferSize int, log *slog.Logger) *AsyncRepository {
 	if bufferSize <= 0 {
 		bufferSize = 2048
@@ -33,6 +34,7 @@ func NewAsyncRepository(inner ports.Repository, bufferSize int, log *slog.Logger
 	return a
 }
 
+// workerLoop rút tuần tự từng tác vụ ghi DB trong channel cho đến khi Close() đóng channel.
 func (a *AsyncRepository) workerLoop() {
 	defer a.wg.Done()
 	for task := range a.queue {
@@ -42,6 +44,7 @@ func (a *AsyncRepository) workerLoop() {
 	}
 }
 
+// SaveMessage đẩy thao tác lưu tin nhắn vào hàng đợi nền; nếu buffer đầy thì fallback ghi đồng bộ.
 func (a *AsyncRepository) SaveMessage(ctx context.Context, msg models.Message) error {
 	select {
 	case a.queue <- func(writeCtx context.Context) {
@@ -56,6 +59,7 @@ func (a *AsyncRepository) SaveMessage(ctx context.Context, msg models.Message) e
 	}
 }
 
+// LogUsage đẩy thao tác ghi UsageLog vào hàng đợi nền (fallback đồng bộ khi buffer đầy).
 func (a *AsyncRepository) LogUsage(ctx context.Context, usage models.UsageLog) error {
 	select {
 	case a.queue <- func(writeCtx context.Context) {
@@ -69,10 +73,12 @@ func (a *AsyncRepository) LogUsage(ctx context.Context, usage models.UsageLog) e
 	}
 }
 
+// GetHistory đọc thẳng từ repository bên dưới để luôn lấy dữ liệu lịch sử mới nhất.
 func (a *AsyncRepository) GetHistory(ctx context.Context, conversationID string, limit int) ([]models.Message, error) {
 	return a.inner.GetHistory(ctx, conversationID, limit)
 }
 
+// ListConversations đọc thẳng danh sách cuộc hội thoại từ repository bên dưới.
 func (a *AsyncRepository) ListConversations(ctx context.Context, userID string, limit int) ([]models.Conversation, error) {
 	return a.inner.ListConversations(ctx, userID, limit)
 }

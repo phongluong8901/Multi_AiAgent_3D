@@ -39,23 +39,32 @@ import { MonitorTab } from './components/MonitorTab';
 import { JobsLogsTab } from './components/JobsLogsTab';
 import { SettingsTab } from './components/SettingsTab';
 
+/** Định danh các tab chính trong giao diện Worker Desktop Console. */
 type TabKey = 'monitor' | 'jobs' | 'settings';
 
+/**
+ * Component gốc của Worker Desktop App (giao diện Frameless dark style n8n/Postman):
+ * - Thanh Titlebar điều khiển Start/Stop/Restart/Drain + nút cửa sổ Windows.
+ * - Polling GetState() định kỳ mỗi 2s từ Wails Go backend.
+ * - Chuyển đổi giữa 3 workspace tabs: Telemetry, Executions & Logs, Configuration.
+ */
 export function App() {
   const [tab, setTab] = useState<TabKey>('monitor');
   const [state, setState] = useState<main.DesktopState | null>(null);
   const [busy, setBusy] = useState(false);
   const [maximized, setMaximized] = useState(false);
 
+  // Đồng bộ trạng thái phóng to/thu nhỏ của cửa sổ Frameless để đổi icon Maximize/Restore.
   const syncWindowState = useCallback(async () => {
     try {
       const isMax = await WindowIsMaximised();
       setMaximized(isMax);
     } catch {
-      // Ignore outside Wails runtime
+      // Bỏ qua khi chạy ngoài môi trường Wails runtime (ví dụ trình duyệt dev)
     }
   }, []);
 
+  // Kéo toàn bộ DesktopState mới nhất từ Go App backend qua Wails IPC.
   const refresh = useCallback(async () => {
     try {
       const next = await GetState();
@@ -76,6 +85,7 @@ export function App() {
     };
   }, [refresh, syncWindowState]);
 
+  // Wrapper khóa nút trong lúc gọi các RPC điều khiển Worker (Start, Stop, Drain, SaveConfig...).
   const runAction = async (fn: () => Promise<main.DesktopState>) => {
     setBusy(true);
     try {
@@ -86,6 +96,7 @@ export function App() {
     }
   };
 
+  // Phóng to/khôi phục kích thước cửa sổ khi click nút hoặc double-click vào thanh Titlebar.
   const handleToggleMaximize = async () => {
     WindowToggleMaximise();
     setTimeout(syncWindowState, 60);

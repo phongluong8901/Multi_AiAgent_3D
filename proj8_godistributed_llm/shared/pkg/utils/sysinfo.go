@@ -34,6 +34,8 @@ func CollectHostMetrics() HostMetrics {
 	return metrics
 }
 
+// collectNvidiaVRAMPercent gọi nvidia-smi với timeout ngắn (500ms) để cộng dồn % VRAM đang dùng trên tất cả GPU NVIDIA.
+// Trả về 0 nếu máy chạy CPU-only hoặc không có nvidia-smi.
 func collectNvidiaVRAMPercent() float64 {
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()

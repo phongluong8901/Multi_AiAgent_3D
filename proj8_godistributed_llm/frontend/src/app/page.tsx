@@ -14,6 +14,10 @@ import type { WorkerNodeInfo } from "@/types/api";
 
 type TabKey = "chat" | "admin";
 
+/**
+ * Trang chủ Web Console: giữ trạng thái chung (Gateway Health, danh sách Worker, độ sâu Queue mỗi 5s)
+ * và điều hướng giữa 2 tab chính: Chat Console & Cluster Monitor.
+ */
 export default function HomePage() {
   const [activeTab, setActiveTab] = useState<TabKey>("chat");
   const [gatewayOnline, setGatewayOnline] = useState(false);

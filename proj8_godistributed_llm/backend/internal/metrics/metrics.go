@@ -26,6 +26,7 @@ type GatewayMetrics struct {
 	queueWaitCount       map[string]uint64 // key: model
 }
 
+// NewGatewayMetrics khởi tạo các map và atomic counter lưu số liệu vận hành của Gateway.
 func NewGatewayMetrics() *GatewayMetrics {
 	return &GatewayMetrics{
 		requests:             make(map[string]uint64),
@@ -40,18 +41,24 @@ func NewGatewayMetrics() *GatewayMetrics {
 	}
 }
 
+// --- Cụm cập nhật Counters & Gauges (thread-safe) ---
+
+// IncActiveStreams tăng số lượng kết nối SSE đang mở thêm 1.
 func (m *GatewayMetrics) IncActiveStreams() {
 	m.activeStreams.Add(1)
 }
 
+// DecActiveStreams giảm số lượng kết nối SSE đang mở đi 1 khi request đóng.
 func (m *GatewayMetrics) DecActiveStreams() {
 	m.activeStreams.Add(-1)
 }
 
+// IncDroppedTokens ghi nhận 1 chunk token bị drop vì phía SSE client tiêu thụ quá chậm.
 func (m *GatewayMetrics) IncDroppedTokens() {
 	m.droppedTokens.Add(1)
 }
 
+// RecordRequest cộng dồn tổng request theo endpoint và HTTP status code.
 func (m *GatewayMetrics) RecordRequest(endpoint string, status int) {
 	key := fmt.Sprintf("%s|%d", endpoint, status)
 	m.mu.Lock()
@@ -59,6 +66,7 @@ func (m *GatewayMetrics) RecordRequest(endpoint string, status int) {
 	m.mu.Unlock()
 }
 
+// RecordQueueWait cộng dồn độ trễ chờ hàng đợi + TTFT (ms) theo từng model.
 func (m *GatewayMetrics) RecordQueueWait(model string, waitMs int64) {
 	if waitMs < 0 {
 		waitMs = 0
@@ -69,6 +77,7 @@ func (m *GatewayMetrics) RecordQueueWait(model string, waitMs int64) {
 	m.mu.Unlock()
 }
 
+// RecordGeneration ghi nhận thống kê hoàn tất 1 job sinh văn bản (tokens, TTFT, tổng thời gian).
 func (m *GatewayMetrics) RecordGeneration(model string, workerID string, promptTokens int, completionTokens int, ttftMs int64, durationMs int64) {
 	if workerID == "" {
 		workerID = "unknown"
@@ -169,6 +178,7 @@ func (m *GatewayMetrics) RenderPrometheus() string {
 	return b.String()
 }
 
+// sortedKeys sắp xếp key của map theo thứ tự chữ cái để output Prometheus /metrics ổn định (deterministic).
 func sortedKeys[V any](m map[string]V) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {

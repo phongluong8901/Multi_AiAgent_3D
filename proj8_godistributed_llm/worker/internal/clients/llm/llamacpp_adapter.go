@@ -18,6 +18,7 @@ type LlamaCppAdapter struct {
 	httpClient *http.Client
 }
 
+// NewLlamaCppAdapter khởi tạo adapter kết nối tới llama.cpp server cục bộ.
 func NewLlamaCppAdapter(baseURL string, timeout time.Duration) *LlamaCppAdapter {
 	return &LlamaCppAdapter{
 		baseURL: strings.TrimRight(baseURL, "/"),
@@ -27,6 +28,7 @@ func NewLlamaCppAdapter(baseURL string, timeout time.Duration) *LlamaCppAdapter 
 	}
 }
 
+// llamaCppRequest là JSON body gửi tới POST /completion của llama.cpp server.
 type llamaCppRequest struct {
 	Prompt      string   `json:"prompt"`
 	Stream      bool     `json:"stream"`
@@ -34,6 +36,7 @@ type llamaCppRequest struct {
 	NPredict    *int     `json:"n_predict,omitempty"`
 }
 
+// llamaCppResponse ánh xạ từng SSE chunk trả về từ llama.cpp server.
 type llamaCppResponse struct {
 	Content         string `json:"content"`
 	Stop            bool   `json:"stop"`
@@ -41,10 +44,12 @@ type llamaCppResponse struct {
 	TokensPredicted int    `json:"tokens_predicted,omitempty"`
 }
 
+// CheckHealth kiểm tra tình trạng sống của llama.cpp qua GET /health.
 func (l *LlamaCppAdapter) CheckHealth(ctx context.Context) error {
 	return doJSONGet(ctx, l.httpClient, fmt.Sprintf("%s/health", l.baseURL), "llama.cpp", nil)
 }
 
+// formatChatTurnsForCompletion chuyển mảng ChatTurn thành chuỗi prompt phẳng (ROLE: content) cho /completion.
 func formatChatTurnsForCompletion(messages []models.ChatTurn) string {
 	if len(messages) == 1 && messages[0].Role == "user" {
 		return messages[0].Content
@@ -60,6 +65,7 @@ func formatChatTurnsForCompletion(messages []models.ChatTurn) string {
 	return b.String()
 }
 
+// GenerateStream mở SSE stream tới llama.cpp /completion và đẩy từng TokenChunk về Worker Engine.
 func (l *LlamaCppAdapter) GenerateStream(ctx context.Context, _ string, messages []models.ChatTurn, opts models.GenerationOptions) (<-chan models.TokenChunk, error) {
 	resp, err := doStreamPost(ctx, l.httpClient, fmt.Sprintf("%s/completion", l.baseURL), "llama.cpp", llamaCppRequest{
 		Prompt:      formatChatTurnsForCompletion(messages),

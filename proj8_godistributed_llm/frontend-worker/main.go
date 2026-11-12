@@ -12,6 +12,7 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
+// main khởi chạy ứng dụng PC Wails (cửa sổ Frameless tối giản, nhúng frontend/dist và bind App struct).
 func main() {
 	app := NewApp()
 

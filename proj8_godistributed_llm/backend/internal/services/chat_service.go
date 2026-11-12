@@ -28,6 +28,7 @@ var (
 
 const defaultNodeCacheTTL = 2 * time.Second
 
+// ChatInput chứa dữ liệu chuẩn hóa từ các HTTP handler (REST/SSE hoặc OpenAI /v1) trước khi đẩy vào hàng đợi.
 type ChatInput struct {
 	TraceID        string
 	UserID         string
@@ -41,6 +42,7 @@ type ChatInput struct {
 	MaxTokens      *int
 }
 
+// EnqueuedJob đại diện cho job đã xếp hàng thành công, đi kèm TokenChan để handler đọc stream trả về client.
 type EnqueuedJob struct {
 	JobID          string
 	TraceID        string
@@ -69,6 +71,7 @@ type ChatService struct {
 	nodeCacheTTL    time.Duration
 }
 
+// NewChatService khởi tạo ChatService đồng thời gắn callback đếm droppedTokens cho SSEHub.
 func NewChatService(
 	queue ports.JobQueue,
 	pubsub ports.EventBus,
@@ -99,6 +102,7 @@ func NewChatService(
 	}
 }
 
+// normalizePriority chuẩn hóa mức độ ưu tiên về 1 trong 3 giá trị hợp lệ (high/normal/low).
 func normalizePriority(p string) string {
 	switch strings.ToLower(strings.TrimSpace(p)) {
 	case models.PriorityHigh:
@@ -110,6 +114,8 @@ func normalizePriority(p string) string {
 	}
 }
 
+// EnqueueChat kiểm tra model khả dụng, áp dụng Admission Control, lắp ghép ngữ cảnh hội thoại,
+// mở kênh nhận token trên SSEHub rồi đẩy JobPayload vào Redis Stream.
 func (s *ChatService) EnqueueChat(ctx context.Context, input ChatInput) (*EnqueuedJob, error) {
 	// 1. Kiểm tra model khả dụng & chọn PreferredWorkerID cho KV-Cache Affinity (dùng RAM cache 2s).
 	var preferredWorkerID string
@@ -198,6 +204,9 @@ func (s *ChatService) EnqueueChat(ctx context.Context, input ChatInput) (*Enqueu
 	}, nil
 }
 
+// --- Cụm xây dựng Multi-turn Prompt & Định tuyến Node / KV-Cache Affinity ---
+
+// buildConversationTurns lắp ghép SystemPrompt + tối đa 10 tin nhắn lịch sử + prompt hiện tại thành []ChatTurn.
 func (s *ChatService) buildConversationTurns(ctx context.Context, convID string, input ChatInput) []models.ChatTurn {
 	var turns []models.ChatTurn
 
@@ -230,6 +239,7 @@ func (s *ChatService) buildConversationTurns(ctx context.Context, convID string,
 	return turns
 }
 
+// getCachedNodes đọc danh sách Worker Node từ RAM cache (2s TTL, double-check locking) để giảm tải Redis ở RPS cao.
 func (s *ChatService) getCachedNodes(ctx context.Context) ([]models.WorkerNodeInfo, error) {
 	now := time.Now()
 	s.nodeCacheMu.RLock()
@@ -256,6 +266,8 @@ func (s *ChatService) getCachedNodes(ctx context.Context) ([]models.WorkerNodeIn
 	return nodes, nil
 }
 
+// resolveModelAndAffinity kiểm tra có ít nhất 1 Worker khỏe hỗ trợ model hay không;
+// nếu có nhiều Worker và có conversationID, dùng FNV-1a hash chọn PreferredWorkerID còn slot để giữ KV-cache.
 func (s *ChatService) resolveModelAndAffinity(ctx context.Context, model string, convID string) (string, error) {
 	nodes, err := s.getCachedNodes(ctx)
 	if err != nil {
@@ -294,24 +306,31 @@ func (s *ChatService) resolveModelAndAffinity(ctx context.Context, model string,
 	return "", nil
 }
 
+// --- Cụm điều phối Stream Token, Hủy Job & Lưu kết quả / Usage ---
+
+// ReleaseJobStream gỡ subscriber của jobID khỏi SSEHub và đóng channel nhận token.
 func (s *ChatService) ReleaseJobStream(jobID string) {
 	s.sseHub.Unregister(jobID)
 }
 
+// PushToken bơm một mảnh TokenChunk từ Worker (gRPC/HTTP) vào đúng channel của client đang chờ.
 func (s *ChatService) PushToken(chunk models.TokenChunk) {
 	s.sseHub.PushToUser(chunk)
 }
 
+// RecordQueueWait cập nhật metric độ trễ chờ hàng đợi (từ lúc enqueue tới token đầu tiên).
 func (s *ChatService) RecordQueueWait(model string, waitMs int64) {
 	if s.metrics != nil {
 		s.metrics.RecordQueueWait(model, waitMs)
 	}
 }
 
+// CancelJob gửi yêu cầu hủy job thông qua Redis Pub/Sub với context từ request hiện tại.
 func (s *ChatService) CancelJob(ctx context.Context, jobID string) error {
 	return s.pubsub.PublishCancel(ctx, jobID)
 }
 
+// CancelJobDetached gửi yêu cầu hủy job bằng background context (2s timeout) khi client HTTP vừa đóng kết nối.
 func (s *ChatService) CancelJobDetached(jobID string) {
 	cancelCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -320,6 +339,7 @@ func (s *ChatService) CancelJobDetached(jobID string) {
 	}
 }
 
+// ComputeTPS tính tốc độ sinh chữ (Tokens Per Second) làm tròn 2 chữ số thập phân.
 func ComputeTPS(tokenCount int, durationMs int64) float64 {
 	if tokenCount <= 0 || durationMs <= 0 {
 		return 0
@@ -328,6 +348,7 @@ func ComputeTPS(tokenCount int, durationMs int64) float64 {
 	return math.Round(tps*100) / 100
 }
 
+// SaveAssistantResult ghi lại metric Prometheus, câu trả lời của assistant và UsageLog (TTFT, TPS, token thật) vào DB.
 func (s *ChatService) SaveAssistantResult(userID, convID, jobID, traceID, model, workerID, answer string, promptTokens, completionTokens int, ttftMs int64, durationMs int64) {
 	tps := ComputeTPS(completionTokens, durationMs)
 	if s.metrics != nil {
@@ -367,6 +388,7 @@ func (s *ChatService) SaveAssistantResult(userID, convID, jobID, traceID, model,
 	})
 }
 
+// GetHistory lấy lịch sử tin nhắn của một hội thoại từ kho lưu trữ.
 func (s *ChatService) GetHistory(ctx context.Context, conversationID string, limit int) ([]models.Message, error) {
 	if s.repo == nil {
 		return []models.Message{}, nil
@@ -374,6 +396,7 @@ func (s *ChatService) GetHistory(ctx context.Context, conversationID string, lim
 	return s.repo.GetHistory(ctx, conversationID, limit)
 }
 
+// ListConversations liệt kê danh sách các cuộc hội thoại gần đây.
 func (s *ChatService) ListConversations(ctx context.Context, userID string, limit int) ([]models.Conversation, error) {
 	if s.repo == nil {
 		return []models.Conversation{}, nil

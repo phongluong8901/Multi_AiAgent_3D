@@ -33,6 +33,7 @@ type Runner struct {
 	log     *slog.Logger
 }
 
+// NewRunner khởi tạo Runner kèm bộ đệm log phục vụ cả CLI lẫn Desktop App.
 func NewRunner() *Runner {
 	buf := NewLogBuffer()
 	return &Runner{
@@ -41,6 +42,9 @@ func NewRunner() *Runner {
 	}
 }
 
+// --- Cụm điều khiển vòng đời (Start / Stop / Wait / Status) ---
+
+// Start kết nối Redis, dựng LLM Provider + Token Streamer (gRPC/HTTP), khởi chạy Local Web UI và ClusterWorker nền.
 func (r *Runner) Start(parentCtx context.Context, cfg *config.WorkerConfig) error {
 	r.mu.Lock()
 	if r.running {
@@ -66,11 +70,13 @@ func (r *Runner) Start(parentCtx context.Context, cfg *config.WorkerConfig) erro
 	var closeStreamer func()
 	transportMode := strings.ToLower(strings.TrimSpace(cfg.Worker.Transport))
 	if transportMode == "http" {
-		streamer = httpclient.NewHTTPTokenClient(llmTimeout + 30*time.Second)
+		httpClient := httpclient.NewHTTPTokenClient(llmTimeout + 30*time.Second)
+		httpClient.SetInternalToken(cfg.Worker.InternalToken)
+		streamer = httpClient
 		closeStreamer = func() {}
 	} else {
 		transportMode = "grpc"
-		grpcPool, grpcErr := grpcclient.NewGrpcClientPool(cfg.Worker.GRPCTLSCA)
+		grpcPool, grpcErr := grpcclient.NewGrpcClientPool(cfg.Worker.GRPCTLSCA, cfg.Worker.InternalToken)
 		if grpcErr != nil {
 			_ = rdb.Close()
 			r.mu.Unlock()
@@ -100,12 +106,13 @@ func (r *Runner) Start(parentCtx context.Context, cfg *config.WorkerConfig) erro
 		r.log,
 	)
 	cw.Configure(workerengine.WorkerOptions{
-		MaxJobDuration:     time.Duration(cfg.Worker.MaxJobDurationSec) * time.Second,
-		BatchFlushInterval: time.Duration(cfg.Worker.BatchFlushMs) * time.Millisecond,
-		DynamicModelSync:   cfg.Worker.DynamicModelSync,
-		LLMProviderName:    cfg.LLM.Provider,
-		LLMBaseURL:         cfg.LLM.BaseURL,
-		RedisAddr:          cfg.Redis.Addr,
+		MaxJobDuration:      time.Duration(cfg.Worker.MaxJobDurationSec) * time.Second,
+		ShutdownGracePeriod: time.Duration(cfg.Worker.ShutdownGraceSec) * time.Second,
+		BatchFlushInterval:  time.Duration(cfg.Worker.BatchFlushMs) * time.Millisecond,
+		DynamicModelSync:    cfg.Worker.DynamicModelSync,
+		LLMProviderName:     cfg.LLM.Provider,
+		LLMBaseURL:          cfg.LLM.BaseURL,
+		RedisAddr:           cfg.Redis.Addr,
 	})
 
 	runCtx, cancel := context.WithCancel(parentCtx)
@@ -146,6 +153,7 @@ func (r *Runner) Start(parentCtx context.Context, cfg *config.WorkerConfig) erro
 	return nil
 }
 
+// Stop gửi tín hiệu dừng Worker (kích hoạt Graceful Shutdown drain job) và chờ dừng hẳn.
 func (r *Runner) Stop() {
 	r.mu.Lock()
 	if !r.running || r.cancel == nil {
@@ -160,6 +168,7 @@ func (r *Runner) Stop() {
 	<-done
 }
 
+// Wait block cho đến khi Worker thực sự tắt xong (dùng cho chế độ CLI).
 func (r *Runner) Wait() {
 	r.mu.Lock()
 	done := r.done
@@ -169,12 +178,16 @@ func (r *Runner) Wait() {
 	}
 }
 
+// IsRunning cho biết Worker hiện có đang chạy hay không.
 func (r *Runner) IsRunning() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.running
 }
 
+// --- Cụm Giám sát & Thao tác Runtime (Snapshot, Drain, Sync Models, Reset Breaker, Logs) ---
+
+// Snapshot lấy ảnh chụp telemetry thời gian thực (trả về status STOPPED nếu Worker chưa chạy).
 func (r *Runner) Snapshot(ctx context.Context) (WorkerSnapshot, bool) {
 	r.mu.Lock()
 	cw := r.worker
@@ -187,6 +200,7 @@ func (r *Runner) Snapshot(ctx context.Context) (WorkerSnapshot, bool) {
 	return cw.Snapshot(ctx), true
 }
 
+// SetDraining bật/tắt chế độ bảo trì DRAINING cho Worker đang chạy.
 func (r *Runner) SetDraining(ctx context.Context, draining bool) error {
 	r.mu.Lock()
 	cw := r.worker
@@ -198,6 +212,7 @@ func (r *Runner) SetDraining(ctx context.Context, draining bool) error {
 	return cw.SetDraining(ctx, draining)
 }
 
+// SyncModels ép Worker quét lại danh sách model hiện có trên engine cục bộ ngay lập tức.
 func (r *Runner) SyncModels(ctx context.Context) ([]string, error) {
 	r.mu.Lock()
 	cw := r.worker
@@ -209,6 +224,7 @@ func (r *Runner) SyncModels(ctx context.Context) ([]string, error) {
 	return cw.SyncNow(ctx), nil
 }
 
+// ResetBreaker ép đưa Circuit Breaker của Worker về trạng thái CLOSED.
 func (r *Runner) ResetBreaker() error {
 	r.mu.Lock()
 	cw := r.worker
@@ -221,10 +237,12 @@ func (r *Runner) ResetBreaker() error {
 	return nil
 }
 
+// Logs trả về danh sách các dòng log gần nhất được ghi vào Ring Buffer.
 func (r *Runner) Logs() []LogEntry {
 	return r.logBuf.List()
 }
 
+// ClearLogs xóa trắng bộ đệm log trên giao diện.
 func (r *Runner) ClearLogs() {
 	r.logBuf.Clear()
 }

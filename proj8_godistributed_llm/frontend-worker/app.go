@@ -20,11 +20,13 @@ type WorkerConfigDTO struct {
 	WorkerID             string   `json:"worker_id"`
 	UIAddr               string   `json:"ui_addr"`
 	Transport            string   `json:"transport"`
+	InternalToken        string   `json:"internal_token"`
 	GRPCTLSCA            string   `json:"grpc_tls_ca"`
 	MaxParallelJobs      int      `json:"max_parallel_jobs"`
 	SupportedModels      []string `json:"supported_models"`
 	HeartbeatIntervalSec int      `json:"heartbeat_interval_sec"`
 	MaxJobDurationSec    int      `json:"max_job_duration_sec"`
+	ShutdownGraceSec     int      `json:"shutdown_grace_sec"`
 	BatchFlushMs         int      `json:"batch_flush_ms"`
 	DynamicModelSync     bool     `json:"dynamic_model_sync"`
 	LLMProvider          string   `json:"llm_provider"`
@@ -37,12 +39,14 @@ type WorkerConfigDTO struct {
 	ConsumerGroup        string   `json:"consumer_group"`
 }
 
+// EngineCheckResult chứa kết quả kiểm tra kết nối tới LLM Engine cục bộ từ màn hình Settings.
 type EngineCheckResult struct {
 	OK     bool     `json:"ok"`
 	Models []string `json:"models"`
 	Error  string   `json:"error,omitempty"`
 }
 
+// DesktopState là trạng thái tổng hợp trả về cho React UI sau mỗi lần poll hoặc thao tác điều khiển.
 type DesktopState struct {
 	Running    bool                 `json:"running"`
 	ConfigPath string               `json:"config_path"`
@@ -52,6 +56,7 @@ type DesktopState struct {
 	Logs       []agent.LogEntry     `json:"logs"`
 }
 
+// App là Wails Service Controller làm cầu nối giữa giao diện React Desktop và agent.Runner ở tầng Go.
 type App struct {
 	ctx        context.Context
 	mu         sync.Mutex
@@ -61,6 +66,7 @@ type App struct {
 	lastError  string
 }
 
+// NewApp tìm đường dẫn file cấu hình worker.yaml mặc định, nạp cấu hình ban đầu và khởi tạo agent.Runner.
 func NewApp() *App {
 	cfgPath := resolveDefaultConfigPath()
 	cfg, err := config.LoadWorkerConfig(cfgPath)
@@ -74,14 +80,19 @@ func NewApp() *App {
 	}
 }
 
+// --- Cụm Wails Lifecycle Hooks & Helpers chuyển đổi Config <-> DTO ---
+
+// startup được Wails gọi lúc ứng dụng mở lên để lưu runtime context.
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 }
 
+// shutdown tự động dừng Worker Node an toàn (kích hoạt Graceful Shutdown) khi user đóng cửa sổ app.
 func (a *App) shutdown(_ context.Context) {
 	a.runner.Stop()
 }
 
+// resolveDefaultConfigPath tự động dò file worker.yaml ở thư mục hiện tại, ./configs hoặc ../worker/configs.
 func resolveDefaultConfigPath() string {
 	candidates := []string{
 		"worker.yaml",
@@ -103,6 +114,7 @@ func resolveDefaultConfigPath() string {
 	return "worker.yaml"
 }
 
+// effectiveCtx trả về Wails runtime context (hoặc Background khi chạy unit test không qua UI).
 func (a *App) effectiveCtx() context.Context {
 	if a.ctx != nil {
 		return a.ctx
@@ -110,6 +122,7 @@ func (a *App) effectiveCtx() context.Context {
 	return context.Background()
 }
 
+// toConfigDTO chuyển config.WorkerConfig nội bộ sang WorkerConfigDTO phẳng để React UI dễ bind form.
 func toConfigDTO(cfg *config.WorkerConfig) WorkerConfigDTO {
 	modelsCopy := make([]string, len(cfg.Worker.SupportedModels))
 	copy(modelsCopy, cfg.Worker.SupportedModels)
@@ -117,11 +130,13 @@ func toConfigDTO(cfg *config.WorkerConfig) WorkerConfigDTO {
 		WorkerID:             cfg.Worker.ID,
 		UIAddr:               cfg.Worker.UIAddr,
 		Transport:            cfg.Worker.Transport,
+		InternalToken:        cfg.Worker.InternalToken,
 		GRPCTLSCA:            cfg.Worker.GRPCTLSCA,
 		MaxParallelJobs:      cfg.Worker.MaxParallelJobs,
 		SupportedModels:      modelsCopy,
 		HeartbeatIntervalSec: cfg.Worker.HeartbeatIntervalSec,
 		MaxJobDurationSec:    cfg.Worker.MaxJobDurationSec,
+		ShutdownGraceSec:     cfg.Worker.ShutdownGraceSec,
 		BatchFlushMs:         cfg.Worker.BatchFlushMs,
 		DynamicModelSync:     cfg.Worker.DynamicModelSync,
 		LLMProvider:          cfg.LLM.Provider,
@@ -135,6 +150,7 @@ func toConfigDTO(cfg *config.WorkerConfig) WorkerConfigDTO {
 	}
 }
 
+// applyDTO validate và ghi ngược các thay đổi từ React Settings form vào struct WorkerConfig.
 func applyDTO(cfg *config.WorkerConfig, dto WorkerConfigDTO) {
 	if id := strings.TrimSpace(dto.WorkerID); id != "" {
 		cfg.Worker.ID = id
@@ -143,6 +159,7 @@ func applyDTO(cfg *config.WorkerConfig, dto WorkerConfigDTO) {
 	if tr := strings.ToLower(strings.TrimSpace(dto.Transport)); tr == "http" || tr == "grpc" {
 		cfg.Worker.Transport = tr
 	}
+	cfg.Worker.InternalToken = strings.TrimSpace(dto.InternalToken)
 	cfg.Worker.GRPCTLSCA = strings.TrimSpace(dto.GRPCTLSCA)
 	if dto.MaxParallelJobs > 0 {
 		cfg.Worker.MaxParallelJobs = dto.MaxParallelJobs
@@ -161,6 +178,9 @@ func applyDTO(cfg *config.WorkerConfig, dto WorkerConfigDTO) {
 	}
 	if dto.MaxJobDurationSec >= 0 {
 		cfg.Worker.MaxJobDurationSec = dto.MaxJobDurationSec
+	}
+	if dto.ShutdownGraceSec >= 0 {
+		cfg.Worker.ShutdownGraceSec = dto.ShutdownGraceSec
 	}
 	if dto.BatchFlushMs >= 0 {
 		cfg.Worker.BatchFlushMs = dto.BatchFlushMs
@@ -187,6 +207,9 @@ func applyDTO(cfg *config.WorkerConfig, dto WorkerConfigDTO) {
 	}
 }
 
+// --- Cụm RPC Methods expose ra Frontend Wails (Bindings) ---
+
+// GetState thu thập Snapshot Worker (hoặc thông số host hiện tại nếu đang STOPPED), Config DTO và Logs mới nhất.
 func (a *App) GetState() DesktopState {
 	a.mu.Lock()
 	cfgCopy := *a.cfg
@@ -228,6 +251,7 @@ func (a *App) GetState() DesktopState {
 	}
 }
 
+// StartWorker khởi chạy Worker Node nền bằng cấu hình hiện tại.
 func (a *App) StartWorker() DesktopState {
 	a.mu.Lock()
 	cfgCopy := *a.cfg
@@ -242,6 +266,7 @@ func (a *App) StartWorker() DesktopState {
 	return a.GetState()
 }
 
+// StopWorker dừng Worker Node (chờ drain job trong khoảng shutdown_grace_sec).
 func (a *App) StopWorker() DesktopState {
 	a.runner.Stop()
 	a.mu.Lock()
@@ -250,11 +275,13 @@ func (a *App) StopWorker() DesktopState {
 	return a.GetState()
 }
 
+// RestartWorker khởi động lại Worker Node (thường dùng sau khi lưu cấu hình mới).
 func (a *App) RestartWorker() DesktopState {
 	a.runner.Stop()
 	return a.StartWorker()
 }
 
+// DrainNode bật chế độ bảo trì DRAINING để Worker hoàn tất job đang chạy và ngừng nhận thêm job.
 func (a *App) DrainNode() DesktopState {
 	if err := a.runner.SetDraining(a.effectiveCtx(), true); err != nil {
 		a.mu.Lock()
@@ -264,6 +291,7 @@ func (a *App) DrainNode() DesktopState {
 	return a.GetState()
 }
 
+// ResumeNode gỡ cờ DRAINING để Worker tiếp tục kéo job bình thường.
 func (a *App) ResumeNode() DesktopState {
 	if err := a.runner.SetDraining(a.effectiveCtx(), false); err != nil {
 		a.mu.Lock()
@@ -273,6 +301,7 @@ func (a *App) ResumeNode() DesktopState {
 	return a.GetState()
 }
 
+// SyncModels ép Worker đồng bộ ngay danh sách model mới từ LLM Engine cục bộ.
 func (a *App) SyncModels() DesktopState {
 	if _, err := a.runner.SyncModels(a.effectiveCtx()); err != nil {
 		a.mu.Lock()
@@ -282,6 +311,7 @@ func (a *App) SyncModels() DesktopState {
 	return a.GetState()
 }
 
+// ResetBreaker đưa Circuit Breaker về CLOSED thủ công từ giao diện Desktop.
 func (a *App) ResetBreaker() DesktopState {
 	if err := a.runner.ResetBreaker(); err != nil {
 		a.mu.Lock()
@@ -291,11 +321,13 @@ func (a *App) ResetBreaker() DesktopState {
 	return a.GetState()
 }
 
+// ClearLogs xóa bộ đệm log đang hiển thị ở tab Executions & Logs.
 func (a *App) ClearLogs() DesktopState {
 	a.runner.ClearLogs()
 	return a.GetState()
 }
 
+// TestEngine kiểm tra kết nối trực tiếp tới Ollama/vLLM/llama.cpp và liệt kê các model tìm thấy.
 func (a *App) TestEngine(provider string, baseURL string) EngineCheckResult {
 	ctx, cancel := context.WithTimeout(a.effectiveCtx(), 4*time.Second)
 	defer cancel()
@@ -307,6 +339,7 @@ func (a *App) TestEngine(provider string, baseURL string) EngineCheckResult {
 	return EngineCheckResult{OK: true, Models: modelsList}
 }
 
+// SaveConfig lưu cấu hình từ form xuống file worker.yaml và tùy chọn restart lại Worker ngay nếu đang chạy.
 func (a *App) SaveConfig(dto WorkerConfigDTO, restart bool) DesktopState {
 	a.mu.Lock()
 	applyDTO(a.cfg, dto)

@@ -58,3 +58,32 @@ func TestHTTPTokenClient_StreamTokens(t *testing.T) {
 	}
 }
 
+func TestHTTPTokenClient_SendsInternalTokenHeader(t *testing.T) {
+	var gotHeader string
+
+	client := NewHTTPTokenClient(5 * time.Second)
+	client.SetInternalToken("secret-worker-key")
+	client.httpClient = &http.Client{
+		Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			gotHeader = r.Header.Get("X-Internal-Token")
+			_, _ = io.Copy(io.Discard, r.Body)
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader(`{"acknowledged":true}`)),
+				Header:     make(http.Header),
+			}, nil
+		}),
+	}
+
+	ch := make(chan models.TokenChunk, 1)
+	ch <- models.TokenChunk{JobID: "j1", Token: "ok", Done: true}
+	close(ch)
+
+	if err := client.StreamTokens(context.Background(), "http://127.0.0.1:8088", ch); err != nil {
+		t.Fatalf("StreamTokens failed: %v", err)
+	}
+	if gotHeader != "secret-worker-key" {
+		t.Fatalf("expected X-Internal-Token header 'secret-worker-key', got %q", gotHeader)
+	}
+}
+

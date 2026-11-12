@@ -16,10 +16,12 @@ type InternalHandler struct {
 	chat *services.ChatService
 }
 
+// NewInternalHandler khởi tạo HTTP handler tiếp nhận token nội bộ từ Worker.
 func NewInternalHandler(chat *services.ChatService) *InternalHandler {
 	return &InternalHandler{chat: chat}
 }
 
+// PushTokensHTTP đọc luồng NDJSON (mỗi dòng 1 TokenChunk) khi Worker chạy ở chế độ transport=http.
 func (h *InternalHandler) PushTokensHTTP(c *gin.Context) {
 	scanner := bufio.NewScanner(c.Request.Body)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
@@ -49,6 +51,7 @@ func (h *InternalHandler) PushTokensHTTP(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"acknowledged": true})
 }
 
+// PushTokenHTTP nhận một TokenChunk đơn lẻ qua HTTP POST (phục vụ kiểm thử hoặc gửi lỗi nhanh).
 func (h *InternalHandler) PushTokenHTTP(c *gin.Context) {
 	var chunk models.TokenChunk
 	if err := c.ShouldBindJSON(&chunk); err != nil {

@@ -61,7 +61,7 @@ Hệ thống tách biệt **Tầng Điều Phối (Go + Redis)** và **Tầng Su
 ### 3.3. An toàn đồng thời, Backpressure & Graceful Shutdown
 - **`SSEHub` chống panic & Backpressure thật qua Go Channel** ([sse_hub.go](file:///d:/A_Self_Proj/learn_mlflow/proj8_godistributed_llm/backend/internal/services/sse_hub.go)): Mọi channel buffer `256` được bọc `sync.RWMutex`, chờ backpressure ngắn (`50ms` cho token thường, `500ms` cho chunk `Done`/`Error`) trước khi ghi nhận metric `llm_gateway_dropped_tokens_total` thay vì drop âm thầm.
 - **Micro-Batching Token trên Go Channel Pipeline** ([processor.go](file:///d:/A_Self_Proj/learn_mlflow/proj8_godistributed_llm/worker/internal/worker/processor.go)): Token đầu tiên luôn flush ngay (`0ms` thêm vào TTFT); các token sau được gộp theo cửa sổ `batch_flush_ms` (`20ms` hoặc tối đa `8` tokens) kèm `TokenUnits` để giảm số gRPC frames ở tải cao.
-- **Graceful Shutdown** ([cmd/gateway/main.go](file:///d:/A_Self_Proj/learn_mlflow/proj8_godistributed_llm/backend/cmd/gateway/main.go), [cmd/worker/main.go](file:///d:/A_Self_Proj/learn_mlflow/proj8_godistributed_llm/worker/cmd/worker/main.go)): Bắt `SIGINT`/`SIGTERM`, chờ `httpServer.Shutdown`, `grpcServer.GracefulStop()`, `asyncRepo.Close()` (flush hết dữ liệu DB đang chờ), và `wg.Wait()` các job đang chạy trên Worker.
+- **Graceful Shutdown với Grace Period** ([cmd/gateway/main.go](file:///d:/A_Self_Proj/learn_mlflow/proj8_godistributed_llm/backend/cmd/gateway/main.go), [engine.go](file:///d:/A_Self_Proj/learn_mlflow/proj8_godistributed_llm/worker/internal/worker/engine.go)): Bắt `SIGINT`/`SIGTERM`, Gateway đóng `httpServer`/`grpcServer` và flush `AsyncRepository`; Worker ngừng kéo job mới nhưng giữ context cho các job đang sinh dở chạy nốt trong `shutdown_grace_sec` (`15s`) trước khi ép hủy.
 
 ---
 
@@ -69,7 +69,8 @@ Hệ thống tách biệt **Tầng Điều Phối (Go + Redis)** và **Tầng Su
 
 | Thành phần | Vấn đề trước khi tối ưu | Giải pháp đã áp dụng | File phụ trách |
 | :--- | :--- | :--- | :--- |
-| **Node Discovery** | `SCAN` + `N` lệnh `GET` lặp lại ở mỗi request | Cache danh sách node trong RAM Gateway (`TTL 2s`) + `SCAN` kèm `MGET` + lọc bỏ `UNHEALTHY`/`DRAINING` | [chat_service.go](file:///d:/A_Self_Proj/learn_mlflow/proj8_godistributed_llm/backend/internal/services/chat_service.go), [node_registry.go](file:///d:/A_Self_Proj/learn_mlflow/proj8_godistributed_llm/shared/repositories/redis/node_registry.go) |
+| **Node Discovery** | `SCAN` + `N` lệnh `GET` lặp lại, lỗi `CROSSSLOT` trên Cluster | Cache RAM `2s` + `ForEachMaster` `SCAN` kèm `Pipeline GET` (tương thích Redis Cluster & 1 RTT) | [chat_service.go](file:///d:/A_Self_Proj/learn_mlflow/proj8_godistributed_llm/backend/internal/services/chat_service.go), [node_registry.go](file:///d:/A_Self_Proj/learn_mlflow/proj8_godistributed_llm/shared/repositories/redis/node_registry.go) |
+| **Internal Channel Security** | `/internal/v1/*` và gRPC không kiểm tra secret | Shared secret `internal_token` (`X-Internal-Token` / gRPC metadata `x-internal-token` constant-time) | [internal_token.go](file:///d:/A_Self_Proj/learn_mlflow/proj8_godistributed_llm/shared/pkg/auth/internal_token.go), [grpc_server.go](file:///d:/A_Self_Proj/learn_mlflow/proj8_godistributed_llm/backend/internal/clients/grpc/grpc_server.go) |
 | **Priority & KV Affinity** | Mọi job kéo chung 1 FIFO stream | Hỗ trợ 3 mức priority (`high`/`normal`/`low`) + Consistent Hash `conversation_id` vào `jobs:worker:<id>` giữ KV-Cache GPU | [chat_service.go](file:///d:/A_Self_Proj/learn_mlflow/proj8_godistributed_llm/backend/internal/services/chat_service.go), [stream_queue.go](file:///d:/A_Self_Proj/learn_mlflow/proj8_godistributed_llm/shared/repositories/redis/stream_queue.go) |
 | **Cancel Pub/Sub** | Mỗi job mở 1 Redis `SUBSCRIBE` riêng | Gộp về **1 kênh duy nhất** `ctrl:cancel:all` cho mỗi Worker + tra cứu `activeCancels sync.Map` O(1) | [pubsub_bus.go](file:///d:/A_Self_Proj/learn_mlflow/proj8_godistributed_llm/shared/repositories/redis/pubsub_bus.go), [engine.go](file:///d:/A_Self_Proj/learn_mlflow/proj8_godistributed_llm/worker/internal/worker/engine.go) |
 | **True Backlog & DLQ** | `XLEN` đếm cả job đã xong, `XAUTOCLAIM` lặp vô tận | Đo backlog thật bằng `XINFO GROUPS` (`Pending + Lag`) + đẩy poison job > `3` lần sang `jobs:dlq` | [stream_queue.go](file:///d:/A_Self_Proj/learn_mlflow/proj8_godistributed_llm/shared/repositories/redis/stream_queue.go) |
@@ -103,7 +104,7 @@ Hệ thống tách biệt **Tầng Điều Phối (Go + Redis)** và **Tầng Su
 ## 6. Checklist Tinh Chỉnh Khi Lên Production
 
 1. **Bật bảo mật**:
-   - Đặt `auth.api_key` và `auth.rate_limit_rpm` (VD: `60`) trong [gateway.yaml](file:///d:/A_Self_Proj/learn_mlflow/proj8_godistributed_llm/backend/configs/gateway.yaml).
+   - Đặt `auth.api_key`, `auth.internal_token` (đồng bộ với `worker.internal_token`) và `auth.rate_limit_rpm` (VD: `60`) trong [gateway.yaml](file:///d:/A_Self_Proj/learn_mlflow/proj8_godistributed_llm/backend/configs/gateway.yaml).
    - Đặt mật khẩu cho Redis (`--requirepass`) và bỏ `--protected-mode no` trong [docker-compose.yml](file:///d:/A_Self_Proj/learn_mlflow/proj8_godistributed_llm/backend/deployments/docker-compose.yml).
    - Cấu hình `grpc_tls_cert` / `grpc_tls_key` và `grpc_tls_ca` nếu Worker chạy qua WAN/Internet.
 2. **Tối ưu Engine**:

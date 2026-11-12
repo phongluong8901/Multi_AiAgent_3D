@@ -25,11 +25,13 @@ export namespace main {
 	    worker_id: string;
 	    ui_addr: string;
 	    transport: string;
+	    internal_token: string;
 	    grpc_tls_ca: string;
 	    max_parallel_jobs: number;
 	    supported_models: string[];
 	    heartbeat_interval_sec: number;
 	    max_job_duration_sec: number;
+	    shutdown_grace_sec: number;
 	    batch_flush_ms: number;
 	    dynamic_model_sync: boolean;
 	    llm_provider: string;
@@ -50,11 +52,13 @@ export namespace main {
 	        this.worker_id = source["worker_id"];
 	        this.ui_addr = source["ui_addr"];
 	        this.transport = source["transport"];
+	        this.internal_token = source["internal_token"];
 	        this.grpc_tls_ca = source["grpc_tls_ca"];
 	        this.max_parallel_jobs = source["max_parallel_jobs"];
 	        this.supported_models = source["supported_models"];
 	        this.heartbeat_interval_sec = source["heartbeat_interval_sec"];
 	        this.max_job_duration_sec = source["max_job_duration_sec"];
+	        this.shutdown_grace_sec = source["shutdown_grace_sec"];
 	        this.batch_flush_ms = source["batch_flush_ms"];
 	        this.dynamic_model_sync = source["dynamic_model_sync"];
 	        this.llm_provider = source["llm_provider"];

@@ -20,4 +20,5 @@ postgres:
 
 auth:
   api_key: "" # Để trống nếu tắt auth khi test local; đặt chuỗi bí mật để bật Bearer/X-API-Key cho /api/v1/*
+  internal_token: "" # Shared secret xác thực kênh nội bộ /internal/v1/* & gRPC TokenStreamer từ Worker
   rate_limit_rpm: 0 # Giới hạn request/phút mỗi client (0 = tắt; dùng Redis atomic INCR+EXPIRE khi bật)

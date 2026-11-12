@@ -1,3 +1,6 @@
+/**
+ * Tập hợp SVG Icon dùng chung cho Worker Desktop App (không dùng emoji theo chuẩn dự án).
+ */
 export function NodeFlowIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round">

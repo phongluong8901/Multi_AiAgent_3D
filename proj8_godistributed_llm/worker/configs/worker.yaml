@@ -2,6 +2,7 @@ worker:
   id: "worker-node-01"
   ui_addr: ":9091" # Web UI cục bộ tích hợp sẵn (go:embed) để giám sát & điều khiển máy Worker này
   transport: "grpc" # Giao thức đẩy token về Gateway: "grpc" (mặc định, tốc độ cao) hoặc "http" (nếu không mở port gRPC)
+  internal_token: "" # Phải khớp auth.internal_token của Gateway nếu bật bảo vệ kênh nội bộ
   grpc_tls_ca: "" # Đường dẫn CA cert nếu Gateway bật gRPC TLS (để trống nếu chạy LAN)
   max_parallel_jobs: 2 # Số luồng suy luận tối đa chạy song song (Semaphore) để bảo vệ GPU/VRAM
   supported_models: # Danh sách fallback nếu engine chưa bật discovery
@@ -10,6 +11,7 @@ worker:
     - "llama3.2:3b"
   heartbeat_interval_sec: 5
   max_job_duration_sec: 300 # Hard timeout bảo vệ slot GPU không bị kẹt vô hạn
+  shutdown_grace_sec: 15 # Thời gian ân hạn khi tắt Worker để job đang sinh dở trả nốt câu trước khi ép hủy
   batch_flush_ms: 20 # Micro-batching gRPC token frame (0 = tắt; token đầu luôn flush 0ms)
   dynamic_model_sync: true # Tự động đồng bộ danh sách model thật từ Ollama/vLLM mỗi 10s
 

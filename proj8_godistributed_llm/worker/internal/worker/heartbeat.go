@@ -8,6 +8,8 @@ import (
 	"go-distributed-llm/shared/pkg/utils"
 )
 
+// runHeartbeat gửi định kỳ thông tin tài nguyên (%CPU, %RAM, %GPU VRAM), slot rảnh, danh sách model
+// và trạng thái (ONLINE/DRAINING/UNHEALTHY) lên Redis với TTL 12s.
 func (w *ClusterWorker) runHeartbeat(ctx context.Context) {
 	const heartbeatTTL = 12 * time.Second
 

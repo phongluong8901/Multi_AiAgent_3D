@@ -13,6 +13,7 @@ interface ContentSegment {
   value: string;
 }
 
+/** Tách chuỗi Markdown thành các đoạn văn bản thường và khối code (```lang ... ```). */
 function splitCodeBlocks(input: string): ContentSegment[] {
   const segments: ContentSegment[] = [];
   const fenceRegex = /```([a-zA-Z0-9_-]*)\r?\n([\s\S]*?)```/g;
@@ -44,6 +45,7 @@ function splitCodeBlocks(input: string): ContentSegment[] {
   return segments;
 }
 
+/** Render định dạng inline cơ bản gồm inline code (`...`) và chữ đậm (**...**). */
 function renderInlineFormatting(text: string): ReactNode[] {
   const tokenRegex = /(`[^`]+`|\*\*[^*]+\*\*)/g;
   const parts = text.split(tokenRegex);
@@ -70,6 +72,7 @@ function renderInlineFormatting(text: string): ReactNode[] {
   });
 }
 
+/** Khung hiển thị khối code có tiêu đề ngôn ngữ và nút Copy nhanh. */
 function CodeBlock({ lang, code }: { lang: string; code: string }) {
   const [copied, setCopied] = useState(false);
 
@@ -111,6 +114,7 @@ function CodeBlock({ lang, code }: { lang: string; code: string }) {
   );
 }
 
+/** Component render câu trả lời của AI (heading, bullet list, inline formatting, code block). */
 export function MarkdownRenderer({ content }: MarkdownRendererProps) {
   const segments = splitCodeBlocks(content);
 

@@ -30,14 +30,17 @@ type SSEHub struct {
 	onDrop        func()
 }
 
+// NewSSEHub tạo trung tâm phân phối token stream cho các request đang mở.
 func NewSSEHub() *SSEHub {
 	return &SSEHub{}
 }
 
+// SetDropObserver gắn callback (VD: tăng Prometheus metric) mỗi khi có token bị drop do client quá chậm.
 func (h *SSEHub) SetDropObserver(fn func()) {
 	h.onDrop = fn
 }
 
+// DroppedCount trả về tổng số token từng bị drop tính từ lúc Gateway khởi động.
 func (h *SSEHub) DroppedCount() uint64 {
 	return h.droppedTokens.Load()
 }

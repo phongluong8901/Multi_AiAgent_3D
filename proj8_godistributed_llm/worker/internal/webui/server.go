@@ -30,6 +30,7 @@ type Server struct {
 	httpServer *http.Server
 }
 
+// NewServer khởi tạo HTTP server quản trị cục bộ cho Worker Node (mặc định :9091).
 func NewServer(addr string, controller Controller, log *slog.Logger) *Server {
 	s := &Server{
 		addr:       strings.TrimSpace(addr),
@@ -44,6 +45,8 @@ func NewServer(addr string, controller Controller, log *slog.Logger) *Server {
 	return s
 }
 
+// routes đăng ký các API điều khiển cục bộ (/api/status, /api/jobs, /api/drain, /api/resume, /api/models/sync, /api/breaker/reset)
+// cùng file tĩnh của Console UI nhúng qua go:embed.
 func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
 
@@ -98,6 +101,7 @@ func (s *Server) routes() http.Handler {
 	return mux
 }
 
+// Start chạy Local Web UI non-blocking và tự động graceful shutdown khi ctx bị hủy.
 func (s *Server) Start(ctx context.Context) {
 	if s.addr == "" || strings.EqualFold(s.addr, "disabled") {
 		return
@@ -122,6 +126,7 @@ func (s *Server) Start(ctx context.Context) {
 	}()
 }
 
+// writeJSON thiết lập Content-Type JSON và ghi HTTP response cho Local Web UI API.
 func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)

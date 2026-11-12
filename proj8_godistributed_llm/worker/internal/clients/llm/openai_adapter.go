@@ -19,6 +19,7 @@ type OpenAIAdapter struct {
 	httpClient *http.Client
 }
 
+// NewOpenAIAdapter khởi tạo adapter cho vLLM, SGLang, LM Studio hoặc các server tương thích OpenAI API.
 func NewOpenAIAdapter(baseURL string, timeout time.Duration) *OpenAIAdapter {
 	return &OpenAIAdapter{
 		baseURL: strings.TrimRight(baseURL, "/"),
@@ -28,10 +29,12 @@ func NewOpenAIAdapter(baseURL string, timeout time.Duration) *OpenAIAdapter {
 	}
 }
 
+// openAIStreamOptions yêu cầu engine trả kèm thống kê usage trong SSE chunk cuối cùng.
 type openAIStreamOptions struct {
 	IncludeUsage bool `json:"include_usage"`
 }
 
+// openAIChatRequest ánh xạ JSON payload gửi tới POST /v1/chat/completions của LLM Engine.
 type openAIChatRequest struct {
 	Model         string               `json:"model"`
 	Messages      []models.ChatTurn    `json:"messages"`
@@ -41,11 +44,13 @@ type openAIChatRequest struct {
 	MaxTokens     *int                 `json:"max_tokens,omitempty"`
 }
 
+// openAIUsage chứa số token prompt và token sinh ra do engine báo cáo.
 type openAIUsage struct {
 	PromptTokens     int `json:"prompt_tokens"`
 	CompletionTokens int `json:"completion_tokens"`
 }
 
+// openAIStreamChunk ánh xạ từng SSE event `data: {...}` trả về từ /v1/chat/completions.
 type openAIStreamChunk struct {
 	Choices []struct {
 		Delta struct {
@@ -59,16 +64,19 @@ type openAIStreamChunk struct {
 	} `json:"error,omitempty"`
 }
 
+// openAIModelsResponse ánh xạ phản hồi từ GET /v1/models để auto-discover model đang load.
 type openAIModelsResponse struct {
 	Data []struct {
 		ID string `json:"id"`
 	} `json:"data"`
 }
 
+// CheckHealth kiểm tra tình trạng sống của engine tương thích OpenAI qua GET /v1/models.
 func (a *OpenAIAdapter) CheckHealth(ctx context.Context) error {
 	return doJSONGet(ctx, a.httpClient, fmt.Sprintf("%s/v1/models", a.baseURL), "openai-compat", nil)
 }
 
+// ListModels đọc danh sách ID các model đang phục vụ tại /v1/models.
 func (a *OpenAIAdapter) ListModels(ctx context.Context) ([]string, error) {
 	var res openAIModelsResponse
 	if err := doJSONGet(ctx, a.httpClient, fmt.Sprintf("%s/v1/models", a.baseURL), "openai-compat", &res); err != nil {
@@ -83,6 +91,7 @@ func (a *OpenAIAdapter) ListModels(ctx context.Context) ([]string, error) {
 	return out, nil
 }
 
+// GenerateStream mở SSE stream tới /v1/chat/completions, thu thập usage chunk cuối và đẩy TokenChunk về Worker.
 func (a *OpenAIAdapter) GenerateStream(ctx context.Context, model string, messages []models.ChatTurn, opts models.GenerationOptions) (<-chan models.TokenChunk, error) {
 	reqPayload := openAIChatRequest{
 		Model:         model,

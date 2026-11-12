@@ -9,11 +9,27 @@ import (
 	"sync"
 	"time"
 
+	"go-distributed-llm/shared/pkg/auth"
 	"go-distributed-llm/shared/ports"
 
 	"github.com/gin-gonic/gin"
 )
 
+// --- Cụm Middleware xác thực (Internal Secret & Client API Key) ---
+
+// internalTokenAuthMiddleware bảo vệ nhóm route /internal/v1/* bằng header X-Internal-Token.
+func internalTokenAuthMiddleware(expectedToken string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !auth.VerifyInternalToken(expectedToken, c.GetHeader(auth.InternalTokenHeader)) {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized: invalid or missing internal token"})
+			return
+		}
+		c.Next()
+	}
+}
+
+// apiKeyAuthMiddleware xác thực client qua header X-API-Key hoặc Authorization Bearer (so sánh constant-time).
+// Nếu expectedKey rỗng, middleware tự động cho phép truy cập không cần key.
 func apiKeyAuthMiddleware(expectedKey string) gin.HandlerFunc {
 	trimmedExpected := strings.TrimSpace(expectedKey)
 	return func(c *gin.Context) {
@@ -38,20 +54,26 @@ func apiKeyAuthMiddleware(expectedKey string) gin.HandlerFunc {
 	}
 }
 
+// --- Cụm Rate Limiter In-Memory fallback & Middleware giới hạn tốc độ (RPM) ---
+
+// rateWindow lưu bộ đếm request và mốc reset của một client trong bộ nhớ cục bộ.
 type rateWindow struct {
 	count   int
 	resetAt time.Time
 }
 
+// memoryRateLimiter là fallback của ports.RateLimiter dùng khi test đơn lẻ không có Redis.
 type memoryRateLimiter struct {
 	mu      sync.Mutex
 	windows map[string]*rateWindow
 }
 
+// newMemoryRateLimiter khởi tạo rate limiter cục bộ theo sliding fixed window.
 func newMemoryRateLimiter() *memoryRateLimiter {
 	return &memoryRateLimiter{windows: make(map[string]*rateWindow)}
 }
 
+// Allow kiểm tra và tăng số lượt request của key trong khoảng window.
 func (m *memoryRateLimiter) Allow(_ context.Context, key string, limit int, window time.Duration) (bool, int, error) {
 	now := time.Now()
 	m.mu.Lock()
@@ -110,6 +132,7 @@ func rateLimitMiddleware(rpm int, limiter ports.RateLimiter) gin.HandlerFunc {
 	}
 }
 
+// corsMiddleware cấu hình CORS headers và trả về 204 cho preflight OPTIONS requests.
 func corsMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")

@@ -546,3 +546,37 @@ func TestGatewayAPI_AffinityPriorityTraceAndUnhealthySkip(t *testing.T) {
 	}
 }
 
+func TestGatewayAPI_InternalTokenAuth(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	q := &mockQueue{pushed: make(chan models.JobPayload, 1), lengths: map[string]int64{}}
+	reg := &mockRegistry{}
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	chatSvc := services.NewChatService(q, &mockBus{}, reg, nil, services.NewSSEHub(), nil, "", "", 0, log)
+	router := NewRouter(GatewayRouterDeps{
+		ChatService:   chatSvc,
+		AdminService:  services.NewAdminService(q, reg),
+		InternalToken: "worker-shared-secret",
+	})
+
+	payload := `{"job_id":"j-1","worker_id":"w-1","token":"hi","done":true}`
+
+	// 1. Missing X-Internal-Token -> 401
+	req1 := httptest.NewRequest(http.MethodPost, "/internal/v1/tokens/push", bytes.NewBufferString(payload))
+	req1.Header.Set("Content-Type", "application/json")
+	w1 := httptest.NewRecorder()
+	router.ServeHTTP(w1, req1)
+	if w1.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 without internal token, got %d", w1.Code)
+	}
+
+	// 2. Valid X-Internal-Token -> 200
+	req2 := httptest.NewRequest(http.MethodPost, "/internal/v1/tokens/push", bytes.NewBufferString(payload))
+	req2.Header.Set("Content-Type", "application/json")
+	req2.Header.Set("X-Internal-Token", "worker-shared-secret")
+	w2 := httptest.NewRecorder()
+	router.ServeHTTP(w2, req2)
+	if w2.Code != http.StatusOK {
+		t.Fatalf("expected 200 with valid internal token, got %d: %s", w2.Code, w2.Body.String())
+	}
+}
+

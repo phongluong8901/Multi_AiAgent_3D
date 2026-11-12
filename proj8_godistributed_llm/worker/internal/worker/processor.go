@@ -11,6 +11,10 @@ import (
 
 const maxBatchChunks = 8
 
+// --- Cụm xử lý vòng đời 1 Job Inference + Ngắt khẩn cấp + Micro-batching Token ---
+
+// processJob điều phối trọn vẹn 1 job: gắn Hard Timeout, đăng ký Cancel Hook vào activeCancels,
+// gọi LLM Engine stream token, chạy Micro-batching qua channel pipeline và stream về Gateway rồi XACK.
 func (w *ClusterWorker) processJob(parentCtx context.Context, job models.JobPayload) {
 	w.activeJobs.Add(1)
 	defer w.activeJobs.Add(-1)
@@ -143,6 +147,8 @@ func (w *ClusterWorker) processJob(parentCtx context.Context, job models.JobPayl
 	)
 }
 
+// batchTokenStream gom các token sau token đầu tiên theo cửa sổ batchFlushInterval (hoặc tối đa maxBatchChunks)
+// nhằm giảm số lần gửi RPC ở tải cao mà vẫn giữ TTFT gần như 0ms.
 func (w *ClusterWorker) batchTokenStream(ctx context.Context, llmCh <-chan models.TokenChunk, jobID string) (<-chan models.TokenChunk, *atomic.Bool, *atomic.Int64) {
 	outCh := make(chan models.TokenChunk, 32)
 	hadErr := &atomic.Bool{}
@@ -270,6 +276,9 @@ func (w *ClusterWorker) batchTokenStream(ctx context.Context, llmCh <-chan model
 	return outCh, hadErr, sentTokens
 }
 
+// --- Cụm helpers phản hồi địa chỉ Gateway, báo lỗi nhanh & XACK ---
+
+// resolveReplyAddr chọn địa chỉ gRPC hoặc HTTP của đúng Gateway đã nhận request của user.
 func (w *ClusterWorker) resolveReplyAddr(job models.JobPayload) string {
 	if w.transportMode == "http" && job.ReplyToHTTPAddr != "" {
 		return job.ReplyToHTTPAddr
@@ -277,6 +286,7 @@ func (w *ClusterWorker) resolveReplyAddr(job models.JobPayload) string {
 	return job.ReplyToGrpcAddr
 }
 
+// sendSingleError đẩy ngay 1 gói lỗi cuối (Done=true) về Gateway khi engine từ chối/timeout.
 func (w *ClusterWorker) sendSingleError(job models.JobPayload, targetAddr string, errMsg string) {
 	errCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -293,6 +303,7 @@ func (w *ClusterWorker) sendSingleError(job models.JobPayload, targetAddr string
 	_ = w.streamer.StreamTokens(errCtx, targetAddr, ch)
 }
 
+// ackJobSafe gửi XACK (dùng background context timeout 3s) để chắc chắn xóa message khỏi PEL ngay cả lúc job vừa xong.
 func (w *ClusterWorker) ackJobSafe(job models.JobPayload) {
 	ackCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()

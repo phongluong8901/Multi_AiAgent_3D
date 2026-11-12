@@ -28,6 +28,7 @@ type RedisStreamQueue struct {
 	maxRetries    int
 }
 
+// NewRedisStreamQueue khởi tạo hàng đợi Redis Streams với số lần retry mặc định trước khi đẩy vào DLQ.
 func NewRedisStreamQueue(client redis.UniversalClient) *RedisStreamQueue {
 	return &RedisStreamQueue{
 		client:     client,
@@ -35,10 +36,14 @@ func NewRedisStreamQueue(client redis.UniversalClient) *RedisStreamQueue {
 	}
 }
 
+// --- Cụm helper định danh tên stream theo model, priority và worker affinity ---
+
+// streamKey trả về tên stream mặc định (priority normal) cho một model.
 func streamKey(model string) string {
 	return fmt.Sprintf("jobs:model:%s", model)
 }
 
+// streamKeyByPriority ánh xạ cặp (model, priority) sang tên Redis Stream tương ứng.
 func streamKeyByPriority(model string, priority string) string {
 	switch strings.ToLower(strings.TrimSpace(priority)) {
 	case models.PriorityHigh:
@@ -50,10 +55,12 @@ func streamKeyByPriority(model string, priority string) string {
 	}
 }
 
+// workerAffinityStream trả về stream riêng cho một Worker nhằm tận dụng KV-cache của cùng conversation.
 func workerAffinityStream(workerID string) string {
 	return workerStreamPrefix + workerID
 }
 
+// streamKeyForJob quyết định job sẽ đi vào stream affinity riêng hay stream chung theo độ ưu tiên.
 func streamKeyForJob(job models.JobPayload) string {
 	if strings.TrimSpace(job.PreferredWorkerID) != "" {
 		return workerAffinityStream(strings.TrimSpace(job.PreferredWorkerID))
@@ -61,6 +68,8 @@ func streamKeyForJob(job models.JobPayload) string {
 	return streamKeyByPriority(job.Model, job.Priority)
 }
 
+// workerStreamList sắp xếp danh sách stream theo thứ tự ưu tiên đọc của Worker:
+// Affinity riêng -> High -> Normal -> Low cho các model được hỗ trợ.
 func (q *RedisStreamQueue) workerStreamList(consumerID string, modelsList []string) []string {
 	streams := make([]string, 0, 1+len(modelsList)*3)
 	if strings.TrimSpace(consumerID) != "" {
@@ -78,6 +87,7 @@ func (q *RedisStreamQueue) workerStreamList(consumerID string, modelsList []stri
 	return streams
 }
 
+// ensureGroup tạo consumer group (MKSTREAM) nếu chưa tồn tại và cache kết quả vào memory.
 func (q *RedisStreamQueue) ensureGroup(ctx context.Context, sKey string, group string) {
 	cacheKey := sKey + "|" + group
 	if _, ok := q.ensuredGroups.Load(cacheKey); ok {
@@ -89,12 +99,16 @@ func (q *RedisStreamQueue) ensureGroup(ctx context.Context, sKey string, group s
 	}
 }
 
+// clearGroupCache xóa cache consumer group (thường dùng khi nhận lỗi NOGROUP do stream bị xóa/flush).
 func (q *RedisStreamQueue) clearGroupCache(streams []string, group string) {
 	for _, s := range streams {
 		q.ensuredGroups.Delete(s + "|" + group)
 	}
 }
 
+// --- Cụm Push / Pull / Ack / AutoClaim job chính ---
+
+// PushJob serialize JobPayload và đẩy vào Redis Stream (giới hạn MAXLEN ~ 10000 để tránh phình RAM).
 func (q *RedisStreamQueue) PushJob(ctx context.Context, job models.JobPayload) error {
 	sKey := streamKeyForJob(job)
 	job.StreamName = sKey
@@ -111,6 +125,7 @@ func (q *RedisStreamQueue) PushJob(ctx context.Context, job models.JobPayload) e
 	}).Err()
 }
 
+// PullJobFromModels thực hiện XREADGROUP (blocking theo blockDur) lấy 1 job mới theo thứ tự ưu tiên stream.
 func (q *RedisStreamQueue) PullJobFromModels(ctx context.Context, group string, consumerID string, modelsList []string, blockDur time.Duration) (*models.JobPayload, error) {
 	if len(modelsList) == 0 {
 		return nil, nil
@@ -151,10 +166,13 @@ func (q *RedisStreamQueue) PullJobFromModels(ctx context.Context, group string, 
 	return decodeStreamMessage(res[0].Stream, res[0].Messages[0])
 }
 
+// AckJob xác nhận message đã xử lý xong để xóa khỏi PEL (Pending Entries List).
 func (q *RedisStreamQueue) AckJob(ctx context.Context, group string, streamName string, messageID string) error {
 	return q.client.XAck(ctx, streamName, group, messageID).Err()
 }
 
+// AutoClaimJobs nhận lại các job nằm quá minIdle trong PEL (do Worker khác treo/sập).
+// Nếu vượt maxRetries hoặc JSON lỗi, job sẽ bị đẩy vào Dead-Letter Queue (jobs:dlq) và XACK khỏi stream gốc.
 func (q *RedisStreamQueue) AutoClaimJobs(ctx context.Context, group string, consumerID string, modelsList []string, minIdle time.Duration, count int64) ([]models.JobPayload, error) {
 	var claimed []models.JobPayload
 	orderedKeys := q.workerStreamList(consumerID, modelsList)
@@ -206,20 +224,9 @@ func (q *RedisStreamQueue) AutoClaimJobs(ctx context.Context, group string, cons
 // ReclaimStaleAffinityJobs chuyển các job nằm trong jobs:worker:<deadWorker> (khi worker đó không còn active)
 // về lại stream chung theo model/priority để tránh bất kỳ request affinity nào bị mồ côi.
 func (q *RedisStreamQueue) ReclaimStaleAffinityJobs(ctx context.Context, group string, activeWorkerIDs map[string]bool, minIdle time.Duration) (int, error) {
-	var (
-		cursor uint64
-		keys   []string
-	)
-	for {
-		batch, nextCursor, err := q.client.Scan(ctx, cursor, workerStreamPrefix+"*", 100).Result()
-		if err != nil {
-			return 0, err
-		}
-		keys = append(keys, batch...)
-		cursor = nextCursor
-		if cursor == 0 {
-			break
-		}
+	keys, err := scanAllKeys(ctx, q.client, workerStreamPrefix+"*", 100)
+	if err != nil {
+		return 0, err
 	}
 
 	moved := 0
@@ -275,6 +282,9 @@ func (q *RedisStreamQueue) ReclaimStaleAffinityJobs(ctx context.Context, group s
 	return moved, nil
 }
 
+// --- Cụm đo lường backlog (Queue Depth) và Dead-Letter Queue ---
+
+// GetQueueLength tổng hợp backlog thực tế (high + normal + low) của một model để phục vụ Admission Control.
 func (q *RedisStreamQueue) GetQueueLength(ctx context.Context, model string) (int64, error) {
 	var total int64
 	for _, p := range []string{models.PriorityHigh, models.PriorityNormal, models.PriorityLow} {
@@ -287,10 +297,12 @@ func (q *RedisStreamQueue) GetQueueLength(ctx context.Context, model string) (in
 	return total, nil
 }
 
+// GetDLQLength trả về số lượng job lỗi đang nằm trong Dead-Letter Queue (jobs:dlq).
 func (q *RedisStreamQueue) GetDLQLength(ctx context.Context) (int64, error) {
 	return q.client.XLen(ctx, dlqStreamName).Result()
 }
 
+// streamBacklogDepth tính backlog thật qua XINFO GROUPS (Pending + Lag) thay cho XLEN vốn đếm cả job đã xong.
 func (q *RedisStreamQueue) streamBacklogDepth(ctx context.Context, sKey string) (int64, error) {
 	groups, err := q.client.XInfoGroups(ctx, sKey).Result()
 	if err != nil {
@@ -321,6 +333,7 @@ func (q *RedisStreamQueue) streamBacklogDepth(ctx context.Context, sKey string) 
 	return maxBacklog, nil
 }
 
+// lookupDeliveryCount đọc số lần message đã được claim/retry thông qua XPENDING để làm căn cứ đẩy DLQ.
 func (q *RedisStreamQueue) lookupDeliveryCount(ctx context.Context, sKey, group, msgID string) int64 {
 	res, err := q.client.XPendingExt(ctx, &redis.XPendingExtArgs{
 		Stream: sKey,
@@ -335,11 +348,13 @@ func (q *RedisStreamQueue) lookupDeliveryCount(ctx context.Context, sKey, group,
 	return res[0].RetryCount
 }
 
+// pushJobToDLQ serialize toàn bộ JobPayload lỗi rồi chuyển sang pushRawToDLQ.
 func (q *RedisStreamQueue) pushJobToDLQ(ctx context.Context, job models.JobPayload, reason string) error {
 	payload, _ := json.Marshal(job)
 	return q.pushRawToDLQ(ctx, job.StreamName, job.StreamMessageID, string(payload), reason, int64(job.RetryCount))
 }
 
+// pushRawToDLQ ghi thông tin message hỏng/poison pill cùng lý do thất bại vào stream jobs:dlq.
 func (q *RedisStreamQueue) pushRawToDLQ(ctx context.Context, originStream, msgID, payload, reason string, retries int64) error {
 	return q.client.XAdd(ctx, &redis.XAddArgs{
 		Stream: dlqStreamName,
@@ -356,6 +371,7 @@ func (q *RedisStreamQueue) pushRawToDLQ(ctx context.Context, originStream, msgID
 	}).Err()
 }
 
+// decodeStreamMessage giải mã field "payload" JSON từ Redis XMessage thành struct JobPayload.
 func decodeStreamMessage(stream string, msg redis.XMessage) (*models.JobPayload, error) {
 	rawPayload, ok := msg.Values["payload"].(string)
 	if !ok {

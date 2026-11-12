@@ -1,5 +1,7 @@
+// --- Cụm biến trạng thái & helper định dạng giao diện Console cục bộ (:9091) ---
 let isDraining = false;
 
+/** Quy đổi thời gian uptime từ giây sang chuỗi dễ đọc (Xh Ym Zs). */
 function formatUptime(sec) {
   if (!sec || sec < 0) return "0s";
   const h = Math.floor(sec / 3600);
@@ -10,6 +12,7 @@ function formatUptime(sec) {
   return `${s}s`;
 }
 
+/** Escape ký tự HTML đặc biệt để tránh XSS khi render tên model hoặc ID job. */
 function escapeHTML(str) {
   return String(str || "")
     .replace(/&/g, "&amp;")
@@ -17,6 +20,7 @@ function escapeHTML(str) {
     .replace(/>/g, "&gt;");
 }
 
+/** Cập nhật toàn bộ DOM Dashboard từ payload WorkerSnapshot của GET /api/status. */
 function renderStatus(data) {
   document.getElementById("worker-id").textContent = data.worker_id || "--";
   document.getElementById("transport-mode").textContent = (data.transport || "grpc").toUpperCase();
@@ -97,6 +101,9 @@ function renderStatus(data) {
     .join("");
 }
 
+// --- Cụm Polling API & Sự kiện nút điều khiển Drain / Sync / Reset Breaker ---
+
+/** Kéo snapshot trạng thái mới nhất từ Worker HTTP server và render lại UI. */
 async function fetchStatus() {
   try {
     const res = await fetch("/api/status");

@@ -1,11 +1,13 @@
 import { worker } from '../../wailsjs/go/models';
 import { ActivityIcon, ShieldIcon, ZapIcon } from '../Icons';
 
+/** Props đầu vào cho tab Telemetry / Overview & GPU. */
 interface MonitorTabProps {
   snapshot: worker.WorkerSnapshot;
   running: boolean;
 }
 
+/** Quy đổi uptime (giây) sang chuỗi dễ đọc (Xh Ym Zs). */
 function formatUptime(sec: number): string {
   if (!sec || sec < 0) return '0s';
   const h = Math.floor(sec / 3600);
@@ -16,6 +18,7 @@ function formatUptime(sec: number): string {
   return `${s}s`;
 }
 
+/** Hiển thị các thẻ giám sát phần cứng (GPU slots, CPU/RAM, VRAM, Circuit Breaker), bộ đếm throughput và danh sách model. */
 export function MonitorTab({ snapshot, running }: MonitorTabProps) {
   const maxSlots = snapshot.max_slots || 1;
   const slotsPct = Math.min(100, ((snapshot.active_jobs || 0) / maxSlots) * 100);

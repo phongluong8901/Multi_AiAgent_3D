@@ -27,6 +27,8 @@ import (
 	"google.golang.org/grpc/credentials"
 )
 
+// main là điểm khởi động của API Gateway: kết nối Redis/PostgreSQL, dựng Services,
+// bật gRPC TokenStreamer Server (nếu EnableGRPC=true), mở HTTP/SSE Router và xử lý Graceful Shutdown.
 func main() {
 	configPath := flag.String("config", "configs/gateway.yaml", "path to gateway yaml config")
 	flag.Parse()
@@ -90,6 +92,10 @@ func main() {
 		}
 
 		var serverOpts []grpc.ServerOption
+		if strings.TrimSpace(cfg.Auth.InternalToken) != "" {
+			serverOpts = append(serverOpts, grpc.StreamInterceptor(grpcclient.NewInternalAuthStreamInterceptor(cfg.Auth.InternalToken)))
+			log.Info("gRPC internal token auth enabled")
+		}
 		if strings.TrimSpace(cfg.Server.GRPCTLSCert) != "" && strings.TrimSpace(cfg.Server.GRPCTLSKey) != "" {
 			creds, tlsErr := credentials.NewServerTLSFromFile(cfg.Server.GRPCTLSCert, cfg.Server.GRPCTLSKey)
 			if tlsErr != nil {
@@ -115,12 +121,13 @@ func main() {
 
 	// 4. HTTP Handlers & Router (REST + SSE + OpenAI /v1 + Prometheus /metrics + Distributed RateLimit)
 	router := handlers.NewRouter(handlers.GatewayRouterDeps{
-		ChatService:  chatSvc,
-		AdminService: adminSvc,
-		Metrics:      gatewayMetrics,
-		RateLimiter:  rateLimiter,
-		APIKey:       cfg.Auth.APIKey,
-		RateLimitRPM: cfg.Auth.RateLimitRPM,
+		ChatService:   chatSvc,
+		AdminService:  adminSvc,
+		Metrics:       gatewayMetrics,
+		RateLimiter:   rateLimiter,
+		APIKey:        cfg.Auth.APIKey,
+		InternalToken: cfg.Auth.InternalToken,
+		RateLimitRPM:  cfg.Auth.RateLimitRPM,
 	})
 
 	httpAddr := fmt.Sprintf(":%d", cfg.Server.HTTPPort)

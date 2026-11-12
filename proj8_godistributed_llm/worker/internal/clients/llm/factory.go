@@ -34,6 +34,9 @@ func NewLLMProvider(provider string, baseURL string, timeout time.Duration) (por
 	}
 }
 
+// --- Cụm HTTP helpers dùng chung cho các LLM Engine Adapter ---
+
+// doStreamPost gửi HTTP POST JSON và giữ nguyên resp.Body (chỉ đóng khi lỗi/HTTP != 200) để adapter đọc stream.
 func doStreamPost(ctx context.Context, client *http.Client, endpoint string, providerLabel string, payload any) (*http.Response, error) {
 	bodyBytes, err := json.Marshal(payload)
 	if err != nil {
@@ -61,6 +64,7 @@ func doStreamPost(ctx context.Context, client *http.Client, endpoint string, pro
 	return resp, nil
 }
 
+// doJSONGet gửi HTTP GET kiểm tra health endpoint hoặc parse JSON danh sách model (giới hạn 2MB).
 func doJSONGet(ctx context.Context, client *http.Client, endpoint string, providerLabel string, out any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {

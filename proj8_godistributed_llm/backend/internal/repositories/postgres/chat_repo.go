@@ -16,10 +16,12 @@ type ChatRepository struct {
 	pool *pgxpool.Pool
 }
 
+// NewChatRepository tạo repository PostgreSQL thao tác với bảng chat_messages và usage_logs.
 func NewChatRepository(pool *pgxpool.Pool) *ChatRepository {
 	return &ChatRepository{pool: pool}
 }
 
+// SaveMessage chèn 1 bản ghi tin nhắn (user hoặc assistant) vào bảng chat_messages.
 func (r *ChatRepository) SaveMessage(ctx context.Context, msg models.Message) error {
 	const q = `
 INSERT INTO chat_messages (id, conversation_id, job_id, role, model, content, created_at)
@@ -29,16 +31,22 @@ VALUES ($1, $2, $3, $4, $5, $6, $7)
 	return err
 }
 
+// GetHistory lấy limit tin nhắn MỚI NHẤT của conversationID rồi sắp xếp lại theo thứ tự thời gian tăng dần (cũ -> mới)
+// để đưa đúng ngữ cảnh multi-turn vào LLM prompt.
 func (r *ChatRepository) GetHistory(ctx context.Context, conversationID string, limit int) ([]models.Message, error) {
 	if limit <= 0 {
 		limit = 50
 	}
 	const q = `
 SELECT id, conversation_id, job_id, role, model, content, created_at
-FROM chat_messages
-WHERE conversation_id = $1
+FROM (
+	SELECT id, conversation_id, job_id, role, model, content, created_at
+	FROM chat_messages
+	WHERE conversation_id = $1
+	ORDER BY created_at DESC
+	LIMIT $2
+) recent
 ORDER BY created_at ASC
-LIMIT $2
 `
 	rows, err := r.pool.Query(ctx, q, conversationID, limit)
 	if err != nil {
@@ -57,6 +65,7 @@ LIMIT $2
 	return messages, rows.Err()
 }
 
+// ListConversations trả về các phiên chat gần đây kèm tiêu đề trích từ tin nhắn đầu tiên của user.
 func (r *ChatRepository) ListConversations(ctx context.Context, _ string, limit int) ([]models.Conversation, error) {
 	if limit <= 0 {
 		limit = 30
@@ -88,6 +97,7 @@ LIMIT $1
 	return convs, rows.Err()
 }
 
+// LogUsage lưu thống kê hiệu năng và token accounting của 1 job (bỏ qua nếu trùng job_id).
 func (r *ChatRepository) LogUsage(ctx context.Context, usage models.UsageLog) error {
 	const q = `
 INSERT INTO usage_logs (job_id, trace_id, user_id, model, worker_id, prompt_tokens, completion_tokens, token_count, ttft_ms, duration_ms, tokens_per_sec, created_at)
@@ -106,12 +116,14 @@ type MemoryRepository struct {
 	usages   []models.UsageLog
 }
 
+// NewMemoryRepository khởi tạo kho lưu trữ trong RAM dùng khi dev không có PostgreSQL.
 func NewMemoryRepository() *MemoryRepository {
 	return &MemoryRepository{
 		messages: make(map[string][]models.Message),
 	}
 }
 
+// SaveMessage thêm tin nhắn vào slice của conversation trong RAM.
 func (m *MemoryRepository) SaveMessage(_ context.Context, msg models.Message) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -119,6 +131,7 @@ func (m *MemoryRepository) SaveMessage(_ context.Context, msg models.Message) er
 	return nil
 }
 
+// GetHistory trả về tối đa limit tin nhắn cuối cùng theo thứ tự thời gian.
 func (m *MemoryRepository) GetHistory(_ context.Context, conversationID string, limit int) ([]models.Message, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -135,6 +148,7 @@ func (m *MemoryRepository) GetHistory(_ context.Context, conversationID string, 
 	return out, nil
 }
 
+// ListConversations liệt kê các conversation trong RAM sắp xếp giảm dần theo thời gian hoạt động.
 func (m *MemoryRepository) ListConversations(_ context.Context, _ string, limit int) ([]models.Conversation, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -171,6 +185,7 @@ func (m *MemoryRepository) ListConversations(_ context.Context, _ string, limit 
 	return convs, nil
 }
 
+// LogUsage lưu UsageLog vào slice RAM để phục vụ kiểm tra/dev.
 func (m *MemoryRepository) LogUsage(_ context.Context, usage models.UsageLog) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -178,9 +193,12 @@ func (m *MemoryRepository) LogUsage(_ context.Context, usage models.UsageLog) er
 	return nil
 }
 
+// --- Cụm NoopRepository & Helper ---
+
 // NoopRepository bỏ qua toàn bộ thao tác lưu trữ (dùng khi không cần lưu lịch sử).
 type NoopRepository struct{}
 
+// NewNoopRepository khởi tạo repository rỗng không lưu dữ liệu.
 func NewNoopRepository() *NoopRepository {
 	return &NoopRepository{}
 }
@@ -194,6 +212,7 @@ func (n *NoopRepository) ListConversations(_ context.Context, _ string, _ int) (
 }
 func (n *NoopRepository) LogUsage(_ context.Context, _ models.UsageLog) error { return nil }
 
+// truncateTitle rút gọn câu mở đầu thành tiêu đề hội thoại tối đa 48 ký tự (an toàn UTF-8 theo rune).
 func truncateTitle(s string) string {
 	s = strings.TrimSpace(strings.ReplaceAll(s, "\n", " "))
 	runes := []rune(s)

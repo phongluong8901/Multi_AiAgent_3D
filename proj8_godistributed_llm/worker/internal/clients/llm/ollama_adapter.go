@@ -19,6 +19,7 @@ type OllamaAdapter struct {
 	httpClient *http.Client
 }
 
+// NewOllamaAdapter khởi tạo adapter kết nối tới Ollama API cục bộ.
 func NewOllamaAdapter(baseURL string, timeout time.Duration) *OllamaAdapter {
 	return &OllamaAdapter{
 		baseURL: strings.TrimRight(baseURL, "/"),
@@ -28,11 +29,13 @@ func NewOllamaAdapter(baseURL string, timeout time.Duration) *OllamaAdapter {
 	}
 }
 
+// ollamaOptions chứa tham số suy luận tùy chỉnh truyền cho Ollama.
 type ollamaOptions struct {
 	Temperature *float64 `json:"temperature,omitempty"`
 	NumPredict  *int     `json:"num_predict,omitempty"`
 }
 
+// ollamaChatRequest là payload JSON gửi tới POST /api/chat của Ollama.
 type ollamaChatRequest struct {
 	Model    string            `json:"model"`
 	Messages []models.ChatTurn `json:"messages"`
@@ -40,6 +43,7 @@ type ollamaChatRequest struct {
 	Options  *ollamaOptions    `json:"options,omitempty"`
 }
 
+// ollamaChatResponse ánh xạ từng dòng NDJSON stream từ Ollama (bao gồm prompt_eval_count và eval_count ở gói done=true).
 type ollamaChatResponse struct {
 	Message struct {
 		Role    string `json:"role"`
@@ -52,16 +56,19 @@ type ollamaChatResponse struct {
 	EvalCount       int    `json:"eval_count,omitempty"`
 }
 
+// ollamaTagsResponse ánh xạ phản hồi từ GET /api/tags để tự động phát hiện model đã pull trên máy.
 type ollamaTagsResponse struct {
 	Models []struct {
 		Name string `json:"name"`
 	} `json:"models"`
 }
 
+// CheckHealth kiểm tra Ollama có đang phản hồi hay không qua GET /api/tags.
 func (o *OllamaAdapter) CheckHealth(ctx context.Context) error {
 	return doJSONGet(ctx, o.httpClient, fmt.Sprintf("%s/api/tags", o.baseURL), "ollama", nil)
 }
 
+// ListModels trích xuất danh sách tên model hiện có trên Ollama để phục vụ DynamicModelSync.
 func (o *OllamaAdapter) ListModels(ctx context.Context) ([]string, error) {
 	var res ollamaTagsResponse
 	if err := doJSONGet(ctx, o.httpClient, fmt.Sprintf("%s/api/tags", o.baseURL), "ollama", &res); err != nil {
@@ -76,6 +83,7 @@ func (o *OllamaAdapter) ListModels(ctx context.Context) ([]string, error) {
 	return out, nil
 }
 
+// GenerateStream gọi Ollama /api/chat (stream=true) và chuyển từng dòng NDJSON thành TokenChunk trên Go Channel.
 func (o *OllamaAdapter) GenerateStream(ctx context.Context, model string, messages []models.ChatTurn, opts models.GenerationOptions) (<-chan models.TokenChunk, error) {
 	reqPayload := ollamaChatRequest{
 		Model:    model,
