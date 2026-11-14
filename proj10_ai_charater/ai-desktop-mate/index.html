@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      user-select: none;
+    }
+
+    html,
+    body {
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      background: transparent !important;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+
+    #canvas-container {
+      width: 100vw;
+      height: 100vh;
+      position: fixed;
+      top: 0;
+      left: 0;
+      pointer-events: auto;
+    }
+
+    /* Bong bong chat hoi thoai gan tren dau nhan vat */
+    #speech-bubble {
+      position: fixed;
+      width: 290px;
+      background: rgba(15, 23, 42, 0.94);
+      backdrop-filter: blur(14px);
+      border: 1px solid rgba(99, 102, 241, 0.4);
+      border-radius: 16px;
+      padding: 12px 14px;
+      color: #f8fafc;
+      box-shadow: 0 16px 36px rgba(0, 0, 0, 0.55);
+      z-index: 9999;
+      pointer-events: auto;
+      transition: opacity 0.2s ease, transform 0.2s ease;
+      opacity: 1;
+    }
+
+    /* Duoi tam giac cua bong bong chat huong ve dau nhan vat */
+    #speech-bubble::after {
+      content: '';
+      position: absolute;
+      bottom: -10px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 0;
+      height: 0;
+      border-left: 10px solid transparent;
+      border-right: 10px solid transparent;
+      border-top: 10px solid rgba(15, 23, 42, 0.94);
+    }
+
+    .bubble-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+
+    .bubble-author {
+      font-size: 11px;
+      font-weight: 700;
+      color: #818cf8;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .bubble-close {
+      background: transparent;
+      border: none;
+      color: #94a3b8;
+      font-size: 12px;
+      cursor: pointer;
+      padding: 0 4px;
+      font-weight: bold;
+    }
+
+    .bubble-close:hover {
+      color: #f1f5f9;
+    }
+
+    .bubble-text {
+      font-size: 13px;
+      line-height: 1.45;
+      color: #e2e8f0;
+      margin-bottom: 10px;
+      word-wrap: break-word;
+    }
+
+    .bubble-input-row {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 8px;
+    }
+
+    .bubble-input {
+      flex: 1;
+      background: #020617;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      color: #f8fafc;
+      font-size: 12px;
+      padding: 7px 10px;
+      outline: none;
+      transition: border-color 0.15s ease;
+    }
+
+    .bubble-input:focus {
+      border-color: #6366f1;
+    }
+
+    .bubble-btn-send {
+      background: #4f46e5;
+      color: #ffffff;
+      border: none;
+      border-radius: 8px;
+      padding: 7px 12px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+
+    .bubble-btn-send:hover {
+      background: #4338ca;
+    }
+
+    .bubble-actions {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 6px;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      padding-top: 8px;
+    }
+
+    .btn-action-small {
+      background: #1e1b4b;
+      color: #c7d2fe;
+      border: 1px solid #3730a3;
+      border-radius: 6px;
+      padding: 4px 8px;
+      font-size: 11px;
+      cursor: pointer;
+      font-weight: 600;
+      transition: background 0.15s ease;
+    }
+
+    .btn-action-small:hover {
+      background: #312e81;
+      border-color: #6366f1;
+    }
+
+    .bubble-hint {
+      font-size: 10px;
+      color: #64748b;
+    }
+
+    /* Nut thu nho bong bong chat khi user muon an bot */
+    #speech-bubble-minimized {
+      position: fixed;
+      display: none;
+      background: rgba(79, 70, 229, 0.9);
+      color: #ffffff;
+      padding: 4px 10px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+      z-index: 9999;
+      pointer-events: auto;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+
+    #speech-bubble-minimized:hover {
+      background: #4338ca;
+    }
+
+    #vrm-file-input {
+      display: none;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="canvas-container"></div>
+
+  <!-- Bong bong chat (Speech Bubble) tren dau nhan vat -->
+  <div id="speech-bubble">
+    <div class="bubble-header">
+      <span class="bubble-author">[AI Mate]</span>
+      <button id="btn-minimize-bubble" class="bubble-close" title="Thu nho">-</button>
+    </div>
+    <div id="bubble-content" class="bubble-text">
+      Xin chao! To la Desktop Mate 3D cua ban. Keo tha to len mep Folder hoac go tin nhan ben duoi de tro chuyen nhe!
+    </div>
+    <div class="bubble-input-row">
+      <input id="bubble-input" class="bubble-input" type="text" placeholder="Nhap tin nhan voi AI..." />
+      <button id="btn-send-msg" class="bubble-btn-send" type="button">Gui</button>
+    </div>
+    <div class="bubble-actions">
+      <button id="btn-load-vrm" class="btn-action-small" type="button">Chon .VRM (F4)</button>
+      <span class="bubble-hint">Keo tha file .vrm vao day</span>
+    </div>
+  </div>
+
+  <div id="speech-bubble-minimized">Tro chuyen</div>
+
+  <input type="file" id="vrm-file-input" accept=".vrm,.glb" />
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+
+</html>
