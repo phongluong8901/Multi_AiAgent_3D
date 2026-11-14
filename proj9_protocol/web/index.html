@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Multi-Protocol Gateway & Benchmark Testbench</title>
+    <link rel="stylesheet" href="/style.css" />
+</head>
+
+<body>
+    <div class="header">
+        <div>
+            <h1>Multi-Protocol Gateway & Benchmark Testbench</h1>
+            <div class="subtitle">He thong kiem tra & do dac truyen thong da giao thuc thoi gian thuc</div>
+        </div>
+        <div class="header-actions">
+            <a href="/worker.html" target="_blank" class="status-tag btn-link">Mo Worker Monitor</a>
+            <div class="status-tag">GATEWAY: :8080</div>
+        </div>
+    </div>
+
+    <!-- 1. Thanh Test Nhanh 1-Click (Bam la thay truyen thong chay ngay) -->
+    <div class="quick-test-bar">
+        <div class="quick-test-title">
+            <span>Test Nhanh 1-Click (Bam nut de ban goi tin vao he thong)</span>
+            <span style="font-size: 11px; color: #64748b;">Xem ket qua ngay o bang ben duoi</span>
+        </div>
+        <div class="btn-group">
+            <button class="btn-quick btn-http" onclick="quickSend('http_rest', '{\"device\":\"web_client\",\"temp\":28.5}')">1. Test HTTP Ingest</button>
+            <button class="btn-quick btn-ws" onclick="quickSend('websocket', '{\"msg\":\"ws_test_packet\",\"seq\":1}')">2. Test WebSocket</button>
+            <button class="btn-quick btn-mqtt" onclick="quickSend('mqtt', '{\"topic\":\"sensor/temp\",\"celsius\":27.9}')">3. Test MQTT IoT</button>
+            <button class="btn-quick btn-grpc" onclick="quickSend('grpc', '{\"rpc\":\"bidi_stream\",\"fps\":30}')">4. Test gRPC Stream</button>
+            <button class="btn-quick btn-sse" onclick="quickSend('sse', '{\"event\":\"alert\",\"level\":\"info\"}')">5. Test SSE Event</button>
+            <button class="btn-quick btn-sio" onclick="quickSend('socketio', '{\"event\":\"telemetry\",\"room\":\"iot\"}')">6. Test Socket.IO</button>
+            <button class="btn-quick btn-udp" onclick="quickSend('rtp_udp', '{\"frame\":101,\"codec\":\"h264_sim\"}')">7. Test RTP/UDP</button>
+            <button class="btn-quick btn-tcp" onclick="quickSend('tcp_raw', '{\"proto\":\"tcp_raw\",\"frame_id\":1}')">8. Test TCP Raw</button>
+            <button class="btn-quick btn-ndjson" onclick="quickSend('ndjson', '{\"token\":\"hello\",\"model\":\"llm\"}')">9. Test NDJSON AI</button>
+            <div style="display:flex; gap:6px; align-items:center;">
+                <select id="benchSource" title="Chon giao thuc nguon de bom tai">
+                    <option value="http_rest">Nguon: HTTP REST</option>
+                    <option value="websocket">Nguon: WebSocket</option>
+                    <option value="mqtt">Nguon: MQTT</option>
+                    <option value="grpc">Nguon: gRPC</option>
+                    <option value="tcp_raw">Nguon: TCP Raw</option>
+                    <option value="ndjson">Nguon: NDJSON</option>
+                    <option value="rtp_udp">Nguon: RTP/UDP</option>
+                    <option value="socketio">Nguon: Socket.IO</option>
+                    <option value="sse">Nguon: SSE</option>
+                </select>
+                <button class="btn-quick btn-stress" onclick="runStressTest()">Bom tai 1.000 goi</button>
+            </div>
+        </div>
+        <div id="liveFeedback" class="live-feedback">
+            [READY] San sang truyen thong. Bam mot trong cac nut tren de bat dau ban goi tin vao pipeline.
+        </div>
+    </div>
+
+    <!-- 2. Bang Dong Chay Goi Tin Thoi Gian Thuc (Live Traffic Inspector) -->
+    <div class="section-title">
+        <span>Bang Dong Chay Truyen Thong Truc Tiep (Live Traffic Inspector)</span>
+        <button style="font-size: 11px; padding: 4px 8px; background: #1e293b;" onclick="clearTrafficTable()">Xoa lich su</button>
+    </div>
+    <table>
+        <thead>
+            <tr>
+                <th>Thoi gian</th>
+                <th>Packet ID</th>
+                <th>Giao thuc nguon</th>
+                <th>Dich phat</th>
+                <th>Kich thuoc</th>
+                <th>Do tre</th>
+                <th>Noi dung goi tin truyen nhan</th>
+                <th>Trang thai</th>
+            </tr>
+        </thead>
+        <tbody id="trafficBody">
+            <tr>
+                <td colspan="8" style="text-align: center; color: #64748b; padding: 24px;">
+                    Chua co goi tin nao. Bam cac nut "Test Nhanh" o tren de quan sat dong truyen thong truc tiep!
+                </td>
+            </tr>
+        </tbody>
+    </table>
+
+    <!-- 3. Bang Thong Ke Thong So Cac Giao Thuc (Protocol Overview) -->
+    <div class="section-title">
+        <span>Thong So Ky Thuat Cac Giao Thuc (Port & Overhead)</span>
+        <div style="display:flex; gap:10px; align-items:center;">
+            <span style="font-size: 11px; color: #64748b;">Tu dong cap nhat moi 800ms</span>
+            <button class="btn-danger" style="font-size: 11px; padding: 4px 10px;" onclick="resetAllStats()">Reset thong so</button>
+        </div>
+    </div>
+    <table>
+        <thead>
+            <tr>
+                <th>Giao thuc</th>
+                <th>Port</th>
+                <th>Trang thai</th>
+                <th>Clients</th>
+                <th>Header Overhead</th>
+                <th>Goi Nhan (In)</th>
+                <th>Goi Phat (Out)</th>
+                <th>Tong Bang Thong</th>
+                <th>Do tre TB</th>
+                <th>Dieu khien</th>
+            </tr>
+        </thead>
+        <tbody id="statsBody"></tbody>
+    </table>
+
+    <!-- 4. Thanh Dieu Huong Routing / Swap Target -->
+    <div class="toolbar">
+        <div class="toolbar-group">
+            <label for="swapTarget">Dich chuyen tiep du lieu (Swap Outbound Target):</label>
+            <select id="swapTarget" onchange="swapProtocol(this.value)">
+                <option value="all">Broadcast (Phat toi tat ca cac luong dang bat)</option>
+                <option value="sse">SSE (Server-Sent Events) [:8081]</option>
+                <option value="websocket">WebSocket (Raw Full-Duplex) [:8082]</option>
+                <option value="http_rest">HTTP REST [:8084]</option>
+                <option value="mqtt">MQTT Broker [:1883]</option>
+                <option value="grpc">gRPC Stream [:50051]</option>
+                <option value="socketio">Socket.IO v4 [:8083]</option>
+                <option value="mjpeg">MJPEG Stream [:8085]</option>
+                <option value="rtp_udp">RTP/UDP Datagram [:8554]</option>
+                <option value="tcp_raw">TCP Raw Binary [:8086]</option>
+                <option value="ndjson">HTTP NDJSON Stream [:8087]</option>
+            </select>
+        </div>
+    </div>
+
+    <!-- 5. Chi Tiet Tung Node Giao Thuc -->
+    <div class="section-title">
+        <span>Khung Kiem Tra Chi Tiet Tung Giao Thuc</span>
+    </div>
+    <div class="grid">
+        <!-- HTTP REST -->
+        <div class="panel">
+            <div class="panel-header">
+                <h3>HTTP REST Ingest</h3>
+                <span class="badge">:8084/ingest</span>
+            </div>
+            <pre id="httpLog">San sang nhan request HTTP POST...</pre>
+            <div class="interactive-box">
+                <input type="text" id="httpInput" value='{"sensor":"temp_probe","val":29.1}' />
+                <button class="primary" onclick="sendHTTP()">POST Ingest</button>
+            </div>
+        </div>
+
+        <!-- WebSocket -->
+        <div class="panel">
+            <div class="panel-header">
+                <h3>WebSocket (Full-Duplex 2 Chieu)</h3>
+                <div style="display:flex; gap:6px;">
+                    <span id="wsStatusBadge" class="badge">DANG KET NOI</span>
+                    <span class="badge">:8082/ws</span>
+                </div>
+            </div>
+            <pre id="wsLog">Dang khoi tao ket noi WebSocket...</pre>
+            <div class="interactive-box">
+                <input type="text" id="wsInput" placeholder='{"msg":"hello from browser","seq":1}' />
+                <button class="primary" onclick="sendWS()">Gui WS</button>
+                <button onclick="initWS()">Ket noi lai</button>
+            </div>
+        </div>
+
+        <!-- SSE Stream -->
+        <div class="panel">
+            <div class="panel-header">
+                <h3>SSE Live Events</h3>
+                <span class="badge">:8081/events</span>
+            </div>
+            <pre id="sseLog">Dang ket noi luong SSE /api/events...</pre>
+            <div class="interactive-box">
+                <button onclick="quickSend('sse', '{\"ping\":\"sse_test\"}')">Ban vao SSE</button>
+                <button onclick="connectSSE()">Ket noi lai</button>
+            </div>
+        </div>
+
+        <!-- MQTT -->
+        <div class="panel">
+            <div class="panel-header">
+                <h3>MQTT Broker (ESP32 Telemetry)</h3>
+                <span class="badge">:1883 TCP</span>
+            </div>
+            <pre id="mqttLog">Ket noi client MQTT den localhost:1883 hoac bam nut de gia lap goi tin.</pre>
+            <div class="interactive-box">
+                <input type="text" id="mqttInput" value='{"topic":"sensor/temperature","celsius":28.0}' />
+                <button class="primary" onclick="sendMQTT()">Ban MQTT</button>
+            </div>
+        </div>
+
+        <!-- gRPC -->
+        <div class="panel">
+            <div class="panel-header">
+                <h3>gRPC Streaming (Edge AI)</h3>
+                <span class="badge">:50051 TCP</span>
+            </div>
+            <pre id="grpcLog">Cac worker Edge AI stream qua RPC /bench.Streamer/Pipe hoac bam nut de test.</pre>
+            <div class="interactive-box">
+                <input type="text" id="grpcInput" value='{"inference":"yolo_v8","objects":3,"fps":30}' />
+                <button class="primary" onclick="sendGRPC()">Ban gRPC</button>
+            </div>
+        </div>
+
+        <!-- Camera MJPEG -->
+        <div class="panel">
+            <div class="panel-header">
+                <h3>Camera MJPEG Stream (ESP32-CAM)</h3>
+                <span class="badge">:8085/video</span>
+            </div>
+            <img id="mjpegFeed" src="http://localhost:8085/video"
+                style="width: 100%; height: 180px; object-fit: contain; background: #090e1a; border-radius: 6px; border: 1px solid #1e293b;"
+                onerror="this.style.display='none'; document.getElementById('mjpegErr').style.display='block';"
+                onload="this.style.display='block'; document.getElementById('mjpegErr').style.display='none';" />
+            <div id="mjpegErr" style="display:none; color:#94a3b8; font-size:12px; padding:30px; text-align:center;">
+                Luong MJPEG dang tat hoac khong ket noi duoc.
+            </div>
+            <div class="interactive-box">
+                <button onclick="reloadMJPEG()">Tai lai luong</button>
+            </div>
+        </div>
+
+        <!-- Socket.IO v4 -->
+        <div class="panel">
+            <div class="panel-header">
+                <h3>Socket.IO v4 (WebSocket Transport)</h3>
+                <span class="badge">:8083/socket.io/</span>
+            </div>
+            <pre id="sioLog">Ket noi client Socket.IO v4 toi :8083 hoac bam nut de gui event thu nghiem.</pre>
+            <div class="interactive-box">
+                <input type="text" id="sioInput" value='{"event":"telemetry","sensor":"lidar","ok":true}' />
+                <button class="primary" onclick="sendSocketIO()">Ban Socket.IO</button>
+            </div>
+        </div>
+
+        <!-- RTP/UDP Datagram -->
+        <div class="panel">
+            <div class="panel-header">
+                <h3>RTP / UDP Datagram (RFC 3550)</h3>
+                <span class="badge">:8554 UDP</span>
+            </div>
+            <pre id="udpLog">San sang nhan datagram RTP/UDP tren cong :8554 va phan hoi peer...</pre>
+            <div class="interactive-box">
+                <input type="text" id="udpInput" value='{"rtp_seq":1,"payload":"media_chunk_sim"}' />
+                <button class="primary" onclick="sendUDP()">Ban UDP</button>
+            </div>
+        </div>
+
+        <!-- TCP Raw Binary -->
+        <div class="panel">
+            <div class="panel-header">
+                <h3>TCP Raw Binary (Length-Prefixed)</h3>
+                <span class="badge">:8086 TCP</span>
+            </div>
+            <pre id="tcpLog">Ket noi TCP toi :8086 (4B length prefix hoac JSON theo dong) hoac bam nut de test.</pre>
+            <div class="interactive-box">
+                <input type="text" id="tcpInput" value='{"binary_frame":1,"sensor":"industrial_plc","ok":true}' />
+                <button class="primary" onclick="sendTCPRaw()">Ban TCP Raw</button>
+            </div>
+        </div>
+
+        <!-- HTTP NDJSON Stream -->
+        <div class="panel">
+            <div class="panel-header">
+                <h3>HTTP NDJSON Stream (AI/LLM Chunked)</h3>
+                <span class="badge">:8087/stream</span>
+            </div>
+            <pre id="ndjsonLog">San sang nhan POST :8087/ingest va stream application/x-ndjson qua :8087/stream...</pre>
+            <div class="interactive-box">
+                <input type="text" id="ndjsonInput" value='{"token":"streaming_ai_chunk","step":1}' />
+                <button class="primary" onclick="sendNDJSON()">Ban NDJSON</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/app.js"></script>
+</body>
+
+</html>
