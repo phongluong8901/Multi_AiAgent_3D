@@ -16,4 +16,5 @@ Ok to proceed? (y) y
 ✔ Choose your package manager · npm
 
 # ---
+cd ai-desktop-mate
 npm run tauri dev

@@ -23,8 +23,18 @@ export default defineConfig(() => ({
         }
       : undefined,
     watch: {
-      // 3. tell Vite to ignore watching `src-tauri`
-      ignored: ["**/src-tauri/**"],
+      // 3. tell Vite to ignore watching `src-tauri` and `data`
+      ignored: ["**/src-tauri/**", "**/data/**"],
+    },
+  },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id: string) {
+          if (id.includes("@pixiv/three-vrm")) return "vrm";
+          if (id.includes("node_modules/three")) return "three";
+        },
+      },
     },
   },
 }));
