@@ -1,6 +1,45 @@
 import * as THREE from 'three';
 import { VRM } from '@pixiv/three-vrm';
-import { ActiveWindowTask, CharacterState, FaceExpression, WinRect } from './types';
+import {
+  AccessoryType,
+  ActiveWindowTask,
+  AUTO_BEHAVIOR_CATALOG,
+  AutoBehaviorConfig,
+  AutoBehaviorKey,
+  CharacterState,
+  createDefaultAutoBehaviors,
+  FaceExpression,
+  WeatherEffectMode,
+  WinRect,
+} from './types';
+
+function loadInitialAutoActionIntervalSec(): number {
+  const raw = Number(localStorage.getItem('mate_auto_action_interval_sec'));
+  if (Number.isFinite(raw) && raw >= 5) {
+    return Math.max(5, Math.min(300, Math.round(raw)));
+  }
+  return 15;
+}
+
+function loadInitialAutoBehaviors(): AutoBehaviorConfig {
+  const base = createDefaultAutoBehaviors();
+  try {
+    const raw = localStorage.getItem('mate_auto_behaviors_json');
+    if (raw) {
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      if (parsed && typeof parsed === 'object') {
+        for (const item of AUTO_BEHAVIOR_CATALOG) {
+          if (typeof parsed[item.key] === 'boolean') {
+            base[item.key] = parsed[item.key] as boolean;
+          }
+        }
+      }
+    }
+  } catch {
+    // fallback default
+  }
+  return base;
+}
 
 export const PRESET_ALICIA_URL =
   'https://cdn.jsdelivr.net/gh/vrm-c/UniVRM@master/Tests/Models/Alicia_solid/AliciaSolid.vrm';
@@ -11,23 +50,28 @@ export class AppState {
   W: number = window.innerWidth;
   H: number = window.innerHeight;
 
-  state: CharacterState = 'FALLING';
-  posX: number = Math.max(180, window.innerWidth - 260);
-  posY: number = 240;
+  state: CharacterState = 'IDLE';
+  posX: number = Math.max(200, (window.innerWidth || 1920) - 280);
+  posY: number = Math.max(240, (window.innerHeight || 1080) - 48);
+  posZ: number = 0;
+  swimDepthScale: number = 1.0;
   velX: number = 0;
   velY: number = 0;
   walkDir: number = 1;
   facingAngle: number = 0;
   dragSway: number = 0;
+  swingTiltAngle: number = 0;
   squashX: number = 1.0;
   squashY: number = 1.0;
   stateTimer: number = 0;
-  nextRoamDuration: number = 7;
+  autoActionIntervalSec: number = loadInitialAutoActionIntervalSec();
+  nextRoamDuration: number = this.autoActionIntervalSec;
 
   modelScale: number = 1.0;
   gravity: number = 0.68;
   bounceFactor: number = 0.42;
   autoRoamEnabled: boolean = true;
+  autoBehaviors: AutoBehaviorConfig = loadInitialAutoBehaviors();
   lookAtEnabled: boolean = true;
   windowInteractEnabled: boolean = true;
 
@@ -40,6 +84,61 @@ export class AppState {
   expressionTimer: number = 0;
   globalCursorX: number = window.innerWidth / 2;
   globalCursorY: number = window.innerHeight / 2;
+  systemAudioPeak: number = 0;
+  keyPressTotal: number = 0;
+  cursorIdleMs: number = 0;
+  rhythmIntensity: number = 0;
+  activeAccessory: AccessoryType = 'none';
+  isEdgePeekMode: boolean = false;
+  weatherMode: WeatherEffectMode = 'clear';
+  weatherTempC: number = 26;
+  weatherFeelsLikeC: number = 27;
+  weatherHumidity: number = 68;
+  weatherWindKmh: number = 10;
+  weatherDesc: string = 'Chưa cập nhật';
+  weatherLocation: string = 'Hà Nội';
+  weatherCityQuery: string = 'auto';
+  englishIntervalMin: number = Math.max(
+    0,
+    Math.min(360, Number.isFinite(Number(localStorage.getItem('mate_english_interval_min'))) ? Number(localStorage.getItem('mate_english_interval_min') ?? 15) : 15)
+  );
+  newsIntervalMin: number = Math.max(
+    0,
+    Math.min(360, Number.isFinite(Number(localStorage.getItem('mate_news_interval_min'))) ? Number(localStorage.getItem('mate_news_interval_min') ?? 20) : 20)
+  );
+  weatherIntervalMin: number = Math.max(
+    0,
+    Math.min(360, Number.isFinite(Number(localStorage.getItem('mate_weather_interval_min'))) ? Number(localStorage.getItem('mate_weather_interval_min') ?? 30) : 30)
+  );
+  appMetricsIntervalMin: number = Math.max(
+    0,
+    Math.min(360, Number.isFinite(Number(localStorage.getItem('mate_app_metrics_interval_min'))) ? Number(localStorage.getItem('mate_app_metrics_interval_min') ?? 25) : 25)
+  );
+  btcIntervalMin: number = Math.max(
+    0,
+    Math.min(360, Number.isFinite(Number(localStorage.getItem('mate_btc_interval_min'))) ? Number(localStorage.getItem('mate_btc_interval_min') ?? 30) : 30)
+  );
+  weatherSourceMode: 'api' | 'custom' =
+    localStorage.getItem('mate_weather_source_mode') === 'custom' ? 'custom' : 'api';
+  weatherCustomMode: WeatherEffectMode =
+    (['clear', 'rain', 'hot', 'cold', 'wind', 'night'].includes(
+      localStorage.getItem('mate_weather_custom_mode') || ''
+    )
+      ? (localStorage.getItem('mate_weather_custom_mode') as WeatherEffectMode)
+      : 'clear');
+  weatherCustomTempC: number = Math.max(
+    -30,
+    Math.min(55, Number.isFinite(Number(localStorage.getItem('mate_weather_custom_temp'))) ? Number(localStorage.getItem('mate_weather_custom_temp') ?? 28) : 28)
+  );
+  weatherCustomHumidityPct: number = Math.max(
+    0,
+    Math.min(100, Number.isFinite(Number(localStorage.getItem('mate_weather_custom_hum'))) ? Number(localStorage.getItem('mate_weather_custom_hum') ?? 68) : 68)
+  );
+  weatherCustomLocation: string = localStorage.getItem('mate_weather_custom_loc') || 'Tùy chỉnh';
+  weatherCustomDesc: string = localStorage.getItem('mate_weather_custom_desc') || 'Trời quang đãng';
+  chatDockSide: 'left' | 'right' =
+    localStorage.getItem('mate_chat_dock_side') === 'left' ? 'left' : 'right';
+  randomFeatureEnabled: boolean = true;
 
   openWindows: WinRect[] = [];
   activeWindowHwnd: number | null = null;
@@ -52,15 +151,28 @@ export class AppState {
   activeWindowTask: ActiveWindowTask | null = null;
 
   isBubbleVisible: boolean = true;
+  isChatOpen: boolean = false;
+  isChatting: boolean = false;
   isLeftPanelOpen: boolean = false;
   isRightPanelOpen: boolean = true;
   isStudioOpen: boolean = false;
   isLongMemoryOpen: boolean = false;
+  isNotificationManagerOpen: boolean = false;
+  isP2pArenaOpen: boolean = false;
+  isPcControlOpen: boolean = false;
+  isOcrModalOpen: boolean = false;
+  isOcrSnipMode: boolean = false;
+  isMigratedOut: boolean = false;
+  blackHoleWarpMode: boolean = false;
+  isFileDragHovering: boolean = false;
 
   currentVrm: VRM | null = null;
   currentGlbScene: THREE.Group | null = null;
   currentGlbMixer: THREE.AnimationMixer | null = null;
-  builtinModelType: 'idol' | 'microduck' = 'idol';
+  builtinModelType: 'idol' | 'microduck' = 'microduck';
+  duckCrouchRoll: boolean = false;
+  duckBodyColor: string = '#f4f4f6';
+  duckAccentColor: string = '#f97316';
   vrmBaseScale: number = 115;
   vrmFloorOffset: number = 0;
 
@@ -111,6 +223,31 @@ export class AppState {
       this.stateTimer = 0;
       const stateBadge = document.getElementById('state-badge');
       if (stateBadge) stateBadge.textContent = `[${next}]`;
+    }
+  }
+
+  getAutoActionDelay(): number {
+    return Math.max(5, Math.min(300, Math.round(this.autoActionIntervalSec || 15)));
+  }
+
+  isAutoBehaviorEnabled(key: AutoBehaviorKey): boolean {
+    return Boolean(this.autoBehaviors[key]);
+  }
+
+  applyAutoBehaviorsJson(rawJson: string | undefined | null) {
+    if (!rawJson) return;
+    try {
+      const parsed = JSON.parse(rawJson) as Record<string, unknown>;
+      if (parsed && typeof parsed === 'object') {
+        for (const item of AUTO_BEHAVIOR_CATALOG) {
+          if (typeof parsed[item.key] === 'boolean') {
+            this.autoBehaviors[item.key] = parsed[item.key] as boolean;
+          }
+        }
+        localStorage.setItem('mate_auto_behaviors_json', JSON.stringify(this.autoBehaviors));
+      }
+    } catch {
+      // ignore invalid json
     }
   }
 }

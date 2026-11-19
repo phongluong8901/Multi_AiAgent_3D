@@ -12,6 +12,7 @@ pub struct WinRect {
     pub y: i32,
     pub width: i32,
     pub height: i32,
+    pub is_maximized: bool,
 }
 
 #[cfg(windows)]
@@ -105,7 +106,7 @@ pub fn scan_open_windows() -> Vec<WinRect> {
         use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED};
         use windows::Win32::UI::WindowsAndMessaging::{
             EnumWindows, GetWindowRect, GetWindowTextLengthW, GetWindowTextW, IsIconic,
-            IsWindowVisible,
+            IsWindowVisible, IsZoomed,
         };
 
         unsafe extern "system" fn enum_window_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
@@ -147,6 +148,7 @@ pub fn scan_open_windows() -> Vec<WinRect> {
                     // Chấp nhận cả cửa sổ phóng to (maximized có top = -8) hoặc sát mép trên (top = 0)
                     if w > 200 && h > 100 && rect.top >= -24 && rect.bottom > 40 {
                         let process_name = get_process_name_by_hwnd(hwnd);
+                        let is_maximized = IsZoomed(hwnd).as_bool();
                         results.push(WinRect {
                             hwnd: hwnd.0 as isize,
                             title,
@@ -155,6 +157,7 @@ pub fn scan_open_windows() -> Vec<WinRect> {
                             y: rect.top.max(0),
                             width: w,
                             height: h,
+                            is_maximized,
                         });
                     }
                 }

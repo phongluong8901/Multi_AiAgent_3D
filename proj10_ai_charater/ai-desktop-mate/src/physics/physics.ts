@@ -1,9 +1,14 @@
 import { invoke } from '@tauri-apps/api/core';
 import { appState } from '../core/state';
-import { FrameZone } from '../core/types';
+import { AutoBehaviorKey, FrameZone } from '../core/types';
+import { createMicroDuckCharacter } from '../characters/characterRig';
+import { equipAccessory3D } from '../characters/accessories3d';
+import { clearCachedVrm } from '../characters/vrmManager';
 import {
   clearFoodItem,
   clearLadder,
+  show3DRadar,
+  showJetpack,
   showParachute,
   spawnFoodItem,
   spawnFrameHighlight,
@@ -11,6 +16,9 @@ import {
   spawnParticles,
   spawnScanEffect,
   spawnShockwave,
+  spawnDriftSmoke,
+  spawnBlackHole,
+  triggerRandomSpecial3DEffect,
 } from '../core/particles';
 import {
   checkProximityWindowPush,
@@ -19,13 +27,64 @@ import {
   startPhysicalResize,
   stepActiveWindowTask,
 } from './windowInteract';
+import {
+  playLandSound,
+  playJumpSound,
+  playWhooshSound,
+  playSuccessChimeSound,
+  playDuckQuackSound,
+} from '../core/soundFx';
+import {
+  registerWaterPoolSpeakCallback,
+  triggerStartSwimming,
+  triggerStopSwimming,
+  isWaterPoolActive,
+} from '../core/waterPool';
+import {
+  isDesktopIconTaskActive,
+  registerDesktopIconSpeakCallback,
+  startDragDesktopIcon,
+  stepDesktopIconDrag,
+} from './desktopIconInteract';
+import {
+  clearTemporaryAccessoryTimer,
+  isGooseModeActive,
+  triggerGooseMischiefMode,
+  triggerManualBeatDance,
+  triggerTerritoryDefenseMode,
+} from '../core/rhythmAndGoose';
+import { isP2pSessionActive } from '../core/p2pArena';
+import {
+  cancelWindowSwing,
+  stepWindowSwing,
+  triggerWindowSwing,
+} from './windowSwing';
+
+export {
+  triggerStartSwimming,
+  triggerStopSwimming,
+  isWaterPoolActive,
+  triggerWindowSwing,
+};
 
 let uiSpeakCallback: ((msg: string) => void) | null = null;
 let foodTimer = 0;
 let frameZoneIdx = 0;
+let ignoreWindowHwnd: number | null = null;
+let ignoreWindowTimer = 0;
+let lastAutoBehaviorKey: AutoBehaviorKey | null = null;
+let lastLandedWinHwnd: number | null = null;
+let lastLandedTime = 0;
+
+export function setIgnoreWindowCollision(hwnd: number, duration = 1.5) {
+  ignoreWindowHwnd = hwnd;
+  ignoreWindowTimer = duration;
+}
 
 export function registerPhysicsSpeakCallback(cb: (msg: string) => void) {
   uiSpeakCallback = cb;
+  registerWaterPoolSpeakCallback(cb);
+  registerDesktopIconSpeakCallback(cb);
 }
 
 function speak(msg: string) {
@@ -56,6 +115,8 @@ export function triggerSpawnRandomFood(announce = true) {
 
 function consumeFoodNow() {
   clearFoodItem();
+  clearLadder();
+  showParachute(false);
   appState.velX = 0;
   appState.velY = 0;
   appState.setState('EATING');
@@ -64,6 +125,7 @@ function consumeFoodNow() {
   appState.changeEnergy(32);
   appState.changeMood(10);
   spawnParticles(appState.posX, appState.posY - 90, 14, 0xfbbf24);
+  playSuccessChimeSound(appState.posX);
   speak('Măm măm! Leo trèo vất vả mới lấy được miếng bánh, ngon tuyệt cú mèo!');
 }
 
@@ -85,6 +147,7 @@ function launchJumpToTarget(targetX: number, targetY: number) {
   appState.setState('JUMPING');
   spawnParticles(appState.posX, appState.posY - 10, 6, 0x38bdf8);
   spawnShockwave(appState.posX, appState.posY, 0x38bdf8);
+  playJumpSound(appState.posX);
 }
 
 export async function triggerExploreInsideWindow() {
@@ -184,7 +247,12 @@ export function triggerJumpToWindow() {
   appState.changeEnergy(-7);
   appState.changeHunger(-4);
   const candidates = appState.openWindows.filter(
-    (w) => w.y > 120 && w.y < appState.H - 110 && w.width > 240
+    (w) =>
+      !w.is_maximized &&
+      w.y > 120 &&
+      w.y < appState.H - 120 &&
+      w.width > 240 &&
+      w.width < appState.W - 60
   );
 
   if (candidates.length === 0) {
@@ -217,8 +285,108 @@ export function triggerJumpToWindow() {
   speak(`Chuẩn bị nhảy lên mép "${targetWin.title.slice(0, 24)}"!`);
 }
 
+interface RocketFlightTask {
+  hwnd: number | null;
+  targetTitle: string;
+  startX: number;
+  startY: number;
+  apexX: number;
+  apexY: number;
+  progress: number;
+  duration: number;
+  lastWinX: number;
+  lastWinY: number;
+}
+
+let activeRocketFlight: RocketFlightTask | null = null;
+
+export function triggerClimbWindow(explicitHwnd?: number) {
+  cancelWindowSwing();
+  appState.activeWindowTask = null;
+  appState.attachedWindowHwnd = null;
+  appState.attachedLedgeOffsetY = 0;
+  appState.changeEnergy(-6);
+
+  const candidates = appState.openWindows.filter(
+    (w) =>
+      !w.is_maximized &&
+      w.y >= 45 &&
+      w.y < appState.H - 100 &&
+      w.width > 160 &&
+      w.width < appState.W - 40
+  );
+
+  let targetHwnd: number | null = null;
+  let targetTitle = 'không trung';
+  let apexX: number;
+  let apexY: number;
+  let lastWinX = 0;
+  let lastWinY = 0;
+
+  if (candidates.length > 0) {
+    const activeWin = candidates.find((w) => w.hwnd === appState.activeWindowHwnd);
+    const targetWin = explicitHwnd
+      ? candidates.find((w) => w.hwnd === explicitHwnd) || candidates[0]
+      : activeWin || candidates[0];
+
+    targetHwnd = targetWin.hwnd;
+    targetTitle = targetWin.title.slice(0, 22);
+    const midWinX = targetWin.x + targetWin.width * 0.5;
+    apexX = Math.max(80, Math.min(appState.W - 80, midWinX + (Math.random() - 0.5) * 40));
+    apexY = Math.max(60, targetWin.y - 120);
+    lastWinX = targetWin.x;
+    lastWinY = targetWin.y;
+  } else {
+    // Không có cửa sổ nổi -> Chuyển sang chế độ Rocket Bay Tuần Tra & Nhảy Dù Tự Do
+    const minX = 120;
+    const maxX = Math.max(minX + 80, appState.W - 120);
+    if (appState.posX < appState.W * 0.5) {
+      const spanStart = Math.max(minX, appState.W * 0.52);
+      apexX = spanStart + Math.random() * Math.max(40, maxX - spanStart);
+    } else {
+      const spanEnd = Math.min(maxX, appState.W * 0.48);
+      apexX = minX + Math.random() * Math.max(40, spanEnd - minX);
+    }
+    apexY = 95 + Math.random() * 130;
+  }
+
+  activeRocketFlight = {
+    hwnd: targetHwnd,
+    targetTitle,
+    startX: appState.posX,
+    startY: appState.posY,
+    apexX,
+    apexY,
+    progress: 0,
+    duration: 1.45,
+    lastWinX,
+    lastWinY,
+  };
+
+  showParachute(false);
+  showJetpack(true);
+  appState.setState('FLYING_ROCKET');
+  appState.setExpression('happy', 3.0);
+  appState.walkDir = apexX >= appState.posX ? 1 : -1;
+
+  spawnShockwave(appState.posX, appState.posY, 0xf97316);
+  spawnParticles(appState.posX, appState.posY - 20, 14, 0xf97316);
+  playWhooshSound(appState.posX);
+  if (targetHwnd !== null) {
+    speak(`[JETPACK] Kích hoạt động cơ phản lực rocket đôi! Phun lửa bay chéo vút lên nóc "${targetTitle}"!`);
+  } else {
+    speak('[JETPACK] Kích hoạt phản lực bay tuần tra không trung & chuẩn bị bung dù lượn xuống!');
+  }
+}
+
 export function stepPhysicsAndRoam(delta: number) {
   appState.stateTimer += delta;
+  if (ignoreWindowTimer > 0) {
+    ignoreWindowTimer = Math.max(0, ignoreWindowTimer - delta);
+    if (ignoreWindowTimer === 0) {
+      ignoreWindowHwnd = null;
+    }
+  }
   if (appState.speechLipSyncTimer > 0) {
     appState.speechLipSyncTimer = Math.max(0, appState.speechLipSyncTimer - delta);
   }
@@ -229,18 +397,69 @@ export function stepPhysicsAndRoam(delta: number) {
     }
   }
 
+  const ceilingY = 75;
   const floorY = appState.H - 48;
   const wallLeft = 50;
   const wallRight = appState.W - 50;
+
+  if (stepDesktopIconDrag(delta)) {
+    return;
+  }
+
+  if (
+    isGooseModeActive() ||
+    appState.isMigratedOut ||
+    (isP2pSessionActive() && appState.state !== 'DRAGGING')
+  ) {
+    cancelWindowSwing();
+    return;
+  }
+
+  if (appState.state === 'DRAGGING') {
+    cancelWindowSwing();
+  } else if (stepWindowSwing(delta)) {
+    return;
+  }
 
   if (appState.activeWindowTask !== null) {
     stepActiveWindowTask(delta);
     return;
   }
 
-  if (appState.state === 'DRAGGING') {
+  if (appState.state === 'SWIMMING') {
+    return;
+  }
+
+  // Chế độ Nấp Mép Màn Hình (Screen Edge Peek / Focus Mode)
+  if (appState.isEdgePeekMode && appState.state !== 'DRAGGING') {
+    cancelWindowSwing();
     showParachute(false);
+    showJetpack(false);
     clearLadder();
+    appState.attachedWindowHwnd = null;
+    appState.walkDir = -1;
+    const distCursor = Math.hypot(
+      appState.globalCursorX - appState.posX,
+      appState.globalCursorY - (appState.posY - 80 * appState.modelScale)
+    );
+    const targetX = distCursor < 110 ? Math.max(80, appState.W - 64) : Math.max(80, appState.W - 18);
+    appState.posX += (targetX - appState.posX) * Math.min(1, delta * 9);
+    appState.posY += (floorY - appState.posY) * Math.min(1, delta * 9);
+    appState.velX = 0;
+    appState.velY = 0;
+    appState.setState('IDLE');
+    return;
+  }
+
+  if (appState.state === 'DRAGGING') {
+    cancelWindowSwing();
+    showParachute(false);
+    showJetpack(false);
+    clearLadder();
+    activeRocketFlight = null;
+    if (isWaterPoolActive()) {
+      triggerStopSwimming(false);
+    }
   }
 
   if (
@@ -251,6 +470,7 @@ export function stepPhysicsAndRoam(delta: number) {
       appState.state === 'ALERT') &&
     appState.stateTimer > 3.6
   ) {
+    appState.nextRoamDuration = appState.getAutoActionDelay();
     appState.setState(appState.attachedWindowHwnd !== null ? 'SITTING_WINDOW' : 'IDLE');
   } else if (appState.state === 'EATING' && appState.stateTimer > 2.4) {
     if (appState.attachedWindowHwnd === null && appState.posY < floorY - 80) {
@@ -262,44 +482,64 @@ export function stepPhysicsAndRoam(delta: number) {
     } else if (appState.attachedWindowHwnd === null && appState.posY < floorY - 5) {
       appState.setState('FALLING');
     } else {
+      appState.nextRoamDuration = appState.getAutoActionDelay();
       appState.setState(appState.attachedWindowHwnd !== null ? 'SITTING_WINDOW' : 'IDLE');
     }
   } else if ((appState.state === 'BACKFLIP' || appState.state === 'SPIN') && appState.stateTimer > 1.55) {
+    appState.nextRoamDuration = appState.getAutoActionDelay();
     appState.setState(appState.attachedWindowHwnd !== null ? 'SITTING_WINDOW' : 'IDLE');
-  } else if (appState.state === 'TIRED' && (appState.energy >= 65 || appState.stateTimer > 8)) {
+  } else if (appState.state === 'RADAR' && appState.stateTimer > 3.8) {
+    appState.nextRoamDuration = appState.getAutoActionDelay();
+    appState.setState(appState.attachedWindowHwnd !== null ? 'SITTING_WINDOW' : 'IDLE');
+  } else if (appState.state === 'SLEEP' && appState.stateTimer > 15.0) {
+    appState.nextRoamDuration = appState.getAutoActionDelay();
+    appState.setState(appState.attachedWindowHwnd !== null ? 'SITTING_WINDOW' : 'IDLE');
+    speak('Oáp... MicroDuck thức dậy rồi!');
+  } else if (
+    appState.state === 'TIRED' &&
+    ((appState.energy >= 65 && appState.stateTimer > 18) || appState.stateTimer > 32)
+  ) {
+    appState.nextRoamDuration = appState.getAutoActionDelay();
     appState.setState(appState.attachedWindowHwnd !== null ? 'SITTING_WINDOW' : 'IDLE');
     speak('Đã nghỉ khỏe lại rồi, tiếp tục chiến đấu thôi!');
   }
 
   // Cập nhật các thanh hoạt động (Năng lượng & Độ no) theo trạng thái
   if (appState.state === 'WALKING' || appState.state === 'PUSHING' || appState.state === 'PULLING') {
-    appState.changeEnergy(-2.2 * delta);
-    appState.changeHunger(-1.5 * delta);
+    appState.changeEnergy(-1.8 * delta);
+    appState.changeHunger(-0.6 * delta);
   } else if (appState.state === 'JUMPING' || appState.state === 'DANCING') {
-    appState.changeEnergy(-5.0 * delta);
-    appState.changeHunger(-2.8 * delta);
-  } else if (appState.state === 'SITTING_WINDOW' || appState.state === 'TIRED') {
-    appState.changeEnergy(4.8 * delta);
-    appState.changeHunger(-0.3 * delta);
+    appState.changeEnergy(-3.8 * delta);
+    appState.changeHunger(-1.2 * delta);
+  } else if (appState.state === 'SLEEP') {
+    appState.changeEnergy(3.5 * delta);
+    appState.changeHunger(-0.15 * delta);
+  } else if (appState.state === 'TIRED') {
+    // Hồi phục chậm rãi để người dùng quan sát kỹ hoạt động thở dốc và cạn năng lượng
+    appState.changeEnergy(1.2 * delta);
+    appState.changeHunger(-0.15 * delta);
+  } else if (appState.state === 'SITTING_WINDOW') {
+    appState.changeEnergy(0.8 * delta);
+    appState.changeHunger(-0.2 * delta);
   } else if (appState.state === 'IDLE') {
-    appState.changeEnergy(1.6 * delta);
-    appState.changeHunger(-0.4 * delta);
+    appState.changeEnergy(0.25 * delta);
+    appState.changeHunger(-0.2 * delta);
   }
 
-  // Quá mệt khi đi bộ -> ngồi nghỉ và tìm đồ ăn nếu cần
-  if (appState.energy <= 18 && appState.state === 'WALKING') {
+  // Quá mệt khi đi bộ hoặc đứng yên -> chuyển sang TIRED
+  if (appState.energy <= 20 && (appState.state === 'WALKING' || appState.state === 'IDLE')) {
     appState.setState('TIRED');
-    appState.setExpression('sad', 4.0);
-    speak('Phù... đi chạy nhảy nhiều mệt quá! Tớ ngồi nghỉ hoặc kiếm gì ăn chút nhé.');
-    if (!appState.foodTarget) {
-      triggerSpawnRandomFood(false);
-    }
+    appState.setExpression('sad', 5.0);
+    speak('Phù... cạn pin rồi! Tớ hết sạch năng lượng, ngồi thở một lúc đã...');
+    // KHÔNG tự động thả đồ ăn ở đây để người dùng ngắm nhân vật mệt mỏi
   }
 
-  // Tự động rơi đồ ăn ngẫu nhiên trên màn hình khi đói hoặc định kỳ
+  // Tự động rơi đồ ăn ngẫu nhiên trên màn hình:
+  // Tần suất chậm để người dùng có thể quan sát trạng thái đói & cạn pin
+  // Chỉ tự động thả khi đói kiệt sức (< 15% sau 360s) hoặc định kỳ chậm (> 840s / 14 phút)
   if (!appState.foodTarget) {
     foodTimer += delta;
-    if ((appState.hunger < 45 && foodTimer > 12) || foodTimer > 55) {
+    if ((appState.hunger < 15 && foodTimer > 360) || foodTimer > 840) {
       foodTimer = 0;
       triggerSpawnRandomFood(true);
     }
@@ -320,8 +560,9 @@ export function stepPhysicsAndRoam(delta: number) {
     spawnParticles(appState.posX, appState.posY - 115, 1, 0xf87171);
   } else if (appState.state === 'EATING' && Math.random() < delta * 6) {
     spawnParticles(appState.posX, appState.posY - 95, 1, 0xfbbf24);
-  } else if (appState.state === 'TIRED' && Math.random() < delta * 2.5) {
-    spawnParticles(appState.posX, appState.posY - 115, 1, 0x60a5fa);
+  } else if (appState.state === 'TIRED' && Math.random() < delta * 3.2) {
+    // Hạt mồ hôi / tia điện yếu khi kiệt pin
+    spawnParticles(appState.posX + (Math.random() - 0.5) * 16, appState.posY - 105, 1, 0x60a5fa);
   }
 
   // Chạm & ăn đồ ăn ngay cả khi đang nhảy / rơi / leo / đi bộ
@@ -335,13 +576,15 @@ export function stepPhysicsAndRoam(delta: number) {
   }
 
   // Tự leo trèo, bắc thang 3D, nhảy parkour & tìm tới đồ ăn xuất hiện ngẫu nhiên trên màn hình
+  // Nếu đang TIRED cạn pin, không bật dậy chạy đi tìm đồ ăn ở xa (chỉ ăn nếu thức ăn rơi sát cạnh < 48px)
   if (
     appState.foodTarget &&
     appState.state !== 'DRAGGING' &&
     appState.state !== 'FALLING' &&
     appState.state !== 'JUMPING' &&
     appState.state !== 'EATING' &&
-    appState.state !== 'PARACHUTING'
+    appState.state !== 'PARACHUTING' &&
+    appState.state !== 'TIRED'
   ) {
     const dx = appState.foodTarget.x - appState.posX;
     const dy = appState.foodTarget.y - appState.posY;
@@ -357,12 +600,60 @@ export function stepPhysicsAndRoam(delta: number) {
     }
 
     if (dy > 55 && appState.attachedWindowHwnd !== null) {
-      appState.attachedWindowHwnd = null;
-      appState.attachedLedgeOffsetY = 0;
-      appState.velX = Math.max(-8, Math.min(8, Math.sign(dx) * 5));
-      appState.velY = -5;
-      appState.setState('FALLING');
-      return;
+      const curAttachedHwnd = appState.attachedWindowHwnd;
+      const curWin = appState.openWindows.find((w) => w.hwnd === curAttachedHwnd);
+
+      // Nếu thức ăn ở gần vị trí thẳng đứng bên dưới (dx <= 65): bắc thang trèo thẳng xuống
+      if (Math.abs(dx) <= 65) {
+        appState.attachedWindowHwnd = null;
+        appState.attachedLedgeOffsetY = 0;
+        spawnLadder(appState.posX, appState.posY, appState.foodTarget.y);
+        appState.setState('CLIMBING');
+        speak('Bắc thang trèo thẳng xuống lấy đồ ăn nào!');
+        return;
+      }
+
+      // Nếu thức ăn ở xa theo phương ngang: đi men tới mép cửa sổ gần thức ăn rồi nhảy/bung dù
+      if (curWin) {
+        const targetEdgeX = dx > 0 ? curWin.x + curWin.width - 12 : curWin.x + 12;
+        const distToEdge = Math.abs(appState.posX - targetEdgeX);
+
+        if (distToEdge > 22) {
+          appState.walkDir = dx > 0 ? 1 : -1;
+          appState.setState('WALKING');
+          appState.posX += appState.walkDir * 2.8;
+          return;
+        }
+
+        // Đã tới mép cửa sổ -> rời cửa sổ và nhảy xuống
+        ignoreWindowHwnd = curAttachedHwnd;
+        ignoreWindowTimer = 1.8;
+        appState.attachedWindowHwnd = null;
+        appState.attachedLedgeOffsetY = 0;
+
+        if (dy > 110) {
+          showParachute(true);
+          appState.velY = 2.4;
+          appState.velX = Math.sign(dx) * 2.5;
+          appState.setState('PARACHUTING');
+          speak('Bung dù từ mép cửa sổ bay xuống lấy đồ ăn!');
+        } else {
+          appState.velY = 2.6;
+          appState.velX = Math.sign(dx) * 3.8;
+          appState.setState('FALLING');
+          speak('Nhảy từ mép cửa sổ xuống lấy đồ ăn!');
+        }
+        return;
+      } else {
+        // Cửa sổ không còn -> rơi xuống
+        ignoreWindowHwnd = curAttachedHwnd;
+        ignoreWindowTimer = 1.5;
+        appState.attachedWindowHwnd = null;
+        appState.velY = 2.5;
+        appState.velX = Math.sign(dx) * 3.5;
+        appState.setState('FALLING');
+        return;
+      }
     }
 
     if (dy < -55) {
@@ -402,6 +693,76 @@ export function stepPhysicsAndRoam(delta: number) {
 
   checkProximityWindowPush();
 
+  // Xử lý động cơ phản lực Jetpack bay vút lên nóc cửa sổ hoặc tuần tra không trung rồi bung dù
+  if (activeRocketFlight !== null && appState.state !== 'DRAGGING') {
+    let targetLabel = activeRocketFlight.targetTitle;
+    if (activeRocketFlight.hwnd !== null) {
+      const curWin = appState.openWindows.find((w) => w.hwnd === activeRocketFlight!.hwnd);
+      if (!curWin) {
+        showJetpack(false);
+        activeRocketFlight = null;
+        showParachute(true);
+        appState.velX = 0;
+        appState.velY = 1.6;
+        appState.setState('PARACHUTING');
+        speak('Cửa sổ mục tiêu đã đóng, bung dù lượn xuống an toàn nhé!');
+        return;
+      }
+
+      // Nếu người dùng giật hoặc di chuyển cửa sổ mạnh khi đang bay tới -> nhiễu luồng khí
+      const shiftX = Math.abs(curWin.x - activeRocketFlight.lastWinX);
+      const shiftY = Math.abs(curWin.y - activeRocketFlight.lastWinY);
+      if (shiftX > 25 || shiftY > 25) {
+        showJetpack(false);
+        const lastX = activeRocketFlight.lastWinX;
+        setIgnoreWindowCollision(curWin.hwnd, 1.8);
+        activeRocketFlight = null;
+        appState.velX = Math.sign(curWin.x - lastX) * 5.0;
+        appState.velY = 2.0;
+        appState.setState('FALLING');
+        appState.setExpression('surprised', 3.0);
+        spawnParticles(appState.posX, appState.posY - 35, 14, 0xf87171);
+        speak(`Úi! Cửa sổ "${curWin.title.slice(0, 18)}" bị di chuyển đột ngột làm nhiễu luồng phản lực, mất thăng bằng rơi xuống!`);
+        return;
+      }
+      activeRocketFlight.lastWinX = curWin.x;
+      activeRocketFlight.lastWinY = curWin.y;
+      targetLabel = curWin.title.slice(0, 20);
+    }
+
+    activeRocketFlight.progress += delta / activeRocketFlight.duration;
+    const t = Math.min(1.0, activeRocketFlight.progress);
+
+    // Đường bay cong chéo (Parabolic Flight Path)
+    const curX = (1 - t) * activeRocketFlight.startX + t * activeRocketFlight.apexX;
+    const arcHeight = Math.sin(t * Math.PI) * 35;
+    const curY = (1 - t) * activeRocketFlight.startY + t * activeRocketFlight.apexY - arcHeight;
+
+    appState.posX = curX;
+    appState.posY = curY;
+    appState.walkDir = activeRocketFlight.apexX >= activeRocketFlight.startX ? 1 : -1;
+    appState.squashX = 0.82;
+    appState.squashY = 1.25;
+
+    if (t >= 1.0) {
+      // Đạt đến đỉnh độ cao: Ngắt phản lực, bung dù lượn xuống
+      const hadWindowTarget = activeRocketFlight.hwnd !== null;
+      showJetpack(false);
+      activeRocketFlight = null;
+      showParachute(true);
+      appState.setState('PARACHUTING');
+      appState.velX = 0;
+      appState.velY = 1.6;
+      spawnShockwave(appState.posX, appState.posY, 0xf472b6);
+      if (hadWindowTarget) {
+        speak(`[PARACHUTE] Đạt đỉnh độ cao, ngắt phản lực, bung dù lượn êm ái xuống nóc "${targetLabel}"!`);
+      } else {
+        speak('[PARACHUTE] Đạt độ cao tuần tra, bung dù lượn êm ru xuống mặt đất!');
+      }
+    }
+    return;
+  }
+
   if (appState.state === 'PARACHUTING') {
     const prevY = appState.posY;
     appState.posY += 2.1;
@@ -411,6 +772,13 @@ export function stepPhysicsAndRoam(delta: number) {
       spawnParticles(appState.posX, appState.posY - 150, 1, 0xf472b6);
     }
     for (const win of appState.openWindows) {
+      if (
+        win.is_maximized ||
+        win.y < 85 ||
+        (win.x <= 10 && win.width >= appState.W - 50)
+      ) {
+        continue;
+      }
       const withinX =
         appState.posX >= win.x + 24 && appState.posX <= win.x + win.width - 24;
       const crossedTop = prevY <= win.y + 10 && appState.posY >= win.y - 4;
@@ -457,11 +825,28 @@ export function stepPhysicsAndRoam(delta: number) {
         appState.velX = -Math.abs(appState.velX) * appState.bounceFactor;
       }
 
+      if (appState.posY < ceilingY) {
+        appState.posY = ceilingY;
+        if (appState.velY < 0) appState.velY = 0;
+      }
+
       if (appState.velY > 0) {
         for (const win of appState.openWindows) {
+          if (win.hwnd === ignoreWindowHwnd && ignoreWindowTimer > 0) {
+            continue; // Đang rời khỏi cửa sổ này để xuống lấy đồ ăn, không dính ngược lại
+          }
+          if (
+            win.is_maximized ||
+            win.y < 85 ||
+            (win.x <= 10 && win.width >= appState.W - 50)
+          ) {
+            continue;
+          }
           const withinX =
-            appState.posX >= win.x + 24 && appState.posX <= win.x + win.width - 24;
-          const crossedTop = prevY <= win.y + 14 && appState.posY >= win.y - 8;
+            appState.posX >= win.x + 6 && appState.posX <= win.x + win.width - 6;
+          const crossedTop =
+            prevY <= win.y + Math.max(16, appState.velY + 4) &&
+            appState.posY >= win.y - 10;
           if (withinX && crossedTop) {
             appState.posY = win.y;
             appState.velX = 0;
@@ -474,8 +859,13 @@ export function stepPhysicsAndRoam(delta: number) {
             appState.squashX = 1.18;
             appState.squashY = 0.84;
             spawnShockwave(appState.posX, win.y, 0x38bdf8);
+            playLandSound(appState.posX);
             appState.setState('SITTING_WINDOW');
-            speak(`Đang ngồi nghỉ trên: ${appState.attachedWinTitle.slice(0, 26)}`);
+            if (lastLandedWinHwnd !== win.hwnd || performance.now() - lastLandedTime > 4000) {
+              speak(`Đang ngồi nghỉ trên: ${appState.attachedWinTitle.slice(0, 26)}`);
+              lastLandedWinHwnd = win.hwnd;
+              lastLandedTime = performance.now();
+            }
             break velUpdate;
           }
         }
@@ -487,6 +877,7 @@ export function stepPhysicsAndRoam(delta: number) {
           appState.squashX = 1.2;
           appState.squashY = 0.82;
           spawnShockwave(appState.posX, floorY, 0x38bdf8);
+          playLandSound(appState.posX);
           appState.velY = -appState.velY * appState.bounceFactor;
           appState.velX *= 0.72;
         } else {
@@ -494,6 +885,7 @@ export function stepPhysicsAndRoam(delta: number) {
             appState.squashX = 1.14;
             appState.squashY = 0.88;
             spawnShockwave(appState.posX, floorY, 0x38bdf8);
+            playLandSound(appState.posX);
           }
           appState.velY = 0;
           appState.velX = 0;
@@ -502,25 +894,53 @@ export function stepPhysicsAndRoam(delta: number) {
       }
     }
   } else if (appState.state === 'WALKING') {
-    const speed = 1.65;
+    const isExhausted = appState.energy <= 25;
+    const isMicroDuckFast =
+      appState.builtinModelType === 'microduck' &&
+      !appState.currentVrm &&
+      !appState.currentGlbScene &&
+      !isExhausted &&
+      (appState.duckCrouchRoll || appState.foodTarget !== null || appState.stateTimer > 1.8);
+    const speed = isExhausted ? 0.75 : (isMicroDuckFast ? 4.3 : 1.65);
     appState.posX += appState.walkDir * speed;
+
+    if (isMicroDuckFast && Math.random() < 0.38) {
+      spawnDriftSmoke(appState.posX, appState.posY, -appState.walkDir);
+    }
 
     if (appState.attachedWindowHwnd !== null) {
       const targetWin = appState.openWindows.find(
         (w) => w.hwnd === appState.attachedWindowHwnd
       );
       if (targetWin) {
-        const minX = targetWin.x + 28;
-        const maxX = targetWin.x + targetWin.width - 28;
-        if (appState.posX <= minX) {
-          appState.posX = minX;
-          appState.walkDir = 1;
-        } else if (appState.posX >= maxX) {
-          appState.posX = maxX;
-          appState.walkDir = -1;
+        const leftLedge = targetWin.x;
+        const rightLedge = targetWin.x + targetWin.width;
+
+        // Đi hết thanh ngang (ra khỏi phạm vi vật lý mép cửa sổ) -> bước hụt và rơi tự do
+        if (appState.posX < leftLedge - 6 || appState.posX > rightLedge + 6) {
+          setIgnoreWindowCollision(targetWin.hwnd, 1.5);
+          appState.attachedWindowHwnd = null;
+          appState.attachedLedgeOffsetY = 0;
+          appState.velX = appState.walkDir * 3.2;
+          appState.velY = 1.2;
+          appState.setState('FALLING');
+          appState.setExpression('surprised', 2.8);
+          spawnParticles(appState.posX, appState.posY - 35, 10, 0xf87171);
+          speak(`Úi úi! Đi hết thanh ngang cửa sổ "${targetWin.title.slice(0, 18)}" bị hụt chân rơi xuống rồi!`);
+        } else {
+          const expectedY = targetWin.y + appState.attachedLedgeOffsetY;
+          if (expectedY > appState.posY + 3) {
+            // Cửa sổ bị kéo tụt xuống dưới -> hụt chân rơi tự do xuống cửa sổ bên dưới
+            appState.attachedWindowHwnd = null;
+            appState.attachedLedgeOffsetY = 0;
+            appState.velY = 1.6;
+            appState.setState('FALLING');
+            appState.setExpression('surprised', 1.8);
+          } else {
+            appState.attachedOffsetX = appState.posX - targetWin.x;
+            appState.posY = expectedY;
+          }
         }
-        appState.attachedOffsetX = appState.posX - targetWin.x;
-        appState.posY = targetWin.y + appState.attachedLedgeOffsetY;
       } else {
         appState.attachedWindowHwnd = null;
         appState.setState('FALLING');
@@ -536,36 +956,164 @@ export function stepPhysicsAndRoam(delta: number) {
     }
 
     if (appState.stateTimer > 4.5) {
+      appState.duckCrouchRoll = false;
+      appState.nextRoamDuration = appState.getAutoActionDelay();
       appState.setState(appState.attachedWindowHwnd !== null ? 'SITTING_WINDOW' : 'IDLE');
     }
   } else if (
     appState.autoRoamEnabled &&
     (appState.state === 'IDLE' || appState.state === 'SITTING_WINDOW')
   ) {
-    if (appState.stateTimer > appState.nextRoamDuration) {
-      appState.nextRoamDuration = 6 + Math.random() * 6;
-      const roll = Math.random();
-      if (roll < 0.38) {
-        appState.walkDir = Math.random() < 0.5 ? -1 : 1;
-        appState.setState('WALKING');
-      } else if (roll < 0.62 && appState.openWindows.length > 0) {
-        triggerJumpToWindow();
-      } else if (
-        roll < 0.76 &&
-        appState.windowInteractEnabled &&
-        appState.openWindows.length > 0
-      ) {
-        // Thỉnh thoảng tự nghịch đẩy nhẹ hoặc kéo cửa sổ
-        const actionRoll = Math.random();
-        if (actionRoll < 0.65) {
-          startPhysicalPush(Math.random() < 0.5 ? -1 : 1, undefined, 6, true);
-        } else {
-          startPhysicalResize(Math.random() < 0.5 ? 'shrink' : 'expand', undefined, 5, true);
+    // Khi đang mở khung Chat, đang bận hoặc đang PK: không chen ngang hành động tự động
+    if (
+      appState.isChatOpen ||
+      appState.isChatting ||
+      appState.isP2pArenaOpen ||
+      isP2pSessionActive() ||
+      isGooseModeActive() ||
+      isDesktopIconTaskActive() ||
+      isWaterPoolActive() ||
+      (typeof document !== 'undefined' && document.activeElement?.id === 'bubble-input')
+    ) {
+      return;
+    }
+
+    if (appState.energy <= 20) {
+      // Khi cạn pin, ưu tiên ngồi nghỉ dưỡng sức, không nhảy nhào lộn hay leo trèo cửa sổ
+      appState.setState('TIRED');
+      return;
+    }
+
+    if (appState.stateTimer >= appState.nextRoamDuration) {
+      appState.stateTimer = 0;
+      appState.nextRoamDuration = appState.getAutoActionDelay();
+
+      const floatingWins = appState.openWindows.filter(
+        (w) =>
+          !w.is_maximized &&
+          w.y >= 85 &&
+          w.y < appState.H - 120 &&
+          w.width > 200 &&
+          w.width < appState.W - 60
+      );
+
+      const candidates: AutoBehaviorKey[] = [];
+      const addIfEnabled = (key: AutoBehaviorKey, cond = true) => {
+        if (cond && appState.isAutoBehaviorEnabled(key)) {
+          candidates.push(key);
         }
-      } else if (roll < 0.9) {
-        appState.setState('WAVING');
-      } else {
-        appState.stateTimer = 0;
+      };
+
+      addIfEnabled('walk_roam');
+      addIfEnabled('wheel_roll');
+      addIfEnabled('wave');
+      addIfEnabled('dance');
+      addIfEnabled('backflip');
+      addIfEnabled('spin');
+      addIfEnabled('radar_scan');
+      addIfEnabled('sleep');
+      addIfEnabled('feed_food');
+      addIfEnabled('accessory_hat');
+      addIfEnabled('special_fx');
+      addIfEnabled('rocket_parachute');
+      addIfEnabled('black_hole');
+      addIfEnabled('jump_window', floatingWins.length > 0);
+      addIfEnabled('window_swing', floatingWins.length > 0);
+      addIfEnabled('window_push_resize', floatingWins.length > 0 && appState.windowInteractEnabled);
+      addIfEnabled('swim_pool');
+      addIfEnabled('territory_defense', !isGooseModeActive());
+      addIfEnabled('goose_mischief', !isGooseModeActive());
+      addIfEnabled('beat_dance');
+      addIfEnabled('drag_desktop_icon');
+
+      if (candidates.length === 0) {
+        return;
+      }
+
+      const pool =
+        candidates.length > 1 && lastAutoBehaviorKey
+          ? candidates.filter((k) => k !== lastAutoBehaviorKey)
+          : candidates;
+      const chosen = pool[Math.floor(Math.random() * pool.length)];
+      lastAutoBehaviorKey = chosen;
+
+      switch (chosen) {
+        case 'walk_roam':
+          appState.walkDir = Math.random() < 0.5 ? -1 : 1;
+          appState.duckCrouchRoll = false;
+          appState.setState('WALKING');
+          break;
+        case 'wheel_roll':
+          void triggerDuckWheelRoll();
+          break;
+        case 'wave':
+          appState.setState('WAVING');
+          appState.setExpression('happy', 3.0);
+          break;
+        case 'dance':
+          appState.activeWindowTask = null;
+          appState.attachedWindowHwnd = null;
+          appState.setState('DANCING');
+          appState.setExpression('happy', 3.4);
+          spawnParticles(appState.posX, appState.posY - 100, 10, 0xf472b6);
+          appState.changeMood(4);
+          break;
+        case 'backflip':
+          triggerBackflip();
+          break;
+        case 'spin':
+          triggerSpin();
+          break;
+        case 'radar_scan':
+          void triggerDuckRadarScan();
+          break;
+        case 'sleep':
+          void triggerDuckSleepMode();
+          break;
+        case 'feed_food':
+          triggerSpawnRandomFood(false);
+          break;
+        case 'accessory_hat':
+          clearTemporaryAccessoryTimer();
+          equipAccessory3D('random', false);
+          break;
+        case 'special_fx':
+          triggerRandomSpecial3DEffect(appState.posX, appState.posY);
+          break;
+        case 'rocket_parachute':
+          triggerClimbWindow();
+          break;
+        case 'black_hole':
+          triggerBlackHoleTeleport();
+          break;
+        case 'jump_window':
+          triggerJumpToWindow();
+          break;
+        case 'window_swing':
+          triggerWindowSwing();
+          break;
+        case 'window_push_resize':
+          if (Math.random() < 0.65) {
+            startPhysicalPush(Math.random() < 0.5 ? -1 : 1, undefined, 6, true);
+          } else {
+            startPhysicalResize(Math.random() < 0.5 ? 'shrink' : 'expand', undefined, 5, true);
+          }
+          break;
+        case 'swim_pool':
+          triggerStartSwimming(false, 11);
+          break;
+        case 'territory_defense':
+          triggerTerritoryDefenseMode(false);
+          break;
+        case 'goose_mischief':
+          triggerGooseMischiefMode(false);
+          break;
+        case 'beat_dance':
+          triggerManualBeatDance();
+          break;
+        case 'drag_desktop_icon':
+          void startDragDesktopIcon();
+          break;
       }
     }
   }
@@ -583,6 +1131,7 @@ export function triggerBackflip() {
   appState.changeMood(6);
   spawnParticles(appState.posX, appState.posY - 80, 14, 0x76b900);
   spawnShockwave(appState.posX, appState.posY, 0x76b900);
+  playWhooshSound(appState.posX);
   if (appState.builtinModelType === 'microduck' && !appState.currentVrm && !appState.currentGlbScene) {
     speak('Quạc quạc! NVIDIA MicroDuck thực hiện cú lộn nhào 360 độ!');
   } else {
@@ -599,10 +1148,192 @@ export function triggerSpin() {
   appState.changeEnergy(-3);
   appState.changeMood(5);
   spawnParticles(appState.posX, appState.posY - 70, 12, 0x38bdf8);
+  playWhooshSound(appState.posX);
   if (appState.builtinModelType === 'microduck' && !appState.currentVrm && !appState.currentGlbScene) {
     speak('Quạc! MicroDuck bật chế độ turbo xoay tít!');
   } else {
     speak('Ủa ôi, xoay vòng vòng chóng mặt quá đi thôi!');
   }
 }
+
+export async function triggerDuckWheelRoll() {
+  if (
+    appState.currentVrm !== null ||
+    appState.currentGlbScene !== null ||
+    appState.builtinModelType !== 'microduck'
+  ) {
+    await clearCachedVrm();
+    createMicroDuckCharacter();
+  }
+
+  if (appState.state === 'WALKING' && appState.duckCrouchRoll) {
+    appState.duckCrouchRoll = false;
+    appState.setState(appState.attachedWindowHwnd !== null ? 'SITTING_WINDOW' : 'IDLE');
+    speak('MicroDuck thu bánh xe, đứng thẳng lại rồi!');
+    return;
+  }
+
+  appState.activeWindowTask = null;
+  appState.duckCrouchRoll = true;
+  appState.walkDir = appState.posX > appState.W * 0.5 ? -1 : 1;
+  appState.setState('WALKING');
+  appState.setExpression('happy', 3.0);
+  appState.changeMood(5);
+  spawnParticles(appState.posX, appState.posY - 12, 12, 0xf97316);
+  playWhooshSound(appState.posX);
+  speak('Quạc! MicroDuck gập người hạ trọng tâm, bật bánh xe lướt siêu tốc!');
+}
+
+export async function triggerDuckRadarScan() {
+  if (
+    appState.currentVrm !== null ||
+    appState.currentGlbScene !== null ||
+    appState.builtinModelType !== 'microduck'
+  ) {
+    await clearCachedVrm();
+    createMicroDuckCharacter();
+  }
+
+  appState.activeWindowTask = null;
+  appState.velX = 0;
+  appState.velY = 0;
+  appState.setState('RADAR');
+  appState.setExpression('surprised', 3.8);
+  show3DRadar(true);
+  playDuckQuackSound(appState.posX);
+  speak('Tít tít! MicroDuck kích hoạt đĩa Radar Parabolic 3D quét môi trường xung quanh!');
+
+  setTimeout(() => {
+    if (appState.state === 'RADAR') {
+      show3DRadar(false);
+      appState.nextRoamDuration = appState.getAutoActionDelay();
+      appState.setState(appState.attachedWindowHwnd !== null ? 'SITTING_WINDOW' : 'IDLE');
+      speak('Đã quét xong radar! Toàn bộ vị trí cửa sổ và ứng dụng đã được ghi nhận.');
+    }
+  }, 3800);
+}
+
+export async function triggerDuckSleepMode() {
+  if (
+    appState.currentVrm !== null ||
+    appState.currentGlbScene !== null ||
+    appState.builtinModelType !== 'microduck'
+  ) {
+    await clearCachedVrm();
+    createMicroDuckCharacter();
+  }
+
+  appState.activeWindowTask = null;
+  appState.velX = 0;
+  appState.velY = 0;
+  appState.setState('SLEEP');
+  appState.setExpression('neutral', 10.0);
+  speak('Khò khò... MicroDuck gập cổ tắt đèn LED ngủ đông tiết kiệm năng lượng.');
+}
+
+export function triggerBlackHoleTeleport(targetX?: number, targetY?: number) {
+  cancelWindowSwing();
+  clearLadder();
+  showParachute(false);
+  showJetpack(false);
+  activeRocketFlight = null;
+  appState.activeWindowTask = null;
+
+  const startX = appState.posX;
+  const startY = appState.posY;
+
+  let destX: number;
+  let destY: number;
+
+  if (targetX !== undefined && targetY !== undefined) {
+    destX = Math.max(50, Math.min(appState.W - 50, targetX));
+    destY = Math.max(75, Math.min(appState.H - 48, targetY));
+  } else {
+    const floatingWins = appState.openWindows.filter(
+      (w) =>
+        !w.is_maximized &&
+        w.y >= 85 &&
+        w.y < appState.H - 120 &&
+        w.width > 200 &&
+        w.width < appState.W - 60
+    );
+
+    if (floatingWins.length > 0 && Math.random() < 0.35) {
+      const win = floatingWins[Math.floor(Math.random() * floatingWins.length)];
+      destX = win.x + 40 + Math.random() * Math.max(20, win.width - 80);
+      destY = win.y;
+    } else {
+      const minX = 110;
+      const maxX = Math.max(minX + 80, appState.W - 110);
+      const minY = 150;
+      const maxY = Math.max(minY + 60, appState.H - 55);
+      const minDist = Math.min(380, appState.W * 0.32);
+
+      destX = minX + Math.random() * (maxX - minX);
+      destY = minY + Math.random() * (maxY - minY);
+      for (let i = 0; i < 8; i++) {
+        if (Math.hypot(destX - startX, destY - startY) >= minDist) {
+          break;
+        }
+        destX = minX + Math.random() * (maxX - minX);
+        destY = minY + Math.random() * (maxY - minY);
+      }
+    }
+  }
+
+  // 1. Tại vị trí xuất phát: Mở Hố đen HÚT VÀO (Suction)
+  spawnBlackHole(startX, startY, 1.6, 'suction');
+  speak('Hố đen không gian mở rộng! Con vịt đang bị hút xoáy vào chân trời sự kiện...');
+
+  appState.attachedWindowHwnd = null;
+  appState.attachedLedgeOffsetY = 0;
+  appState.velX = 0;
+  appState.velY = 0;
+  appState.squashX = 0.22;
+  appState.squashY = 2.0;
+  appState.setState('ALERT');
+  appState.setExpression('surprised', 2.0);
+
+  // 2. Sau 420ms (sau khi bị hút vào lỗ sâu):
+  setTimeout(() => {
+    // 3. Tại vị trí đích: Mở Hố trắng / Cổng ĐẨY RA (Ejection)
+    spawnBlackHole(destX, destY, 2.2, 'ejection');
+
+    appState.posX = destX;
+    appState.posY = destY;
+    // Bị đẩy văng ra ngoài với quỹ đạo vật lý
+    appState.velX = (Math.random() - 0.5) * 14;
+    appState.velY = -14;
+    appState.squashX = 1.45;
+    appState.squashY = 0.65;
+    appState.nextRoamDuration = appState.getAutoActionDelay();
+    appState.setState('JUMPING');
+    appState.setExpression('happy', 3.0);
+    speak('Bùm! Hố trắng đẩy văng ra tọa độ ngẫu nhiên mới trên màn hình!');
+
+    // Tự động kiểm tra gắn vào cửa sổ nếu điểm đích rơi trên nóc cửa sổ nổi
+    for (const win of appState.openWindows) {
+      if (
+        !win.is_maximized &&
+        win.y >= 85 &&
+        win.width < appState.W - 60 &&
+        destX >= win.x + 10 &&
+        destX <= win.x + win.width - 10 &&
+        Math.abs(destY - win.y) <= 35
+      ) {
+        appState.attachedWindowHwnd = win.hwnd;
+        appState.attachedOffsetX = destX - win.x;
+        appState.attachedLedgeOffsetY = 0;
+        appState.attachedWinTitle = win.title;
+        appState.posY = win.y;
+        appState.velX = 0;
+        appState.velY = 0;
+        appState.nextRoamDuration = appState.getAutoActionDelay();
+        appState.setState('SITTING_WINDOW');
+        break;
+      }
+    }
+  }, 420);
+}
+
 

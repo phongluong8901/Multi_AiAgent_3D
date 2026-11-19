@@ -1,9 +1,11 @@
 import * as THREE from 'three';
 import { invoke } from '@tauri-apps/api/core';
+import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { appState } from '../core/state';
 import { camera } from '../core/scene';
 import { DragSample, DesktopState } from '../core/types';
 import { spawnParticles, clearLadder, showParachute } from '../core/particles';
+import { triggerBlackHoleTeleport, setIgnoreWindowCollision } from '../physics/physics';
 import {
   leftTelemetryPanel,
   rightActionPanel,
@@ -11,13 +13,18 @@ import {
   companionDock,
   studioPanel,
   longMemoryPanel,
+  notificationPanel,
   fileInput,
+  setFileDragHoverMode,
   speakMessage,
   triggerHeadpat,
   toggleBubbleVisibility,
+  saveStudioConfigToSqlite,
   syncHitboxToRust,
 } from './ui';
 import { loadVrmFromBuffer } from '../characters/vrmManager';
+import { handleDroppedAnyFile } from '../backend/assistant';
+import { isP2pDuelActive, performP2pSkill } from '../core/p2pArena';
 
 const raycaster = new THREE.Raycaster();
 const mouseNDC = new THREE.Vector2();
@@ -48,45 +55,117 @@ export function isInsideInteractiveUi(target: EventTarget | null): boolean {
   if (companionDock.contains(node)) return true;
   if (appState.isStudioOpen && studioPanel.contains(node)) return true;
   if (appState.isLongMemoryOpen && longMemoryPanel.contains(node)) return true;
+  if (appState.isNotificationManagerOpen && notificationPanel && notificationPanel.contains(node)) return true;
+  if (appState.isOcrSnipMode) return true;
+  if (appState.isP2pArenaOpen && target instanceof Element && target.closest('#p2p-arena-panel')) return true;
+  if (appState.isPcControlOpen && target instanceof Element && target.closest('#pc-control-modal')) return true;
+  if (appState.isOcrModalOpen && target instanceof Element && target.closest('#ocr-translate-modal')) return true;
+  if (target instanceof Element && target.closest('#ocr-snip-overlay')) return true;
+  if (target instanceof Element && target.closest('#p2p-pk-controller')) return true;
+  if (target instanceof Element && target.closest('#p2p-return-pill')) return true;
+  if (target instanceof Element && target.closest('#p2p-victim-banner')) return true;
+  if (target instanceof Element && target.closest('#sticky-notes-widget')) return true;
+  if (target instanceof Element && target.closest('#file-dashboard-modal')) return true;
+  if (target instanceof Element && target.closest('#file-ingest-mouth-hud')) return true;
   return false;
 }
 
 async function handleFileSelect(file: File) {
   const buffer = await file.arrayBuffer();
   await loadVrmFromBuffer(buffer, file.name);
+  await saveStudioConfigToSqlite('custom_vrm', '');
 }
 
 export function initInput() {
   window.addEventListener('keydown', (e) => {
     if (e.key === 'F4') {
       fileInput.click();
+    } else if (e.key === 'Escape' && appState.blackHoleWarpMode) {
+      appState.blackHoleWarpMode = false;
+      document.body.style.cursor = 'default';
+      void invoke('set_manual_interactive', { interactive: false }).catch(() => {});
+      syncHitboxToRust(true);
+      speakMessage('[PORTAL] Đã hủy chế độ triệu hồi Hố Đen.');
     }
   });
 
   fileInput.addEventListener('change', (e) => {
     const file = (e.target as HTMLInputElement).files?.[0];
     if (file) {
+      localStorage.setItem('mate_active_character_type', 'custom_vrm');
       void handleFileSelect(file);
+    }
+  });
+
+  let domDragDepth = 0;
+
+  window.addEventListener('dragenter', (e) => {
+    e.preventDefault();
+    domDragDepth++;
+    const itemName = e.dataTransfer?.files?.[0]?.name || '';
+    if (!appState.isFileDragHovering) {
+      setFileDragHoverMode(true, itemName);
     }
   });
 
   window.addEventListener('dragover', (e) => {
     e.preventDefault();
+    if (!appState.isFileDragHovering) {
+      setFileDragHoverMode(true);
+    }
+  });
+
+  window.addEventListener('dragleave', (e) => {
+    e.preventDefault();
+    domDragDepth = Math.max(0, domDragDepth - 1);
+    if (domDragDepth === 0) {
+      setFileDragHoverMode(false);
+    }
   });
 
   window.addEventListener('drop', (e) => {
     e.preventDefault();
+    domDragDepth = 0;
+    setFileDragHoverMode(false);
     const file = e.dataTransfer?.files?.[0];
-    if (file && (file.name.endsWith('.vrm') || file.name.endsWith('.glb'))) {
+    if (!file) return;
+    const lower = file.name.toLowerCase();
+    if (lower.endsWith('.vrm') || lower.endsWith('.glb')) {
       void handleFileSelect(file);
+    } else {
+      void handleDroppedAnyFile(file);
     }
   });
+
+  // Lắng nghe sự kiện Drag & Drop OS gốc của Tauri v2 (kéo file PDF/CSV/Excel/Ảnh từ Desktop/Explorer vào WebView2)
+  void getCurrentWebview()
+    .onDragDropEvent((event) => {
+      const payload = event.payload;
+      if (payload.type === 'enter') {
+        const firstPath = payload.paths?.[0] || '';
+        const baseName = firstPath.split(/[\\/]/).pop() || '';
+        setFileDragHoverMode(true, baseName);
+      } else if (payload.type === 'over') {
+        if (!appState.isFileDragHovering) {
+          setFileDragHoverMode(true);
+        }
+      } else if (payload.type === 'leave') {
+        setFileDragHoverMode(false);
+      } else if (payload.type === 'drop') {
+        setFileDragHoverMode(false);
+        const droppedPath = payload.paths?.[0];
+        if (droppedPath) {
+          void handleDroppedAnyFile(droppedPath);
+        }
+      }
+    })
+    .catch(() => {});
 
   window.addEventListener('mousemove', (e) => {
     if (appState.state === 'DRAGGING') {
       const prevX = appState.posX;
-      appState.posX = e.clientX - dragDeltaX;
-      appState.posY = e.clientY - dragDeltaY;
+      appState.posX = Math.max(50, Math.min(appState.W - 50, e.clientX - dragDeltaX));
+      appState.posY = Math.max(75, Math.min(appState.H - 48, e.clientY - dragDeltaY));
 
       const moveDx = appState.posX - prevX;
       appState.dragSway = THREE.MathUtils.clamp(
@@ -132,6 +211,20 @@ export function initInput() {
       }
     }
 
+    if (appState.blackHoleWarpMode) {
+      document.body.style.cursor = 'crosshair';
+      return;
+    }
+
+    if (isP2pDuelActive()) {
+      appState.globalCursorX = e.clientX;
+      appState.globalCursorY = e.clientY;
+      if (!isInsideInteractiveUi(e.target)) {
+        document.body.style.cursor = 'crosshair';
+        return;
+      }
+    }
+
     if (!isInsideInteractiveUi(e.target) && checkMouseIntersect(e.clientX, e.clientY)) {
       document.body.style.cursor = 'grab';
     } else {
@@ -142,6 +235,25 @@ export function initInput() {
   window.addEventListener('mousedown', (e) => {
     if (e.button !== 0) return;
     if (isInsideInteractiveUi(e.target)) return;
+
+    if (appState.blackHoleWarpMode) {
+      e.preventDefault();
+      e.stopPropagation();
+      appState.blackHoleWarpMode = false;
+      document.body.style.cursor = 'default';
+      void invoke('set_manual_interactive', { interactive: false }).catch(() => {});
+      syncHitboxToRust(true);
+      triggerBlackHoleTeleport(e.clientX, e.clientY);
+      return;
+    }
+
+    if (isP2pDuelActive()) {
+      e.preventDefault();
+      appState.globalCursorX = e.clientX;
+      appState.globalCursorY = e.clientY;
+      performP2pSkill('laser', e.clientX, e.clientY);
+      return;
+    }
 
     if (checkMouseIntersect(e.clientX, e.clientY)) {
       appState.activeWindowTask = null;
@@ -206,12 +318,17 @@ export function initInput() {
     }
   });
 
+  let lastAttachedWinPos: { hwnd: number; x: number; y: number } | null = null;
+
   setInterval(async () => {
     const dpr = window.devicePixelRatio || 1;
     try {
       const res = await invoke<DesktopState>('get_desktop_state');
-      appState.globalCursorX = res.cursor_x / dpr;
-      appState.globalCursorY = res.cursor_y / dpr;
+      appState.globalCursorX = res.cursor_x;
+      appState.globalCursorY = res.cursor_y;
+      appState.systemAudioPeak = res.audio_peak ?? 0;
+      appState.keyPressTotal = res.key_press_total ?? 0;
+      appState.cursorIdleMs = res.cursor_idle_ms ?? 0;
       appState.activeWindowHwnd = res.active_hwnd > 0 ? res.active_hwnd : null;
 
       appState.openWindows = res.windows.map((w) => ({
@@ -222,26 +339,108 @@ export function initInput() {
         height: w.height / dpr,
       }));
 
-      if (
-        appState.state === 'SITTING_WINDOW' &&
-        appState.attachedWindowHwnd !== null
-      ) {
+      if (appState.attachedWindowHwnd !== null) {
         const targetWin = appState.openWindows.find(
           (w) => w.hwnd === appState.attachedWindowHwnd
         );
-        if (targetWin) {
-          appState.posX = targetWin.x + appState.attachedOffsetX;
-          appState.posY = targetWin.y + appState.attachedLedgeOffsetY;
-          appState.attachedWinTitle = targetWin.title;
-        } else {
+        const actualLedgeY = targetWin ? targetWin.y + appState.attachedLedgeOffsetY : 0;
+        const topEdgeInvalid =
+          targetWin &&
+          appState.attachedLedgeOffsetY === 0 &&
+          (targetWin.is_maximized ||
+            actualLedgeY < 42 ||
+            (targetWin.x <= 10 && targetWin.width >= appState.W - 60));
+
+        if (!targetWin || topEdgeInvalid) {
+          // Cửa sổ bị đóng, thu nhỏ, hoặc mép ngoài bị phóng to sát trần
+          const leavingHwnd = appState.attachedWindowHwnd;
           appState.attachedWindowHwnd = null;
+          appState.attachedLedgeOffsetY = 0;
+          lastAttachedWinPos = null;
           appState.setState('FALLING');
-          speakMessage('Cửa sổ vừa bị đóng. Tớ đang nhảy xuống đây!');
+          appState.setExpression('surprised', 2.8);
+          spawnParticles(appState.posX, appState.posY - 35, 10, 0xf87171);
+          if (leavingHwnd) setIgnoreWindowCollision(leavingHwnd, 1.5);
+          speakMessage('Cửa sổ thay đổi kích thước hoặc đóng mất rồi, tớ nhảy xuống mặt sàn nhé!');
+        } else {
+          const deltaX =
+            lastAttachedWinPos && lastAttachedWinPos.hwnd === targetWin.hwnd
+              ? targetWin.x - lastAttachedWinPos.x
+              : 0;
+          const deltaY =
+            lastAttachedWinPos && lastAttachedWinPos.hwnd === targetWin.hwnd
+              ? targetWin.y - lastAttachedWinPos.y
+              : 0;
+          lastAttachedWinPos = { hwnd: targetWin.hwnd, x: targetWin.x, y: targetWin.y };
+
+          // XỬ LÝ MÔ PHỎNG VẬT LÝ NHƯ THẬT KHI KÉO CỬA SỔ:
+          // 1. Khi người dùng kéo cửa sổ dịch xuống (deltaY > 1.5 hoặc mép cửa sổ tụt xuống dưới chân vịt):
+          // Không ghim cứng chân vịt vào cửa sổ. Giá đỡ tụt xuống -> vịt lập tức rơi tự do theo trọng lực (FALLING),
+          // và sẽ rơi thẳng xuống bề mặt cửa sổ đang bị kéo xuống đó!
+          if (deltaY > 1.5 || actualLedgeY > appState.posY + 3) {
+            appState.attachedWindowHwnd = null;
+            appState.attachedLedgeOffsetY = 0;
+            lastAttachedWinPos = null;
+            appState.setState('FALLING');
+            appState.setExpression('surprised', 1.8);
+            // Vận tốc rơi ban đầu tự nhiên theo độ giật kéo cửa sổ
+            appState.velY = Math.max(1.8, deltaY * 0.22);
+            if (Math.abs(deltaX) > 1) {
+              appState.velX = Math.max(-10, Math.min(10, deltaX * 0.35));
+            }
+            return;
+          }
+
+          // 2. Khi người dùng kéo cửa sổ dịch lên trên (deltaY < -1.5):
+          // Bề mặt cửa sổ nâng đỡ và đẩy nhân vật lên
+          if (deltaY < -1.5) {
+            appState.posY = actualLedgeY;
+            if (deltaY < -6) {
+              appState.squashX = 0.92;
+              appState.squashY = 1.1;
+            }
+          } else {
+            appState.posY = actualLedgeY;
+          }
+
+          // 3. Khi kéo ngang: Di chuyển tự nhiên cùng cửa sổ theo ma sát bề mặt
+          if (Math.abs(deltaX) > 0.5) {
+            appState.posX += deltaX;
+          }
+
+          const leftLedge = targetWin.x;
+          const rightLedge = targetWin.x + targetWin.width;
+
+          // 4. Chỉ rơi xuống khỏi cửa sổ khi chân vịt ra khỏi phạm vi vật lý mép ngang (hết thanh ngang)
+          if (appState.posX < leftLedge - 6 || appState.posX > rightLedge + 6) {
+            const leavingHwnd = appState.attachedWindowHwnd;
+            appState.attachedWindowHwnd = null;
+            appState.attachedLedgeOffsetY = 0;
+            lastAttachedWinPos = null;
+            appState.velX =
+              Math.abs(deltaX) > 2
+                ? Math.max(-10, Math.min(10, deltaX * 0.45))
+                : appState.walkDir * 3.2;
+            appState.velY = 2.0;
+            appState.setState('FALLING');
+            appState.setExpression('surprised', 3.0);
+            spawnParticles(appState.posX, appState.posY - 35, 12, 0xf87171);
+            setIgnoreWindowCollision(leavingHwnd, 1.6);
+            speakMessage(
+              `Úi úi! Hết thanh ngang của "${targetWin.title.slice(0, 18)}" làm tớ hụt chân rơi xuống rồi!`
+            );
+            return;
+          }
+
+          appState.attachedOffsetX = appState.posX - targetWin.x;
+          appState.attachedWinTitle = targetWin.title;
         }
+      } else {
+        lastAttachedWinPos = null;
       }
     } catch {
       // Bỏ qua khi chạy ngoài môi trường Tauri
     }
-  }, 100);
+  }, 60);
 }
 

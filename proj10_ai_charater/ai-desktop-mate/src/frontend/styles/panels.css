@@ -1,11 +1,48 @@
 /* LEFT PANEL: Telemetry Dashboard & Alerts */
 #left-telemetry-panel {
   position: fixed;
-  left: 16px;
-  top: 20px;
-  width: 248px;
+  left: 0;
+  top: 0;
+  right: auto;
+  bottom: auto;
+  width: 256px;
+  max-height: min(520px, calc(100vh - 48px));
+  overflow-y: auto;
+  overflow-x: hidden;
   padding: 11px 12px;
   z-index: 9980;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(56, 189, 248, 0.45) rgba(15, 23, 42, 0.35);
+}
+
+#left-telemetry-panel::-webkit-scrollbar {
+  width: 5px;
+}
+
+#left-telemetry-panel::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.4);
+  border-radius: 999px;
+}
+
+#left-telemetry-panel::-webkit-scrollbar-thumb {
+  background: rgba(56, 189, 248, 0.45);
+  border-radius: 999px;
+}
+
+#left-telemetry-panel::-webkit-scrollbar-thumb:hover {
+  background: rgba(56, 189, 248, 0.75);
+}
+
+#left-telemetry-panel .panel-header {
+  position: sticky;
+  top: -11px;
+  background: rgba(15, 23, 42, 0.92);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  z-index: 10;
+  padding-top: 2px;
+  margin-top: -2px;
+  border-bottom: 1px solid rgba(56, 189, 248, 0.2);
 }
 
 .dash-card {
@@ -149,15 +186,113 @@
   color: #ffffff;
 }
 
-/* RIGHT PANEL: Actions & Active Window Controls */
+.dash-mini-select,
+.dash-mini-input {
+  width: 100%;
+  background: rgba(15, 23, 42, 0.88);
+  color: #e2e8f0;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 6px;
+  padding: 4px 6px;
+  font-size: 10.5px;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.dash-mini-select:focus,
+.dash-mini-input:focus {
+  border-color: var(--accent-cyan);
+}
+
+.dash-scroll-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 155px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(56, 189, 248, 0.4) rgba(15, 23, 42, 0.3);
+}
+
+.news-item-row {
+  background: rgba(2, 6, 23, 0.55);
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 6px;
+  padding: 5px 6px;
+  cursor: pointer;
+  transition: all 0.14s ease;
+}
+
+.news-item-row:hover {
+  border-color: #34d399;
+  background: rgba(16, 185, 129, 0.12);
+}
+
+.news-item-title {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #f1f5f9;
+  line-height: 1.32;
+}
+
+.news-item-meta {
+  font-size: 9.5px;
+  color: #94a3b8;
+  margin-top: 2px;
+}
+
+.eng-word-chip {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px;
+  border-radius: 5px;
+  background: rgba(15, 23, 42, 0.65);
+  border: 1px solid rgba(167, 139, 250, 0.18);
+  font-size: 10px;
+  color: #e2e8f0;
+  cursor: pointer;
+}
+
+.eng-word-chip:hover {
+  border-color: #a78bfa;
+  background: rgba(139, 92, 246, 0.18);
+}
+
+/* RIGHT PANEL: Actions & Active Window Controls (Mặc định bám cạnh bên vịt) */
 #right-action-panel {
   position: fixed;
+  left: 0;
+  top: 0;
   right: auto;
-  left: 16px;
-  top: 20px;
-  width: 236px;
+  bottom: auto;
+  width: 248px;
+  max-height: calc(100vh - 44px);
+  overflow-y: auto;
+  overflow-x: hidden;
   padding: 11px 12px;
   z-index: 9980;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(99, 102, 241, 0.45) rgba(15, 23, 42, 0.35);
+}
+
+#right-action-panel::-webkit-scrollbar {
+  width: 5px;
+}
+
+#right-action-panel::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.4);
+  border-radius: 999px;
+}
+
+#right-action-panel::-webkit-scrollbar-thumb {
+  background: rgba(99, 102, 241, 0.45);
+  border-radius: 999px;
+}
+
+#right-action-panel::-webkit-scrollbar-thumb:hover {
+  background: rgba(129, 140, 248, 0.75);
 }
 
 .status-strip {

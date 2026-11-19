@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { appState } from '../core/state';
 import { WinRect } from '../core/types';
-import { spawnParticles } from '../core/particles';
+import { spawnFrameHighlight, spawnParticles } from '../core/particles';
 
 let speakCb: ((msg: string) => void) | null = null;
 
@@ -80,7 +80,9 @@ async function applyWin32WindowOp(
       appState.openWindows[idx] = updated;
     }
     return updated;
-  } catch {
+  } catch (err: unknown) {
+    const msg = typeof err === 'string' ? err : String(err);
+    speak(msg);
     return null;
   }
 }
@@ -335,13 +337,66 @@ export async function minimizeMultipleWindows() {
   speak(`[DỌN MÀN HÌNH] Đã thu gọn ${count} cửa sổ xuống Taskbar cho bạn!`);
 }
 
+export async function arrangeDesktopWindows(
+  layout: 'split_2' | 'grid' | 'cascade' | 'center'
+): Promise<boolean> {
+  appState.activeWindowTask = null;
+  appState.attachedWindowHwnd = null;
+  appState.attachedLedgeOffsetY = 0;
+
+  try {
+    const rawList = await invoke<WinRect[]>('arrange_desktop_windows', { layout });
+    if (!rawList || rawList.length === 0) {
+      speak('[THÔNG BÁO] Không tìm thấy cửa sổ ứng dụng nào đang mở để sắp xếp.');
+      return false;
+    }
+
+    const dpr = window.devicePixelRatio || 1;
+    const mapped = rawList.map((w) => ({
+      ...w,
+      x: w.x / dpr,
+      y: w.y / dpr,
+      width: w.width / dpr,
+      height: w.height / dpr,
+    }));
+
+    mapped.forEach((win) => {
+      spawnFrameHighlight(win.x, win.y, win.width, win.height);
+      const idx = appState.openWindows.findIndex((item) => item.hwnd === win.hwnd);
+      if (idx !== -1) {
+        appState.openWindows[idx] = win;
+      }
+    });
+
+    appState.velY = -10;
+    appState.velX = 0;
+    appState.setState('SCANNING');
+    appState.setExpression('happy', 3.0);
+    appState.changeEnergy(-4);
+    appState.changeMood(5);
+    spawnParticles(appState.posX, appState.posY - 90, 16, 0x38bdf8);
+
+    const layoutNames: Record<typeof layout, string> = {
+      split_2: 'Chia Đôi 2 App (50/50)',
+      grid: 'Xếp Lưới Gọn Gàng',
+      cascade: 'Xếp Tầng Cascade',
+      center: 'Căn Giữa App Active',
+    };
+    speak(`[SẮP XẾP DESKTOP] Đã ${layoutNames[layout]} cho ${mapped.length} cửa sổ ứng dụng trên màn hình!`);
+    return true;
+  } catch (err) {
+    speak(`[LỖI SẮP XẾP] ${String(err)}`);
+    return false;
+  }
+}
+
 let lastProximityCooldown = 0;
 
 export function checkProximityWindowPush() {
   if (!appState.windowInteractEnabled || appState.activeWindowTask !== null) return;
 
   const now = performance.now();
-  if (now - lastProximityCooldown < 1200) return;
+  if (now - lastProximityCooldown < 6000) return;
 
   const isMovingHoriz =
     appState.state === 'WALKING' ||

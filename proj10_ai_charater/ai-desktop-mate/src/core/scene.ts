@@ -14,8 +14,18 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 let groundGroup: THREE.Group | null = null;
 let groundRingMat: THREE.MeshBasicMaterial | null = null;
 let groundDiscMat: THREE.MeshBasicMaterial | null = null;
+const eqBars: THREE.Mesh[] = [];
 
 export function initScene(container: HTMLElement) {
+  appState.W = window.innerWidth || 1920;
+  appState.H = window.innerHeight || 1080;
+  camera.left = 0;
+  camera.right = appState.W;
+  camera.top = 0;
+  camera.bottom = -appState.H;
+  camera.updateProjectionMatrix();
+  renderer.setSize(appState.W, appState.H);
+
   container.appendChild(renderer.domElement);
 
   const keyLight = new THREE.DirectionalLight(0xffffff, 2.0);
@@ -53,6 +63,24 @@ export function initScene(container: HTMLElement) {
   discMesh.position.y = -0.5;
 
   groundGroup.add(discMesh, ringMesh);
+
+  // 16 thanh Equalizer 3D phản ứng theo nhịp nhạc & gõ phím
+  const barColors = [0x38bdf8, 0x818cf8, 0xf472b6, 0x34d399];
+  const barGeo = new THREE.BoxGeometry(3.2, 18, 3.2);
+  for (let i = 0; i < 16; i++) {
+    const angle = (i / 16) * Math.PI * 2;
+    const barMat = new THREE.MeshBasicMaterial({
+      color: barColors[i % barColors.length],
+      transparent: true,
+      opacity: 0.88,
+    });
+    const bar = new THREE.Mesh(barGeo, barMat);
+    bar.position.set(Math.cos(angle) * 34, 9, Math.sin(angle) * 34);
+    bar.visible = false;
+    groundGroup.add(bar);
+    eqBars.push(bar);
+  }
+
   scene.add(groundGroup);
 
   scene.add(appState.avatarGroup);
@@ -71,6 +99,30 @@ const ringColorTarget = new THREE.Color();
 
 export function updateGroundAura(elapsed: number) {
   if (!groundGroup || !groundRingMat || !groundDiscMat) return;
+
+  if (appState.state === 'SWIMMING') {
+    groundRingMat.opacity = 0;
+    groundDiscMat.opacity = 0;
+    eqBars.forEach((b) => {
+      b.visible = false;
+    });
+    return;
+  }
+
+  const rhythmActive = appState.rhythmIntensity > 0.05;
+  eqBars.forEach((bar, i) => {
+    if (!rhythmActive) {
+      bar.visible = false;
+      return;
+    }
+    bar.visible = true;
+    const hScale = Math.max(
+      0.15,
+      appState.rhythmIntensity * (0.4 + 0.6 * Math.abs(Math.sin(elapsed * 12 + i * 0.7)))
+    );
+    bar.scale.y = hScale;
+    bar.position.y = 9 * hScale;
+  });
 
   const floorY = appState.H - 48;
   const distAboveFloor = Math.max(0, floorY - appState.posY);

@@ -1,4 +1,5 @@
-use serde::Serialize;
+use crate::backend::telemetry::EnglishVocabItem;
+use serde::{Deserialize, Serialize};
 use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_int, c_void};
 use std::path::PathBuf;
@@ -209,6 +210,7 @@ impl MemoryDb {
         self.exec_sql(
             "
             PRAGMA journal_mode=WAL;
+            PRAGMA busy_timeout=5000;
             CREATE TABLE IF NOT EXISTS user_profile (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL,
@@ -252,8 +254,86 @@ impl MemoryDb {
                 enabled INTEGER NOT NULL DEFAULT 1,
                 updated_at INTEGER NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS avatar_studio_config (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS scheduled_notes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                content TEXT NOT NULL,
+                schedule_time TEXT NOT NULL DEFAULT '',
+                repeat_daily INTEGER NOT NULL DEFAULT 0,
+                is_done INTEGER NOT NULL DEFAULT 0,
+                last_triggered_date TEXT NOT NULL DEFAULT '',
+                created_at INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS clipboard_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                content TEXT NOT NULL,
+                created_at INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS user_macros (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                trigger_name TEXT UNIQUE NOT NULL,
+                actions_json TEXT NOT NULL,
+                updated_at INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS english_vocab_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                word TEXT NOT NULL UNIQUE,
+                phonetic TEXT NOT NULL,
+                part_of_speech TEXT NOT NULL,
+                meaning_vi TEXT NOT NULL,
+                definition_en TEXT NOT NULL,
+                example_en TEXT NOT NULL,
+                example_vi TEXT NOT NULL,
+                audio_url TEXT NOT NULL,
+                topic TEXT NOT NULL,
+                learned_at INTEGER NOT NULL
+            );
             ",
         )?;
+
+        let mut macro_count = 0i64;
+        if let Ok(stmt) = self.prepare("SELECT COUNT(*) FROM user_macros") {
+            unsafe {
+                if (self.api.step)(stmt) == SQLITE_ROW {
+                    macro_count = (self.api.column_int64)(stmt, 0);
+                }
+                (self.api.finalize)(stmt);
+            }
+        }
+        if macro_count == 0 {
+            let default_macros = [
+                (
+                    "chế độ code",
+                    r#"[TOOL:open_app:{"target":"code"}][TOOL:control_window:{"action":"split_2"}][TOOL:web_search:{"engine":"youtube","query":"lofi coding"}][TOOL:timer:{"minutes":45,"task":"Tập trung Code"}][TOOL:system_control:{"action":"power_high"}]"#,
+                ),
+                (
+                    "chế độ họp",
+                    r#"[TOOL:media:{"action":"mute"}][TOOL:control_window:{"action":"minimize"}][TOOL:sticky_note:{"action":"pin","text":"Đang họp - ghi chú nhanh"}]"#,
+                ),
+                (
+                    "chế độ giải lao",
+                    r#"[TOOL:hardware:{"action":"clean_ram"}][TOOL:swim:{"action":"start"}][TOOL:timer:{"minutes":5,"task":"Nghỉ mắt uống nước"}]"#,
+                ),
+            ];
+            let now = now_unix();
+            for (name, acts) in default_macros {
+                if let Ok(stmt) = self.prepare(
+                    "INSERT INTO user_macros (trigger_name, actions_json, updated_at) VALUES (?1, ?2, ?3)",
+                ) {
+                    self.bind_str(stmt, 1, name);
+                    self.bind_str(stmt, 2, acts);
+                    unsafe {
+                        (self.api.bind_int64)(stmt, 3, now);
+                        (self.api.step)(stmt);
+                        (self.api.finalize)(stmt);
+                    }
+                }
+            }
+        }
 
         let mut count = 0i64;
         if let Ok(stmt) = self.prepare("SELECT COUNT(*) FROM long_memory") {
@@ -972,3 +1052,615 @@ pub fn long_memory_delete(
     Ok(())
 }
 
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(default)]
+pub struct AvatarStudioConfig {
+    pub active_character_type: String,
+    pub vrm_url: String,
+    pub duck_body_color: String,
+    pub duck_accent_color: String,
+    pub model_scale: f64,
+    pub gravity: f64,
+    pub bounce_factor: f64,
+    pub auto_roam_enabled: bool,
+    pub look_at_enabled: bool,
+    pub window_interact_enabled: bool,
+    pub ollama_model: String,
+    pub gemini_api_key: String,
+    pub gemini_model: String,
+    pub llm_route_mode: String,
+    pub auto_check_enabled: bool,
+    pub cpu_alert_pct: f64,
+    pub ram_alert_gb: f64,
+    pub sound_fx_enabled: bool,
+    pub sound_volume: f64,
+    pub english_interval_min: f64,
+    pub news_interval_min: f64,
+    pub weather_interval_min: f64,
+    pub app_metrics_interval_min: f64,
+    pub btc_interval_min: f64,
+    pub weather_source_mode: String,
+    pub weather_custom_mode: String,
+    pub weather_custom_temp_c: f64,
+    pub weather_custom_humidity_pct: i32,
+    pub weather_custom_location: String,
+    pub weather_custom_desc: String,
+    pub voice_tts_enabled: bool,
+    pub chat_dock_side: String,
+    pub auto_action_interval_sec: f64,
+    pub auto_behaviors_json: String,
+}
+
+impl Default for AvatarStudioConfig {
+    fn default() -> Self {
+        Self {
+            active_character_type: "microduck".to_string(),
+            vrm_url: String::new(),
+            duck_body_color: "#f4f4f6".to_string(),
+            duck_accent_color: "#f97316".to_string(),
+            model_scale: 1.0,
+            gravity: 0.68,
+            bounce_factor: 0.42,
+            auto_roam_enabled: true,
+            look_at_enabled: true,
+            window_interact_enabled: true,
+            ollama_model: "qwen2.5:1.5b".to_string(),
+            gemini_api_key: String::new(),
+            gemini_model: "gemini-3.5-flash".to_string(),
+            llm_route_mode: "auto".to_string(),
+            auto_check_enabled: true,
+            cpu_alert_pct: 85.0,
+            ram_alert_gb: 12.0,
+            sound_fx_enabled: true,
+            sound_volume: 0.7,
+            english_interval_min: 15.0,
+            news_interval_min: 20.0,
+            weather_interval_min: 30.0,
+            app_metrics_interval_min: 25.0,
+            btc_interval_min: 30.0,
+            weather_source_mode: "api".to_string(),
+            weather_custom_mode: "clear".to_string(),
+            weather_custom_temp_c: 28.0,
+            weather_custom_humidity_pct: 68,
+            weather_custom_location: "Tùy chỉnh".to_string(),
+            weather_custom_desc: "Trời quang đãng".to_string(),
+            voice_tts_enabled: true,
+            chat_dock_side: "right".to_string(),
+            auto_action_interval_sec: 15.0,
+            auto_behaviors_json: String::new(),
+        }
+    }
+}
+
+#[tauri::command]
+pub fn get_avatar_studio_config(state: tauri::State<'_, MemoryState>) -> AvatarStudioConfig {
+    let mut env_key = crate::backend::llm::read_env_value("GEMINI_API_KEY")
+        .or_else(|| crate::backend::llm::read_env_value("VITE_GEMINI_API_KEY"))
+        .unwrap_or_default();
+
+    let guard = match state.inner.lock() {
+        Ok(g) => g,
+        Err(_) => {
+            let mut def = AvatarStudioConfig::default();
+            def.gemini_api_key = env_key;
+            return def;
+        }
+    };
+    let Some(db) = guard.as_ref() else {
+        let mut def = AvatarStudioConfig::default();
+        def.gemini_api_key = env_key;
+        return def;
+    };
+
+    let mut raw_json: Option<String> = None;
+    if let Ok(stmt) = db.prepare(
+        "SELECT value FROM avatar_studio_config WHERE key = 'studio_config_json' LIMIT 1",
+    ) {
+        unsafe {
+            if (db.api.step)(stmt) == SQLITE_ROW {
+                raw_json = Some(db.col_str(stmt, 0));
+            }
+            (db.api.finalize)(stmt);
+        }
+    }
+
+    if let Some(json_str) = raw_json {
+        if let Ok(mut parsed) = serde_json::from_str::<AvatarStudioConfig>(&json_str) {
+            if !parsed.gemini_api_key.trim().is_empty() {
+                if env_key.is_empty() {
+                    let legacy = parsed.gemini_api_key.trim().to_string();
+                    if crate::backend::llm::write_env_value("GEMINI_API_KEY", &legacy).is_ok() {
+                        env_key = legacy;
+                    }
+                }
+                parsed.gemini_api_key.clear();
+                if let Ok(scrubbed_json) = serde_json::to_string(&parsed) {
+                    if let Ok(stmt) = db.prepare(
+                        "UPDATE avatar_studio_config SET value = ?1, updated_at = ?2 WHERE key = 'studio_config_json'",
+                    ) {
+                        db.bind_str(stmt, 1, &scrubbed_json);
+                        unsafe {
+                            (db.api.bind_int64)(stmt, 2, now_unix());
+                            (db.api.step)(stmt);
+                            (db.api.finalize)(stmt);
+                        }
+                    }
+                }
+            }
+            parsed.gemini_api_key = env_key;
+            return parsed;
+        }
+    }
+
+    let mut def = AvatarStudioConfig::default();
+    if let Some(m) = crate::backend::llm::read_env_value("GEMINI_MODEL") {
+        def.gemini_model = m;
+    }
+    if let Some(o) = crate::backend::llm::read_env_value("OLLAMA_MODEL") {
+        def.ollama_model = o;
+    }
+    if let Ok(json) = serde_json::to_string(&def) {
+        if let Ok(stmt) = db.prepare(
+            "INSERT INTO avatar_studio_config (key, value, updated_at) VALUES ('studio_config_json', ?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+        ) {
+            db.bind_str(stmt, 1, &json);
+            unsafe {
+                (db.api.bind_int64)(stmt, 2, now_unix());
+                (db.api.step)(stmt);
+                (db.api.finalize)(stmt);
+            }
+        }
+    }
+    def.gemini_api_key = env_key;
+    def
+}
+
+#[tauri::command]
+pub fn save_avatar_studio_config(
+    state: tauri::State<'_, MemoryState>,
+    config: AvatarStudioConfig,
+) -> Result<String, String> {
+    let env_res = crate::backend::llm::write_env_value("GEMINI_API_KEY", config.gemini_api_key.trim());
+    let mut sanitized = config;
+    sanitized.gemini_api_key.clear();
+
+    let guard = state.inner.lock().map_err(|e| e.to_string())?;
+    let db = guard.as_ref().ok_or("SQLite chưa sẵn sàng")?;
+    let json = serde_json::to_string(&sanitized).map_err(|e| e.to_string())?;
+    let stmt = db.prepare(
+        "INSERT INTO avatar_studio_config (key, value, updated_at) VALUES ('studio_config_json', ?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+    )?;
+    db.bind_str(stmt, 1, &json);
+    unsafe {
+        (db.api.bind_int64)(stmt, 2, now_unix());
+        (db.api.step)(stmt);
+        (db.api.finalize)(stmt);
+    }
+    if let Err(err) = env_res {
+        return Ok(format!(
+            "[SUCCESS] Đã lưu cấu hình Studio vào SQLite (lưu .env cảnh báo: {err})"
+        ));
+    }
+    Ok("[SUCCESS] Đã đồng bộ cấu hình Studio vào SQLite và GEMINI_API_KEY vào .env!".to_string())
+}
+
+#[tauri::command]
+pub fn memory_clear_chat_history(state: tauri::State<'_, MemoryState>) -> Result<(), String> {
+    let guard = state.inner.lock().map_err(|e| e.to_string())?;
+    let db = guard.as_ref().ok_or("SQLite chưa sẵn sàng")?;
+    db.exec_sql("DELETE FROM chat_memory;")
+}
+
+#[derive(Serialize, Clone, Debug)]
+pub struct ScheduledNoteEntry {
+    pub id: i64,
+    pub content: String,
+    pub schedule_time: String,
+    pub repeat_daily: bool,
+    pub is_done: bool,
+    pub last_triggered_date: String,
+    pub created_at: i64,
+}
+
+#[tauri::command]
+pub fn schedule_note_list(
+    state: tauri::State<'_, MemoryState>,
+) -> Result<Vec<ScheduledNoteEntry>, String> {
+    let guard = state.inner.lock().map_err(|e| e.to_string())?;
+    let db = guard.as_ref().ok_or("SQLite chưa sẵn sàng")?;
+    let stmt = db.prepare(
+        "SELECT id, content, schedule_time, repeat_daily, is_done, last_triggered_date, created_at
+         FROM scheduled_notes
+         ORDER BY is_done ASC, CASE WHEN schedule_time = '' THEN 1 ELSE 0 END ASC, schedule_time ASC, id DESC",
+    )?;
+    let mut entries = Vec::new();
+    unsafe {
+        while (db.api.step)(stmt) == SQLITE_ROW {
+            entries.push(ScheduledNoteEntry {
+                id: (db.api.column_int64)(stmt, 0),
+                content: db.col_str(stmt, 1),
+                schedule_time: db.col_str(stmt, 2),
+                repeat_daily: (db.api.column_int64)(stmt, 3) != 0,
+                is_done: (db.api.column_int64)(stmt, 4) != 0,
+                last_triggered_date: db.col_str(stmt, 5),
+                created_at: (db.api.column_int64)(stmt, 6),
+            });
+        }
+        (db.api.finalize)(stmt);
+    }
+    Ok(entries)
+}
+
+#[tauri::command]
+pub fn schedule_note_add(
+    state: tauri::State<'_, MemoryState>,
+    content: String,
+    schedule_time: String,
+    repeat_daily: bool,
+) -> Result<ScheduledNoteEntry, String> {
+    let clean_content = content.trim().to_string();
+    if clean_content.is_empty() {
+        return Err("Nội dung lịch hẹn / ghi chú không được trống".to_string());
+    }
+    let clean_time = schedule_time.trim().to_string();
+    let guard = state.inner.lock().map_err(|e| e.to_string())?;
+    let db = guard.as_ref().ok_or("SQLite chưa sẵn sàng")?;
+    let now = now_unix();
+
+    let stmt = db.prepare(
+        "INSERT INTO scheduled_notes (content, schedule_time, repeat_daily, is_done, last_triggered_date, created_at)
+         VALUES (?1, ?2, ?3, 0, '', ?4)",
+    )?;
+    db.bind_str(stmt, 1, &clean_content);
+    db.bind_str(stmt, 2, &clean_time);
+    unsafe {
+        (db.api.bind_int64)(stmt, 3, if repeat_daily { 1 } else { 0 });
+        (db.api.bind_int64)(stmt, 4, now);
+        (db.api.step)(stmt);
+        (db.api.finalize)(stmt);
+    }
+
+    let sel = db.prepare(
+        "SELECT id, content, schedule_time, repeat_daily, is_done, last_triggered_date, created_at
+         FROM scheduled_notes ORDER BY id DESC LIMIT 1",
+    )?;
+    let mut created: Option<ScheduledNoteEntry> = None;
+    unsafe {
+        if (db.api.step)(sel) == SQLITE_ROW {
+            created = Some(ScheduledNoteEntry {
+                id: (db.api.column_int64)(sel, 0),
+                content: db.col_str(sel, 1),
+                schedule_time: db.col_str(sel, 2),
+                repeat_daily: (db.api.column_int64)(sel, 3) != 0,
+                is_done: (db.api.column_int64)(sel, 4) != 0,
+                last_triggered_date: db.col_str(sel, 5),
+                created_at: (db.api.column_int64)(sel, 6),
+            });
+        }
+        (db.api.finalize)(sel);
+    }
+    created.ok_or_else(|| "Không thể đọc lại lịch hẹn vừa tạo".to_string())
+}
+
+#[tauri::command]
+pub fn schedule_note_toggle_done(
+    state: tauri::State<'_, MemoryState>,
+    id: i64,
+    is_done: bool,
+) -> Result<(), String> {
+    let guard = state.inner.lock().map_err(|e| e.to_string())?;
+    let db = guard.as_ref().ok_or("SQLite chưa sẵn sàng")?;
+    let stmt = db.prepare("UPDATE scheduled_notes SET is_done = ?1 WHERE id = ?2")?;
+    unsafe {
+        (db.api.bind_int64)(stmt, 1, if is_done { 1 } else { 0 });
+        (db.api.bind_int64)(stmt, 2, id);
+        (db.api.step)(stmt);
+        (db.api.finalize)(stmt);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn schedule_note_mark_triggered(
+    state: tauri::State<'_, MemoryState>,
+    id: i64,
+    date_key: String,
+    new_schedule_time: Option<String>,
+) -> Result<(), String> {
+    let guard = state.inner.lock().map_err(|e| e.to_string())?;
+    let db = guard.as_ref().ok_or("SQLite chưa sẵn sàng")?;
+    if let Some(next_time) = new_schedule_time {
+        let stmt = db.prepare(
+            "UPDATE scheduled_notes SET last_triggered_date = ?1, schedule_time = ?2 WHERE id = ?3",
+        )?;
+        db.bind_str(stmt, 1, date_key.trim());
+        db.bind_str(stmt, 2, next_time.trim());
+        unsafe {
+            (db.api.bind_int64)(stmt, 3, id);
+            (db.api.step)(stmt);
+            (db.api.finalize)(stmt);
+        }
+    } else {
+        let stmt = db.prepare(
+            "UPDATE scheduled_notes SET last_triggered_date = ?1 WHERE id = ?2",
+        )?;
+        db.bind_str(stmt, 1, date_key.trim());
+        unsafe {
+            (db.api.bind_int64)(stmt, 2, id);
+            (db.api.step)(stmt);
+            (db.api.finalize)(stmt);
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn schedule_note_delete(
+    state: tauri::State<'_, MemoryState>,
+    id: i64,
+) -> Result<(), String> {
+    let guard = state.inner.lock().map_err(|e| e.to_string())?;
+    let db = guard.as_ref().ok_or("SQLite chưa sẵn sàng")?;
+    let stmt = db.prepare("DELETE FROM scheduled_notes WHERE id = ?1")?;
+    unsafe {
+        (db.api.bind_int64)(stmt, 1, id);
+        (db.api.step)(stmt);
+        (db.api.finalize)(stmt);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn schedule_note_clear_all(state: tauri::State<'_, MemoryState>) -> Result<(), String> {
+    let guard = state.inner.lock().map_err(|e| e.to_string())?;
+    let db = guard.as_ref().ok_or("SQLite chưa sẵn sàng")?;
+    db.exec_sql("DELETE FROM scheduled_notes;")
+}
+
+#[derive(Serialize, Clone, Debug)]
+pub struct ClipboardHistoryEntry {
+    pub id: i64,
+    pub content: String,
+    pub created_at: i64,
+}
+
+#[tauri::command]
+pub fn clipboard_history_add(
+    state: tauri::State<'_, MemoryState>,
+    content: String,
+) -> Result<(), String> {
+    let clean = content.trim().to_string();
+    if clean.is_empty() {
+        return Ok(());
+    }
+    let guard = state.inner.lock().map_err(|e| e.to_string())?;
+    let db = guard.as_ref().ok_or("SQLite chưa sẵn sàng")?;
+
+    let mut latest: Option<String> = None;
+    if let Ok(sel) = db.prepare("SELECT content FROM clipboard_history ORDER BY id DESC LIMIT 1") {
+        unsafe {
+            if (db.api.step)(sel) == SQLITE_ROW {
+                latest = Some(db.col_str(sel, 0));
+            }
+            (db.api.finalize)(sel);
+        }
+    }
+    if latest.as_deref() == Some(clean.as_str()) {
+        return Ok(());
+    }
+
+    let stmt = db.prepare("INSERT INTO clipboard_history (content, created_at) VALUES (?1, ?2)")?;
+    db.bind_str(stmt, 1, &clean);
+    unsafe {
+        (db.api.bind_int64)(stmt, 2, now_unix());
+        (db.api.step)(stmt);
+        (db.api.finalize)(stmt);
+    }
+    let _ = db.exec_sql(
+        "DELETE FROM clipboard_history WHERE id NOT IN (SELECT id FROM clipboard_history ORDER BY id DESC LIMIT 20);",
+    );
+    Ok(())
+}
+
+#[tauri::command]
+pub fn clipboard_history_list(
+    state: tauri::State<'_, MemoryState>,
+) -> Result<Vec<ClipboardHistoryEntry>, String> {
+    let guard = state.inner.lock().map_err(|e| e.to_string())?;
+    let db = guard.as_ref().ok_or("SQLite chưa sẵn sàng")?;
+    let stmt = db.prepare(
+        "SELECT id, content, created_at FROM clipboard_history ORDER BY id DESC LIMIT 20",
+    )?;
+    let mut items = Vec::new();
+    unsafe {
+        while (db.api.step)(stmt) == SQLITE_ROW {
+            items.push(ClipboardHistoryEntry {
+                id: (db.api.column_int64)(stmt, 0),
+                content: db.col_str(stmt, 1),
+                created_at: (db.api.column_int64)(stmt, 2),
+            });
+        }
+        (db.api.finalize)(stmt);
+    }
+    Ok(items)
+}
+
+#[tauri::command]
+pub fn clipboard_history_clear(state: tauri::State<'_, MemoryState>) -> Result<(), String> {
+    let guard = state.inner.lock().map_err(|e| e.to_string())?;
+    let db = guard.as_ref().ok_or("SQLite chưa sẵn sàng")?;
+    db.exec_sql("DELETE FROM clipboard_history;")
+}
+
+#[derive(Serialize, Clone, Debug)]
+pub struct MacroEntry {
+    pub id: i64,
+    pub trigger_name: String,
+    pub actions_json: String,
+    pub updated_at: i64,
+}
+
+#[tauri::command]
+pub fn macro_list(state: tauri::State<'_, MemoryState>) -> Result<Vec<MacroEntry>, String> {
+    let guard = state.inner.lock().map_err(|e| e.to_string())?;
+    let db = guard.as_ref().ok_or("SQLite chưa sẵn sàng")?;
+    let stmt = db.prepare(
+        "SELECT id, trigger_name, actions_json, updated_at FROM user_macros ORDER BY id ASC",
+    )?;
+    let mut list = Vec::new();
+    unsafe {
+        while (db.api.step)(stmt) == SQLITE_ROW {
+            list.push(MacroEntry {
+                id: (db.api.column_int64)(stmt, 0),
+                trigger_name: db.col_str(stmt, 1),
+                actions_json: db.col_str(stmt, 2),
+                updated_at: (db.api.column_int64)(stmt, 3),
+            });
+        }
+        (db.api.finalize)(stmt);
+    }
+    Ok(list)
+}
+
+#[tauri::command]
+pub fn macro_upsert(
+    state: tauri::State<'_, MemoryState>,
+    trigger_name: String,
+    actions_json: String,
+) -> Result<(), String> {
+    let trig = trigger_name.trim().to_lowercase();
+    let acts = actions_json.trim().to_string();
+    if trig.is_empty() || acts.is_empty() {
+        return Err("Tên Macro hoặc danh sách lệnh không được để trống".to_string());
+    }
+    let guard = state.inner.lock().map_err(|e| e.to_string())?;
+    let db = guard.as_ref().ok_or("SQLite chưa sẵn sàng")?;
+    let stmt = db.prepare(
+        "INSERT INTO user_macros (trigger_name, actions_json, updated_at)
+         VALUES (?1, ?2, ?3)
+         ON CONFLICT(trigger_name) DO UPDATE SET actions_json = excluded.actions_json, updated_at = excluded.updated_at",
+    )?;
+    db.bind_str(stmt, 1, &trig);
+    db.bind_str(stmt, 2, &acts);
+    unsafe {
+        (db.api.bind_int64)(stmt, 3, now_unix());
+        (db.api.step)(stmt);
+        (db.api.finalize)(stmt);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn macro_delete(state: tauri::State<'_, MemoryState>, id: i64) -> Result<(), String> {
+    let guard = state.inner.lock().map_err(|e| e.to_string())?;
+    let db = guard.as_ref().ok_or("SQLite chưa sẵn sàng")?;
+    let stmt = db.prepare("DELETE FROM user_macros WHERE id = ?1")?;
+    unsafe {
+        (db.api.bind_int64)(stmt, 1, id);
+        (db.api.step)(stmt);
+        (db.api.finalize)(stmt);
+    }
+    Ok(())
+}
+
+fn read_vocab_list(db: &MemoryDb, limit: i64) -> Result<Vec<EnglishVocabItem>, String> {
+    let stmt = db.prepare(
+        "SELECT word, phonetic, part_of_speech, meaning_vi, definition_en, example_en, example_vi, audio_url, topic
+         FROM english_vocab_log
+         ORDER BY learned_at DESC, id DESC
+         LIMIT ?1",
+    )?;
+    let mut list = Vec::new();
+    unsafe {
+        (db.api.bind_int64)(stmt, 1, limit.max(1));
+        while (db.api.step)(stmt) == SQLITE_ROW {
+            list.push(EnglishVocabItem {
+                word: db.col_str(stmt, 0),
+                phonetic: db.col_str(stmt, 1),
+                part_of_speech: db.col_str(stmt, 2),
+                meaning_vi: db.col_str(stmt, 3),
+                definition_en: db.col_str(stmt, 4),
+                example_en: db.col_str(stmt, 5),
+                example_vi: db.col_str(stmt, 6),
+                audio_url: db.col_str(stmt, 7),
+                topic: db.col_str(stmt, 8),
+                synonyms: Vec::new(),
+            });
+        }
+        (db.api.finalize)(stmt);
+    }
+    Ok(list)
+}
+
+#[tauri::command]
+pub fn vocab_save_word(
+    state: tauri::State<'_, MemoryState>,
+    item: EnglishVocabItem,
+) -> Result<Vec<EnglishVocabItem>, String> {
+    let word_clean = item.word.trim().to_lowercase();
+    if word_clean.is_empty() {
+        return Err("Từ vựng không được để trống".to_string());
+    }
+    let guard = state.inner.lock().map_err(|e| e.to_string())?;
+    let db = guard.as_ref().ok_or("SQLite chưa sẵn sàng")?;
+    let stmt = db.prepare(
+        "INSERT INTO english_vocab_log (word, phonetic, part_of_speech, meaning_vi, definition_en, example_en, example_vi, audio_url, topic, learned_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+         ON CONFLICT(word) DO UPDATE SET
+           phonetic = excluded.phonetic,
+           part_of_speech = excluded.part_of_speech,
+           meaning_vi = excluded.meaning_vi,
+           definition_en = excluded.definition_en,
+           example_en = excluded.example_en,
+           example_vi = excluded.example_vi,
+           audio_url = excluded.audio_url,
+           topic = excluded.topic,
+           learned_at = excluded.learned_at",
+    )?;
+    db.bind_str(stmt, 1, &word_clean);
+    db.bind_str(stmt, 2, &item.phonetic);
+    db.bind_str(stmt, 3, &item.part_of_speech);
+    db.bind_str(stmt, 4, &item.meaning_vi);
+    db.bind_str(stmt, 5, &item.definition_en);
+    db.bind_str(stmt, 6, &item.example_en);
+    db.bind_str(stmt, 7, &item.example_vi);
+    db.bind_str(stmt, 8, &item.audio_url);
+    db.bind_str(stmt, 9, &item.topic);
+    unsafe {
+        (db.api.bind_int64)(stmt, 10, now_unix());
+        (db.api.step)(stmt);
+        (db.api.finalize)(stmt);
+    }
+    read_vocab_list(db, 100)
+}
+
+#[tauri::command]
+pub fn vocab_list_words(
+    state: tauri::State<'_, MemoryState>,
+    limit: Option<usize>,
+) -> Result<Vec<EnglishVocabItem>, String> {
+    let guard = state.inner.lock().map_err(|e| e.to_string())?;
+    let db = guard.as_ref().ok_or("SQLite chưa sẵn sàng")?;
+    let lim = limit.unwrap_or(100) as i64;
+    read_vocab_list(db, lim)
+}
+
+#[tauri::command]
+pub fn vocab_delete_word(
+    state: tauri::State<'_, MemoryState>,
+    word: String,
+) -> Result<Vec<EnglishVocabItem>, String> {
+    let clean = word.trim().to_lowercase();
+    let guard = state.inner.lock().map_err(|e| e.to_string())?;
+    let db = guard.as_ref().ok_or("SQLite chưa sẵn sàng")?;
+    let stmt = db.prepare("DELETE FROM english_vocab_log WHERE word = ?1")?;
+    db.bind_str(stmt, 1, &clean);
+    unsafe {
+        (db.api.step)(stmt);
+        (db.api.finalize)(stmt);
+    }
+    read_vocab_list(db, 100)
+}

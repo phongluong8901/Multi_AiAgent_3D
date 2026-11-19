@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "ai-desktop-mate",
-  "version": "0.1.0",
-  "identifier": "com.mbw2025.ai-desktop-mate",
+  "productName": "Duck ai Manager",
+  "version": "1.0.0",
+  "identifier": "com.mbw2025.duck-ai-manager",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -14,7 +14,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "AI Desktop Mate",
+        "title": "Duck ai Manager",
         "fullscreen": false,
         "maximized": true,
         "decorations": false,

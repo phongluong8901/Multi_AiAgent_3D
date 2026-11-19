@@ -7,6 +7,10 @@ import { rightActionPanelHtml } from './rightActionPanel';
 import { speechBubbleHtml } from './speechBubble';
 import { studioModalHtml } from './studioModal';
 import { longMemoryModalHtml } from './longMemoryModal';
+import { notificationModalHtml } from './notificationModal';
+import { p2pArenaModalHtml } from './p2pArenaModal';
+import { pcControlModalHtml } from './pcControlModal';
+import { ocrTranslateModalHtml } from './ocrTranslateModal';
 
 let mounted = false;
 
@@ -20,6 +24,10 @@ export function mountUi() {
     speechBubbleHtml,
     studioModalHtml,
     longMemoryModalHtml,
+    notificationModalHtml,
+    p2pArenaModalHtml,
+    pcControlModalHtml,
+    ocrTranslateModalHtml,
   ].join('\n');
   mounted = true;
 }
