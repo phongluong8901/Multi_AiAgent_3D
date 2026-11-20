@@ -378,4 +378,146 @@ export function createDefaultAutoBehaviors(): AutoBehaviorConfig {
   return result;
 }
 
+export interface SkillParamDef {
+  name: string;
+  type: 'string' | 'number' | 'boolean';
+  description: string;
+  required?: boolean;
+  default?: string | number | boolean;
+}
+
+export interface CustomSkillRecord {
+  id: string;
+  name: string;
+  description: string;
+  language: 'powershell' | 'python' | string;
+  triggers_json: string;
+  params_schema_json: string;
+  code: string;
+  test_args_json: string;
+  expected_keywords_json: string;
+  version: number;
+  verified: boolean;
+  code_hash: string;
+  last_test_output: string;
+  last_test_ms: number;
+  usage_count: number;
+  heal_count: number;
+  last_heal_note: string;
+  enabled: boolean;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface SandboxRunResult {
+  verified: boolean;
+  static_safe: boolean;
+  safety_issues: string[];
+  exit_code: number;
+  timed_out: boolean;
+  duration_ms: number;
+  stdout: string;
+  stderr: string;
+  code_hash: string;
+  failure_reason: string;
+}
+
+export interface SkillExecResult {
+  ok: boolean;
+  skill_id: string;
+  exit_code: number;
+  timed_out: boolean;
+  duration_ms: number;
+  stdout: string;
+  stderr: string;
+  error_summary: string;
+}
+
+export interface ToolForgeDraft {
+  id: string;
+  name: string;
+  description: string;
+  language: 'powershell' | 'python';
+  triggers: string[];
+  paramsSchema: SkillParamDef[];
+  code: string;
+  testArgsJson: string;
+  expectedKeywords: string[];
+  sandbox: SandboxRunResult | null;
+  healLogs: string[];
+  originalRequest: string;
+  isGenerating?: boolean;
+}
+
+export type TarotFortuneCode =
+  | 'dai_cat'
+  | 'tieu_cat'
+  | 'binh_hoa'
+  | 'tieu_hung'
+  | 'dai_hung';
+
+export interface TarotReadingRecord {
+  id: number;
+  drawn_at_ms: number;
+  next_draw_at_ms: number;
+  card_name: string;
+  card_name_vi: string;
+  card_short: string;
+  arcana_type: string;
+  is_reversed: boolean;
+  fortune_code: TarotFortuneCode | string;
+  fortune_label: string;
+  luck_score: number;
+  can_chi_day: string;
+  ngu_hanh: string;
+  lucky_color: string;
+  lucky_numbers: string;
+  summary_vi: string;
+  work_advice: string;
+  wealth_advice: string;
+  love_advice: string;
+  remedy_advice: string;
+  meaning_en: string;
+  api_source: string;
+  ai_deep_reading: string;
+}
+
+export interface TarotStatusResponse {
+  can_draw: boolean;
+  remaining_ms: number;
+  cooldown_hours: number;
+  already_drawn_in_window: boolean;
+  current_reading: TarotReadingRecord | null;
+  history: TarotReadingRecord[];
+}
+
+export interface CapturedWindowFrame {
+  hwnd: number;
+  title: string;
+  process_name: string;
+  width: number;
+  height: number;
+  is_minimized: boolean;
+  is_stealth?: boolean;
+  bmp_base64: string;
+}
+
+export interface MiniWindowEntry {
+  hwnd: number;
+  title: string;
+  process_name: string;
+  is_minimized: boolean;
+  is_stealth: boolean;
+}
+
+export interface MiniWebStatus {
+  is_open: boolean;
+  url: string;
+  title: string;
+  always_on_top: boolean;
+  width: number;
+  height: number;
+}
+
+
 

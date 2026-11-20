@@ -389,3 +389,56 @@ export function playAlertBeep(posX?: number) {
   });
 }
 
+/**
+ * Âm thanh bốc và lật thẻ Tarot 3D huyền bí (Celestial Harp Sweep + Chime Cát/Hung)
+ */
+export function playTarotFlipSound(posX?: number, fortuneCode = 'binh_hoa') {
+  if (!soundEnabled) return;
+  const ctx = getAudioContext();
+  if (!ctx || !masterGain) return;
+
+  const now = ctx.currentTime;
+  const panner = createPanNode(ctx, posX ?? appState.posX);
+  panner.connect(masterGain);
+
+  // Sweep lúc lá bài xoay vòng & lật
+  const sweepNotes = [392, 493.88, 587.33, 783.99];
+  sweepNotes.forEach((freq, i) => {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const t = now + i * 0.09;
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(freq, t);
+    gain.gain.setValueAtTime(0.001, t);
+    gain.gain.linearRampToValueAtTime(0.24 * soundVolume, t + 0.025);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.28);
+    osc.connect(gain);
+    gain.connect(panner);
+    osc.start(t);
+    osc.stop(t + 0.3);
+  });
+
+  // Hợp âm kết quả khi thẻ lộ mặt (t = +0.55s)
+  const chord =
+    fortuneCode === 'dai_cat' || fortuneCode === 'tieu_cat'
+      ? [523.25, 659.25, 783.99, 1046.5]
+      : fortuneCode === 'binh_hoa'
+      ? [440, 554.37, 659.25]
+      : [293.66, 349.23, 440];
+
+  chord.forEach((freq, idx) => {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const t = now + 0.52 + idx * 0.06;
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(freq, t);
+    gain.gain.setValueAtTime(0.001, t);
+    gain.gain.linearRampToValueAtTime(0.28 * soundVolume, t + 0.03);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.55);
+    osc.connect(gain);
+    gain.connect(panner);
+    osc.start(t);
+    osc.stop(t + 0.58);
+  });
+}
+

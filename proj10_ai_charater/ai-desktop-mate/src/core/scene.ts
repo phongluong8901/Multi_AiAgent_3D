@@ -5,11 +5,27 @@ export const scene = new THREE.Scene();
 export const camera = new THREE.OrthographicCamera(0, appState.W, 0, -appState.H, -1000, 1000);
 camera.position.z = 500;
 
-export const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+export const renderer = new THREE.WebGLRenderer({
+  alpha: true,
+  antialias: true,
+  stencil: false,
+});
 renderer.setSize(appState.W, appState.H);
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.setPixelRatio(
+  appState.ecoMode
+    ? Math.min(window.devicePixelRatio || 1, 1.25)
+    : Math.min(window.devicePixelRatio || 1, 2)
+);
 renderer.setClearColor(0x000000, 0);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+export function applyRendererEcoQuality() {
+  const targetRatio = appState.ecoMode
+    ? Math.min(window.devicePixelRatio || 1, 1.25)
+    : Math.min(window.devicePixelRatio || 1, 2);
+  renderer.setPixelRatio(targetRatio);
+  renderer.setSize(appState.W, appState.H);
+}
 
 let groundGroup: THREE.Group | null = null;
 let groundRingMat: THREE.MeshBasicMaterial | null = null;
@@ -24,7 +40,7 @@ export function initScene(container: HTMLElement) {
   camera.top = 0;
   camera.bottom = -appState.H;
   camera.updateProjectionMatrix();
-  renderer.setSize(appState.W, appState.H);
+  applyRendererEcoQuality();
 
   container.appendChild(renderer.domElement);
 
@@ -91,13 +107,13 @@ export function initScene(container: HTMLElement) {
     camera.right = appState.W;
     camera.bottom = -appState.H;
     camera.updateProjectionMatrix();
-    renderer.setSize(appState.W, appState.H);
+    applyRendererEcoQuality();
   });
 }
 
 const ringColorTarget = new THREE.Color();
 
-export function updateGroundAura(elapsed: number) {
+export function updateGroundAura(elapsed: number, delta = 1 / 60) {
   if (!groundGroup || !groundRingMat || !groundDiscMat) return;
 
   if (appState.state === 'SWIMMING') {
@@ -148,5 +164,5 @@ export function updateGroundAura(elapsed: number) {
   } else {
     ringColorTarget.setHex(0x38bdf8);
   }
-  groundRingMat.color.lerp(ringColorTarget, 0.12);
+  groundRingMat.color.lerp(ringColorTarget, Math.min(1, delta * 7.5));
 }

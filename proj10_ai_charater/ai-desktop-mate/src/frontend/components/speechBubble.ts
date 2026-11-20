@@ -207,10 +207,23 @@ export const speechBubbleHtml = `
         <line x1="12" y1="17" x2="12" y2="21"></line>
       </svg>
     </button>
+    <button id="dock-btn-mini-screen" class="dock-btn" type="button" title="Màn Hình Mini (Xem YouTube / Chiếu Tab &amp; App)">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="2" y="4" width="20" height="15" rx="2"></rect>
+        <rect x="11" y="10" width="9" height="7" rx="1.2" fill="rgba(56, 189, 248, 0.35)"></rect>
+      </svg>
+    </button>
     <button id="dock-btn-studio" class="dock-btn" type="button" title="Cấu Hình Hệ Thống &amp; Studio 3D">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="12" cy="12" r="3"></circle>
         <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+      </svg>
+    </button>
+    <button id="dock-btn-edge-peek" class="dock-btn" type="button" title="Nép Mép Màn Hình (Alt+W)">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="3" width="18" height="18" rx="2"></rect>
+        <line x1="15" y1="3" x2="15" y2="21"></line>
+        <polyline points="9 9 12 12 9 15"></polyline>
       </svg>
     </button>
     <button id="dock-btn-p2p" class="dock-btn" type="button" title="Đấu Trường P2P PK &amp; Điều Khiển Chéo (Cross-PC)">
@@ -225,12 +238,12 @@ export const speechBubbleHtml = `
         <line x1="3" y1="19" x2="5" y2="21"></line>
       </svg>
     </button>
-    <button id="dock-btn-edge-peek" class="dock-btn" type="button" title="Nép Mép Màn Hình (Alt+W)">
+    <button id="dock-btn-tarot" class="dock-btn dock-btn-tarot" type="button" title="Bốc Thẻ Tarot &amp; Tử Vi Vận Mệnh (Mỗi 6 giờ)">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <rect x="3" y="3" width="18" height="18" rx="2"></rect>
-        <line x1="15" y1="3" x2="15" y2="21"></line>
-        <polyline points="9 9 12 12 9 15"></polyline>
+        <rect x="4" y="2" width="16" height="20" rx="2.5"></rect>
+        <polygon points="12 7 13.4 10.6 17 12 13.4 13.4 12 17 10.6 13.4 7 12 10.6 10.6 12 7"></polygon>
       </svg>
+      <span id="dock-tarot-ready-dot" class="tarot-ready-dot" style="display: none;"></span>
     </button>
   </div>
 `;

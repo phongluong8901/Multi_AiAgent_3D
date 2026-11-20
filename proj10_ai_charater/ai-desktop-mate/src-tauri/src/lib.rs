@@ -41,9 +41,20 @@ use crate::backend::pc_control::{
     save_sticky_note_to_desktop, set_clipboard_text, take_screenshot, translate_text_quick,
     trigger_app_hotkey,
 };
+use crate::backend::mini_screen::{
+    mini_screen_capture_window, mini_screen_control_web, mini_screen_focus_window,
+    mini_screen_list_windows, mini_screen_open_web, mini_screen_restore_all_stealth,
+    mini_screen_set_stealth, MiniScreenState,
+};
+use crate::backend::tarot::{tarot_draw_card, tarot_get_status, tarot_save_ai_reading};
 use crate::backend::telemetry::{
     check_bitcoin, check_hardware, check_network, check_weather, fetch_live_news,
     fetch_real_english_lesson, fetch_vietnamese_tts_audio, get_app_process_metrics,
+};
+use crate::backend::tool_forge::{
+    tool_forge_apply_healed_skill, tool_forge_delete_skill, tool_forge_execute_skill,
+    tool_forge_list_skills, tool_forge_run_sandbox, tool_forge_save_skill,
+    tool_forge_toggle_skill, ToolForgeState,
 };
 use crate::backend::window_control::{
     arrange_desktop_windows, get_desktop_state, get_open_windows, interact_window,
@@ -66,6 +77,8 @@ pub fn run() {
             app.manage(notif_state);
             let p2p_state = P2pState::new(app.handle().clone());
             app.manage(p2p_state);
+            app.manage(ToolForgeState::new());
+            app.manage(MiniScreenState::new());
             if let Some(window) = app.get_webview_window("main") {
                 spawn_cursor_tracker(window, hitbox_thread);
             }
@@ -173,7 +186,24 @@ pub fn run() {
             p2p_send_remote_command,
             p2p_start_sim_peer,
             p2p_disconnect,
-            p2p_emergency_release
+            p2p_emergency_release,
+            tool_forge_run_sandbox,
+            tool_forge_save_skill,
+            tool_forge_list_skills,
+            tool_forge_delete_skill,
+            tool_forge_toggle_skill,
+            tool_forge_execute_skill,
+            tool_forge_apply_healed_skill,
+            tarot_get_status,
+            tarot_draw_card,
+            tarot_save_ai_reading,
+            mini_screen_capture_window,
+            mini_screen_focus_window,
+            mini_screen_open_web,
+            mini_screen_control_web,
+            mini_screen_list_windows,
+            mini_screen_set_stealth,
+            mini_screen_restore_all_stealth
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -60,6 +60,9 @@ export function isInsideInteractiveUi(target: EventTarget | null): boolean {
   if (appState.isP2pArenaOpen && target instanceof Element && target.closest('#p2p-arena-panel')) return true;
   if (appState.isPcControlOpen && target instanceof Element && target.closest('#pc-control-modal')) return true;
   if (appState.isOcrModalOpen && target instanceof Element && target.closest('#ocr-translate-modal')) return true;
+  if (appState.isToolForgeOpen && target instanceof Element && target.closest('#tool-forge-modal')) return true;
+  if (appState.isTarotModalOpen && target instanceof Element && target.closest('#tarot-modal')) return true;
+  if (appState.isMiniScreenOpen && target instanceof Element && target.closest('#mini-screen-panel')) return true;
   if (target instanceof Element && target.closest('#ocr-snip-overlay')) return true;
   if (target instanceof Element && target.closest('#p2p-pk-controller')) return true;
   if (target instanceof Element && target.closest('#p2p-return-pill')) return true;
@@ -320,10 +323,33 @@ export function initInput() {
 
   let lastAttachedWinPos: { hwnd: number; x: number; y: number } | null = null;
 
-  setInterval(async () => {
+  const scheduleDesktopStatePoll = () => {
+    const isBusyTracking =
+      appState.attachedWindowHwnd !== null ||
+      appState.state === 'DRAGGING' ||
+      appState.state === 'PUSHING' ||
+      appState.state === 'PULLING' ||
+      appState.state === 'SWINGING_WINDOW';
+    const nextDelay = document.hidden
+      ? 1000
+      : appState.ecoMode && !isBusyTracking
+      ? 180
+      : 65;
+    window.setTimeout(() => {
+      void pollDesktopStateOnce(isBusyTracking);
+    }, nextDelay);
+  };
+
+  async function pollDesktopStateOnce(fastWindowScan = false) {
+    if (document.hidden) {
+      scheduleDesktopStatePoll();
+      return;
+    }
     const dpr = window.devicePixelRatio || 1;
     try {
-      const res = await invoke<DesktopState>('get_desktop_state');
+      const res = await invoke<DesktopState>('get_desktop_state', {
+        fastWindowScan,
+      });
       appState.globalCursorX = res.cursor_x;
       appState.globalCursorY = res.cursor_y;
       appState.systemAudioPeak = res.audio_peak ?? 0;
@@ -440,7 +466,11 @@ export function initInput() {
       }
     } catch {
       // Bỏ qua khi chạy ngoài môi trường Tauri
+    } finally {
+      scheduleDesktopStatePoll();
     }
-  }, 60);
+  }
+
+  scheduleDesktopStatePoll();
 }
 

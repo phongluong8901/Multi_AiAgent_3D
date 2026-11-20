@@ -139,6 +139,7 @@ export class AppState {
   chatDockSide: 'left' | 'right' =
     localStorage.getItem('mate_chat_dock_side') === 'left' ? 'left' : 'right';
   randomFeatureEnabled: boolean = true;
+  ecoMode: boolean = localStorage.getItem('mate_eco_mode') === 'true';
 
   openWindows: WinRect[] = [];
   activeWindowHwnd: number | null = null;
@@ -162,6 +163,9 @@ export class AppState {
   isPcControlOpen: boolean = false;
   isOcrModalOpen: boolean = false;
   isOcrSnipMode: boolean = false;
+  isToolForgeOpen: boolean = false;
+  isTarotModalOpen: boolean = false;
+  isMiniScreenOpen: boolean = false;
   isMigratedOut: boolean = false;
   blackHoleWarpMode: boolean = false;
   isFileDragHovering: boolean = false;

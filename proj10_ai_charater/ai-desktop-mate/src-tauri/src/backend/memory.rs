@@ -292,6 +292,54 @@ impl MemoryDb {
                 topic TEXT NOT NULL,
                 learned_at INTEGER NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS custom_skills (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT NOT NULL,
+                language TEXT NOT NULL,
+                triggers_json TEXT NOT NULL DEFAULT '[]',
+                params_schema_json TEXT NOT NULL DEFAULT '[]',
+                code TEXT NOT NULL,
+                test_args_json TEXT NOT NULL DEFAULT '{}',
+                expected_keywords_json TEXT NOT NULL DEFAULT '[]',
+                version INTEGER NOT NULL DEFAULT 1,
+                verified INTEGER NOT NULL DEFAULT 0,
+                code_hash TEXT NOT NULL DEFAULT '',
+                last_test_output TEXT NOT NULL DEFAULT '',
+                last_test_ms INTEGER NOT NULL DEFAULT 0,
+                usage_count INTEGER NOT NULL DEFAULT 0,
+                heal_count INTEGER NOT NULL DEFAULT 0,
+                last_heal_note TEXT NOT NULL DEFAULT '',
+                enabled INTEGER NOT NULL DEFAULT 1,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS tarot_readings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                drawn_at_ms INTEGER NOT NULL,
+                next_draw_at_ms INTEGER NOT NULL,
+                card_name TEXT NOT NULL,
+                card_name_vi TEXT NOT NULL,
+                card_short TEXT NOT NULL,
+                arcana_type TEXT NOT NULL,
+                is_reversed INTEGER NOT NULL DEFAULT 0,
+                fortune_code TEXT NOT NULL,
+                fortune_label TEXT NOT NULL,
+                luck_score INTEGER NOT NULL DEFAULT 50,
+                can_chi_day TEXT NOT NULL,
+                ngu_hanh TEXT NOT NULL,
+                lucky_color TEXT NOT NULL,
+                lucky_numbers TEXT NOT NULL,
+                summary_vi TEXT NOT NULL,
+                work_advice TEXT NOT NULL,
+                wealth_advice TEXT NOT NULL,
+                love_advice TEXT NOT NULL,
+                remedy_advice TEXT NOT NULL,
+                meaning_en TEXT NOT NULL DEFAULT '',
+                api_source TEXT NOT NULL DEFAULT 'tarotapi.dev',
+                ai_deep_reading TEXT NOT NULL DEFAULT ''
+            );
+            CREATE INDEX IF NOT EXISTS idx_tarot_drawn_at ON tarot_readings(drawn_at_ms DESC);
             ",
         )?;
 
@@ -1663,4 +1711,413 @@ pub fn vocab_delete_word(
         (db.api.finalize)(stmt);
     }
     read_vocab_list(db, 100)
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct CustomSkillRecord {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub language: String,
+    pub triggers_json: String,
+    pub params_schema_json: String,
+    pub code: String,
+    pub test_args_json: String,
+    pub expected_keywords_json: String,
+    pub version: i64,
+    pub verified: bool,
+    pub code_hash: String,
+    pub last_test_output: String,
+    pub last_test_ms: i64,
+    pub usage_count: i64,
+    pub heal_count: i64,
+    pub last_heal_note: String,
+    pub enabled: bool,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+fn read_custom_skills_query(
+    db: &MemoryDb,
+    sql: &str,
+    id_bind: Option<&str>,
+) -> Vec<CustomSkillRecord> {
+    let mut out = Vec::new();
+    let Ok(stmt) = db.prepare(sql) else {
+        return out;
+    };
+    if let Some(id_val) = id_bind {
+        db.bind_str(stmt, 1, id_val);
+    }
+    unsafe {
+        while (db.api.step)(stmt) == SQLITE_ROW {
+            out.push(CustomSkillRecord {
+                id: db.col_str(stmt, 0),
+                name: db.col_str(stmt, 1),
+                description: db.col_str(stmt, 2),
+                language: db.col_str(stmt, 3),
+                triggers_json: db.col_str(stmt, 4),
+                params_schema_json: db.col_str(stmt, 5),
+                code: db.col_str(stmt, 6),
+                test_args_json: db.col_str(stmt, 7),
+                expected_keywords_json: db.col_str(stmt, 8),
+                version: (db.api.column_int64)(stmt, 9),
+                verified: (db.api.column_int64)(stmt, 10) != 0,
+                code_hash: db.col_str(stmt, 11),
+                last_test_output: db.col_str(stmt, 12),
+                last_test_ms: (db.api.column_int64)(stmt, 13),
+                usage_count: (db.api.column_int64)(stmt, 14),
+                heal_count: (db.api.column_int64)(stmt, 15),
+                last_heal_note: db.col_str(stmt, 16),
+                enabled: (db.api.column_int64)(stmt, 17) != 0,
+                created_at: (db.api.column_int64)(stmt, 18),
+                updated_at: (db.api.column_int64)(stmt, 19),
+            });
+        }
+        (db.api.finalize)(stmt);
+    }
+    out
+}
+
+pub(crate) fn db_list_custom_skills(state: &MemoryState) -> Vec<CustomSkillRecord> {
+    let Ok(guard) = state.inner.lock() else {
+        return Vec::new();
+    };
+    let Some(db) = guard.as_ref() else {
+        return Vec::new();
+    };
+    read_custom_skills_query(
+        db,
+        "SELECT id, name, description, language, triggers_json, params_schema_json, code,
+                test_args_json, expected_keywords_json, version, verified, code_hash,
+                last_test_output, last_test_ms, usage_count, heal_count, last_heal_note,
+                enabled, created_at, updated_at
+         FROM custom_skills
+         ORDER BY updated_at DESC",
+        None,
+    )
+}
+
+pub(crate) fn db_get_custom_skill(state: &MemoryState, id: &str) -> Option<CustomSkillRecord> {
+    let Ok(guard) = state.inner.lock() else {
+        return None;
+    };
+    let Some(db) = guard.as_ref() else {
+        return None;
+    };
+    read_custom_skills_query(
+        db,
+        "SELECT id, name, description, language, triggers_json, params_schema_json, code,
+                test_args_json, expected_keywords_json, version, verified, code_hash,
+                last_test_output, last_test_ms, usage_count, heal_count, last_heal_note,
+                enabled, created_at, updated_at
+         FROM custom_skills
+         WHERE id = ?1
+         LIMIT 1",
+        Some(id),
+    )
+    .into_iter()
+    .next()
+}
+
+pub(crate) fn db_upsert_custom_skill(
+    state: &MemoryState,
+    rec: &CustomSkillRecord,
+) -> Result<(), String> {
+    let guard = state.inner.lock().map_err(|e| e.to_string())?;
+    let db = guard.as_ref().ok_or("SQLite chưa sẵn sàng")?;
+    let now = now_unix();
+    let created = if rec.created_at > 0 { rec.created_at } else { now };
+    let clean_code = rec.code.replace('\0', "");
+    let clean_out = rec.last_test_output.replace('\0', "");
+
+    let stmt = db.prepare(
+        "INSERT INTO custom_skills (
+            id, name, description, language, triggers_json, params_schema_json, code,
+            test_args_json, expected_keywords_json, version, verified, code_hash,
+            last_test_output, last_test_ms, usage_count, heal_count, last_heal_note,
+            enabled, created_at, updated_at
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)
+         ON CONFLICT(id) DO UPDATE SET
+            name = excluded.name,
+            description = excluded.description,
+            language = excluded.language,
+            triggers_json = excluded.triggers_json,
+            params_schema_json = excluded.params_schema_json,
+            code = excluded.code,
+            test_args_json = excluded.test_args_json,
+            expected_keywords_json = excluded.expected_keywords_json,
+            version = excluded.version,
+            verified = excluded.verified,
+            code_hash = excluded.code_hash,
+            last_test_output = excluded.last_test_output,
+            last_test_ms = excluded.last_test_ms,
+            usage_count = excluded.usage_count,
+            heal_count = excluded.heal_count,
+            last_heal_note = excluded.last_heal_note,
+            enabled = excluded.enabled,
+            updated_at = excluded.updated_at",
+    )?;
+
+    db.bind_str(stmt, 1, &rec.id);
+    db.bind_str(stmt, 2, &rec.name);
+    db.bind_str(stmt, 3, &rec.description);
+    db.bind_str(stmt, 4, &rec.language);
+    db.bind_str(stmt, 5, &rec.triggers_json);
+    db.bind_str(stmt, 6, &rec.params_schema_json);
+    db.bind_str(stmt, 7, &clean_code);
+    db.bind_str(stmt, 8, &rec.test_args_json);
+    db.bind_str(stmt, 9, &rec.expected_keywords_json);
+    unsafe {
+        (db.api.bind_int64)(stmt, 10, rec.version.max(1));
+        (db.api.bind_int64)(stmt, 11, if rec.verified { 1 } else { 0 });
+    }
+    db.bind_str(stmt, 12, &rec.code_hash);
+    db.bind_str(stmt, 13, &clean_out);
+    unsafe {
+        (db.api.bind_int64)(stmt, 14, rec.last_test_ms.max(0));
+        (db.api.bind_int64)(stmt, 15, rec.usage_count.max(0));
+        (db.api.bind_int64)(stmt, 16, rec.heal_count.max(0));
+    }
+    db.bind_str(stmt, 17, &rec.last_heal_note);
+    unsafe {
+        (db.api.bind_int64)(stmt, 18, if rec.enabled { 1 } else { 0 });
+        (db.api.bind_int64)(stmt, 19, created);
+        (db.api.bind_int64)(stmt, 20, now);
+        (db.api.step)(stmt);
+        (db.api.finalize)(stmt);
+    }
+    Ok(())
+}
+
+pub(crate) fn db_delete_custom_skill(state: &MemoryState, id: &str) -> Result<(), String> {
+    let guard = state.inner.lock().map_err(|e| e.to_string())?;
+    let db = guard.as_ref().ok_or("SQLite chưa sẵn sàng")?;
+    let stmt = db.prepare("DELETE FROM custom_skills WHERE id = ?1")?;
+    db.bind_str(stmt, 1, id);
+    unsafe {
+        (db.api.step)(stmt);
+        (db.api.finalize)(stmt);
+    }
+    Ok(())
+}
+
+pub(crate) fn db_toggle_custom_skill(
+    state: &MemoryState,
+    id: &str,
+    enabled: bool,
+) -> Result<(), String> {
+    let guard = state.inner.lock().map_err(|e| e.to_string())?;
+    let db = guard.as_ref().ok_or("SQLite chưa sẵn sàng")?;
+    let stmt = db.prepare("UPDATE custom_skills SET enabled = ?1, updated_at = ?2 WHERE id = ?3")?;
+    unsafe {
+        (db.api.bind_int64)(stmt, 1, if enabled { 1 } else { 0 });
+        (db.api.bind_int64)(stmt, 2, now_unix());
+    }
+    db.bind_str(stmt, 3, id);
+    unsafe {
+        (db.api.step)(stmt);
+        (db.api.finalize)(stmt);
+    }
+    Ok(())
+}
+
+pub(crate) fn db_increment_skill_usage(state: &MemoryState, id: &str) {
+    let Ok(guard) = state.inner.lock() else {
+        return;
+    };
+    let Some(db) = guard.as_ref() else {
+        return;
+    };
+    if let Ok(stmt) = db.prepare(
+        "UPDATE custom_skills SET usage_count = usage_count + 1, updated_at = ?1 WHERE id = ?2",
+    ) {
+        unsafe {
+            (db.api.bind_int64)(stmt, 1, now_unix());
+        }
+        db.bind_str(stmt, 2, id);
+        unsafe {
+            (db.api.step)(stmt);
+            (db.api.finalize)(stmt);
+        }
+    }
+}
+
+pub(crate) fn skills_storage_dir(state: &MemoryState) -> PathBuf {
+    let db_path = PathBuf::from(&state.db_path);
+    match db_path.parent() {
+        Some(parent) => parent.join("skills"),
+        None => PathBuf::from("data").join("skills"),
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct TarotReadingRecord {
+    pub id: i64,
+    pub drawn_at_ms: i64,
+    pub next_draw_at_ms: i64,
+    pub card_name: String,
+    pub card_name_vi: String,
+    pub card_short: String,
+    pub arcana_type: String,
+    pub is_reversed: bool,
+    pub fortune_code: String,
+    pub fortune_label: String,
+    pub luck_score: i32,
+    pub can_chi_day: String,
+    pub ngu_hanh: String,
+    pub lucky_color: String,
+    pub lucky_numbers: String,
+    pub summary_vi: String,
+    pub work_advice: String,
+    pub wealth_advice: String,
+    pub love_advice: String,
+    pub remedy_advice: String,
+    pub meaning_en: String,
+    pub api_source: String,
+    pub ai_deep_reading: String,
+}
+
+fn read_tarot_rows(db: &MemoryDb, limit: usize) -> Vec<TarotReadingRecord> {
+    let mut out = Vec::new();
+    let Ok(stmt) = db.prepare(
+        "SELECT id, drawn_at_ms, next_draw_at_ms, card_name, card_name_vi, card_short,
+                arcana_type, is_reversed, fortune_code, fortune_label, luck_score,
+                can_chi_day, ngu_hanh, lucky_color, lucky_numbers, summary_vi,
+                work_advice, wealth_advice, love_advice, remedy_advice, meaning_en,
+                api_source, ai_deep_reading
+         FROM tarot_readings
+         ORDER BY drawn_at_ms DESC, id DESC
+         LIMIT ?1",
+    ) else {
+        return out;
+    };
+    unsafe {
+        (db.api.bind_int64)(stmt, 1, limit.max(1) as i64);
+        while (db.api.step)(stmt) == SQLITE_ROW {
+            out.push(TarotReadingRecord {
+                id: (db.api.column_int64)(stmt, 0),
+                drawn_at_ms: (db.api.column_int64)(stmt, 1),
+                next_draw_at_ms: (db.api.column_int64)(stmt, 2),
+                card_name: db.col_str(stmt, 3),
+                card_name_vi: db.col_str(stmt, 4),
+                card_short: db.col_str(stmt, 5),
+                arcana_type: db.col_str(stmt, 6),
+                is_reversed: (db.api.column_int64)(stmt, 7) != 0,
+                fortune_code: db.col_str(stmt, 8),
+                fortune_label: db.col_str(stmt, 9),
+                luck_score: (db.api.column_int64)(stmt, 10) as i32,
+                can_chi_day: db.col_str(stmt, 11),
+                ngu_hanh: db.col_str(stmt, 12),
+                lucky_color: db.col_str(stmt, 13),
+                lucky_numbers: db.col_str(stmt, 14),
+                summary_vi: db.col_str(stmt, 15),
+                work_advice: db.col_str(stmt, 16),
+                wealth_advice: db.col_str(stmt, 17),
+                love_advice: db.col_str(stmt, 18),
+                remedy_advice: db.col_str(stmt, 19),
+                meaning_en: db.col_str(stmt, 20),
+                api_source: db.col_str(stmt, 21),
+                ai_deep_reading: db.col_str(stmt, 22),
+            });
+        }
+        (db.api.finalize)(stmt);
+    }
+    out
+}
+
+pub(crate) fn db_get_latest_tarot(state: &MemoryState) -> Option<TarotReadingRecord> {
+    let guard = state.inner.lock().ok()?;
+    let db = guard.as_ref()?;
+    read_tarot_rows(db, 1).into_iter().next()
+}
+
+pub(crate) fn db_list_tarot_history(state: &MemoryState, limit: usize) -> Vec<TarotReadingRecord> {
+    let Ok(guard) = state.inner.lock() else {
+        return Vec::new();
+    };
+    let Some(db) = guard.as_ref() else {
+        return Vec::new();
+    };
+    read_tarot_rows(db, limit)
+}
+
+pub(crate) fn db_insert_tarot_reading(
+    state: &MemoryState,
+    rec: &TarotReadingRecord,
+) -> Result<TarotReadingRecord, String> {
+    let guard = state.inner.lock().map_err(|e| e.to_string())?;
+    let db = guard.as_ref().ok_or("SQLite chưa sẵn sàng")?;
+    let stmt = db.prepare(
+        "INSERT INTO tarot_readings (
+            drawn_at_ms, next_draw_at_ms, card_name, card_name_vi, card_short,
+            arcana_type, is_reversed, fortune_code, fortune_label, luck_score,
+            can_chi_day, ngu_hanh, lucky_color, lucky_numbers, summary_vi,
+            work_advice, wealth_advice, love_advice, remedy_advice, meaning_en,
+            api_source, ai_deep_reading
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
+    )?;
+    unsafe {
+        (db.api.bind_int64)(stmt, 1, rec.drawn_at_ms);
+        (db.api.bind_int64)(stmt, 2, rec.next_draw_at_ms);
+    }
+    db.bind_str(stmt, 3, &rec.card_name);
+    db.bind_str(stmt, 4, &rec.card_name_vi);
+    db.bind_str(stmt, 5, &rec.card_short);
+    db.bind_str(stmt, 6, &rec.arcana_type);
+    unsafe {
+        (db.api.bind_int64)(stmt, 7, if rec.is_reversed { 1 } else { 0 });
+    }
+    db.bind_str(stmt, 8, &rec.fortune_code);
+    db.bind_str(stmt, 9, &rec.fortune_label);
+    unsafe {
+        (db.api.bind_int64)(stmt, 10, rec.luck_score as i64);
+    }
+    db.bind_str(stmt, 11, &rec.can_chi_day);
+    db.bind_str(stmt, 12, &rec.ngu_hanh);
+    db.bind_str(stmt, 13, &rec.lucky_color);
+    db.bind_str(stmt, 14, &rec.lucky_numbers);
+    db.bind_str(stmt, 15, &rec.summary_vi);
+    db.bind_str(stmt, 16, &rec.work_advice);
+    db.bind_str(stmt, 17, &rec.wealth_advice);
+    db.bind_str(stmt, 18, &rec.love_advice);
+    db.bind_str(stmt, 19, &rec.remedy_advice);
+    db.bind_str(stmt, 20, &rec.meaning_en);
+    db.bind_str(stmt, 21, &rec.api_source);
+    db.bind_str(stmt, 22, &rec.ai_deep_reading);
+    unsafe {
+        (db.api.step)(stmt);
+        (db.api.finalize)(stmt);
+    }
+
+    let mut row_id = rec.id;
+    if let Ok(id_stmt) = db.prepare("SELECT last_insert_rowid()") {
+        unsafe {
+            if (db.api.step)(id_stmt) == SQLITE_ROW {
+                row_id = (db.api.column_int64)(id_stmt, 0);
+            }
+            (db.api.finalize)(id_stmt);
+        }
+    }
+
+    let mut saved = rec.clone();
+    saved.id = row_id;
+    Ok(saved)
+}
+
+pub(crate) fn db_update_tarot_ai_reading(
+    state: &MemoryState,
+    id: i64,
+    ai_text: &str,
+) -> Result<(), String> {
+    let guard = state.inner.lock().map_err(|e| e.to_string())?;
+    let db = guard.as_ref().ok_or("SQLite chưa sẵn sàng")?;
+    let stmt = db.prepare("UPDATE tarot_readings SET ai_deep_reading = ?1 WHERE id = ?2")?;
+    db.bind_str(stmt, 1, ai_text);
+    unsafe {
+        (db.api.bind_int64)(stmt, 2, id);
+        (db.api.step)(stmt);
+        (db.api.finalize)(stmt);
+    }
+    Ok(())
 }

@@ -13,7 +13,9 @@ import {
   stopCustomTimer,
   toggleBubbleVisibility,
   toggleEdgePeekMode,
+  toggleMiniScreenPanel,
   toggleStickyNotesWidget,
+  toggleTarotModal,
 } from '../frontend/ui';
 import { appState } from '../core/state';
 import {
@@ -98,6 +100,16 @@ import {
   showTelemetrySection,
 } from '../frontend/ui';
 import { isP2pSessionActive } from '../core/p2pArena';
+import {
+  buildCustomSkillsPromptBlock,
+  detectToolForgeRequestIntent,
+  executeSavedSkillWithSelfHeal,
+  extractArgsWithLocalLlmIfAvailable,
+  forgeNewToolFromRequest,
+  matchSavedSkillForUserText,
+  refreshCustomSkills,
+  registerToolForgeContext,
+} from './toolForge';
 
 let speakCb: ((msg: string) => void) | null = null;
 let danceCb: (() => void) | null = null;
@@ -3502,6 +3514,41 @@ export async function dispatchAiToolCall(toolCall: ToolCallItem): Promise<boolea
         lastToolOutputSummary = toggleEdgePeekMode(force);
         return true;
       }
+      case 'custom_skill': {
+        const skillId = String(params.id || params.skill_id || '').trim();
+        const rawArgs =
+          params.args && typeof params.args === 'object'
+            ? (params.args as Record<string, unknown>)
+            : {};
+        if (skillId) {
+          lastToolOutputSummary = await executeSavedSkillWithSelfHeal(
+            skillId,
+            rawArgs,
+            (msg) => setStreamSpeechText(msg)
+          );
+          return true;
+        }
+        break;
+      }
+      case 'forge_tool': {
+        const reqText = String(params.request || params.description || params.prompt || '').trim();
+        if (reqText) {
+          window.dispatchEvent(
+            new CustomEvent('duck-open-tool-forge', { detail: { generatingRequest: reqText } })
+          );
+          const draft = await forgeNewToolFromRequest(reqText, 'auto', (line) => {
+            setStreamSpeechText(line);
+          });
+          window.dispatchEvent(new CustomEvent('duck-open-tool-forge', { detail: { draft } }));
+          if (draft.sandbox?.verified) {
+            lastToolOutputSummary = `[TOOL FORGE PASS] Gemini đã viết skill "${draft.name}" và kiểm nghiệm Sandbox thành công (${draft.sandbox.duration_ms}ms). Hãy bấm "Xác Nhận & Đóng Gói Skill" trong Xưởng Skill để lưu cho Local LLM!`;
+          } else {
+            lastToolOutputSummary = `[TOOL FORGE] Đã mở Xưởng Skill cho "${draft.name}" nhưng Sandbox chưa pass (${draft.sandbox?.failure_reason || 'Cần kiểm tra'}). Chưa đóng gói cho tới khi kiểm chứng đạt.`;
+          }
+          return true;
+        }
+        break;
+      }
     }
   } catch (err) {
     console.error('[DISPATCH_TOOL_ERROR]', toolName, err);
@@ -4551,6 +4598,168 @@ async function tryZeroLatencyFastPath(userText: string): Promise<boolean> {
   const text = userText.trim();
   const lower = text.toLowerCase();
 
+  // 0. Mở bảng Tarot & Tử Vi Vận Mệnh 6 Giờ
+  const normTarotCheck = text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D')
+    .toLowerCase();
+
+  // 0-mini. Màn Hình Mini (Mini Screen PiP - YouTube/Web Always-on-Top hoặc Chiếu App/Tab Live)
+  if (
+    /(?:man hinh mini|mini screen|mini youtube|youtube mini|mini web|trong mini)|(?:chieu|mirror)\s+(?:tab|app|cua so|trinh duyet)/.test(
+      normTarotCheck
+    )
+  ) {
+    pushChatHistory('user', text);
+    const wantsMirror =
+      /(?:chieu|mirror)\s+(?:tab|app|cua so|trinh duyet)|capture app|live app/.test(
+        normTarotCheck
+      ) && !/youtube|web|tiktok|google|http/.test(normTarotCheck);
+
+    if (wantsMirror) {
+      toggleMiniScreenPanel(true, 'mirror');
+      const msg =
+        '[MINI SCREEN] Đã mở bảng Màn Hình Mini ở chế độ Chiếu App / Tab Live! Chọn cửa sổ hoặc nhấn "Bắt Tab / Màn 60 FPS" để xem ngay.';
+      speak(msg);
+      pushChatHistory('assistant', msg);
+      return true;
+    }
+
+    let target = '';
+    const urlMatch = text.match(/https?:\/\/\S+/i);
+    if (urlMatch?.[0]) {
+      target = urlMatch[0];
+    } else if (/yt music|youtube music/.test(normTarotCheck)) {
+      target = 'ytmusic';
+    } else if (/lofi/.test(normTarotCheck)) {
+      target = 'lofi';
+    } else if (/youtube/.test(normTarotCheck)) {
+      target = 'youtube';
+    } else if (/tiktok/.test(normTarotCheck)) {
+      target = 'tiktok';
+    } else if (/google/.test(normTarotCheck)) {
+      target = 'google';
+    } else if (/chatgpt/.test(normTarotCheck)) {
+      target = 'chatgpt';
+    }
+
+    toggleMiniScreenPanel(true, 'web');
+    if (target) {
+      try {
+        await invoke('mini_screen_open_web', { target });
+        const inp = document.getElementById('mini-web-url-input') as HTMLInputElement | null;
+        if (inp) inp.value = target;
+        const msg = `[MINI SCREEN] Đã mở "${target}" trong cửa sổ Mini Screen ghim nổi (Always-on-Top)!`;
+        speak(msg);
+        pushChatHistory('assistant', msg);
+      } catch (err) {
+        const errMsg = `[MINI SCREEN LỖI] ${String(err)}`;
+        speak(errMsg);
+        pushChatHistory('assistant', errMsg);
+      }
+    } else {
+      const msg =
+        '[MINI SCREEN] Đã mở Màn Hình Mini (PiP)! Bạn có thể bấm YouTube, dán link web hoặc chuyển sang tab "Chiếu App / Tab Live".';
+      speak(msg);
+      pushChatHistory('assistant', msg);
+    }
+    return true;
+  }
+
+  if (
+    /(?:boc|lat|xem|rut)\s+(?:the\s+|bai\s+|que\s+)?(?:tarot|boi|tu vi|van menh|van may)|(?:hom nay|nay)\s+(?:co\s+)?(?:may man|xui xeo|dai cat|tieu cat|cat hay hung)/.test(
+      normTarotCheck
+    )
+  ) {
+    pushChatHistory('user', text);
+    toggleTarotModal(true);
+    const msg =
+      '[TAROT & TỬ VI 6H] Tớ đã mở bàn trải bài Tarot cho bạn! Chọn 1 trong 3 lá bài hoặc nhấn "Bốc & Lật Quẻ Tarot Ngay" để Vịt làm phép lật thẻ 3D định vận Cát/Hung nhé.';
+    speak(msg);
+    pushChatHistory('assistant', msg);
+    return true;
+  }
+
+  // 0a. Duck Skill Forge: Phát hiện yêu cầu mở Xưởng Skill hoặc nhờ Gemini tạo + kiểm nghiệm Sandbox tool mới
+  const forgeIntent = detectToolForgeRequestIntent(text);
+  if (forgeIntent) {
+    pushChatHistory('user', text);
+    if (forgeIntent.mode === 'open') {
+      window.dispatchEvent(new CustomEvent('duck-open-tool-forge'));
+      const msg = 'Đã mở Xưởng Skill AI & Sandbox Kiểm Nghiệm.';
+      speak(msg);
+      pushChatHistory('assistant', msg);
+      return true;
+    }
+
+    if (!geminiApiKey.trim()) {
+      window.dispatchEvent(new CustomEvent('duck-open-tool-forge', { detail: { requestText: text } }));
+      const errMsg =
+        '[TOOL FORGE] Local LLM không có skill sẵn và không tự viết script. Cần GEMINI_API_KEY trong .env để Gemini viết & kiểm nghiệm tool trên Sandbox.';
+      speak(errMsg);
+      pushChatHistory('assistant', errMsg);
+      return true;
+    }
+
+    isBusy = true;
+    try {
+      const handoffMsg =
+        '[TOOL FORGE] Local LLM chưa có tool này & không tự viết code -> Chuyển sang Gemini Architect + Sandbox máy để viết và kiểm nghiệm...';
+      speak(handoffMsg);
+      window.dispatchEvent(
+        new CustomEvent('duck-open-tool-forge', { detail: { generatingRequest: forgeIntent.request } })
+      );
+      const draft = await forgeNewToolFromRequest(forgeIntent.request, 'auto', (line) => {
+        setStreamSpeechText(line);
+      });
+      window.dispatchEvent(new CustomEvent('duck-open-tool-forge', { detail: { draft } }));
+
+      const summary = draft.sandbox?.verified
+        ? `[SANDBOX PASS] Gemini đã viết xong skill "${draft.name}" và kiểm nghiệm đạt trên Sandbox (${draft.sandbox.duration_ms}ms). Hãy bấm "Xác Nhận & Đóng Gói Skill" để lưu cho Local LLM dùng sau này!`
+        : `[SANDBOX CHƯA ĐẠT] Gemini đã viết nháp "${draft.name}" nhưng chưa pass kiểm chứng (${draft.sandbox?.failure_reason || 'Lỗi'}). Tool chưa được đóng gói; bạn có thể bấm "Tự Vá" hoặc sửa trên Xưởng Skill.`;
+      speak(summary);
+      pushChatHistory('assistant', summary);
+    } catch (err) {
+      const failMsg = `[TOOL FORGE LỖI] ${String(err)}`;
+      speak(failMsg);
+      pushChatHistory('assistant', failMsg);
+    } finally {
+      isBusy = false;
+    }
+    return true;
+  }
+
+  // 0b. Khớp các Custom Skill đã kiểm chứng & lưu trong SQLite (ưu tiên Local LLM trích xuất tham số)
+  const matchedSkill = matchSavedSkillForUserText(text);
+  if (matchedSkill) {
+    pushChatHistory('user', text);
+    isBusy = true;
+    try {
+      speak(`[SKILL: ${matchedSkill.skill.name}] Local LLM đang chuẩn bị tham số & thực thi tool đã lưu...`);
+      const finalArgs = await extractArgsWithLocalLlmIfAvailable(
+        matchedSkill.skill,
+        text,
+        matchedSkill.args
+      );
+      const outMsg = await executeSavedSkillWithSelfHeal(
+        matchedSkill.skill.id,
+        finalArgs,
+        (line) => setStreamSpeechText(line)
+      );
+      speak(outMsg);
+      pushChatHistory('assistant', outMsg);
+    } catch (err) {
+      const errMsg = `[SKILL LỖI] ${String(err)}`;
+      speak(errMsg);
+      pushChatHistory('assistant', errMsg);
+    } finally {
+      isBusy = false;
+    }
+    return true;
+  }
+
   // Nếu là chuỗi đa lệnh ("... rồi ...", "... sau đó ..."), bỏ qua fast-path đơn lẻ để LLM/chained handler thực thi trọn vẹn tất cả mệnh đề
   if (/(?:\s+(?:rồi|sau đó|tiếp theo|đồng thời|và rồi|then|and then)\s+|\s*;\s*)/i.test(text)) {
     return false;
@@ -4991,20 +5200,21 @@ export async function chatWithLocalLlm(userText: string) {
 
   const memoryBlock = memoryLines.length > 0 ? `\n${memoryLines.join('\n')}` : '';
   const compactLongBlock = longMemoryBlock ? `\n${longMemoryBlock.trim().slice(0, 420)}` : '';
+  const customSkillsBlock = buildCustomSkillsPromptBlock();
 
   const localSystemPrompt = `Bạn là Duck AI Manager - trợ lý 3D đồng hành trên Windows.
-${COMPACT_LOCAL_TOOLSET_PROMPT}${compactLongBlock}
+${COMPACT_LOCAL_TOOLSET_PROMPT}${customSkillsBlock}${compactLongBlock}
 ${temporalStr}${memoryBlock}
 YÊU CẦU:
-- Tận dụng lịch hẹn, thói quen, hồ sơ chủ nhân ở trên để trả lời hữu ích, đúng ngữ cảnh cá nhân (2-4 câu ngắn gọn, trọn vẹn ý, tiếng Việt).
+- Tận dụng lịch hẹn, thói quen, hồ sơ chủ nhân và các CUSTOM SKILLS đã kiểm chứng ở trên để trả lời hữu ích, đúng ngữ cảnh cá nhân (2-4 câu ngắn gọn, trọn vẹn ý, tiếng Việt).
 - TUYỆT ĐỐI KHÔNG dùng emoji.
 - Khi cần thực hiện thao tác máy tính, CHÍNH BẠN gắn thẻ [TOOL:tên_tool:{...}] ở cuối câu.`;
 
   const geminiSystemPrompt = `Bạn là Duck AI Manager - trợ lý 3D đồng hành trên Windows.
-${DESKTOP_TOOLSET_PROMPT}${longMemoryBlock}
+${DESKTOP_TOOLSET_PROMPT}${customSkillsBlock}${longMemoryBlock}
 ${temporalStr}${memoryBlock}
 YÊU CẦU:
-- Chủ động tận dụng lịch hẹn, thói quen, quy tắc và ngữ cảnh đã lưu trong SQLite để hỗ trợ thông minh, ngắn gọn nhưng đầy đủ ý (2-4 câu, kết thúc trọn câu, tiếng Việt).
+- Chủ động tận dụng lịch hẹn, thói quen, quy tắc, CUSTOM SKILLS và ngữ cảnh đã lưu trong SQLite để hỗ trợ thông minh, ngắn gọn nhưng đầy đủ ý (2-4 câu, kết thúc trọn câu, tiếng Việt).
 - TUYỆT ĐỐI KHÔNG dùng emoji.
 - Khi cần thực hiện thao tác máy tính, CHÍNH BẠN gắn thẻ [TOOL:tên_tool:{...}] ở cuối câu.`;
 
@@ -5526,6 +5736,14 @@ export function checkClipboardAndBreakInterval() {
 }
 
 export function initAssistant() {
+  registerToolForgeContext({
+    getGeminiModel: () => geminiModel,
+    getOllamaModel: () => ollamaModel,
+    isOllamaOnline: () => isOllamaOnline,
+    hasGeminiKey: () => Boolean(geminiApiKey.trim()),
+  });
+  void refreshCustomSkills();
+
   setTimeout(() => {
     void refreshLlmStatus();
 
@@ -5586,6 +5804,7 @@ export function initAssistant() {
 
   // Tự động thu thập thói quen sử dụng cửa sổ mỗi 15 giây vào SQLite
   window.setInterval(() => {
+    if (document.hidden) return;
     const activeWin = findTargetWindow();
     if (activeWin) {
       const appName = normalizeAppName(activeWin.title, activeWin.process_name);
@@ -5598,12 +5817,12 @@ export function initAssistant() {
     }
   }, 15_000);
 
-  // Theo dõi ngưỡng cảnh báo CPU/RAM mỗi 15 giây (độc lập với vòng hỏi thăm 4 phút)
+  // Theo dõi ngưỡng cảnh báo CPU/RAM mỗi 90 giây (tránh spawn PowerShell WMI quá dày gây hao CPU nền)
   window.setInterval(() => {
-    if (autoCheckEnabled && !appState.isStudioOpen) {
+    if (!document.hidden && autoCheckEnabled && !appState.isStudioOpen) {
       void checkHardwareAlertNow();
     }
-  }, 15_000);
+  }, 90_000);
 
   window.setInterval(() => {
     void runProactiveCheckIn();

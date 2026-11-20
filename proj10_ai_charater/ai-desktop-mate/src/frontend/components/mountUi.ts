@@ -11,6 +11,9 @@ import { notificationModalHtml } from './notificationModal';
 import { p2pArenaModalHtml } from './p2pArenaModal';
 import { pcControlModalHtml } from './pcControlModal';
 import { ocrTranslateModalHtml } from './ocrTranslateModal';
+import { toolForgeModalHtml } from './toolForgeModal';
+import { tarotModalHtml } from './tarotModal';
+import { miniScreenPanelHtml } from './miniScreenPanel';
 
 let mounted = false;
 
@@ -28,6 +31,9 @@ export function mountUi() {
     p2pArenaModalHtml,
     pcControlModalHtml,
     ocrTranslateModalHtml,
+    toolForgeModalHtml,
+    tarotModalHtml,
+    miniScreenPanelHtml,
   ].join('\n');
   mounted = true;
 }

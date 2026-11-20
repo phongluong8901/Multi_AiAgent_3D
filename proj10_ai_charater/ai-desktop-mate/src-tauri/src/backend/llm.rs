@@ -483,6 +483,7 @@ pub async fn ask_gemini(
     model: String,
     system_prompt: String,
     messages: Vec<OllamaMessage>,
+    json_mode: Option<bool>,
 ) -> Result<String, String> {
     let clean_key = resolve_gemini_api_key(&api_key);
     if clean_key.is_empty() {
@@ -493,6 +494,7 @@ pub async fn ask_gemini(
     } else {
         model.trim().to_string()
     };
+    let use_json_mode = json_mode.unwrap_or(false);
 
     tauri::async_runtime::spawn_blocking(move || {
         let mut contents: Vec<serde_json::Value> = Vec::new();
@@ -513,16 +515,39 @@ pub async fn ask_gemini(
             }));
         }
 
+        let gen_config = if use_json_mode {
+            serde_json::json!({
+                "temperature": 0.2,
+                "maxOutputTokens": 8192,
+                "responseMimeType": "application/json"
+            })
+        } else {
+            serde_json::json!({
+                "temperature": 0.65,
+                "maxOutputTokens": 4096
+            })
+        };
+
         let payload = serde_json::json!({
             "system_instruction": {
                 "parts": [{ "text": system_prompt }]
             },
             "contents": contents,
+            "generationConfig": gen_config
+        });
+
+        let fallback_payload = serde_json::json!({
+            "system_instruction": {
+                "parts": [{ "text": system_prompt }]
+            },
+            "contents": contents,
             "generationConfig": {
-                "temperature": 0.65,
-                "maxOutputTokens": 2048
+                "temperature": 0.2,
+                "maxOutputTokens": 8192
             }
         });
+
+        let timeout_str = if use_json_mode { "55" } else { "35" };
 
         // Danh sách dự phòng: requested_model -> gemini-3.5-flash -> gemini-2.5-flash -> gemini-2.0-flash -> gemini-1.5-flash
         let mut models_to_try = vec![requested_model.clone()];
@@ -532,27 +557,54 @@ pub async fn ask_gemini(
             }
         }
 
+        let extract_candidate_text = |v: &serde_json::Value| -> Option<String> {
+            let parts = v["candidates"][0]["content"]["parts"].as_array()?;
+            let non_thought = parts
+                .iter()
+                .filter(|p| p["thought"].as_bool() != Some(true))
+                .filter_map(|p| p["text"].as_str())
+                .collect::<Vec<_>>()
+                .join("");
+            if !non_thought.trim().is_empty() {
+                return Some(non_thought.trim().to_string());
+            }
+            let all_joined = parts
+                .iter()
+                .filter_map(|p| p["text"].as_str())
+                .collect::<Vec<_>>()
+                .join("");
+            if !all_joined.trim().is_empty() {
+                Some(all_joined.trim().to_string())
+            } else {
+                None
+            }
+        };
+
         let mut last_err = String::new();
         for m in models_to_try {
             let url = format!(
                 "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
                 m, clean_key
             );
-            match post_ollama_json(&url, payload.to_string(), "35") {
+            match post_ollama_json(&url, payload.to_string(), timeout_str) {
                 Ok(v) => {
-                    if let Some(parts) = v["candidates"][0]["content"]["parts"].as_array() {
-                        let joined = parts
-                            .iter()
-                            .filter_map(|p| p["text"].as_str())
-                            .collect::<Vec<_>>()
-                            .join("");
-                        if !joined.trim().is_empty() {
-                            return Ok(joined.trim().to_string());
-                        }
+                    if let Some(text) = extract_candidate_text(&v) {
+                        return Ok(text);
                     }
                     if let Some(err_msg) = v["error"]["message"].as_str() {
                         last_err = format!("Gemini ({m}): {err_msg}");
                         let lower = err_msg.to_lowercase();
+                        if use_json_mode && (lower.contains("responsemimetype") || lower.contains("mime")) {
+                            if let Ok(v2) = post_ollama_json(&url, fallback_payload.to_string(), timeout_str) {
+                                if let Some(text2) = extract_candidate_text(&v2) {
+                                    return Ok(text2);
+                                }
+                                if let Some(err2) = v2["error"]["message"].as_str() {
+                                    last_err = format!("Gemini ({m}): {err2}");
+                                }
+                            }
+                            continue;
+                        }
                         if lower.contains("high demand")
                             || lower.contains("overloaded")
                             || lower.contains("not found")

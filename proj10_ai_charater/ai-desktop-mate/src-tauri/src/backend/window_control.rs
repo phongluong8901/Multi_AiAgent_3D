@@ -1,9 +1,26 @@
 use serde::Serialize;
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use crate::core::hitbox::{HitboxState, UiRect};
 use crate::core::windows::{get_active_external_hwnd, scan_open_windows, WinRect};
+
+fn scan_open_windows_cached(max_age: Duration) -> Vec<WinRect> {
+    static CACHE: OnceLock<Mutex<(Option<Instant>, Vec<WinRect>)>> = OnceLock::new();
+    let mutex = CACHE.get_or_init(|| Mutex::new((None, Vec::new())));
+    let mut guard = mutex.lock().unwrap_or_else(|e| e.into_inner());
+    let now = Instant::now();
+    if let Some(last_at) = guard.0 {
+        if now.duration_since(last_at) < max_age {
+            return guard.1.clone();
+        }
+    }
+    let fresh = scan_open_windows();
+    guard.0 = Some(now);
+    guard.1 = fresh.clone();
+    fresh
+}
 
 #[derive(Serialize, Clone, Debug)]
 pub struct DesktopState {
@@ -50,9 +67,17 @@ pub fn scan_window_frames(hwnd: isize) -> Vec<crate::core::windows::FrameZone> {
 }
 
 #[tauri::command]
-pub fn get_desktop_state(state: tauri::State<'_, Arc<HitboxState>>) -> DesktopState {
+pub fn get_desktop_state(
+    state: tauri::State<'_, Arc<HitboxState>>,
+    fast_window_scan: Option<bool>,
+) -> DesktopState {
+    let ttl = Duration::from_millis(if fast_window_scan.unwrap_or(false) {
+        55
+    } else {
+        200
+    });
     DesktopState {
-        windows: scan_open_windows(),
+        windows: scan_open_windows_cached(ttl),
         active_hwnd: get_active_external_hwnd(),
         cursor_x: state.cursor_x.load(Ordering::Relaxed),
         cursor_y: state.cursor_y.load(Ordering::Relaxed),

@@ -45,6 +45,14 @@ export const studioModalHtml = `
           </select>
         </div>
 
+        <div class="studio-subcard" style="margin-top: 4px; margin-bottom: 6px;">
+          <div class="studio-subcard-title">Hiệu Năng &amp; Tiết Kiệm Tài Nguyên (WebView2)</div>
+          <label class="toggle-row" style="margin-bottom: 0;">
+            <span>Chế độ Tiết Kiệm Pin (Eco — Tắt mặc định để Vịt chạy mượt Native FPS)</span>
+            <input id="chk-cfg-eco-mode" type="checkbox" />
+          </label>
+        </div>
+
         <div class="studio-subcard" style="margin-top: 4px;">
           <div class="studio-subcard-title">Âm Thanh (Sound &amp; Voice TTS)</div>
           <label class="toggle-row">

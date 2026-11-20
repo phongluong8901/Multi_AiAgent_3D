@@ -43,12 +43,19 @@ body {
 
 .glass-panel {
   background: var(--glass-bg);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   border: 1px solid var(--glass-border);
   border-radius: 16px;
   box-shadow: 0 18px 42px rgba(0, 0, 0, 0.58), inset 0 1px 0 var(--glass-highlight);
   pointer-events: auto;
+}
+
+body.eco-mode .glass-panel,
+body.eco-mode #left-telemetry-panel .panel-header {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  background: rgba(10, 15, 30, 0.94);
 }
 
 .panel-header {

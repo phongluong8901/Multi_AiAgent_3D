@@ -57,6 +57,8 @@ pub unsafe fn get_process_name_by_hwnd(hwnd: windows::Win32::Foundation::HWND) -
 fn is_ignored_title(title: &str) -> bool {
     title.is_empty()
         || title == "AI Desktop Mate"
+        || title == "Duck ai Manager"
+        || title.starts_with("Duck Mini Screen")
         || title == "Program Manager"
         || title == "Settings"
         || title == "Windows Input Experience"

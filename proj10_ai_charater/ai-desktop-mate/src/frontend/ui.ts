@@ -1,18 +1,30 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { appState, PRESET_ALICIA_URL, PRESET_VRM1_URL } from '../core/state';
+import { applyRendererEcoQuality } from '../core/scene';
 import {
   AUTO_BEHAVIOR_CATALOG,
   AutoBehaviorKey,
+  CapturedWindowFrame,
   ChatEntry,
   createDefaultAutoBehaviors,
+  CustomSkillRecord,
   IngestedFileAnalysis,
+  MiniWebStatus,
+  MiniWindowEntry,
   OcrRegionResult,
   ScheduledNoteEntry,
+  TarotReadingRecord,
+  TarotStatusResponse,
+  ToolForgeDraft,
   TranslateResult,
   WeatherEffectMode,
 } from '../core/types';
-import { spawnParticles, spawnScanEffect } from '../core/particles';
+import {
+  spawnParticles,
+  spawnScanEffect,
+  triggerDuckTarot3DFlipEffect,
+} from '../core/particles';
 import {
   isSoundEnabled,
   setSoundEnabled,
@@ -20,6 +32,7 @@ import {
   setSoundVolume,
   playAlertBeep,
   playSuccessChimeSound,
+  playTarotFlipSound,
 } from '../core/soundFx';
 import {
   triggerBackflip,
@@ -162,6 +175,19 @@ import {
 } from '../physics/desktopIconInteract';
 import { mountUi } from './components/mountUi';
 import { renderDataExpertDashboardCharts } from './components/dataChartEngine';
+import {
+  confirmAndSaveToolDraft,
+  executeSavedSkillWithSelfHeal,
+  forgeNewToolFromRequest,
+  getCachedCustomSkills,
+  getLatestToolForgeDraft,
+  parseExpectedKeywords,
+  parseTriggers,
+  refreshCustomSkills,
+  runDraftInSandbox,
+  selfHealDraftWithGemini,
+  setLatestToolForgeDraft,
+} from '../backend/toolForge';
 
 export let leftTelemetryPanel!: HTMLElement;
 export let rightActionPanel!: HTMLElement;
@@ -174,6 +200,9 @@ export let notificationPanel!: HTMLDivElement;
 export let p2pArenaPanel!: HTMLDivElement;
 export let pcControlModal!: HTMLDivElement;
 export let ocrTranslateModal!: HTMLDivElement;
+export let toolForgeModal!: HTMLDivElement;
+export let tarotModal!: HTMLDivElement;
+export let miniScreenPanel!: HTMLDivElement;
 export let fileInput!: HTMLInputElement;
 
 let btnCloseLeft!: HTMLButtonElement;
@@ -234,6 +263,8 @@ let btnPcGoogle!: HTMLButtonElement;
 let btnPcGoogleSearch!: HTMLButtonElement;
 let inputPcGoogleQuery!: HTMLInputElement;
 let btnPcOcrRegion!: HTMLButtonElement;
+let btnPcToolForge!: HTMLButtonElement;
+let btnPcMiniScreen!: HTMLButtonElement;
 let btnClosePcControl!: HTMLButtonElement;
 let btnActEdgePeek!: HTMLButtonElement;
 let btnActSwing!: HTMLButtonElement;
@@ -269,6 +300,7 @@ let dockBtnLeft!: HTMLButtonElement;
 let dockBtnChat!: HTMLButtonElement;
 let dockBtnRight!: HTMLButtonElement;
 let dockBtnPcControl!: HTMLButtonElement;
+let dockBtnMiniScreen!: HTMLButtonElement;
 let dockBtnStudio!: HTMLButtonElement;
 let dockBtnEdgePeek!: HTMLButtonElement;
 let btnCloseStudio!: HTMLButtonElement;
@@ -325,6 +357,8 @@ let btnActGoose!: HTMLButtonElement;
 let btnActSwim!: HTMLButtonElement;
 let btnOpenNotif!: HTMLButtonElement;
 let dockBtnP2p!: HTMLButtonElement;
+let dockBtnTarot!: HTMLButtonElement;
+let dockTarotReadyDot!: HTMLSpanElement;
 let btnCloseNotif!: HTMLButtonElement;
 let btnCloseP2p!: HTMLButtonElement;
 let notifMasterToggle!: HTMLInputElement;
@@ -445,6 +479,8 @@ function bindDomRefs() {
   btnPcGoogleSearch = document.getElementById('btn-pc-google-search') as HTMLButtonElement;
   inputPcGoogleQuery = document.getElementById('input-pc-google-query') as HTMLInputElement;
   btnPcOcrRegion = document.getElementById('btn-pc-ocr-region') as HTMLButtonElement;
+  btnPcToolForge = document.getElementById('btn-pc-tool-forge') as HTMLButtonElement;
+  btnPcMiniScreen = document.getElementById('btn-pc-mini-screen') as HTMLButtonElement;
   btnClosePcControl = document.getElementById('btn-close-pc-control') as HTMLButtonElement;
   btnActEdgePeek = document.getElementById('btn-act-edge-peek') as HTMLButtonElement;
   btnActSwing = document.getElementById('btn-act-swing') as HTMLButtonElement;
@@ -480,6 +516,7 @@ function bindDomRefs() {
   dockBtnChat = document.getElementById('dock-btn-chat') as HTMLButtonElement;
   dockBtnRight = document.getElementById('dock-btn-right') as HTMLButtonElement;
   dockBtnPcControl = document.getElementById('dock-btn-pc-control') as HTMLButtonElement;
+  dockBtnMiniScreen = document.getElementById('dock-btn-mini-screen') as HTMLButtonElement;
   dockBtnStudio = document.getElementById('dock-btn-studio') as HTMLButtonElement;
   dockBtnEdgePeek = document.getElementById('dock-btn-edge-peek') as HTMLButtonElement;
 
@@ -543,11 +580,16 @@ function bindDomRefs() {
   btnActSwim = document.getElementById('btn-act-swim') as HTMLButtonElement;
   btnOpenNotif = document.getElementById('btn-open-notif') as HTMLButtonElement;
   dockBtnP2p = document.getElementById('dock-btn-p2p') as HTMLButtonElement;
+  dockBtnTarot = document.getElementById('dock-btn-tarot') as HTMLButtonElement;
+  dockTarotReadyDot = document.getElementById('dock-tarot-ready-dot') as HTMLSpanElement;
 
   notificationPanel = document.getElementById('notification-panel') as HTMLDivElement;
   p2pArenaPanel = document.getElementById('p2p-arena-panel') as HTMLDivElement;
   pcControlModal = document.getElementById('pc-control-modal') as HTMLDivElement;
   ocrTranslateModal = document.getElementById('ocr-translate-modal') as HTMLDivElement;
+  toolForgeModal = document.getElementById('tool-forge-modal') as HTMLDivElement;
+  tarotModal = document.getElementById('tarot-modal') as HTMLDivElement;
+  miniScreenPanel = document.getElementById('mini-screen-panel') as HTMLDivElement;
   btnCloseNotif = document.getElementById('btn-close-notif') as HTMLButtonElement;
   btnCloseP2p = document.getElementById('btn-close-p2p') as HTMLButtonElement;
   notifMasterToggle = document.getElementById('notif-master-toggle') as HTMLInputElement;
@@ -623,13 +665,13 @@ export function stopDuckVoiceTts() {
     try {
       activeDuckTtsAudio.pause();
       activeDuckTtsAudio.src = '';
-    } catch {}
+    } catch { }
     activeDuckTtsAudio = null;
   }
   if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
     try {
       window.speechSynthesis.cancel();
-    } catch {}
+    } catch { }
   }
 }
 
@@ -909,12 +951,12 @@ async function migrateLegacyStickyNotes() {
             content: item.text.trim(),
             scheduleTime: '',
             repeatDaily: false,
-          }).catch(() => {});
+          }).catch(() => { });
         }
       }
     }
     localStorage.removeItem('mate_sticky_notes');
-  } catch {}
+  } catch { }
 }
 
 export async function loadScheduledNotesFromSqlite(autoOpenIfPending = false): Promise<ScheduledNoteEntry[]> {
@@ -1102,7 +1144,7 @@ function renderStickyNotes() {
         isDone: doneChk.checked,
       })
         .then(() => void loadScheduledNotesFromSqlite(false))
-        .catch(() => {});
+        .catch(() => { });
     });
 
     const badgeSpan = document.createElement('span');
@@ -1150,7 +1192,7 @@ function renderStickyNotes() {
     delBtn.addEventListener('click', () => {
       void invoke('schedule_note_delete', { id: note.id })
         .then(() => void loadScheduledNotesFromSqlite(false))
-        .catch(() => {});
+        .catch(() => { });
     });
 
     acts.appendChild(saveBtn);
@@ -1217,7 +1259,7 @@ export async function pinStickyNote(
 }
 
 export async function clearStickyNotes(): Promise<string> {
-  await invoke('schedule_note_clear_all').catch(() => {});
+  await invoke('schedule_note_clear_all').catch(() => { });
   scheduledNotesList = [];
   renderStickyNotes();
   return '[GHI CHÚ & LỊCH HẸN] Đã xóa sạch toàn bộ ghi chú và lịch hẹn trong SQLite!';
@@ -1240,7 +1282,7 @@ function checkScheduledNotesTick() {
         id: note.id,
         dateKey: todayKey,
         newScheduleTime: null,
-      }).catch(() => {});
+      }).catch(() => { });
 
       isStickyWidgetOpen = true;
       renderStickyNotes();
@@ -1259,7 +1301,7 @@ function checkScheduledNotesTick() {
         appOrOrigin: 'Lịch hẹn Duck AI',
         title: `Nhắc việc ${note.schedule_time}`,
         body: note.content,
-      }).catch(() => {});
+      }).catch(() => { });
 
       speakMessage(
         `[LỊCH HẸN ${note.schedule_time}] ${note.content} — Bấm "Đồng ý" để đánh dấu Xong, hoặc "Để sau" để báo lại sau 5 phút!`
@@ -1269,7 +1311,7 @@ function checkScheduledNotesTick() {
           if (!note.repeat_daily) {
             void invoke('schedule_note_toggle_done', { id: note.id, isDone: true })
               .then(() => void loadScheduledNotesFromSqlite(false))
-              .catch(() => {});
+              .catch(() => { });
           }
           appState.setExpression('happy', 3.0);
           speakMessage(`[HOÀN TẤT LỊCH HẸN] Đã xác nhận xong: "${note.content}"!`);
@@ -1284,7 +1326,7 @@ function checkScheduledNotesTick() {
             newScheduleTime: snoozeTime,
           })
             .then(() => void loadScheduledNotesFromSqlite(false))
-            .catch(() => {});
+            .catch(() => { });
           speakMessage(`[BÁO LẠI] Sẽ nhắc lại việc "${note.content}" vào lúc ${snoozeTime}!`);
         }
       );
@@ -1517,11 +1559,11 @@ export function setFileDragHoverMode(active: boolean, fileNameHint = '') {
       sub.textContent = fileNameHint || 'PDF / CSV / EXCEL / IMG';
     }
     if (hud) hud.style.display = 'flex';
-    void invoke('set_manual_interactive', { interactive: true }).catch(() => {});
+    void invoke('set_manual_interactive', { interactive: true }).catch(() => { });
   } else {
     if (hud) hud.style.display = 'none';
     if (!appState.blackHoleWarpMode) {
-      void invoke('set_manual_interactive', { interactive: false }).catch(() => {});
+      void invoke('set_manual_interactive', { interactive: false }).catch(() => { });
     }
   }
   updateUiPosition();
@@ -2125,7 +2167,7 @@ export function toggleChatVisibility(forceState?: boolean) {
             });
           }
         })
-        .catch(() => {});
+        .catch(() => { });
     }
     if (bubbleInput) {
       setTimeout(() => bubbleInput.focus(), 60);
@@ -2202,7 +2244,9 @@ export async function refreshDesktopIconsSelect() {
   }
 }
 
-function closeOtherPopupModals(except?: 'studio' | 'memory' | 'notif' | 'p2p' | 'pc' | 'ocr') {
+function closeOtherPopupModals(
+  except?: 'studio' | 'memory' | 'notif' | 'p2p' | 'pc' | 'ocr' | 'toolforge' | 'tarot'
+) {
   if (except !== 'studio') {
     appState.isStudioOpen = false;
     if (studioPanel) studioPanel.style.display = 'none';
@@ -2229,6 +2273,15 @@ function closeOtherPopupModals(except?: 'studio' | 'memory' | 'notif' | 'p2p' | 
   if (except !== 'ocr') {
     appState.isOcrModalOpen = false;
     if (ocrTranslateModal) ocrTranslateModal.style.display = 'none';
+  }
+  if (except !== 'toolforge') {
+    appState.isToolForgeOpen = false;
+    if (toolForgeModal) toolForgeModal.style.display = 'none';
+  }
+  if (except !== 'tarot') {
+    appState.isTarotModalOpen = false;
+    if (tarotModal) tarotModal.style.display = 'none';
+    if (dockBtnTarot) dockBtnTarot.classList.remove('active');
   }
 }
 
@@ -2310,6 +2363,914 @@ export function toggleOcrTranslateModal(forceState?: boolean) {
   syncHitboxToRust(true);
 }
 
+function setToolForgeTab(tab: 'forge' | 'skills') {
+  const btnForge = document.getElementById('tab-btn-tf-forge');
+  const btnSkills = document.getElementById('tab-btn-tf-skills');
+  const paneForge = document.getElementById('tf-pane-forge');
+  const paneSkills = document.getElementById('tf-pane-skills');
+  if (btnForge) btnForge.classList.toggle('active', tab === 'forge');
+  if (btnSkills) btnSkills.classList.toggle('active', tab === 'skills');
+  if (paneForge) paneForge.style.display = tab === 'forge' ? 'block' : 'none';
+  if (paneSkills) paneSkills.style.display = tab === 'skills' ? 'block' : 'none';
+}
+
+function setToolForgePipelineLog(text: string) {
+  const el = document.getElementById('tf-pipeline-log');
+  if (el) {
+    el.textContent = text;
+    el.scrollTop = el.scrollHeight;
+  }
+}
+
+function appendToolForgePipelineLog(line: string) {
+  const el = document.getElementById('tf-pipeline-log');
+  if (el) {
+    el.textContent = el.textContent ? `${el.textContent}\n${line}` : line;
+    el.scrollTop = el.scrollHeight;
+  }
+}
+
+function renderToolForgeDraft(draft: ToolForgeDraft | null) {
+  const sec = document.getElementById('tf-draft-section');
+  const nameInp = document.getElementById('tf-draft-name') as HTMLInputElement | null;
+  const idInp = document.getElementById('tf-draft-id') as HTMLInputElement | null;
+  const trigInp = document.getElementById('tf-draft-triggers') as HTMLInputElement | null;
+  const kwInp = document.getElementById('tf-draft-keywords') as HTMLInputElement | null;
+  const argsInp = document.getElementById('tf-draft-test-args') as HTMLInputElement | null;
+  const langTag = document.getElementById('tf-draft-lang-tag');
+  const codeEd = document.getElementById('tf-code-editor') as HTMLTextAreaElement | null;
+  const badge = document.getElementById('tf-verify-badge');
+  const reportBox = document.getElementById('tf-sandbox-report');
+  const saveBtn = document.getElementById('btn-tf-confirm-save') as HTMLButtonElement | null;
+
+  if (!draft) {
+    if (sec) sec.style.display = 'none';
+    if (saveBtn) {
+      saveBtn.disabled = true;
+      saveBtn.style.opacity = '0.45';
+    }
+    return;
+  }
+
+  if (sec) sec.style.display = 'block';
+  if (nameInp) nameInp.value = draft.name;
+  if (idInp) idInp.value = draft.id;
+  if (trigInp) trigInp.value = draft.triggers.join(', ');
+  if (kwInp) kwInp.value = draft.expectedKeywords.join(', ');
+  if (argsInp) argsInp.value = draft.testArgsJson || '{}';
+  if (langTag) langTag.textContent = `[${draft.language.toUpperCase()}]`;
+  if (codeEd && codeEd.value !== draft.code) codeEd.value = draft.code;
+
+  const sb = draft.sandbox;
+  const verified = Boolean(sb?.verified);
+  if (badge) {
+    badge.className = `badge ${verified ? 'tf-badge-pass' : 'tf-badge-fail'}`;
+    if (verified) {
+      badge.textContent = `[VERIFIED PASS - ${sb?.duration_ms || 0}ms]`;
+    } else if (sb && !sb.static_safe) {
+      badge.textContent = '[SAFETY BLOCKED]';
+    } else if (sb) {
+      badge.textContent = '[SANDBOX FAILED]';
+    } else {
+      badge.textContent = '[CHƯA KIỂM CHỨNG]';
+    }
+  }
+
+  if (saveBtn) {
+    saveBtn.disabled = !verified;
+    saveBtn.style.opacity = verified ? '1' : '0.45';
+  }
+
+  if (reportBox) {
+    if (!sb) {
+      reportBox.textContent =
+        '[SANDBOX] Mã nguồn chưa kiểm chứng hoặc vừa chỉnh sửa. Bấm "Chạy Sandbox" trước khi đóng gói.';
+    } else {
+      const parts: string[] = [
+        `Trạng thái: ${sb.verified ? 'PASS (Được phép đóng gói)' : 'FAIL (Bị chặn đóng gói)'} | Exit=${sb.exit_code} | ${sb.duration_ms}ms | Hash=${sb.code_hash}`,
+      ];
+      if (!sb.static_safe && sb.safety_issues.length > 0) {
+        parts.push(`Cảnh báo an toàn: ${sb.safety_issues.join('; ')}`);
+      }
+      if (sb.failure_reason) {
+        parts.push(`Lý do chưa đạt: ${sb.failure_reason}`);
+      }
+      if (sb.stdout) {
+        parts.push(`--- STDOUT ---\n${sb.stdout}`);
+      }
+      if (sb.stderr) {
+        parts.push(`--- STDERR ---\n${sb.stderr}`);
+      }
+      reportBox.textContent = parts.join('\n');
+    }
+  }
+
+  if (draft.healLogs.length > 0) {
+    setToolForgePipelineLog(draft.healLogs.join('\n'));
+  }
+}
+
+function renderToolForgeSkillsList() {
+  const skills = getCachedCustomSkills();
+  const countBadge = document.getElementById('tf-skills-count');
+  const container = document.getElementById('tf-skills-list');
+  if (countBadge) {
+    countBadge.textContent = String(skills.length);
+  }
+  if (!container) return;
+
+  if (skills.length === 0) {
+    container.innerHTML =
+      '<div class="dash-sub">Chưa có Skill tùy chỉnh nào được kiểm chứng &amp; lưu. Hãy tạo thử ở tab bên trái!</div>';
+    return;
+  }
+
+  container.innerHTML = '';
+  skills.forEach((sk: CustomSkillRecord) => {
+    const card = document.createElement('div');
+    card.className = 'tf-skill-card';
+
+    const head = document.createElement('div');
+    head.className = 'tf-skill-card-head';
+
+    const titleWrap = document.createElement('div');
+    titleWrap.style.cssText = 'display:flex;align-items:center;gap:6px;flex-wrap:wrap;';
+
+    const nameEl = document.createElement('span');
+    nameEl.style.cssText = 'font-size:12px;font-weight:700;color:#f8fafc;';
+    nameEl.textContent = sk.name;
+
+    const verBadge = document.createElement('span');
+    verBadge.className = `badge ${sk.verified ? 'tf-badge-pass' : 'tf-badge-fail'}`;
+    verBadge.style.fontSize = '9px';
+    verBadge.textContent = `[v${sk.version} | ${sk.language.toUpperCase()} | ${sk.verified ? 'VERIFIED' : 'UNVERIFIED'
+      }]`;
+
+    const statsBadge = document.createElement('span');
+    statsBadge.className = 'badge';
+    statsBadge.style.cssText = 'font-size:9px;text-transform:none;';
+    statsBadge.textContent = `Dùng: ${sk.usage_count} | Tự vá: ${sk.heal_count}`;
+
+    titleWrap.append(nameEl, verBadge, statsBadge);
+
+    const toggleLbl = document.createElement('label');
+    toggleLbl.style.cssText = 'display:flex;align-items:center;gap:4px;font-size:10.5px;color:#cbd5e1;cursor:pointer;';
+    const toggleChk = document.createElement('input');
+    toggleChk.type = 'checkbox';
+    toggleChk.checked = sk.enabled;
+    toggleChk.addEventListener('change', () => {
+      void invoke('tool_forge_toggle_skill', {
+        id: sk.id,
+        enabled: toggleChk.checked,
+      })
+        .then(() => void refreshCustomSkills())
+        .catch(() => { });
+    });
+    const toggleTxt = document.createElement('span');
+    toggleTxt.textContent = 'Bật';
+    toggleLbl.append(toggleChk, toggleTxt);
+
+    head.append(titleWrap, toggleLbl);
+
+    const descEl = document.createElement('div');
+    descEl.style.cssText = 'font-size:10.5px;color:#94a3b8;line-height:1.35;';
+    const trigList = parseTriggers(sk.triggers_json).slice(0, 6).join(', ');
+    descEl.textContent = `${sk.description} | Triggers: ${trigList || sk.id}${sk.last_heal_note ? ` | Ghi chú vá: ${sk.last_heal_note}` : ''
+      }`;
+
+    const runRow = document.createElement('div');
+    runRow.style.cssText = 'display:flex;gap:5px;align-items:center;flex-wrap:wrap;';
+
+    const argsInput = document.createElement('input');
+    argsInput.type = 'text';
+    argsInput.className = 'studio-input';
+    argsInput.style.cssText = 'flex:1;min-width:140px;font-size:10.5px;';
+    argsInput.value = sk.test_args_json || '{}';
+    argsInput.title = 'Tham số JSON khi chạy thử Skill này';
+
+    const btnRun = document.createElement('button');
+    btnRun.type = 'button';
+    btnRun.className = 'action-btn';
+    btnRun.style.cssText = 'padding:4px 8px;font-size:10.5px;border-color:rgba(52,211,153,0.5);color:#6ee7b7;';
+    btnRun.textContent = 'Chạy Ngay';
+
+    const btnLoadDraft = document.createElement('button');
+    btnLoadDraft.type = 'button';
+    btnLoadDraft.className = 'action-btn';
+    btnLoadDraft.style.cssText = 'padding:4px 8px;font-size:10.5px;';
+    btnLoadDraft.textContent = 'Mở Sandbox';
+
+    const btnDel = document.createElement('button');
+    btnDel.type = 'button';
+    btnDel.className = 'action-btn';
+    btnDel.style.cssText = 'padding:4px 8px;font-size:10.5px;border-color:rgba(248,113,113,0.45);color:#fca5a5;';
+    btnDel.textContent = 'Xóa';
+
+    const outPre = document.createElement('div');
+    outPre.className = 'tf-report-box';
+    outPre.style.display = 'none';
+
+    btnRun.addEventListener('click', async () => {
+      let parsedArgs: Record<string, unknown> = {};
+      try {
+        parsedArgs = JSON.parse(argsInput.value.trim() || '{}') as Record<string, unknown>;
+      } catch {
+        outPre.style.display = 'block';
+        outPre.textContent = '[ERR] Tham số JSON không hợp lệ.';
+        return;
+      }
+      btnRun.disabled = true;
+      btnRun.textContent = 'Đang chạy...';
+      outPre.style.display = 'block';
+      outPre.textContent = '[RUN] Đang thực thi skill (hỗ trợ tự vá Self-Healing nếu lỗi)...';
+      try {
+        const resText = await executeSavedSkillWithSelfHeal(sk.id, parsedArgs, (msg) => {
+          outPre.textContent = msg;
+        });
+        outPre.textContent = resText;
+        speakMessage(resText);
+      } catch (err) {
+        outPre.textContent = `[ERR] ${String(err)}`;
+      } finally {
+        btnRun.disabled = false;
+        btnRun.textContent = 'Chạy Ngay';
+        renderToolForgeSkillsList();
+      }
+    });
+
+    btnLoadDraft.addEventListener('click', () => {
+      const kws = parseExpectedKeywords(sk.expected_keywords_json);
+      const trigs = parseTriggers(sk.triggers_json);
+      let schema = [];
+      try {
+        schema = JSON.parse(sk.params_schema_json || '[]');
+      } catch {
+        schema = [];
+      }
+      const loadedDraft: ToolForgeDraft = {
+        id: sk.id,
+        name: sk.name,
+        description: sk.description,
+        language: sk.language === 'python' ? 'python' : 'powershell',
+        triggers: trigs,
+        paramsSchema: schema,
+        code: sk.code,
+        testArgsJson: sk.test_args_json || '{}',
+        expectedKeywords: kws,
+        sandbox: null,
+        healLogs: [`[EDIT] Nạp lại "${sk.name}" v${sk.version} vào Sandbox để kiểm tra/cải tiến.`],
+        originalRequest: sk.description,
+      };
+      setLatestToolForgeDraft(loadedDraft);
+      setToolForgeTab('forge');
+      renderToolForgeDraft(loadedDraft);
+    });
+
+    btnDel.addEventListener('click', () => {
+      void invoke('tool_forge_delete_skill', { id: sk.id })
+        .then(() => void refreshCustomSkills())
+        .catch(() => { });
+    });
+
+    runRow.append(argsInput, btnRun, btnLoadDraft, btnDel);
+    card.append(head, descEl, runRow, outPre);
+    container.appendChild(card);
+  });
+}
+
+export function toggleToolForgeModal(forceState?: boolean) {
+  appState.isToolForgeOpen =
+    forceState !== undefined ? forceState : !appState.isToolForgeOpen;
+  if (appState.isToolForgeOpen) {
+    closeOtherPopupModals('toolforge');
+    void refreshCustomSkills().then(() => renderToolForgeSkillsList());
+    renderToolForgeDraft(getLatestToolForgeDraft());
+  }
+  if (toolForgeModal) {
+    toolForgeModal.style.display = appState.isToolForgeOpen ? 'block' : 'none';
+  }
+  syncHitboxToRust(true);
+}
+
+let cachedTarotStatus: TarotStatusResponse | null = null;
+let tarotDrawingInFlight = false;
+
+function formatTarotCountdown(ms: number): string {
+  const totalSec = Math.max(0, Math.ceil(ms / 1000));
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+function setTarotTab(tab: 'today' | 'history') {
+  const btnToday = document.getElementById('tab-btn-tarot-today');
+  const btnHist = document.getElementById('tab-btn-tarot-history');
+  const paneToday = document.getElementById('tarot-pane-today');
+  const paneHist = document.getElementById('tarot-pane-history');
+  if (btnToday) btnToday.classList.toggle('active', tab === 'today');
+  if (btnHist) btnHist.classList.toggle('active', tab === 'history');
+  if (paneToday) paneToday.style.display = tab === 'today' ? 'block' : 'none';
+  if (paneHist) paneHist.style.display = tab === 'history' ? 'block' : 'none';
+}
+
+function renderTarotHistoryList(history: TarotReadingRecord[]) {
+  const countEl = document.getElementById('tarot-history-count');
+  if (countEl) countEl.textContent = String(history.length);
+  const listEl = document.getElementById('tarot-history-list');
+  if (!listEl) return;
+
+  if (!history.length) {
+    listEl.innerHTML = '<div class="dash-sub">Chưa có quẻ Tarot nào được lưu.</div>';
+    return;
+  }
+
+  listEl.innerHTML = '';
+  for (const rec of history) {
+    const card = document.createElement('div');
+    card.className = 'tarot-hist-card';
+    const dt = new Date(rec.drawn_at_ms);
+    const timeStr = `${dt.toLocaleDateString('vi-VN')} ${dt.toLocaleTimeString('vi-VN', {
+      hour: '2-digit',
+      minute: '2-digit',
+    })}`;
+    card.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap;">
+        <strong style="font-size:12px;color:#f8fafc;">${rec.card_name_vi} (${rec.card_name})</strong>
+        <span class="badge tarot-tier-${rec.fortune_code}" style="font-size:10px;">${rec.fortune_label} (${rec.luck_score}/100)</span>
+      </div>
+      <div style="font-size:10.5px;color:#94a3b8;">${timeStr} | ${rec.is_reversed ? 'Ngược Chiều' : 'Thuận Chiều'} | ${rec.can_chi_day}</div>
+      <div style="font-size:11px;color:#cbd5e1;line-height:1.4;">${rec.summary_vi}</div>
+    `;
+    listEl.appendChild(card);
+  }
+}
+
+function applyTarotReadingToModal(rec: TarotReadingRecord | null, animateFlip: boolean) {
+  const revealStage = document.getElementById('tarot-reveal-stage');
+  const cardInner = document.getElementById('tarot-card-inner');
+  const cardFront = document.getElementById('tarot-card-front');
+  const verdictPill = document.getElementById('tarot-card-verdict-pill');
+  const nameViEl = document.getElementById('tarot-card-name-vi');
+  const nameEnEl = document.getElementById('tarot-card-name-en');
+  const orientEl = document.getElementById('tarot-card-orient-tag');
+  const fortuneBadge = document.getElementById('tarot-fortune-badge');
+  const luckScoreEl = document.getElementById('tarot-luck-score');
+  const luckFillEl = document.getElementById('tarot-luck-fill') as HTMLElement | null;
+  const luckyStripEl = document.getElementById('tarot-lucky-strip');
+  const summaryEl = document.getElementById('tarot-summary-vi');
+  const advWorkEl = document.getElementById('tarot-adv-work');
+  const advWealthEl = document.getElementById('tarot-adv-wealth');
+  const advLoveEl = document.getElementById('tarot-adv-love');
+  const advRemedyEl = document.getElementById('tarot-adv-remedy');
+  const aiBoxEl = document.getElementById('tarot-ai-box');
+  const canChiBadge = document.getElementById('tarot-canchi-badge');
+  const sourceBadge = document.getElementById('tarot-source-badge');
+
+  if (!revealStage) return;
+  if (!rec) {
+    revealStage.style.display = 'none';
+    if (canChiBadge) canChiBadge.textContent = 'Can Chi: Sẵn sàng luận quẻ';
+    return;
+  }
+
+  revealStage.style.display = 'grid';
+  if (canChiBadge) canChiBadge.textContent = `${rec.can_chi_day} | ${rec.ngu_hanh}`;
+  if (sourceBadge) sourceBadge.textContent = `Nguồn: ${rec.api_source}`;
+
+  const tierClass = `tarot-tier-${rec.fortune_code}`;
+  if (cardFront) {
+    cardFront.className = `tarot-card-face tarot-card-front ${tierClass}${rec.is_reversed ? ' is-reversed' : ''
+      }`;
+  }
+  if (verdictPill) verdictPill.textContent = rec.fortune_label;
+  if (nameViEl) nameViEl.textContent = rec.card_name_vi;
+  if (nameEnEl) nameEnEl.textContent = rec.card_name;
+  if (orientEl) orientEl.textContent = rec.is_reversed ? 'NGƯỢC CHIỀU' : 'THUẬN CHIỀU';
+
+  if (fortuneBadge) {
+    fortuneBadge.className = `badge tarot-tier-badge ${tierClass}`;
+    fortuneBadge.textContent = `${rec.fortune_label} (${rec.is_reversed ? 'Ngược' : 'Thuận'})`;
+  }
+  if (luckScoreEl) luckScoreEl.textContent = `${rec.luck_score}/100`;
+  if (luckFillEl) luckFillEl.style.width = `${Math.max(5, Math.min(100, rec.luck_score))}%`;
+  if (luckyStripEl) {
+    luckyStripEl.textContent = `Màu hợp mệnh: ${rec.lucky_color} | Số may: ${rec.lucky_numbers} | ${rec.arcana_type}`;
+  }
+  if (summaryEl) summaryEl.textContent = rec.summary_vi;
+  if (advWorkEl) advWorkEl.textContent = rec.work_advice;
+  if (advWealthEl) advWealthEl.textContent = rec.wealth_advice;
+  if (advLoveEl) advLoveEl.textContent = rec.love_advice;
+  if (advRemedyEl) advRemedyEl.textContent = rec.remedy_advice;
+
+  if (aiBoxEl) {
+    if (rec.ai_deep_reading && rec.ai_deep_reading.trim()) {
+      aiBoxEl.style.display = 'block';
+      aiBoxEl.textContent = `[LUẬN GIẢI SÂU AI]\n${rec.ai_deep_reading}`;
+    } else {
+      aiBoxEl.style.display = 'none';
+      aiBoxEl.textContent = '';
+    }
+  }
+
+  if (cardInner) {
+    if (animateFlip) {
+      cardInner.classList.remove('is-flipped');
+      window.setTimeout(() => {
+        cardInner.classList.add('is-flipped');
+      }, 220);
+    } else {
+      cardInner.classList.add('is-flipped');
+    }
+  }
+}
+
+function updateTarotCooldownCountdown() {
+  const cdBadge = document.getElementById('tarot-cooldown-badge');
+  const spreadPicker = document.getElementById('tarot-spread-picker');
+  const cur = cachedTarotStatus?.current_reading || null;
+  const now = Date.now();
+  const remMs = cur && cur.next_draw_at_ms > now ? cur.next_draw_at_ms - now : 0;
+  const ready = remMs <= 0;
+
+  if (cachedTarotStatus) {
+    cachedTarotStatus.can_draw = ready;
+    cachedTarotStatus.remaining_ms = remMs;
+  }
+
+  if (dockTarotReadyDot) {
+    dockTarotReadyDot.style.display = ready ? 'block' : 'none';
+  }
+  if (dockBtnTarot) {
+    dockBtnTarot.title = ready
+      ? 'Bốc Thẻ Tarot & Tử Vi Vận Mệnh (Sẵn sàng quẻ mới!)'
+      : `Tarot & Tử Vi (Quẻ tiếp theo sau ${formatTarotCountdown(remMs)})`;
+  }
+
+  if (cdBadge) {
+    if (ready) {
+      cdBadge.className = 'badge tarot-cd-ready';
+      cdBadge.textContent = 'Sẵn sàng bốc quẻ mới (Chu kỳ 6h)';
+    } else {
+      cdBadge.className = 'badge tarot-cd-wait';
+      cdBadge.textContent = `Quẻ tiếp theo sau ${formatTarotCountdown(remMs)}`;
+    }
+  }
+
+  if (spreadPicker) {
+    spreadPicker.style.display = ready ? 'block' : 'none';
+  }
+}
+
+export async function refreshTarotStatusUi(): Promise<TarotStatusResponse | null> {
+  try {
+    const res = await invoke<TarotStatusResponse>('tarot_get_status');
+    cachedTarotStatus = res;
+    renderTarotHistoryList(res.history || []);
+    applyTarotReadingToModal(res.current_reading, false);
+    updateTarotCooldownCountdown();
+    if (appState.isTarotModalOpen) syncHitboxToRust(true);
+    return res;
+  } catch {
+    return null;
+  }
+}
+
+function triggerDuckReactionForTarot(rec: TarotReadingRecord) {
+  playTarotFlipSound(appState.posX, rec.fortune_code);
+  triggerDuckTarot3DFlipEffect(
+    rec.card_name_vi,
+    rec.card_name,
+    rec.fortune_code,
+    rec.fortune_label,
+    rec.is_reversed
+  );
+
+  if (rec.fortune_code === 'dai_cat') {
+    appState.setExpression('happy', 5.0);
+    triggerBackflip();
+    spawnParticles(appState.posX, appState.posY - 120, 22, 0xfacc15);
+  } else if (rec.fortune_code === 'tieu_cat') {
+    appState.setExpression('happy', 4.5);
+    triggerDance();
+    spawnParticles(appState.posX, appState.posY - 120, 16, 0x34d399);
+  } else if (rec.fortune_code === 'binh_hoa') {
+    appState.setState('WAVING');
+    appState.setExpression('happy', 3.8);
+    spawnParticles(appState.posX, appState.posY - 110, 12, 0x38bdf8);
+  } else if (rec.fortune_code === 'tieu_hung') {
+    appState.setState('ALERT');
+    appState.setExpression('surprised', 4.2);
+    spawnParticles(appState.posX, appState.posY - 110, 14, 0xfb923c);
+  } else {
+    appState.setState('ALERT');
+    appState.setExpression('surprised', 4.8);
+    spawnParticles(appState.posX, appState.posY - 110, 18, 0xf87171);
+  }
+}
+
+async function performTarotDrawAndFlip() {
+  if (tarotDrawingInFlight) return;
+  tarotDrawingInFlight = true;
+  const drawBtn = document.getElementById('btn-tarot-draw-now') as HTMLButtonElement | null;
+  if (drawBtn) {
+    drawBtn.disabled = true;
+    drawBtn.textContent = 'Đang kết nối Tarot API & Lật Thẻ 3D...';
+  }
+  try {
+    const res = await invoke<TarotStatusResponse>('tarot_draw_card');
+    cachedTarotStatus = res;
+    renderTarotHistoryList(res.history || []);
+    const rec = res.current_reading;
+    if (rec) {
+      applyTarotReadingToModal(rec, true);
+      updateTarotCooldownCountdown();
+      triggerDuckReactionForTarot(rec);
+      const orientText = rec.is_reversed ? 'Ngược Chiều' : 'Thuận Chiều';
+      if (res.already_drawn_in_window) {
+        speakMessage(
+          `[TAROT 6H - ${rec.fortune_label}] Bạn vừa xem quẻ "${rec.card_name_vi}" (${orientText}, ${rec.luck_score}/100) trong chu kỳ 6 giờ này rồi! Chờ hết đồng hồ để bốc lá mới nhé.`
+        );
+      } else {
+        speakMessage(
+          `[TAROT 6H - ${rec.fortune_label}] Lá "${rec.card_name_vi}" (${orientText}, ${rec.luck_score}/100): ${rec.summary_vi}`
+        );
+      }
+    }
+    syncHitboxToRust(true);
+  } catch (err) {
+    speakMessage(`[TAROT LỖI] Không thể bốc thẻ lúc này: ${String(err)}`);
+  } finally {
+    tarotDrawingInFlight = false;
+    if (drawBtn) {
+      drawBtn.disabled = false;
+      drawBtn.textContent = 'Bốc & Lật Quẻ Tarot Ngay';
+    }
+  }
+}
+
+export function toggleTarotModal(forceState?: boolean) {
+  appState.isTarotModalOpen =
+    forceState !== undefined ? forceState : !appState.isTarotModalOpen;
+  if (appState.isTarotModalOpen) {
+    closeOtherPopupModals('tarot');
+    setTarotTab('today');
+    void refreshTarotStatusUi();
+  }
+  if (tarotModal) {
+    tarotModal.style.display = appState.isTarotModalOpen ? 'block' : 'none';
+  }
+  if (dockBtnTarot) {
+    dockBtnTarot.classList.toggle('active', appState.isTarotModalOpen);
+  }
+  syncHitboxToRust(true);
+}
+
+let miniScreenTab: 'web' | 'mirror' = 'web';
+let miniMirrorActive = false;
+let miniMirrorBusy = false;
+let miniMirrorTimer: number | null = null;
+let miniDisplayStream: MediaStream | null = null;
+let miniPanelCollapsed = false;
+let miniWebIsOpen = false;
+let miniMirrorWindows: MiniWindowEntry[] = [];
+let lastMiniWinFetchAt = 0;
+
+function updateMiniResourceStatus() {
+  const el = document.getElementById('mini-resource-status');
+  if (!el) return;
+  const webPart = miniWebIsOpen
+    ? 'WebView Mini: ĐANG CHẠY'
+    : 'WebView Mini: ĐÃ TẮT (0 MB RAM)';
+  const mirrorPart = miniDisplayStream
+    ? 'Chiếu App: WEBRTC 60FPS'
+    : miniMirrorActive
+    ? 'Chiếu App: ĐANG CHẠY'
+    : 'Chiếu App: TẮT (0% CPU)';
+  el.textContent = `${webPart} | ${mirrorPart}`;
+}
+
+function syncStealthButtonsUi() {
+  const sel = document.getElementById('mini-mirror-win-select') as HTMLSelectElement | null;
+  const hwnd = Number(sel?.value || '0') || 0;
+  const entry = miniMirrorWindows.find((w) => w.hwnd === hwnd);
+  const stealthBtn = document.getElementById('btn-mini-stealth-toggle');
+  if (stealthBtn) {
+    stealthBtn.textContent = entry?.is_stealth
+      ? 'Hiện Lại App Đang Ẩn'
+      : 'Ẩn App (Vẫn Chiếu)';
+  }
+  const anyStealth = miniMirrorWindows.some((w) => w.is_stealth);
+  const restoreBtn = document.getElementById('btn-mini-restore-all');
+  if (restoreBtn) {
+    restoreBtn.style.display = anyStealth ? 'block' : 'none';
+  }
+}
+
+async function refreshMiniMirrorWindowSelect(force = false) {
+  const sel = document.getElementById('mini-mirror-win-select') as HTMLSelectElement | null;
+  if (!sel) return;
+  const now = performance.now();
+  if (!force && now - lastMiniWinFetchAt < 3500) return;
+  lastMiniWinFetchAt = now;
+
+  try {
+    const windows = await invoke<MiniWindowEntry[]>('mini_screen_list_windows');
+    miniMirrorWindows = Array.isArray(windows) ? windows : [];
+  } catch {
+    return;
+  }
+
+  const key = miniMirrorWindows
+    .map((w) => `${w.hwnd}:${w.is_minimized ? 1 : 0}:${w.is_stealth ? 1 : 0}:${w.title.slice(0, 16)}`)
+    .join('|');
+  if (!force && sel.dataset.key === key) {
+    syncStealthButtonsUi();
+    return;
+  }
+  sel.dataset.key = key;
+
+  const prevVal = sel.value;
+  const preferredHwnd =
+    prevVal && prevVal !== '0' && miniMirrorWindows.some((w) => String(w.hwnd) === prevVal)
+      ? Number(prevVal)
+      : appState.activeWindowHwnd || findTargetWindow()?.hwnd || 0;
+
+  sel.innerHTML = [
+    '<option value="0">Chọn app hoặc tab trình duyệt cần chiếu...</option>',
+    ...miniMirrorWindows.map((w) => {
+      const procTag = w.process_name ? `[${w.process_name}] ` : '';
+      const stateTag = w.is_stealth ? '[Đang ẩn] ' : w.is_minimized ? '[Thu nhỏ] ' : '';
+      const selectedAttr = w.hwnd === preferredHwnd ? 'selected' : '';
+      return `<option value="${w.hwnd}" ${selectedAttr}>${stateTag}${procTag}${w.title.slice(0, 36)}</option>`;
+    }),
+  ].join('');
+  syncStealthButtonsUi();
+}
+
+function setMiniScreenModeBadge(label: string) {
+  const b = document.getElementById('mini-screen-mode-badge');
+  if (b) b.textContent = label;
+}
+
+function stopMiniDisplayMedia() {
+  if (miniDisplayStream) {
+    miniDisplayStream.getTracks().forEach((t) => {
+      try {
+        t.stop();
+      } catch {}
+    });
+    miniDisplayStream = null;
+  }
+  const vid = document.getElementById('mini-display-video') as HTMLVideoElement | null;
+  if (vid) {
+    vid.srcObject = null;
+    vid.style.display = 'none';
+  }
+  const btn = document.getElementById('btn-mini-display-media');
+  if (btn) btn.textContent = 'Bắt Tab / Màn 60 FPS';
+  updateMiniResourceStatus();
+}
+
+function stopMiniWindowMirror() {
+  miniMirrorActive = false;
+  if (miniMirrorTimer !== null) {
+    window.clearTimeout(miniMirrorTimer);
+    miniMirrorTimer = null;
+  }
+  const img = document.getElementById('mini-mirror-img') as HTMLImageElement | null;
+  if (img) {
+    img.src = '';
+    img.style.display = 'none';
+  }
+  const placeholder = document.getElementById('mini-viewport-placeholder');
+  if (placeholder && !miniDisplayStream) {
+    placeholder.style.display = 'block';
+  }
+  const toggleBtn = document.getElementById('btn-mini-mirror-toggle');
+  if (toggleBtn) toggleBtn.textContent = 'Bắt Đầu Chiếu App';
+  if (!miniDisplayStream) {
+    setMiniScreenModeBadge(miniWebIsOpen ? '[WEB MINI ON]' : '[LIVE]');
+  }
+  updateMiniResourceStatus();
+}
+
+async function stepMiniMirrorFrame() {
+  if (!miniMirrorActive) return;
+  if (!appState.isMiniScreenOpen || miniPanelCollapsed || miniScreenTab !== 'mirror') {
+    stopMiniWindowMirror();
+    return;
+  }
+  if (miniMirrorBusy) {
+    miniMirrorTimer = window.setTimeout(() => void stepMiniMirrorFrame(), 120);
+    return;
+  }
+
+  const sel = document.getElementById('mini-mirror-win-select') as HTMLSelectElement | null;
+  const img = document.getElementById('mini-mirror-img') as HTMLImageElement | null;
+  const placeholder = document.getElementById('mini-viewport-placeholder');
+  const fpsSel = document.getElementById('select-mini-mirror-fps') as HTMLSelectElement | null;
+  const chkStealth = document.getElementById('chk-mini-auto-stealth') as HTMLInputElement | null;
+  const fps = Math.max(2, Math.min(10, Number(fpsSel?.value || '6') || 6));
+  const hwnd = Number(sel?.value || '0') || appState.activeWindowHwnd || findTargetWindow()?.hwnd || 0;
+
+  if (!hwnd) {
+    if (placeholder) {
+      placeholder.style.display = 'block';
+      placeholder.textContent = 'Hãy chọn một ứng dụng / trình duyệt ở danh sách phía trên để chiếu.';
+    }
+    miniMirrorTimer = window.setTimeout(() => void stepMiniMirrorFrame(), 650);
+    return;
+  }
+
+  miniMirrorBusy = true;
+  try {
+    const panelW = miniScreenPanel?.offsetWidth || 430;
+    const frame = await invoke<CapturedWindowFrame>('mini_screen_capture_window', {
+      hwnd,
+      maxWidth: Math.min(680, Math.max(300, Math.round(panelW * 1.1))),
+      autoStealthMinimized: chkStealth?.checked ?? true,
+    });
+    if (!miniMirrorActive) return;
+    if (frame.is_minimized || !frame.bmp_base64) {
+      if (img) img.style.display = 'none';
+      if (placeholder) {
+        placeholder.style.display = 'block';
+        placeholder.textContent = `"${frame.title}" đang thu nhỏ. Bật "Tự ẩn & chiếu cả app đang thu nhỏ" hoặc bấm "Đưa App Lên" để xem.`;
+      }
+      setMiniScreenModeBadge('[MINIMIZED]');
+    } else {
+      if (img) {
+        img.src = `data:image/bmp;base64,${frame.bmp_base64}`;
+        img.style.display = 'block';
+      }
+      if (placeholder) placeholder.style.display = 'none';
+      setMiniScreenModeBadge(frame.is_stealth ? `[XEM ẨN ${fps}FPS]` : `[APP ${fps}FPS]`);
+      const targetEntry = miniMirrorWindows.find((w) => w.hwnd === hwnd);
+      if (targetEntry && Boolean(frame.is_stealth) !== targetEntry.is_stealth) {
+        void refreshMiniMirrorWindowSelect(true);
+      }
+    }
+  } catch (err) {
+    if (placeholder) {
+      placeholder.style.display = 'block';
+      placeholder.textContent = String(err);
+    }
+    setMiniScreenModeBadge('[WAIT]');
+  } finally {
+    miniMirrorBusy = false;
+    if (miniMirrorActive) {
+      miniMirrorTimer = window.setTimeout(() => void stepMiniMirrorFrame(), Math.round(1000 / fps));
+    }
+  }
+}
+
+function startMiniWindowMirror() {
+  stopMiniDisplayMedia();
+  stopMiniWindowMirror();
+  miniMirrorActive = true;
+  const toggleBtn = document.getElementById('btn-mini-mirror-toggle');
+  if (toggleBtn) toggleBtn.textContent = 'Dừng Chiếu App';
+  updateMiniResourceStatus();
+  void refreshMiniMirrorWindowSelect(true).then(() => {
+    if (miniMirrorActive) void stepMiniMirrorFrame();
+  });
+}
+
+async function startMiniDisplayMedia() {
+  if (!navigator.mediaDevices?.getDisplayMedia) {
+    speakMessage('[MINI SCREEN] WebView hiện tại không hỗ trợ getDisplayMedia. Hãy dùng nút "Bắt Đầu Chiếu App" hoặc tab "YouTube & Web Mini" nhé!');
+    return;
+  }
+  stopMiniWindowMirror();
+  stopMiniDisplayMedia();
+  try {
+    const stream = await navigator.mediaDevices.getDisplayMedia({
+      video: { frameRate: 30 },
+      audio: false,
+    });
+    miniDisplayStream = stream;
+    const vid = document.getElementById('mini-display-video') as HTMLVideoElement | null;
+    const img = document.getElementById('mini-mirror-img') as HTMLImageElement | null;
+    const placeholder = document.getElementById('mini-viewport-placeholder');
+    const btn = document.getElementById('btn-mini-display-media');
+    if (img) {
+      img.src = '';
+      img.style.display = 'none';
+    }
+    if (placeholder) placeholder.style.display = 'none';
+    if (vid) {
+      vid.srcObject = stream;
+      vid.style.display = 'block';
+    }
+    if (btn) btn.textContent = 'Đang Bắt 60 FPS (Click Để Tắt)';
+    setMiniScreenModeBadge('[WEBRTC 60FPS]');
+    updateMiniResourceStatus();
+    stream.getVideoTracks().forEach((track) => {
+      track.addEventListener('ended', () => {
+        stopMiniDisplayMedia();
+        if (placeholder) {
+          placeholder.style.display = 'block';
+          placeholder.textContent = 'Phiên bắt Tab / Màn hình đã kết thúc.';
+        }
+        setMiniScreenModeBadge('[LIVE]');
+      });
+    });
+  } catch (err) {
+    speakMessage(`[MINI SCREEN] Bạn đã hủy hoặc WebView chặn chọn nguồn chia sẻ: ${String(err)}`);
+  }
+}
+
+function setMiniScreenTab(tab: 'web' | 'mirror') {
+  miniScreenTab = tab;
+  const btnWeb = document.getElementById('tab-btn-mini-web');
+  const btnMirror = document.getElementById('tab-btn-mini-mirror');
+  const paneWeb = document.getElementById('mini-pane-web');
+  const paneMirror = document.getElementById('mini-pane-mirror');
+  if (btnWeb) btnWeb.classList.toggle('active', tab === 'web');
+  if (btnMirror) btnMirror.classList.toggle('active', tab === 'mirror');
+  if (paneWeb) paneWeb.style.display = tab === 'web' ? 'block' : 'none';
+  if (paneMirror) paneMirror.style.display = tab === 'mirror' ? 'block' : 'none';
+  if (tab === 'mirror') {
+    void refreshMiniMirrorWindowSelect(true);
+  } else {
+    // Tiết kiệm CPU/RAM khi chuyển về Tab Web
+    stopMiniWindowMirror();
+    stopMiniDisplayMedia();
+  }
+  syncHitboxToRust(true);
+}
+
+function updateMiniWebStatusUi(st: MiniWebStatus) {
+  miniWebIsOpen = Boolean(st.is_open);
+  const statusEl = document.getElementById('mini-web-status-text');
+  const pinChk = document.getElementById('chk-mini-web-pin') as HTMLInputElement | null;
+  if (pinChk) pinChk.checked = st.always_on_top;
+  if (statusEl) {
+    statusEl.textContent = st.is_open
+      ? `Đang mở: ${st.title} (${st.width}x${st.height} | ${st.url})`
+      : 'WebView Mini chưa khởi chạy (không tốn RAM/CPU nền). Nhấn YouTube hoặc dán link khi cần dùng.';
+  }
+  if (!miniMirrorActive && !miniDisplayStream) {
+    setMiniScreenModeBadge(st.is_open ? '[WEB MINI ON]' : '[LIVE]');
+  }
+  updateMiniResourceStatus();
+}
+
+async function openMiniWebTarget(rawTarget: string) {
+  const pinChk = document.getElementById('chk-mini-web-pin') as HTMLInputElement | null;
+  const target = rawTarget.trim() || 'youtube';
+  const inp = document.getElementById('mini-web-url-input') as HTMLInputElement | null;
+  if (inp && rawTarget.trim()) inp.value = target;
+  try {
+    const st = await invoke<MiniWebStatus>('mini_screen_open_web', {
+      target,
+      alwaysOnTop: pinChk?.checked ?? true,
+    });
+    updateMiniWebStatusUi(st);
+    speakMessage(`[MINI SCREEN] Đã mở "${st.title}" ở chế độ cửa sổ Mini ghim nổi!`);
+  } catch (err) {
+    speakMessage(`[MINI SCREEN LỖI] ${String(err)}`);
+  }
+}
+
+export function toggleMiniScreenPanel(
+  forceState?: boolean,
+  defaultTab?: 'web' | 'mirror'
+) {
+  appState.isMiniScreenOpen =
+    forceState !== undefined ? forceState : !appState.isMiniScreenOpen;
+  if (appState.isMiniScreenOpen) {
+    if (defaultTab) {
+      setMiniScreenTab(defaultTab);
+    } else {
+      void refreshMiniMirrorWindowSelect(true);
+    }
+    void invoke<MiniWebStatus>('mini_screen_control_web', { action: 'status' })
+      .then((st) => updateMiniWebStatusUi(st))
+      .catch(() => updateMiniResourceStatus());
+  } else {
+    stopMiniWindowMirror();
+    stopMiniDisplayMedia();
+    void invoke('mini_screen_restore_all_stealth').catch(() => {});
+    const autoCloseWeb =
+      (document.getElementById('chk-mini-web-autoclose') as HTMLInputElement | null)?.checked ??
+      true;
+    if (autoCloseWeb && miniWebIsOpen) {
+      void invoke<MiniWebStatus>('mini_screen_control_web', { action: 'close' })
+        .then((st) => updateMiniWebStatusUi(st))
+        .catch(() => {});
+    }
+  }
+  if (miniScreenPanel) {
+    miniScreenPanel.style.display = appState.isMiniScreenOpen ? 'block' : 'none';
+  }
+  if (dockBtnMiniScreen) {
+    dockBtnMiniScreen.classList.toggle('active', appState.isMiniScreenOpen);
+  }
+  syncHitboxToRust(true);
+}
+
 async function runTranslateOcrModalText(preferAi = false) {
   const srcEl = document.getElementById('ocr-source-text') as HTMLTextAreaElement | null;
   const dstEl = document.getElementById('ocr-translated-text') as HTMLTextAreaElement | null;
@@ -2369,7 +3330,7 @@ function finishSnipOverlayReset() {
   if (overlay) overlay.style.display = 'none';
   appState.isOcrSnipMode = false;
   if (!appState.blackHoleWarpMode) {
-    void invoke('set_manual_interactive', { interactive: false }).catch(() => {});
+    void invoke('set_manual_interactive', { interactive: false }).catch(() => { });
   }
   syncHitboxToRust(true);
 }
@@ -2383,7 +3344,7 @@ export function startOcrRegionSnip() {
   appState.isOcrSnipMode = true;
   rectEl.style.display = 'none';
   overlay.style.display = 'block';
-  void invoke('set_manual_interactive', { interactive: true }).catch(() => {});
+  void invoke('set_manual_interactive', { interactive: true }).catch(() => { });
   syncHitboxToRust(true);
 }
 
@@ -2444,7 +3405,7 @@ export function renderP2pArenaUi() {
         b.textContent = `${ip}:${st.listen_port}`;
         b.title = `Copy ${altUrl}`;
         b.addEventListener('click', () => {
-          void navigator.clipboard.writeText(altUrl).catch(() => {});
+          void navigator.clipboard.writeText(altUrl).catch(() => { });
           b.textContent = `Copied ${ip}`;
           setTimeout(() => (b.textContent = `${ip}:${st.listen_port}`), 1400);
         });
@@ -2680,11 +3641,10 @@ async function renderNotificationHistoryList() {
 
     const metaSpan = document.createElement('span');
     metaSpan.style.cssText = 'color: #64748b; font-size: 10px; flex-shrink: 0;';
-    metaSpan.innerHTML = `${timeStr} ${
-      h.allowed
+    metaSpan.innerHTML = `${timeStr} ${h.allowed
         ? '<span style="color: #34d399; font-weight: 600;">[SHOW]</span>'
         : '<span style="color: #f87171; font-weight: 600;">[FILTERED]</span>'
-    }`;
+      }`;
 
     topRow.appendChild(sourceSpan);
     topRow.appendChild(metaSpan);
@@ -2705,11 +3665,12 @@ async function renderNotificationHistoryList() {
 }
 
 let lastHitboxSync = 0;
+let lastHitboxSig = '';
 
 export function syncHitboxToRust(force = false) {
   if (!companionDock) return;
   const now = performance.now();
-  if (!force && now - lastHitboxSync < 28) {
+  if (!force && now - lastHitboxSync < 50) {
     return;
   }
   lastHitboxSync = now;
@@ -2742,6 +3703,9 @@ export function syncHitboxToRust(force = false) {
   pushRect(p2pArenaPanel, appState.isP2pArenaOpen);
   pushRect(pcControlModal, appState.isPcControlOpen);
   pushRect(ocrTranslateModal, appState.isOcrModalOpen);
+  pushRect(toolForgeModal, appState.isToolForgeOpen);
+  pushRect(tarotModal, appState.isTarotModalOpen);
+  pushRect(miniScreenPanel, appState.isMiniScreenOpen);
   const ocrSnipEl = document.getElementById('ocr-snip-overlay');
   if (ocrSnipEl && appState.isOcrSnipMode) {
     pushRect(ocrSnipEl, true);
@@ -2770,17 +3734,30 @@ export function syncHitboxToRust(force = false) {
     pushRect(stickyNotesWidget, true);
   }
 
+  const cx = Math.round(appState.posX);
+  const cy = Math.round(appState.posY - 85 * appState.modelScale);
+  const rad = Math.round(78 * appState.modelScale);
+  const isDragging =
+    appState.state === 'DRAGGING' ||
+    appState.blackHoleWarpMode ||
+    appState.isOcrSnipMode ||
+    isP2pDuelActive();
+
+  const sig = `${cx}|${cy}|${rad}|${isDragging ? 1 : 0}|${uiRects
+    .map((r) => `${r.x},${r.y},${r.w},${r.h}`)
+    .join(';')}`;
+  if (!force && sig === lastHitboxSig) {
+    return;
+  }
+  lastHitboxSig = sig;
+
   invoke('update_character_hitbox', {
-    x: Math.round(appState.posX),
-    y: Math.round(appState.posY - 85 * appState.modelScale),
-    radius: Math.round(78 * appState.modelScale),
+    x: cx,
+    y: cy,
+    radius: rad,
     uiRects,
-    isDragging:
-      appState.state === 'DRAGGING' ||
-      appState.blackHoleWarpMode ||
-      appState.isOcrSnipMode ||
-      isP2pDuelActive(),
-  }).catch(() => {});
+    isDragging,
+  }).catch(() => { });
 }
 
 export function handleSendMessage() {
@@ -2837,7 +3814,7 @@ export function initUi() {
         appendChatMessage('assistant', 'Đã làm mới cuộc hội thoại với AI Mate!');
       }
       chatHistoryLoadedFromDb = true;
-      void invoke('memory_clear_chat_history').catch(() => {});
+      void invoke('memory_clear_chat_history').catch(() => { });
     });
   }
 
@@ -2905,6 +3882,23 @@ export function initUi() {
   document.getElementById('btn-cfg-open-notif')?.addEventListener('click', () => {
     toggleNotificationModal(true);
   });
+
+  const chkCfgEcoMode = document.getElementById('chk-cfg-eco-mode') as HTMLInputElement | null;
+  if (chkCfgEcoMode) {
+    chkCfgEcoMode.checked = appState.ecoMode;
+    document.body.classList.toggle('eco-mode', appState.ecoMode);
+    chkCfgEcoMode.addEventListener('change', () => {
+      appState.ecoMode = chkCfgEcoMode.checked;
+      localStorage.setItem('mate_eco_mode', String(appState.ecoMode));
+      document.body.classList.toggle('eco-mode', appState.ecoMode);
+      applyRendererEcoQuality();
+      speakMessage(
+        appState.ecoMode
+          ? '[ECO MODE] Đã bật Chế độ Tiết Kiệm Pin (30 FPS khi đứng yên, tắt kính mờ blur; chạy mượt đầy đủ khi vịt cử động).'
+          : '[SMOOTH MODE] Đã bật chế độ Siêu Mượt Native FPS & đồ họa sắc nét (vẫn giữ tối ưu nền RAM/CPU).'
+      );
+    });
+  }
 
   chkCfgVoiceTts?.addEventListener('change', () => {
     duckVoiceMuted = !chkCfgVoiceTts.checked;
@@ -3177,7 +4171,7 @@ export function initUi() {
       if (appState.blackHoleWarpMode) {
         appState.blackHoleWarpMode = false;
         document.body.style.cursor = 'default';
-        void invoke('set_manual_interactive', { interactive: false }).catch(() => {});
+        void invoke('set_manual_interactive', { interactive: false }).catch(() => { });
         syncHitboxToRust(true);
       }
       triggerBlackHoleTeleport();
@@ -3610,14 +4604,14 @@ export function initUi() {
     if (!val.trim()) return;
     void invoke('set_clipboard_text', { text: val })
       .then(() => speakMessage('[OCR] Đã copy văn bản gốc vào Clipboard!'))
-      .catch(() => {});
+      .catch(() => { });
   });
   document.getElementById('btn-ocr-copy-dst')?.addEventListener('click', () => {
     const val = (document.getElementById('ocr-translated-text') as HTMLTextAreaElement | null)?.value || '';
     if (!val.trim()) return;
     void invoke('set_clipboard_text', { text: val })
       .then(() => speakMessage('[OCR] Đã copy bản dịch vào Clipboard!'))
-      .catch(() => {});
+      .catch(() => { });
   });
   document.getElementById('btn-ocr-speak-dst')?.addEventListener('click', () => {
     const val = (document.getElementById('ocr-translated-text') as HTMLTextAreaElement | null)?.value.trim();
@@ -3640,6 +4634,452 @@ export function initUi() {
 
   window.addEventListener('duck-start-ocr-snip', () => startOcrRegionSnip());
   window.addEventListener('duck-open-pc-control', () => togglePcControlModal(true));
+  window.addEventListener('duck-skills-updated', () => renderToolForgeSkillsList());
+  window.addEventListener('duck-open-tool-forge', (ev: Event) => {
+    const detail = (ev as CustomEvent).detail as
+      | { draft?: ToolForgeDraft; generatingRequest?: string; requestText?: string }
+      | undefined;
+    toggleToolForgeModal(true);
+    setToolForgeTab('forge');
+    const reqInp = document.getElementById('tf-request-input') as HTMLTextAreaElement | null;
+    if (detail?.requestText && reqInp) {
+      reqInp.value = detail.requestText;
+    }
+    if (detail?.generatingRequest) {
+      if (reqInp) reqInp.value = detail.generatingRequest;
+      setToolForgePipelineLog(
+        `[1/4] Local LLM không có tool phù hợp & không tự viết code -> Chuyển yêu cầu sang Gemini Architect...\nYêu cầu: "${detail.generatingRequest}"`
+      );
+    }
+    if (detail?.draft) {
+      setLatestToolForgeDraft(detail.draft);
+      renderToolForgeDraft(detail.draft);
+    }
+  });
+
+  btnPcToolForge?.addEventListener('click', () => {
+    toggleToolForgeModal(true);
+  });
+  btnPcMiniScreen?.addEventListener('click', () => {
+    toggleMiniScreenPanel(true, 'web');
+  });
+  dockBtnMiniScreen?.addEventListener('click', () => {
+    toggleMiniScreenPanel();
+  });
+
+  // Mini Screen PiP (Kéo thả, Đổi cỡ S/M/L, Trong suốt, YouTube/Web Mini & Live Mirror)
+  if (miniScreenPanel) {
+    const savedWidth = Number(localStorage.getItem('mate_mini_width') || '430');
+    if (Number.isFinite(savedWidth) && savedWidth >= 300 && savedWidth <= 720) {
+      miniScreenPanel.style.width = `${savedWidth}px`;
+      document.querySelectorAll('.mini-size-chip').forEach((ch) => {
+        ch.classList.toggle('active', Number(ch.getAttribute('data-size')) === savedWidth);
+      });
+    }
+    const savedOpacity = Number(localStorage.getItem('mate_mini_opacity') || '0.96');
+    const opacityInp = document.getElementById('mini-screen-opacity') as HTMLInputElement | null;
+    if (Number.isFinite(savedOpacity) && savedOpacity >= 0.45 && savedOpacity <= 1) {
+      miniScreenPanel.style.opacity = String(savedOpacity);
+      if (opacityInp) opacityInp.value = String(savedOpacity);
+    }
+    try {
+      const savedPos = JSON.parse(localStorage.getItem('mate_mini_pos') || 'null') as {
+        left: number;
+        top: number;
+      } | null;
+      if (savedPos && Number.isFinite(savedPos.left) && Number.isFinite(savedPos.top)) {
+        const clampedL = Math.max(8, Math.min(appState.W - 220, savedPos.left));
+        const clampedT = Math.max(8, Math.min(appState.H - 120, savedPos.top));
+        miniScreenPanel.style.left = `${clampedL}px`;
+        miniScreenPanel.style.top = `${clampedT}px`;
+        miniScreenPanel.style.right = 'auto';
+      }
+    } catch {
+      // keep default top-right
+    }
+
+    const dragHandle = document.getElementById('mini-screen-drag-handle');
+    let miniDragging = false;
+    let dragOffX = 0;
+    let dragOffY = 0;
+    dragHandle?.addEventListener('pointerdown', (e) => {
+      if ((e.target as Element | null)?.closest('button, input')) return;
+      miniDragging = true;
+      const r = miniScreenPanel.getBoundingClientRect();
+      dragOffX = e.clientX - r.left;
+      dragOffY = e.clientY - r.top;
+      dragHandle.setPointerCapture(e.pointerId);
+    });
+    dragHandle?.addEventListener('pointermove', (e) => {
+      if (!miniDragging) return;
+      const panelW = miniScreenPanel.offsetWidth || 420;
+      const nx = Math.max(6, Math.min(appState.W - panelW - 6, e.clientX - dragOffX));
+      const ny = Math.max(6, Math.min(appState.H - 60, e.clientY - dragOffY));
+      miniScreenPanel.style.left = `${Math.round(nx)}px`;
+      miniScreenPanel.style.top = `${Math.round(ny)}px`;
+      miniScreenPanel.style.right = 'auto';
+      syncHitboxToRust(false);
+    });
+    const finishMiniDrag = () => {
+      if (!miniDragging) return;
+      miniDragging = false;
+      const r = miniScreenPanel.getBoundingClientRect();
+      localStorage.setItem(
+        'mate_mini_pos',
+        JSON.stringify({ left: Math.round(r.left), top: Math.round(r.top) })
+      );
+      syncHitboxToRust(true);
+    };
+    dragHandle?.addEventListener('pointerup', finishMiniDrag);
+    dragHandle?.addEventListener('pointercancel', finishMiniDrag);
+  }
+
+  document.getElementById('btn-close-mini-screen')?.addEventListener('click', () => {
+    toggleMiniScreenPanel(false);
+  });
+  document.getElementById('btn-mini-collapse')?.addEventListener('click', () => {
+    miniPanelCollapsed = !miniPanelCollapsed;
+    const bodyEl = document.getElementById('mini-screen-body');
+    if (bodyEl) bodyEl.style.display = miniPanelCollapsed ? 'none' : 'block';
+    if (miniPanelCollapsed) {
+      stopMiniWindowMirror();
+      stopMiniDisplayMedia();
+    }
+    syncHitboxToRust(true);
+  });
+  document.querySelectorAll('.mini-size-chip').forEach((chip) => {
+    chip.addEventListener('click', () => {
+      const sz = Number(chip.getAttribute('data-size') || '430');
+      if (miniScreenPanel && sz >= 300) {
+        miniScreenPanel.style.width = `${sz}px`;
+        localStorage.setItem('mate_mini_width', String(sz));
+        document.querySelectorAll('.mini-size-chip').forEach((c) => {
+          c.classList.toggle('active', c === chip);
+        });
+        syncHitboxToRust(true);
+      }
+    });
+  });
+  document.getElementById('mini-screen-opacity')?.addEventListener('input', (e) => {
+    const val = (e.target as HTMLInputElement).value;
+    if (miniScreenPanel) {
+      miniScreenPanel.style.opacity = val;
+      localStorage.setItem('mate_mini_opacity', val);
+    }
+  });
+  document.getElementById('tab-btn-mini-web')?.addEventListener('click', () => {
+    setMiniScreenTab('web');
+  });
+  document.getElementById('tab-btn-mini-mirror')?.addEventListener('click', () => {
+    setMiniScreenTab('mirror');
+  });
+
+  document.getElementById('btn-mini-web-open')?.addEventListener('click', () => {
+    const val =
+      (document.getElementById('mini-web-url-input') as HTMLInputElement | null)?.value ||
+      'youtube';
+    void openMiniWebTarget(val);
+  });
+  document.getElementById('mini-web-url-input')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      const val = (e.target as HTMLInputElement).value || 'youtube';
+      void openMiniWebTarget(val);
+    }
+  });
+  document.querySelectorAll('.mini-web-preset').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const target = btn.getAttribute('data-target') || 'youtube';
+      void openMiniWebTarget(target);
+    });
+  });
+  document.getElementById('btn-mini-web-paste')?.addEventListener('click', async () => {
+    try {
+      const clip = await invoke<string>('get_clipboard_text');
+      const inp = document.getElementById('mini-web-url-input') as HTMLInputElement | null;
+      if (inp && clip.trim()) {
+        inp.value = clip.trim();
+        void openMiniWebTarget(clip.trim());
+      } else {
+        speakMessage('[MINI SCREEN] Clipboard hiện đang trống.');
+      }
+    } catch (err) {
+      speakMessage(`[MINI SCREEN] Không đọc được clipboard: ${String(err)}`);
+    }
+  });
+  document.querySelectorAll('.mini-web-size-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const w = Number(btn.getAttribute('data-w') || '480');
+      const h = Number(btn.getAttribute('data-h') || '300');
+      void invoke<MiniWebStatus>('mini_screen_control_web', {
+        action: 'resize',
+        width: w,
+        height: h,
+      })
+        .then((st) => updateMiniWebStatusUi(st))
+        .catch(() => {});
+    });
+  });
+  document.getElementById('chk-mini-web-pin')?.addEventListener('change', (e) => {
+    const checked = (e.target as HTMLInputElement).checked;
+    void invoke<MiniWebStatus>('mini_screen_control_web', {
+      action: 'pin',
+      alwaysOnTop: checked,
+    })
+      .then((st) => updateMiniWebStatusUi(st))
+      .catch(() => {});
+  });
+  document.getElementById('btn-mini-web-focus')?.addEventListener('click', () => {
+    void invoke<MiniWebStatus>('mini_screen_control_web', { action: 'focus' })
+      .then((st) => updateMiniWebStatusUi(st))
+      .catch(() => {});
+  });
+  document.getElementById('btn-mini-web-close')?.addEventListener('click', () => {
+    void invoke<MiniWebStatus>('mini_screen_control_web', { action: 'close' })
+      .then((st) => updateMiniWebStatusUi(st))
+      .catch(() => {});
+  });
+
+  document.getElementById('btn-mini-mirror-refresh')?.addEventListener('click', () => {
+    void refreshMiniMirrorWindowSelect(true);
+  });
+  document.getElementById('mini-mirror-win-select')?.addEventListener('change', () => {
+    syncStealthButtonsUi();
+    if (miniMirrorActive) {
+      void stepMiniMirrorFrame();
+    }
+  });
+  document.getElementById('btn-mini-mirror-toggle')?.addEventListener('click', () => {
+    if (miniMirrorActive) {
+      stopMiniWindowMirror();
+    } else {
+      startMiniWindowMirror();
+    }
+  });
+  document.getElementById('btn-mini-stealth-toggle')?.addEventListener('click', async () => {
+    const sel = document.getElementById('mini-mirror-win-select') as HTMLSelectElement | null;
+    const hwnd = Number(sel?.value || '0') || 0;
+    if (!hwnd) {
+      speakMessage('[MINI SCREEN] Hãy chọn app/cửa sổ trước khi bật chế độ Xem Ẩn.');
+      return;
+    }
+    const existing = miniMirrorWindows.find((w) => w.hwnd === hwnd);
+    const nextStealth = !(existing?.is_stealth ?? false);
+    try {
+      const msg = await invoke<string>('mini_screen_set_stealth', {
+        hwnd,
+        enabled: nextStealth,
+      });
+      await refreshMiniMirrorWindowSelect(true);
+      speakMessage(`[MINI SCREEN] ${msg}`);
+      if (nextStealth && !miniMirrorActive) {
+        startMiniWindowMirror();
+      }
+    } catch (err) {
+      speakMessage(`[MINI SCREEN LỖI] ${String(err)}`);
+    }
+  });
+  document.getElementById('btn-mini-restore-all')?.addEventListener('click', async () => {
+    try {
+      const count = await invoke<number>('mini_screen_restore_all_stealth');
+      await refreshMiniMirrorWindowSelect(true);
+      speakMessage(`[MINI SCREEN] Đã hiện lại ${count} cửa sổ đang ẩn.`);
+    } catch {
+      // ignore
+    }
+  });
+  void listen('duck-mini-web-closed', () => {
+    updateMiniWebStatusUi({
+      is_open: false,
+      url: '',
+      title: '',
+      always_on_top: true,
+      width: 480,
+      height: 300,
+    });
+  });
+  document.getElementById('btn-mini-display-media')?.addEventListener('click', () => {
+    if (miniDisplayStream) {
+      stopMiniDisplayMedia();
+      setMiniScreenModeBadge('[LIVE]');
+    } else {
+      void startMiniDisplayMedia();
+    }
+  });
+  document.getElementById('btn-mini-focus-app')?.addEventListener('click', () => {
+    const sel = document.getElementById('mini-mirror-win-select') as HTMLSelectElement | null;
+    const hwnd = Number(sel?.value || '0') || appState.activeWindowHwnd || findTargetWindow()?.hwnd || 0;
+    if (!hwnd) {
+      speakMessage('[MINI SCREEN] Chưa chọn ứng dụng nào để đưa lên.');
+      return;
+    }
+    void invoke<string>('mini_screen_focus_window', { hwnd })
+      .then((m) => speakMessage(`[MINI SCREEN] ${m}`))
+      .catch((e) => speakMessage(`[MINI SCREEN] ${String(e)}`));
+  });
+  document.getElementById('btn-mini-media-prev')?.addEventListener('click', () => void runPcMedia('prev'));
+  document.getElementById('btn-mini-media-play')?.addEventListener('click', () => void runPcMedia('play_pause'));
+  document.getElementById('btn-mini-media-next')?.addEventListener('click', () => void runPcMedia('next'));
+  document.getElementById('btn-mini-vol-down')?.addEventListener('click', () => void runPcMedia('vol_down'));
+  document.getElementById('btn-mini-vol-up')?.addEventListener('click', () => void runPcMedia('vol_up'));
+  document.getElementById('btn-close-tool-forge')?.addEventListener('click', () => {
+    toggleToolForgeModal(false);
+  });
+  document.getElementById('tab-btn-tf-forge')?.addEventListener('click', () => {
+    setToolForgeTab('forge');
+  });
+  document.getElementById('tab-btn-tf-skills')?.addEventListener('click', () => {
+    setToolForgeTab('skills');
+    void refreshCustomSkills().then(() => renderToolForgeSkillsList());
+  });
+  document.getElementById('btn-tf-refresh-skills')?.addEventListener('click', () => {
+    void refreshCustomSkills().then(() => renderToolForgeSkillsList());
+  });
+
+  const syncDraftInputsToObj = (): ToolForgeDraft => {
+    const existing = getLatestToolForgeDraft();
+    const nameVal = (document.getElementById('tf-draft-name') as HTMLInputElement | null)?.value.trim() || 'Skill Mới';
+    const idVal = (document.getElementById('tf-draft-id') as HTMLInputElement | null)?.value.trim() || 'custom_skill';
+    const trigRaw = (document.getElementById('tf-draft-triggers') as HTMLInputElement | null)?.value || '';
+    const kwRaw = (document.getElementById('tf-draft-keywords') as HTMLInputElement | null)?.value || '';
+    const argsVal = (document.getElementById('tf-draft-test-args') as HTMLInputElement | null)?.value.trim() || '{}';
+    const codeVal = (document.getElementById('tf-code-editor') as HTMLTextAreaElement | null)?.value || '';
+    const langSel = (document.getElementById('select-tf-lang') as HTMLSelectElement | null)?.value;
+    const lang: 'powershell' | 'python' =
+      existing?.language || (langSel === 'python' ? 'python' : 'powershell');
+
+    const updated: ToolForgeDraft = {
+      id: idVal,
+      name: nameVal,
+      description: existing?.description || nameVal,
+      language: lang,
+      triggers: trigRaw.split(',').map((s) => s.trim()).filter(Boolean),
+      paramsSchema: existing?.paramsSchema || [],
+      code: codeVal,
+      testArgsJson: argsVal,
+      expectedKeywords: kwRaw.split(',').map((s) => s.trim()).filter(Boolean),
+      sandbox: existing?.sandbox || null,
+      healLogs: existing?.healLogs || [],
+      originalRequest: existing?.originalRequest || '',
+    };
+    setLatestToolForgeDraft(updated);
+    return updated;
+  };
+
+  document.getElementById('tf-code-editor')?.addEventListener('input', () => {
+    const d = syncDraftInputsToObj();
+    if (d.sandbox) {
+      d.sandbox = null;
+      setLatestToolForgeDraft(d);
+      renderToolForgeDraft(d);
+    }
+  });
+
+  document.getElementById('btn-tf-generate')?.addEventListener('click', async () => {
+    const reqEl = document.getElementById('tf-request-input') as HTMLTextAreaElement | null;
+    const langEl = document.getElementById('select-tf-lang') as HTMLSelectElement | null;
+    const genBtn = document.getElementById('btn-tf-generate') as HTMLButtonElement | null;
+    const reqText = reqEl?.value.trim() || '';
+    if (!reqText) {
+      setToolForgePipelineLog('[WARN] Vui lòng mô tả tool cần tạo trước khi gửi sang Gemini.');
+      return;
+    }
+    const pref = (langEl?.value || 'auto') as 'auto' | 'powershell' | 'python';
+    if (genBtn) {
+      genBtn.disabled = true;
+      genBtn.textContent = 'Gemini Đang Viết & Test Sandbox...';
+    }
+    setToolForgePipelineLog('');
+    try {
+      const draft = await forgeNewToolFromRequest(reqText, pref, (line) => {
+        appendToolForgePipelineLog(line);
+      });
+      setLatestToolForgeDraft(draft);
+      renderToolForgeDraft(draft);
+      syncHitboxToRust(true);
+    } catch (err) {
+      appendToolForgePipelineLog(`[ERR] ${String(err)}`);
+    } finally {
+      if (genBtn) {
+        genBtn.disabled = false;
+        genBtn.textContent = 'Nhờ Gemini Viết & Kiểm Nghiệm Sandbox';
+      }
+    }
+  });
+
+  document.getElementById('btn-tf-run-sandbox')?.addEventListener('click', async () => {
+    const btn = document.getElementById('btn-tf-run-sandbox') as HTMLButtonElement | null;
+    const draft = syncDraftInputsToObj();
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Đang chạy...';
+    }
+    appendToolForgePipelineLog('[SANDBOX] Bắt đầu kiểm nghiệm cô lập trên máy...');
+    try {
+      const tested = await runDraftInSandbox(draft);
+      renderToolForgeDraft(tested);
+      appendToolForgePipelineLog(
+        tested.sandbox?.verified
+          ? `[SANDBOX PASS] Kiểm chứng đạt (${tested.sandbox.duration_ms}ms, hash=${tested.sandbox.code_hash}).`
+          : `[SANDBOX FAIL] ${tested.sandbox?.failure_reason || 'Chưa đạt kiểm chứng.'}`
+      );
+    } catch (err) {
+      appendToolForgePipelineLog(`[SANDBOX ERR] ${String(err)}`);
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = 'Chạy Sandbox';
+      }
+    }
+  });
+
+  document.getElementById('btn-tf-self-heal')?.addEventListener('click', async () => {
+    const btn = document.getElementById('btn-tf-self-heal') as HTMLButtonElement | null;
+    const draft = syncDraftInputsToObj();
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Gemini Đang Vá...';
+    }
+    try {
+      const healed = await selfHealDraftWithGemini(draft, (line) => {
+        appendToolForgePipelineLog(line);
+      });
+      renderToolForgeDraft(healed);
+    } catch (err) {
+      appendToolForgePipelineLog(`[SELF-HEAL ERR] ${String(err)}`);
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = 'Tự Vá (Gemini)';
+      }
+    }
+  });
+
+  document.getElementById('btn-tf-confirm-save')?.addEventListener('click', async () => {
+    const btn = document.getElementById('btn-tf-confirm-save') as HTMLButtonElement | null;
+    const draft = syncDraftInputsToObj();
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Đang đóng gói...';
+    }
+    try {
+      const saved = await confirmAndSaveToolDraft(draft);
+      appendToolForgePipelineLog(
+        `[PACKAGED] Đã đóng gói & lưu skill "${saved.name}" (id=${saved.id}, v${saved.version}) vào SQLite + data/skills/${saved.id}/!`
+      );
+      speakMessage(
+        `[SKILL SAVED] Đã xác nhận & lưu skill "${saved.name}"! Lần sau bạn chỉ cần nhắn dùng (vd "Port 3000 đang bị kẹt, dọn giúp") là Local LLM sẽ gọi ngay tool này.`
+      );
+      setToolForgeTab('skills');
+      renderToolForgeSkillsList();
+    } catch (err) {
+      appendToolForgePipelineLog(`[GATE BLOCKED] ${String(err)}`);
+      renderToolForgeDraft(draft);
+    } finally {
+      if (btn) {
+        btn.textContent = 'Xác Nhận & Đóng Gói Skill';
+      }
+    }
+  });
 
   if (selectActiveWin) {
     selectActiveWin.addEventListener('change', () => {
@@ -3983,12 +5423,15 @@ export function initUi() {
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       if (appState.isOcrSnipMode) finishSnipOverlayReset();
+      else if (appState.isTarotModalOpen) toggleTarotModal(false);
+      else if (appState.isToolForgeOpen) toggleToolForgeModal(false);
       else if (appState.isOcrModalOpen) toggleOcrTranslateModal(false);
       else if (appState.isPcControlOpen) togglePcControlModal(false);
       else if (appState.isP2pArenaOpen) toggleP2pArenaModal(false);
       else if (appState.isNotificationManagerOpen) toggleNotificationModal(false);
       else if (appState.isLongMemoryOpen) toggleLongMemoryModal(false);
       else if (appState.isStudioOpen) toggleStudioModal(false);
+      else if (appState.isMiniScreenOpen) toggleMiniScreenPanel(false);
     }
   });
 
@@ -4204,6 +5647,94 @@ export function initUi() {
   // Hệ thống Đấu Trường P2P PK, Handshake Đồng Thuận, Nhảy Chéo Màn Hình & Điều Khiển Từ Xa 60s
   dockBtnP2p?.addEventListener('click', () => toggleP2pArenaModal());
   btnCloseP2p?.addEventListener('click', () => toggleP2pArenaModal(false));
+
+  // Hệ thống Tarot & Tử Vi 6 Giờ (nút ngoài cùng cạnh nút PK)
+  dockBtnTarot?.addEventListener('click', () => toggleTarotModal());
+  document.getElementById('btn-close-tarot')?.addEventListener('click', () => toggleTarotModal(false));
+  document.getElementById('tab-btn-tarot-today')?.addEventListener('click', () => setTarotTab('today'));
+  document.getElementById('tab-btn-tarot-history')?.addEventListener('click', () => {
+    setTarotTab('history');
+    void refreshTarotStatusUi();
+  });
+  document.querySelectorAll('.tarot-pick-card').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      void performTarotDrawAndFlip();
+    });
+  });
+  document.getElementById('btn-tarot-draw-now')?.addEventListener('click', () => {
+    void performTarotDrawAndFlip();
+  });
+  document.getElementById('btn-tarot-replay-3d')?.addEventListener('click', () => {
+    const rec = cachedTarotStatus?.current_reading;
+    if (rec) {
+      applyTarotReadingToModal(rec, true);
+      triggerDuckReactionForTarot(rec);
+    }
+  });
+  document.getElementById('btn-tarot-ai-deep')?.addEventListener('click', async () => {
+    const rec = cachedTarotStatus?.current_reading;
+    if (!rec) return;
+    const btn = document.getElementById('btn-tarot-ai-deep') as HTMLButtonElement | null;
+    const aiBox = document.getElementById('tarot-ai-box');
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Đang luận giải Tử Vi x Tarot...';
+    }
+    const orientStr = rec.is_reversed ? 'Ngược Chiều (Reversed)' : 'Thuận Chiều (Upright)';
+    const prompt = `Bạn là bậc thầy Tarot kết hợp Tử Vi Đông Phương. Hãy luận giải ngắn gọn, sắc sảo (4 gạch đầu dòng súc tích bằng tiếng Việt, KHÔNG dùng emoji) cho quẻ hiện tại:
+- Lá bài Tarot: ${rec.card_name_vi} (${rec.card_name}) - ${orientStr}
+- Ý nghĩa gốc: ${rec.meaning_en || rec.summary_vi}
+- Kết quả phân định: ${rec.fortune_label} (${rec.luck_score}/100)
+- Tử Vi: ${rec.can_chi_day}, Hành ${rec.ngu_hanh}, Màu hợp mệnh: ${rec.lucky_color}
+Hãy đưa ra: (1) Tổng vận 6 giờ tới, (2) Việc nên làm ngay, (3) Điều cần tránh/hóa giải, (4) Một câu nhắn tích cực.`;
+
+    try {
+      let aiReply = '';
+      try {
+        aiReply = await invoke<string>('ask_gemini', {
+          apiKey: geminiApiKey || '',
+          model: geminiModel,
+          systemPrompt: 'Trả lời tiếng Việt tự nhiên, thực tế, không emoji, đúng 4 gạch đầu dòng.',
+          messages: [{ role: 'user', content: prompt }],
+          jsonMode: false,
+        });
+      } catch {
+        aiReply = await invoke<string>('ask_ollama', {
+          model: ollamaModel,
+          messages: [
+            { role: 'system', content: 'Trả lời tiếng Việt ngắn gọn, không emoji.' },
+            { role: 'user', content: prompt },
+          ],
+        });
+      }
+
+      const cleaned = aiReply.trim();
+      if (cleaned) {
+        rec.ai_deep_reading = cleaned;
+        await invoke('tarot_save_ai_reading', { id: rec.id, aiReading: cleaned }).catch(() => { });
+        if (aiBox) {
+          aiBox.style.display = 'block';
+          aiBox.textContent = `[LUẬN GIẢI SÂU AI]\n${cleaned}`;
+        }
+        syncHitboxToRust(true);
+      }
+    } catch (err) {
+      if (aiBox) {
+        aiBox.style.display = 'block';
+        aiBox.textContent = `[AI LUẬN GIẢI LỖI] Chưa kết nối được Gemini hoặc Ollama Local: ${String(err)}`;
+      }
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = 'Luận Giải Sâu AI (Tử Vi x Tarot)';
+      }
+    }
+  });
+
+  void refreshTarotStatusUi();
+  setInterval(() => {
+    updateTarotCooldownCountdown();
+  }, 1000);
   document.getElementById('btn-minimize-p2p')?.addEventListener('click', () => toggleP2pArenaModal(false));
   document.getElementById('btn-p2p-expand-modal')?.addEventListener('click', () => toggleP2pArenaModal());
 
@@ -4223,13 +5754,13 @@ export function initUi() {
     void startSimPeerTest();
   });
   document.getElementById('btn-p2p-regen-code')?.addEventListener('click', async () => {
-    await invoke('p2p_regenerate_room').catch(() => {});
+    await invoke('p2p_regenerate_room').catch(() => { });
     await refreshP2pStatus();
   });
   document.getElementById('btn-p2p-copy-invite')?.addEventListener('click', (ev) => {
     const st = getP2pStatusSnapshot();
     const txt = `IP: ${st.local_ip}:${st.listen_port} | Ma Phong: ${st.room_code}`;
-    void navigator.clipboard.writeText(txt).catch(() => {});
+    void navigator.clipboard.writeText(txt).catch(() => { });
     const btn = ev.currentTarget as HTMLButtonElement;
     btn.textContent = 'Đã Copy Mã Mời!';
     setTimeout(() => (btn.textContent = 'Copy Mã Mời'), 1600);
@@ -4237,7 +5768,7 @@ export function initUi() {
   document.getElementById('btn-p2p-copy-mobile-url')?.addEventListener('click', (ev) => {
     const st = getP2pStatusSnapshot();
     const url = st.mobile_url || `http://${st.local_ip}:${st.listen_port}/?room=${st.room_code}`;
-    void navigator.clipboard.writeText(url).catch(() => {});
+    void navigator.clipboard.writeText(url).catch(() => { });
     const btn = ev.currentTarget as HTMLButtonElement;
     btn.textContent = 'Đã Copy Link!';
     setTimeout(() => (btn.textContent = 'Copy Link Mobile'), 1600);
@@ -4246,7 +5777,7 @@ export function initUi() {
   document.getElementById('btn-p2p-test-local-web')?.addEventListener('click', () => {
     const st = getP2pStatusSnapshot();
     const testUrl = `http://127.0.0.1:${st.listen_port}/?room=${st.room_code}`;
-    void invoke('open_web_or_app', { target: testUrl }).catch(() => {});
+    void invoke('open_web_or_app', { target: testUrl }).catch(() => { });
     speakMessage(`[MOBILE WEB] Đang mở thử giao diện Mobile Web trên PC tại ${testUrl}`);
   });
   document.getElementById('btn-p2p-open-firewall')?.addEventListener('click', async (ev) => {
@@ -4547,7 +6078,7 @@ export function initUi() {
       const report = `${activeDashboardAnalysis.quick_overview}\n\n${activeDashboardAnalysis.raw_excerpt.slice(0, 1200)}`;
       void invoke<string>('set_clipboard_text', { text: report })
         .then((m) => speakMessage(`[CLIPBOARD] ${m}`))
-        .catch(() => {});
+        .catch(() => { });
     }
   });
 
@@ -4589,6 +6120,7 @@ export function initUi() {
     const cmd = event.payload;
     if (cmd === 'summon_chat') {
       void emergencyReleaseP2pControl();
+      void invoke('mini_screen_restore_all_stealth').catch(() => {});
       if (appState.isEdgePeekMode) {
         toggleEdgePeekMode(false);
       }
@@ -4618,34 +6150,81 @@ export function initUi() {
   }, 1800);
 }
 
-export function updateUiPosition() {
-  if (!winTargetName) return;
-  const targetWin = findTargetWindow();
-  winTargetName.textContent = targetWin
-    ? targetWin.title
-    : 'Chưa phát hiện cửa sổ nào';
+let lastUiMetaSyncAt = 0;
 
-  if (selectActiveWin && appState.openWindows.length > 0) {
-    const currentHwnd = appState.activeWindowHwnd || (targetWin ? targetWin.hwnd : 0);
-    const optionsKey = appState.openWindows.map((w) => `${w.hwnd}:${w.title.slice(0, 16)}`).join('|');
-    if (selectActiveWin.dataset.key !== optionsKey) {
-      selectActiveWin.dataset.key = optionsKey;
-      const optionsHtml = [
-        '<option value="0">Tự động theo cửa sổ click gần nhất...</option>',
-        ...appState.openWindows.map((w) => {
-          const procTag = w.process_name ? `[${w.process_name}] ` : '';
-          const isSel = w.hwnd === currentHwnd ? 'selected' : '';
-          return `<option value="${w.hwnd}" ${isSel}>${procTag}${w.title.slice(0, 30)}</option>`;
-        }),
-      ].join('');
-      selectActiveWin.innerHTML = optionsHtml;
-    } else if (currentHwnd && selectActiveWin.value !== String(currentHwnd)) {
-      selectActiveWin.value = String(currentHwnd);
+function setPosIfChanged(el: HTMLElement | null | undefined, leftPx: number, topPx: number) {
+  if (!el) return;
+  const rx = Math.round(leftPx);
+  const ry = Math.round(topPx);
+  const sig = `${rx},${ry}`;
+  if (el.dataset.lastPos === sig) return;
+  el.dataset.lastPos = sig;
+  el.style.left = `${rx}px`;
+  el.style.top = `${ry}px`;
+}
+
+export function updateUiPosition(fromAnimLoop = false, delta = 1 / 60) {
+  if (!winTargetName) return;
+  const nowPerf = performance.now();
+
+  if (!fromAnimLoop || nowPerf - lastUiMetaSyncAt >= 250) {
+    lastUiMetaSyncAt = nowPerf;
+    const targetWin = findTargetWindow();
+    winTargetName.textContent = targetWin
+      ? targetWin.title
+      : 'Chưa phát hiện cửa sổ nào';
+
+    if (selectActiveWin && appState.openWindows.length > 0) {
+      const currentHwnd = appState.activeWindowHwnd || (targetWin ? targetWin.hwnd : 0);
+      const optionsKey = appState.openWindows.map((w) => `${w.hwnd}:${w.title.slice(0, 16)}`).join('|');
+      if (selectActiveWin.dataset.key !== optionsKey) {
+        selectActiveWin.dataset.key = optionsKey;
+        const optionsHtml = [
+          '<option value="0">Tự động theo cửa sổ click gần nhất...</option>',
+          ...appState.openWindows.map((w) => {
+            const procTag = w.process_name ? `[${w.process_name}] ` : '';
+            const isSel = w.hwnd === currentHwnd ? 'selected' : '';
+            return `<option value="${w.hwnd}" ${isSel}>${procTag}${w.title.slice(0, 30)}</option>`;
+          }),
+        ].join('');
+        selectActiveWin.innerHTML = optionsHtml;
+      } else if (currentHwnd && selectActiveWin.value !== String(currentHwnd)) {
+        selectActiveWin.value = String(currentHwnd);
+      }
+    }
+    if (appState.isMiniScreenOpen && miniScreenTab === 'mirror') {
+      void refreshMiniMirrorWindowSelect(false);
+    }
+
+    // Đồng bộ nhãn nút Hồ bơi theo trạng thái thực tế
+    if (btnActSwim) {
+      const swimmingNow = isWaterPoolActive();
+      const expectedText = swimmingNow ? 'Lên Bờ (Dừng Bơi)' : 'Hồ Bơi 3D & Đi Bơi Ra Xa';
+      if (btnActSwim.textContent !== expectedText) {
+        btnActSwim.textContent = expectedText;
+        btnActSwim.style.background = swimmingNow ? 'rgba(239, 68, 68, 0.28)' : 'rgba(14, 165, 233, 0.22)';
+        btnActSwim.style.borderColor = swimmingNow ? 'rgba(248, 113, 113, 0.55)' : 'rgba(56, 189, 248, 0.45)';
+        btnActSwim.style.color = swimmingNow ? '#fecaca' : '#bae6fd';
+      }
     }
   }
 
-  uiFollowX += (appState.posX - uiFollowX) * 0.24;
-  uiFollowY += (appState.posY - uiFollowY) * 0.24;
+  const needsMove =
+    !fromAnimLoop ||
+    Math.abs(appState.posX - uiFollowX) > 0.15 ||
+    Math.abs(appState.posY - uiFollowY) > 0.15 ||
+    appState.isFileDragHovering;
+  if (!needsMove) {
+    return;
+  }
+
+  const followAlpha = fromAnimLoop
+    ? 1 - Math.exp(-16 * Math.min(0.05, Math.max(0.001, delta)))
+    : 1;
+  uiFollowX += (appState.posX - uiFollowX) * followAlpha;
+  uiFollowY += (appState.posY - uiFollowY) * followAlpha;
+  if (Math.abs(appState.posX - uiFollowX) <= 0.15) uiFollowX = appState.posX;
+  if (Math.abs(appState.posY - uiFollowY) <= 0.15) uiFollowY = appState.posY;
 
   const s = appState.modelScale || 1.0;
   const gap = Math.round(66 * s);
@@ -4692,8 +6271,7 @@ export function updateUiPosition() {
     speechBubble.classList.add('side-mode');
     speechBubble.classList.toggle('follow-left', actualBubbleSide === 'left');
     speechBubble.classList.toggle('follow-right', actualBubbleSide === 'right');
-    speechBubble.style.left = `${Math.round(bubbleLeft)}px`;
-    speechBubble.style.top = `${Math.round(bubbleTop)}px`;
+    setPosIfChanged(speechBubble, bubbleLeft, bubbleTop);
     bubbleDockX = bubbleLeft;
     bubbleDockW = bubbleW;
   }
@@ -4704,27 +6282,17 @@ export function updateUiPosition() {
     const hudH = ingestHud.offsetHeight || 132;
     const hx = Math.max(12, Math.min(appState.W - hudW - 12, uiFollowX - hudW / 2));
     const hy = Math.max(12, Math.min(appState.H - hudH - 20, uiFollowY - 122 * appState.modelScale - hudH * 0.48));
-    ingestHud.style.left = `${Math.round(hx)}px`;
-    ingestHud.style.top = `${Math.round(hy)}px`;
-  }
-
-  // Đồng bộ nhãn nút Hồ bơi theo trạng thái thực tế
-  if (btnActSwim) {
-    const swimmingNow = isWaterPoolActive();
-    const expectedText = swimmingNow ? 'Lên Bờ (Dừng Bơi)' : 'Hồ Bơi 3D & Đi Bơi Ra Xa';
-    if (btnActSwim.textContent !== expectedText) {
-      btnActSwim.textContent = expectedText;
-      btnActSwim.style.background = swimmingNow ? 'rgba(239, 68, 68, 0.28)' : 'rgba(14, 165, 233, 0.22)';
-      btnActSwim.style.borderColor = swimmingNow ? 'rgba(248, 113, 113, 0.55)' : 'rgba(56, 189, 248, 0.45)';
-      btnActSwim.style.color = swimmingNow ? '#fecaca' : '#bae6fd';
-    }
+    setPosIfChanged(ingestHud, hx, hy);
   }
 
   // 2. Dock điều khiển dưới chân vịt
   if (companionDock) {
     const dockW = companionDock.offsetWidth || 136;
-    companionDock.style.left = `${Math.max(12, Math.min(appState.W - dockW - 12, uiFollowX - dockW / 2))}px`;
-    companionDock.style.top = `${Math.min(appState.H - 46, uiFollowY + 10)}px`;
+    setPosIfChanged(
+      companionDock,
+      Math.max(12, Math.min(appState.W - dockW - 12, uiFollowX - dockW / 2)),
+      Math.min(appState.H - 46, uiFollowY + 10)
+    );
   }
 
   // 3. Bảng Hành động Phải & Telemetry Trái bám cạnh bên vịt gọn gàng (tránh đè lên cửa sổ Chat đi theo vịt)
@@ -4788,14 +6356,12 @@ export function updateUiPosition() {
   if (appState.isLeftPanelOpen && leftTelemetryPanel) {
     const maxLeftY = Math.max(12, appState.H - leftH - 52);
     const leftY = Math.max(12, Math.min(maxLeftY, uiFollowY - leftH * 0.55));
-    leftTelemetryPanel.style.left = `${Math.round(leftX)}px`;
-    leftTelemetryPanel.style.top = `${Math.round(leftY)}px`;
+    setPosIfChanged(leftTelemetryPanel, leftX, leftY);
   }
 
   if (appState.isRightPanelOpen && rightActionPanel) {
     const maxRightY = Math.max(12, appState.H - rightH - 52);
     const rightY = Math.max(12, Math.min(maxRightY, uiFollowY - rightH * 0.48));
-    rightActionPanel.style.left = `${Math.round(rightX)}px`;
-    rightActionPanel.style.top = `${Math.round(rightY)}px`;
+    setPosIfChanged(rightActionPanel, rightX, rightY);
   }
 }

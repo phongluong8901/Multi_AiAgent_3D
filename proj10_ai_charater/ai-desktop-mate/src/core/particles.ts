@@ -42,6 +42,266 @@ let jetpackMesh: THREE.Group | null = null;
 let weatherPropGroup: THREE.Group | null = null;
 let builtWeatherPropMode: string = '';
 
+interface TarotCard3DItem {
+  group: THREE.Group;
+  slot: number; // -1, 0, 1
+  textures: THREE.CanvasTexture[];
+}
+
+interface Tarot3DFlipState {
+  root: THREE.Group;
+  cards: TarotCard3DItem[];
+  elapsed: number;
+  duration: number;
+  flippedTriggered: boolean;
+  fortuneColor: number;
+  isReversed: boolean;
+}
+
+let tarot3DFlipState: Tarot3DFlipState | null = null;
+
+function disposeTarot3DFlipEffect() {
+  if (!tarot3DFlipState) return;
+  scene.remove(tarot3DFlipState.root);
+  for (const c of tarot3DFlipState.cards) {
+    for (const tex of c.textures) tex.dispose();
+  }
+  tarot3DFlipState.root.traverse((obj) => {
+    if (obj instanceof THREE.Mesh) {
+      obj.geometry.dispose();
+      if (Array.isArray(obj.material)) {
+        obj.material.forEach((m) => m.dispose());
+      } else {
+        obj.material.dispose();
+      }
+    }
+  });
+  tarot3DFlipState = null;
+}
+
+function createTarotBackTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 384;
+  const ctx = canvas.getContext('2d')!;
+
+  const grad = ctx.createLinearGradient(0, 0, 256, 384);
+  grad.addColorStop(0, '#1e1b4b');
+  grad.addColorStop(0.5, '#312e81');
+  grad.addColorStop(1, '#0f172a');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 256, 384);
+
+  ctx.strokeStyle = '#fbbf24';
+  ctx.lineWidth = 6;
+  ctx.strokeRect(12, 12, 232, 360);
+  ctx.lineWidth = 2;
+  ctx.strokeRect(22, 22, 212, 340);
+
+  ctx.save();
+  ctx.translate(128, 192);
+  ctx.strokeStyle = 'rgba(251, 191, 36, 0.85)';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.arc(0, 0, 56, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.beginPath();
+  for (let i = 0; i < 8; i++) {
+    const a = (i * Math.PI) / 4;
+    const r = i % 2 === 0 ? 48 : 22;
+    const px = Math.cos(a) * r;
+    const py = Math.sin(a) * r;
+    if (i === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(250, 204, 21, 0.25)';
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+
+  ctx.fillStyle = '#fde68a';
+  ctx.font = 'bold 18px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('DUCK TAROT', 128, 56);
+  ctx.fillText('ARCANA', 128, 342);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+function createTarotFrontTexture(
+  cardNameVi: string,
+  cardNameEn: string,
+  fortuneCode: string,
+  fortuneLabel: string,
+  isReversed: boolean
+): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 384;
+  const ctx = canvas.getContext('2d')!;
+
+  const palette: Record<string, { bg1: string; bg2: string; accent: string }> = {
+    dai_cat: { bg1: '#422006', bg2: '#713f12', accent: '#facc15' },
+    tieu_cat: { bg1: '#064e3b', bg2: '#0f766e', accent: '#34d399' },
+    binh_hoa: { bg1: '#0c4a6e', bg2: '#1e3a8a', accent: '#38bdf8' },
+    tieu_hung: { bg1: '#431407', bg2: '#7c2d12', accent: '#fb923c' },
+    dai_hung: { bg1: '#450a0a', bg2: '#7f1d1d', accent: '#f87171' },
+  };
+  const pal = palette[fortuneCode] || palette.binh_hoa;
+
+  const grad = ctx.createLinearGradient(0, 0, 256, 384);
+  grad.addColorStop(0, pal.bg1);
+  grad.addColorStop(1, pal.bg2);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 256, 384);
+
+  ctx.strokeStyle = pal.accent;
+  ctx.lineWidth = 7;
+  ctx.strokeRect(12, 12, 232, 360);
+
+  ctx.fillStyle = pal.accent;
+  ctx.fillRect(32, 30, 192, 38);
+  ctx.fillStyle = '#0f172a';
+  ctx.font = 'bold 21px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(fortuneLabel, 128, 56);
+
+  // Biểu tượng trung tâm (xoay ngược 180 độ nếu Ngược Chiều)
+  ctx.save();
+  ctx.translate(128, 166);
+  if (isReversed) ctx.rotate(Math.PI);
+  ctx.strokeStyle = pal.accent;
+  ctx.lineWidth = 3.5;
+  ctx.beginPath();
+  ctx.arc(0, 0, 48, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(0, -40);
+  ctx.lineTo(34, 24);
+  ctx.lineTo(-34, 24);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(255,255,255,0.14)';
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+
+  ctx.fillStyle = '#f8fafc';
+  ctx.font = 'bold 17px sans-serif';
+  const titleLines = cardNameVi.length > 22 ? [cardNameVi.slice(0, 20), cardNameVi.slice(20)] : [cardNameVi];
+  titleLines.forEach((line, idx) => {
+    ctx.fillText(line.trim(), 128, 256 + idx * 24);
+  });
+
+  ctx.fillStyle = '#cbd5e1';
+  ctx.font = '14px sans-serif';
+  ctx.fillText(cardNameEn.slice(0, 24), 128, 314);
+
+  ctx.fillStyle = pal.accent;
+  ctx.font = 'bold 14px sans-serif';
+  ctx.fillText(isReversed ? '[NGUOC CHIEU]' : '[THUAN CHIEU]', 128, 348);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+export function triggerDuckTarot3DFlipEffect(
+  cardNameVi: string,
+  cardNameEn: string,
+  fortuneCode: string,
+  fortuneLabel: string,
+  isReversed: boolean
+) {
+  disposeTarot3DFlipEffect();
+
+  const colorMap: Record<string, number> = {
+    dai_cat: 0xfacc15,
+    tieu_cat: 0x34d399,
+    binh_hoa: 0x38bdf8,
+    tieu_hung: 0xfb923c,
+    dai_hung: 0xf87171,
+  };
+  const fortuneColor = colorMap[fortuneCode] || 0xa78bfa;
+
+  const root = new THREE.Group();
+  const cards: TarotCard3DItem[] = [];
+  const geo = new THREE.PlaneGeometry(52, 78);
+  const frameGeo = new THREE.BoxGeometry(54, 80, 2.2);
+
+  for (const slot of [-1, 0, 1]) {
+    const g = new THREE.Group();
+    const backTex = createTarotBackTexture();
+    const textures: THREE.CanvasTexture[] = [backTex];
+
+    const backMat = new THREE.MeshBasicMaterial({ map: backTex, side: THREE.FrontSide });
+    const backPlane = new THREE.Mesh(geo.clone(), backMat);
+    backPlane.position.z = 1.25;
+    g.add(backPlane);
+
+    const trimMat = new THREE.MeshStandardMaterial({
+      color: slot === 0 ? fortuneColor : 0x6366f1,
+      roughness: 0.35,
+      metalness: 0.6,
+    });
+    const frameMesh = new THREE.Mesh(frameGeo.clone(), trimMat);
+    g.add(frameMesh);
+
+    if (slot === 0) {
+      const frontTex = createTarotFrontTexture(
+        cardNameVi,
+        cardNameEn,
+        fortuneCode,
+        fortuneLabel,
+        isReversed
+      );
+      textures.push(frontTex);
+      const frontMat = new THREE.MeshBasicMaterial({ map: frontTex, side: THREE.FrontSide });
+      const frontPlane = new THREE.Mesh(geo.clone(), frontMat);
+      frontPlane.rotation.y = Math.PI;
+      frontPlane.position.z = -1.25;
+      g.add(frontPlane);
+    } else {
+      const rearPlane = new THREE.Mesh(
+        geo.clone(),
+        new THREE.MeshBasicMaterial({ map: backTex, side: THREE.FrontSide })
+      );
+      rearPlane.rotation.y = Math.PI;
+      rearPlane.position.z = -1.25;
+      g.add(rearPlane);
+    }
+
+    g.position.set(slot * 64, Math.abs(slot) * -8, -Math.abs(slot) * 10);
+    g.rotation.z = -slot * 0.16;
+    root.add(g);
+    cards.push({ group: g, slot, textures });
+  }
+
+  geo.dispose();
+  frameGeo.dispose();
+
+  const s = appState.modelScale || 1.0;
+  root.scale.setScalar(s);
+  root.position.set(appState.posX, -appState.posY + 190 * s, 28 * s);
+  scene.add(root);
+
+  spawnShockwave(appState.posX, appState.posY - 110 * s, 0xa78bfa);
+  spawnParticles(appState.posX, appState.posY - 140 * s, 18, fortuneColor);
+
+  tarot3DFlipState = {
+    root,
+    cards,
+    elapsed: 0,
+    duration: 5.8,
+    flippedTriggered: false,
+    fortuneColor,
+    isReversed,
+  };
+}
+
 function buildCloudCluster(colorHex: number, scale = 1.0): THREE.Group {
   const cloud = new THREE.Group();
   const mat = new THREE.MeshStandardMaterial({
@@ -1369,6 +1629,74 @@ export function updateParticles(delta: number) {
 
     if (p >= 1.0) {
       showFishingRod(false);
+    }
+  }
+
+  // Cập nhật hiệu ứng thẻ Tarot 3D lơ lửng & lật mặt trên đầu Vịt
+  if (tarot3DFlipState) {
+    tarot3DFlipState.elapsed += delta;
+    const t = tarot3DFlipState.elapsed;
+    tarot3DFlipState.root.scale.setScalar(s);
+    tarot3DFlipState.root.position.set(appState.posX, -appState.posY + 188 * s, 30 * s);
+
+    if (t < 1.1) {
+      // Pha 1: 3 lá bài xoay vòng tụ linh quanh trục trên đầu Vịt
+      const spinAngle = t * 5.2;
+      for (const c of tarot3DFlipState.cards) {
+        const angle = spinAngle + c.slot * ((Math.PI * 2) / 3);
+        const radius = 58 * (1 - t / 1.4);
+        c.group.position.set(Math.cos(angle) * radius, Math.sin(angle * 2) * 10, Math.sin(angle) * 26);
+        c.group.rotation.y = Math.sin(t * 6 + c.slot) * 0.35;
+        c.group.rotation.z = -Math.cos(angle) * 0.14;
+      }
+      if (Math.random() < delta * 18) {
+        spawnParticles(appState.posX + (Math.random() - 0.5) * 90 * s, appState.posY - 185 * s, 1, 0xa78bfa);
+      }
+    } else if (t < 2.05) {
+      // Pha 2: 2 lá phụ tách ra biến mất, lá chính phóng to & lật 180 độ lộ mặt Cát/Hung
+      const p = Math.min(1, (t - 1.1) / 0.95);
+      const ease = 1 - Math.pow(1 - p, 3);
+      if (!tarot3DFlipState.flippedTriggered && p >= 0.55) {
+        tarot3DFlipState.flippedTriggered = true;
+        spawnShockwave(appState.posX, appState.posY - 188 * s, tarot3DFlipState.fortuneColor);
+        spawnParticles(appState.posX, appState.posY - 188 * s, 20, tarot3DFlipState.fortuneColor);
+      }
+      for (const c of tarot3DFlipState.cards) {
+        if (c.slot === 0) {
+          c.group.position.set(0, ease * 10, 14);
+          c.group.rotation.z = 0;
+          c.group.rotation.y = ease * Math.PI;
+          c.group.scale.setScalar(1 + ease * 0.32);
+        } else {
+          c.group.visible = p < 0.35;
+          c.group.position.x = c.slot * (60 + p * 85);
+          c.group.scale.setScalar(Math.max(0.01, 1 - p * 2.5));
+        }
+      }
+    } else if (t < tarot3DFlipState.duration) {
+      // Pha 3: Lá bài đã lật tỏa hào quang nhẹ và nhấp nhô, sau 4.9s thu gọn biến mất
+      const remain = tarot3DFlipState.duration - t;
+      const outScale = remain < 0.7 ? Math.max(0.01, remain / 0.7) : 1.0;
+      for (const c of tarot3DFlipState.cards) {
+        if (c.slot === 0) {
+          c.group.position.set(0, 10 + Math.sin(t * 3.2) * 5, 14);
+          c.group.rotation.y = Math.PI + Math.sin(t * 2.1) * 0.14;
+          c.group.rotation.x = Math.cos(t * 1.8) * 0.06;
+          c.group.scale.setScalar(1.32 * outScale);
+        } else {
+          c.group.visible = false;
+        }
+      }
+      if (Math.random() < delta * 8) {
+        spawnParticles(
+          appState.posX + (Math.random() - 0.5) * 60 * s,
+          appState.posY - 195 * s,
+          1,
+          tarot3DFlipState.fortuneColor
+        );
+      }
+    } else {
+      disposeTarot3DFlipEffect();
     }
   }
 

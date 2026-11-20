@@ -44,6 +44,12 @@ export const pcControlModalHtml = `
         <button id="btn-pc-ocr" class="action-btn" type="button">OCR &amp; Tóm tắt Toàn Màn</button>
         <button id="btn-pc-vision" class="action-btn" type="button">Gemini Vision Màn hình</button>
       </div>
+      <button id="btn-pc-tool-forge" class="studio-btn-full" type="button" style="margin-top: 6px; margin-bottom: 0; background: rgba(16, 185, 129, 0.22); border-color: rgba(52, 211, 153, 0.55); color: #a7f3d0;">
+        Xưởng Skill AI &amp; Sandbox (Tự Tạo / Tự Vá Tool)
+      </button>
+      <button id="btn-pc-mini-screen" class="studio-btn-full" type="button" style="margin-top: 6px; margin-bottom: 0; background: rgba(56, 189, 248, 0.2); border-color: rgba(56, 189, 248, 0.5); color: #bae6fd;">
+        Màn Hình Mini (YouTube / Chiếu App &amp; Tab Live)
+      </button>
     </div>
 
     <!-- PHẦN 3: HỆ THỐNG, ÂM THANH & DEV TOOLS -->

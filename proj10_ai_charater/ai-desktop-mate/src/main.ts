@@ -7,7 +7,7 @@ import {
   registerRhythmGooseSpeakCallback,
   updateRhythmAndGoose,
 } from './core/rhythmAndGoose';
-import { updateP2pArena } from './core/p2pArena';
+import { updateP2pArena, isP2pDuelActive } from './core/p2pArena';
 import {
   createMicroDuckCharacter,
   createDetailedAnimeCharacter,
@@ -85,12 +85,55 @@ try {
   console.error('[INIT ERROR] initAssistant failed:', err);
 }
 
-const clock = new THREE.Clock();
+document.body.classList.toggle('eco-mode', appState.ecoMode);
+
+const ACTIVE_MOTION_STATES = new Set([
+  'DRAGGING',
+  'FALLING',
+  'JUMPING',
+  'WALKING',
+  'DANCING',
+  'BACKFLIP',
+  'SPIN',
+  'SWIMMING',
+  'SWINGING_WINDOW',
+  'CLIMBING',
+  'PARACHUTING',
+  'FLYING_ROCKET',
+  'PUSHING',
+  'PULLING',
+  'BUTT_PLANT',
+  'WAVING',
+  'HEADPAT',
+  'RADAR',
+  'EATING',
+  'SCANNING',
+  'ALERT',
+]);
+
+let lastFrameMs = performance.now();
+let simElapsedSec = 0;
 
 function animate() {
   requestAnimationFrame(animate);
-  const delta = Math.min(0.05, clock.getDelta());
-  const elapsed = clock.getElapsedTime();
+  const now = performance.now();
+  if (document.hidden) {
+    lastFrameMs = now;
+    return;
+  }
+
+  const isActiveMotion =
+    ACTIVE_MOTION_STATES.has(appState.state) ||
+    isP2pDuelActive() ||
+    appState.rhythmIntensity > 0.08;
+  if (appState.ecoMode && !isActiveMotion && now - lastFrameMs < 31) {
+    return;
+  }
+
+  const delta = Math.min(0.05, Math.max(0.001, (now - lastFrameMs) / 1000));
+  lastFrameMs = now;
+  simElapsedSec += delta;
+  const elapsed = simElapsedSec;
 
   stepPhysicsAndRoam(delta);
   updateP2pArena(delta, elapsed);
@@ -122,7 +165,7 @@ function animate() {
     appState.squashY * depthScale,
     appState.squashX * depthScale
   );
-  updateGroundAura(elapsed);
+  updateGroundAura(elapsed, delta);
 
   if (appState.state === 'DRAGGING') {
     appState.avatarGroup.rotation.z = THREE.MathUtils.lerp(
@@ -130,7 +173,7 @@ function animate() {
       appState.dragSway + Math.sin(elapsed * 12) * 0.08,
       Math.min(1, delta * 14)
     );
-    appState.dragSway *= 0.92;
+    appState.dragSway *= Math.pow(0.92, delta * 60);
   } else if (
     appState.state === 'SWINGING_WINDOW' ||
     appState.state === 'BUTT_PLANT' ||
@@ -162,7 +205,7 @@ function animate() {
   updateParticles(delta);
   updateWaterPool(delta, elapsed);
   updateTypewriter(delta);
-  updateUiPosition();
+  updateUiPosition(true, delta);
 
   syncHitboxToRust();
   renderer.render(scene, camera);
