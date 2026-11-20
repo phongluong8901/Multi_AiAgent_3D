@@ -12,35 +12,176 @@ export const renderer = new THREE.WebGLRenderer({
 });
 renderer.setSize(appState.W, appState.H);
 renderer.setPixelRatio(
-  appState.ecoMode
-    ? Math.min(window.devicePixelRatio || 1, 1.25)
-    : Math.min(window.devicePixelRatio || 1, 2)
+  appState.ecoMode ? 1 : Math.min(window.devicePixelRatio || 1, 1.5)
 );
 renderer.setClearColor(0x000000, 0);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 
+export interface RenderViewport {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  isFullScreen: boolean;
+}
+
+let vpLeft = 0;
+let vpTop = 0;
+let vpWidth = Math.max(64, appState.W || window.innerWidth || 1920);
+let vpHeight = Math.max(64, appState.H || window.innerHeight || 1080);
+let vpIsFullScreen = true;
+let vpCameraSynced = false;
+let compactCooldownSec = 0;
+let lastAppliedTransform = '';
+let lastAppliedCanvasW = 0;
+let lastAppliedCanvasH = 0;
+let lastAppliedDpr = 0;
+
+export function getRenderViewport(): RenderViewport {
+  return {
+    left: vpLeft,
+    top: vpTop,
+    width: vpWidth,
+    height: vpHeight,
+    isFullScreen: vpIsFullScreen,
+  };
+}
+
+export function markFullScreenDirty(_frames = 3) {
+  compactCooldownSec = Math.max(compactCooldownSec, 0.35);
+}
+
+function applyViewportLayout(
+  left: number,
+  top: number,
+  width: number,
+  height: number,
+  isFull: boolean
+) {
+  const screenW = Math.max(64, appState.W || 1920);
+  const screenH = Math.max(64, appState.H || 1080);
+  const w = Math.max(64, Math.min(screenW, Math.round(width)));
+  const h = Math.max(64, Math.min(screenH, Math.round(height)));
+  const l = Math.max(0, Math.min(Math.max(0, screenW - w), Math.round(left)));
+  const t = Math.max(0, Math.min(Math.max(0, screenH - h), Math.round(top)));
+  const dpr = appState.ecoMode ? 1 : Math.min(window.devicePixelRatio || 1, 1.5);
+
+  if (w !== lastAppliedCanvasW || h !== lastAppliedCanvasH || dpr !== lastAppliedDpr) {
+    renderer.setPixelRatio(dpr);
+    renderer.setSize(w, h);
+    lastAppliedCanvasW = w;
+    lastAppliedCanvasH = h;
+    lastAppliedDpr = dpr;
+  }
+
+  const nextTransform = `translate3d(${l}px, ${t}px, 0)`;
+  if (nextTransform !== lastAppliedTransform) {
+    renderer.domElement.style.transform = nextTransform;
+    lastAppliedTransform = nextTransform;
+  }
+
+  if (
+    !vpCameraSynced ||
+    l !== vpLeft ||
+    t !== vpTop ||
+    w !== vpWidth ||
+    h !== vpHeight
+  ) {
+    camera.left = l;
+    camera.right = l + w;
+    camera.top = -t;
+    camera.bottom = -(t + h);
+    camera.updateProjectionMatrix();
+    vpCameraSynced = true;
+  }
+
+  vpLeft = l;
+  vpTop = t;
+  vpWidth = w;
+  vpHeight = h;
+  vpIsFullScreen = isFull;
+}
+
+export function renderSceneOptimized(needsFullScreen: boolean, delta = 1 / 60) {
+  if (appState.W <= 0 || appState.H <= 0) {
+    return;
+  }
+  if (needsFullScreen) {
+    compactCooldownSec = 1.5;
+    applyViewportLayout(0, 0, appState.W, appState.H, true);
+    renderer.render(scene, camera);
+    return;
+  }
+  if (compactCooldownSec > 0) {
+    compactCooldownSec = Math.max(0, compactCooldownSec - delta);
+    if (vpIsFullScreen) {
+      applyViewportLayout(0, 0, appState.W, appState.H, true);
+      renderer.render(scene, camera);
+      return;
+    }
+  }
+
+  const s = appState.modelScale || 1.0;
+  const boxW = Math.max(256, Math.min(appState.W, Math.ceil((460 * s) / 64) * 64));
+  const boxH = Math.max(256, Math.min(appState.H, Math.ceil((480 * s) / 64) * 64));
+  if (boxW >= appState.W * 0.85 && boxH >= appState.H * 0.85) {
+    applyViewportLayout(0, 0, appState.W, appState.H, true);
+    renderer.render(scene, camera);
+    return;
+  }
+
+  const maxLeft = Math.max(0, appState.W - boxW);
+  const maxTop = Math.max(0, appState.H - boxH);
+  let nextLeft = appState.posX - boxW * 0.5;
+  let nextTop = appState.posY - boxH * 0.78;
+
+  if (!vpIsFullScreen && vpWidth === boxW && vpHeight === boxH) {
+    const insideX =
+      (appState.posX >= vpLeft + 150 * s || vpLeft <= 1) &&
+      (appState.posX <= vpLeft + boxW - 150 * s || vpLeft >= maxLeft - 1);
+    const insideY =
+      (appState.posY >= vpTop + 310 * s || vpTop <= 1) &&
+      (appState.posY <= vpTop + boxH - 85 * s || vpTop >= maxTop - 1);
+    if (insideX && insideY) {
+      nextLeft = vpLeft;
+      nextTop = vpTop;
+    }
+  }
+
+  applyViewportLayout(
+    Math.max(0, Math.min(maxLeft, nextLeft)),
+    Math.max(0, Math.min(maxTop, nextTop)),
+    boxW,
+    boxH,
+    false
+  );
+  renderer.render(scene, camera);
+}
+
 export function applyRendererEcoQuality() {
-  const targetRatio = appState.ecoMode
-    ? Math.min(window.devicePixelRatio || 1, 1.25)
-    : Math.min(window.devicePixelRatio || 1, 2);
-  renderer.setPixelRatio(targetRatio);
-  renderer.setSize(appState.W, appState.H);
+  if (vpIsFullScreen) {
+    applyViewportLayout(0, 0, appState.W, appState.H, true);
+  } else {
+    applyViewportLayout(vpLeft, vpTop, vpWidth, vpHeight, false);
+  }
 }
 
 let groundGroup: THREE.Group | null = null;
 let groundRingMat: THREE.MeshBasicMaterial | null = null;
 let groundDiscMat: THREE.MeshBasicMaterial | null = null;
 const eqBars: THREE.Mesh[] = [];
+let eqBarsVisible = false;
 
 export function initScene(container: HTMLElement) {
   appState.W = window.innerWidth || 1920;
   appState.H = window.innerHeight || 1080;
-  camera.left = 0;
-  camera.right = appState.W;
-  camera.top = 0;
-  camera.bottom = -appState.H;
-  camera.updateProjectionMatrix();
-  applyRendererEcoQuality();
+
+  renderer.domElement.style.position = 'fixed';
+  renderer.domElement.style.left = '0px';
+  renderer.domElement.style.top = '0px';
+  renderer.domElement.style.pointerEvents = 'none';
+  renderer.domElement.style.willChange = 'transform';
+  applyViewportLayout(0, 0, Math.max(64, appState.W), Math.max(64, appState.H), true);
 
   container.appendChild(renderer.domElement);
 
@@ -102,12 +243,13 @@ export function initScene(container: HTMLElement) {
   scene.add(appState.avatarGroup);
 
   window.addEventListener('resize', () => {
-    appState.W = window.innerWidth;
-    appState.H = window.innerHeight;
-    camera.right = appState.W;
-    camera.bottom = -appState.H;
-    camera.updateProjectionMatrix();
-    applyRendererEcoQuality();
+    appState.W = window.innerWidth || 1920;
+    appState.H = window.innerHeight || 1080;
+    if (vpIsFullScreen) {
+      applyViewportLayout(0, 0, appState.W, appState.H, true);
+    } else {
+      applyViewportLayout(vpLeft, vpTop, vpWidth, vpHeight, false);
+    }
   });
 }
 
@@ -119,26 +261,33 @@ export function updateGroundAura(elapsed: number, delta = 1 / 60) {
   if (appState.state === 'SWIMMING') {
     groundRingMat.opacity = 0;
     groundDiscMat.opacity = 0;
-    eqBars.forEach((b) => {
-      b.visible = false;
-    });
+    if (eqBarsVisible) {
+      eqBars.forEach((b) => {
+        b.visible = false;
+      });
+      eqBarsVisible = false;
+    }
     return;
   }
 
   const rhythmActive = appState.rhythmIntensity > 0.05;
-  eqBars.forEach((bar, i) => {
-    if (!rhythmActive) {
+  if (rhythmActive) {
+    eqBarsVisible = true;
+    eqBars.forEach((bar, i) => {
+      bar.visible = true;
+      const hScale = Math.max(
+        0.15,
+        appState.rhythmIntensity * (0.4 + 0.6 * Math.abs(Math.sin(elapsed * 12 + i * 0.7)))
+      );
+      bar.scale.y = hScale;
+      bar.position.y = 9 * hScale;
+    });
+  } else if (eqBarsVisible) {
+    eqBars.forEach((bar) => {
       bar.visible = false;
-      return;
-    }
-    bar.visible = true;
-    const hScale = Math.max(
-      0.15,
-      appState.rhythmIntensity * (0.4 + 0.6 * Math.abs(Math.sin(elapsed * 12 + i * 0.7)))
-    );
-    bar.scale.y = hScale;
-    bar.position.y = 9 * hScale;
-  });
+    });
+    eqBarsVisible = false;
+  }
 
   const floorY = appState.H - 48;
   const distAboveFloor = Math.max(0, floorY - appState.posY);

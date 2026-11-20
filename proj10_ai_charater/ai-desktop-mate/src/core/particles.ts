@@ -41,6 +41,14 @@ let jetpackMesh: THREE.Group | null = null;
 
 let weatherPropGroup: THREE.Group | null = null;
 let builtWeatherPropMode: string = '';
+let weatherRefs: {
+  cloud: THREE.Object3D | null;
+  sunRays: THREE.Object3D | null;
+  lightning: THREE.Object3D | null;
+  snowman: THREE.Object3D | null;
+  vortex: THREE.Object3D | null;
+  stars: THREE.Object3D | null;
+} | null = null;
 
 interface TarotCard3DItem {
   group: THREE.Group;
@@ -341,6 +349,7 @@ function disposeWeatherProps() {
     }
   });
   weatherPropGroup = null;
+  weatherRefs = null;
   builtWeatherPropMode = '';
 }
 
@@ -568,6 +577,14 @@ function ensureWeatherProps(mode: string) {
   group.position.set(appState.posX, -appState.posY, 18 * initScale);
   scene.add(group);
   weatherPropGroup = group;
+  weatherRefs = {
+    cloud: group.getObjectByName('cloudFloat') ?? null,
+    sunRays: group.getObjectByName('sunRays') ?? null,
+    lightning: group.getObjectByName('lightning') ?? null,
+    snowman: group.getObjectByName('snowman') ?? null,
+    vortex: group.getObjectByName('windVortex') ?? null,
+    stars: group.getObjectByName('nightStars') ?? null,
+  };
 }
 
 interface FishingRodState {
@@ -583,22 +600,116 @@ let fishingState: FishingRodState | null = null;
 const particleGeo = new THREE.OctahedronGeometry(4.5, 0);
 const shockwaveGeo = new THREE.RingGeometry(18, 25, 28);
 
+const MAX_ACTIVE_PARTICLES = 120;
+const MAX_POOLED_PARTICLES = 120;
+const MAX_POOLED_SHOCKWAVES = 16;
+const particleMeshPool: THREE.Mesh[] = [];
+const shockwaveMeshPool: THREE.Mesh[] = [];
+
+function acquireParticleMesh(colorHex: number, opacity: number): THREE.Mesh {
+  const pooled = particleMeshPool.pop();
+  if (pooled) {
+    const mat = pooled.material as THREE.MeshBasicMaterial;
+    mat.color.setHex(colorHex);
+    mat.opacity = opacity;
+    pooled.rotation.set(0, 0, 0);
+    pooled.visible = true;
+    return pooled;
+  }
+  const mat = new THREE.MeshBasicMaterial({
+    color: colorHex,
+    transparent: true,
+    opacity,
+  });
+  const mesh = new THREE.Mesh(particleGeo, mat);
+  scene.add(mesh);
+  return mesh;
+}
+
+function releaseParticleMesh(mesh: THREE.Mesh) {
+  if (particleMeshPool.length < MAX_POOLED_PARTICLES) {
+    mesh.visible = false;
+    particleMeshPool.push(mesh);
+    return;
+  }
+  scene.remove(mesh);
+  (mesh.material as THREE.Material).dispose();
+}
+
+function acquireShockwaveMesh(colorHex: number, opacity: number): THREE.Mesh {
+  const pooled = shockwaveMeshPool.pop();
+  if (pooled) {
+    const mat = pooled.material as THREE.MeshBasicMaterial;
+    mat.color.setHex(colorHex);
+    mat.opacity = opacity;
+    pooled.rotation.set(-Math.PI / 2, 0, 0);
+    pooled.visible = true;
+    return pooled;
+  }
+  const mat = new THREE.MeshBasicMaterial({
+    color: colorHex,
+    side: THREE.DoubleSide,
+    transparent: true,
+    opacity,
+  });
+  const mesh = new THREE.Mesh(shockwaveGeo, mat);
+  mesh.rotation.x = -Math.PI / 2;
+  scene.add(mesh);
+  return mesh;
+}
+
+function releaseShockwaveMesh(mesh: THREE.Mesh) {
+  if (shockwaveMeshPool.length < MAX_POOLED_SHOCKWAVES) {
+    mesh.visible = false;
+    shockwaveMeshPool.push(mesh);
+    return;
+  }
+  scene.remove(mesh);
+  (mesh.material as THREE.Material).dispose();
+}
+
+export function hasWideParticlesOrEffects(): boolean {
+  if (
+    shockwaves.length > 0 ||
+    blackHolePortals.length > 0 ||
+    frameHighlights.length > 0 ||
+    foodMesh !== null ||
+    ladderMesh !== null ||
+    parachuteMesh !== null ||
+    jetpackMesh !== null ||
+    radarMesh !== null ||
+    fishingRodMesh !== null ||
+    tarot3DFlipState !== null
+  ) {
+    return true;
+  }
+  if (particles.length === 0) return false;
+  const s = appState.modelScale || 1.0;
+  const minX = appState.posX - 200 * s;
+  const maxX = appState.posX + 200 * s;
+  const minY = appState.posY - 350 * s;
+  const maxY = appState.posY + 80 * s;
+  for (let i = 0; i < particles.length; i++) {
+    const px = particles[i].mesh.position.x;
+    const py = -particles[i].mesh.position.y;
+    if (px < minX || px > maxX || py < minY || py > maxY) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export function spawnParticles(x: number, y: number, count: number, colorHex: number) {
   const s = appState.modelScale || 1.0;
   for (let i = 0; i < count; i++) {
-    const mat = new THREE.MeshBasicMaterial({
-      color: colorHex,
-      transparent: true,
-      opacity: 1,
-    });
-    const mesh = new THREE.Mesh(particleGeo, mat);
+    if (particles.length >= MAX_ACTIVE_PARTICLES) return;
+    const mesh = acquireParticleMesh(colorHex, 1);
     mesh.scale.setScalar(s);
     mesh.position.set(
       x + (Math.random() - 0.5) * 55 * s,
       -(y + (Math.random() - 0.5) * 40 * s),
       30 + Math.random() * 20
     );
-    scene.add(mesh);
 
     particles.push({
       mesh,
@@ -616,12 +727,8 @@ export function spawnDriftSmoke(x: number, y: number, dir = -1) {
   const s = appState.modelScale || 1.0;
   const smokeColor = Math.random() < 0.4 ? 0xf97316 : 0xe2e8f0;
   for (let i = 0; i < 3; i++) {
-    const mat = new THREE.MeshBasicMaterial({
-      color: smokeColor,
-      transparent: true,
-      opacity: 0.85,
-    });
-    const mesh = new THREE.Mesh(particleGeo, mat);
+    if (particles.length >= MAX_ACTIVE_PARTICLES) return;
+    const mesh = acquireParticleMesh(smokeColor, 0.85);
     mesh.position.set(
       x + (Math.random() - 0.5) * 16 * s,
       -(y - 4 * s + Math.random() * 8 * s),
@@ -629,7 +736,6 @@ export function spawnDriftSmoke(x: number, y: number, dir = -1) {
     );
     const bScale = (0.7 + Math.random() * 0.7) * s;
     mesh.scale.setScalar(bScale);
-    scene.add(mesh);
 
     particles.push({
       mesh,
@@ -647,12 +753,11 @@ export function spawnFlamePlume(x: number, y: number) {
   const s = appState.modelScale || 1.0;
   const flameColors = [0xf97316, 0xfbbf24, 0xef4444, 0x38bdf8];
   for (let i = 0; i < 2; i++) {
-    const mat = new THREE.MeshBasicMaterial({
-      color: flameColors[Math.floor(Math.random() * flameColors.length)],
-      transparent: true,
-      opacity: 0.92,
-    });
-    const mesh = new THREE.Mesh(particleGeo, mat);
+    if (particles.length >= MAX_ACTIVE_PARTICLES) return;
+    const mesh = acquireParticleMesh(
+      flameColors[Math.floor(Math.random() * flameColors.length)],
+      0.92
+    );
     mesh.position.set(
       x + (Math.random() - 0.5) * 10 * s,
       -(y + Math.random() * 6 * s),
@@ -660,7 +765,6 @@ export function spawnFlamePlume(x: number, y: number) {
     );
     const bScale = (0.55 + Math.random() * 0.45) * s;
     mesh.scale.setScalar(bScale);
-    scene.add(mesh);
 
     particles.push({
       mesh,
@@ -676,17 +780,9 @@ export function spawnFlamePlume(x: number, y: number) {
 
 export function spawnShockwave(x: number, y: number, colorHex = 0x38bdf8) {
   const s = appState.modelScale || 1.0;
-  const mat = new THREE.MeshBasicMaterial({
-    color: colorHex,
-    side: THREE.DoubleSide,
-    transparent: true,
-    opacity: 0.85,
-  });
-  const mesh = new THREE.Mesh(shockwaveGeo, mat);
-  mesh.rotation.x = -Math.PI / 2;
+  const mesh = acquireShockwaveMesh(colorHex, 0.85);
   mesh.scale.setScalar(s);
   mesh.position.set(x, -y + 2 * s, 0);
-  scene.add(mesh);
 
   shockwaves.push({
     mesh,
@@ -1332,16 +1428,11 @@ export function triggerRandomSpecial3DEffect(
     scale: number,
     maxLife: number
   ) => {
-    const mat = new THREE.MeshBasicMaterial({
-      color: colorHex,
-      transparent: true,
-      opacity: 0.96,
-    });
-    const mesh = new THREE.Mesh(particleGeo, mat);
+    if (particles.length >= MAX_ACTIVE_PARTICLES) return;
+    const mesh = acquireParticleMesh(colorHex, 0.96);
     const scaled = scale * s;
     mesh.scale.setScalar(scaled);
     mesh.position.set(px, -py, (28 + Math.random() * 14) * s);
-    scene.add(mesh);
     particles.push({
       mesh,
       vx: vx * s,
@@ -1431,8 +1522,7 @@ export function updateParticles(delta: number) {
     const p = particles[i];
     p.life += delta;
     if (p.life >= p.maxLife) {
-      scene.remove(p.mesh);
-      (p.mesh.material as THREE.Material).dispose();
+      releaseParticleMesh(p.mesh);
       particles.splice(i, 1);
       continue;
     }
@@ -1450,8 +1540,7 @@ export function updateParticles(delta: number) {
     const sw = shockwaves[i];
     sw.life += delta;
     if (sw.life >= sw.maxLife) {
-      scene.remove(sw.mesh);
-      (sw.mesh.material as THREE.Material).dispose();
+      releaseShockwaveMesh(sw.mesh);
       shockwaves.splice(i, 1);
       continue;
     }
@@ -1717,34 +1806,29 @@ export function updateParticles(delta: number) {
   // Vật thể thời tiết 3D trực quan cạnh vịt (1 mây, 1 mặt trời, 1 gió xoáy hoặc người tuyết đồng bộ)
   if (appState.state !== 'SWIMMING' && !appState.isEdgePeekMode && !isP2pSessionActive()) {
     ensureWeatherProps(appState.weatherMode);
-    if (weatherPropGroup) {
+    if (weatherPropGroup && weatherRefs) {
       weatherPropGroup.scale.setScalar(s);
       weatherPropGroup.position.set(appState.posX, -appState.posY, 18 * s);
       const tNow = performance.now() * 0.001;
-      const cloud = weatherPropGroup.getObjectByName('cloudFloat');
+      const { cloud, sunRays, lightning, snowman, vortex, stars } = weatherRefs;
       if (cloud) {
         cloud.position.y = (cloud.userData.baseY ?? 232) + Math.sin(tNow * 2.2) * 3.5;
       }
-      const sunRays = weatherPropGroup.getObjectByName('sunRays');
       if (sunRays) {
         sunRays.rotation.z += delta * 1.4;
       }
-      const lightning = weatherPropGroup.getObjectByName('lightning');
       if (lightning) {
         lightning.visible = Math.sin(tNow * 13) > 0.72;
       }
-      const snowman = weatherPropGroup.getObjectByName('snowman');
       if (snowman) {
         snowman.rotation.z = Math.sin(tNow * 2.4) * 0.05;
       }
-      const vortex = weatherPropGroup.getObjectByName('windVortex');
       if (vortex) {
         vortex.rotation.y += delta * 8.5;
         vortex.children.forEach((ring, idx) => {
           ring.position.x = Math.sin(tNow * 6 + idx * 0.9) * 5;
         });
       }
-      const stars = weatherPropGroup.getObjectByName('nightStars');
       if (stars) {
         stars.children.forEach((st, idx) => {
           st.rotation.y += delta * (1.8 + idx * 0.5);
@@ -1812,25 +1896,21 @@ export function updateParticles(delta: number) {
         scale = 0.65;
       }
 
-      const mat = new THREE.MeshBasicMaterial({
-        color: colorHex,
-        transparent: true,
-        opacity: 0.88,
-      });
-      const mesh = new THREE.Mesh(particleGeo, mat);
-      const scaledParticle = scale * s;
-      mesh.scale.setScalar(scaledParticle);
-      mesh.position.set(px, -py, 22);
-      scene.add(mesh);
-      particles.push({
-        mesh,
-        vx: vx * s,
-        vy: vy * s,
-        vz: (Math.random() - 0.5) * 0.6 * s,
-        life: 0,
-        maxLife,
-        baseScale: scaledParticle,
-      });
+      if (particles.length < MAX_ACTIVE_PARTICLES) {
+        const mesh = acquireParticleMesh(colorHex, 0.88);
+        const scaledParticle = scale * s;
+        mesh.scale.setScalar(scaledParticle);
+        mesh.position.set(px, -py, 22);
+        particles.push({
+          mesh,
+          vx: vx * s,
+          vy: vy * s,
+          vz: (Math.random() - 0.5) * 0.6 * s,
+          life: 0,
+          maxLife,
+          baseScale: scaledParticle,
+        });
+      }
     }
   }
 }

@@ -8,9 +8,7 @@
   padding: 10px 12px;
   z-index: 9990;
   border-radius: 14px;
-  background: rgba(10, 15, 30, 0.94);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
+  background: rgba(10, 15, 30, 0.95);
   border: 1px solid rgba(129, 140, 248, 0.38);
   box-shadow: 0 14px 34px rgba(0, 0, 0, 0.56), 0 0 18px rgba(99, 102, 241, 0.14);
   display: flex;
@@ -947,9 +945,7 @@ input[type="range"] {
   gap: 8px;
   padding: 10px 11px;
   border-radius: 12px;
-  background: rgba(15, 23, 42, 0.9);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  background: rgba(15, 23, 42, 0.95);
   border: 1px solid rgba(251, 191, 36, 0.4);
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5);
   z-index: 48;

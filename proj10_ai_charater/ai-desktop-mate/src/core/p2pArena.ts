@@ -278,6 +278,7 @@ let statusCountdownTimer = 0;
 let liveMouseStreamEnabled = false;
 let lastMouseStreamSent = 0;
 let initialized = false;
+let p2pIdleOverlaysCleaned = false;
 
 export function getP2pStatusSnapshot(): P2pStatus {
   return currentStatus;
@@ -620,30 +621,36 @@ function updateP2pCombatOverlaysVisibility() {
   const ctrl = document.getElementById('p2p-pk-controller');
   const active = isP2pCombatControlsActive() && !appState.isMigratedOut;
   if (ctrl) {
-    ctrl.style.display = active ? 'flex' : 'none';
-    const shieldBtn = document.getElementById('btn-p2p-ctrl-shield');
-    if (shieldBtn) {
-      shieldBtn.classList.toggle('is-active', heroBulletShieldActive);
-    }
-    const bhBtn = document.getElementById('btn-p2p-ctrl-bh');
-    if (bhBtn) {
-      bhBtn.classList.toggle('is-active', heroHiddenTimer > 0);
-    }
-    const rocketBtn = document.getElementById('btn-p2p-ctrl-rocket');
-    if (rocketBtn) {
-      rocketBtn.classList.toggle('is-active', heroJetpackActive);
-    }
-    const enTextEl = document.getElementById('p2p-ctrl-en-text');
-    const enFillEl = document.getElementById('p2p-ctrl-en-fill');
-    const peerStatEl = document.getElementById('p2p-ctrl-peer-stat');
-    const roundedEn = Math.round(myEnergy);
-    if (enTextEl) enTextEl.textContent = `EN ${roundedEn}/${MAX_ENERGY}`;
-    if (enFillEl) {
-      enFillEl.style.width = `${Math.max(0, Math.min(100, (myEnergy / MAX_ENERGY) * 100))}%`;
-      enFillEl.classList.toggle('low', roundedEn < 20);
-    }
-    if (peerStatEl) {
-      peerStatEl.textContent = `Doi thu: ${peerHp} HP | ${Math.round(peerEnergy)} EN`;
+    if (!active) {
+      if (ctrl.style.display !== 'none') {
+        ctrl.style.display = 'none';
+      }
+    } else {
+      ctrl.style.display = 'flex';
+      const shieldBtn = document.getElementById('btn-p2p-ctrl-shield');
+      if (shieldBtn) {
+        shieldBtn.classList.toggle('is-active', heroBulletShieldActive);
+      }
+      const bhBtn = document.getElementById('btn-p2p-ctrl-bh');
+      if (bhBtn) {
+        bhBtn.classList.toggle('is-active', heroHiddenTimer > 0);
+      }
+      const rocketBtn = document.getElementById('btn-p2p-ctrl-rocket');
+      if (rocketBtn) {
+        rocketBtn.classList.toggle('is-active', heroJetpackActive);
+      }
+      const enTextEl = document.getElementById('p2p-ctrl-en-text');
+      const enFillEl = document.getElementById('p2p-ctrl-en-fill');
+      const peerStatEl = document.getElementById('p2p-ctrl-peer-stat');
+      const roundedEn = Math.round(myEnergy);
+      if (enTextEl) enTextEl.textContent = `EN ${roundedEn}/${MAX_ENERGY}`;
+      if (enFillEl) {
+        enFillEl.style.width = `${Math.max(0, Math.min(100, (myEnergy / MAX_ENERGY) * 100))}%`;
+        enFillEl.classList.toggle('low', roundedEn < 20);
+      }
+      if (peerStatEl) {
+        peerStatEl.textContent = `Doi thu: ${peerHp} HP | ${Math.round(peerEnergy)} EN`;
+      }
     }
   }
 
@@ -655,7 +662,7 @@ function updateP2pCombatOverlaysVisibility() {
       crosshair.style.display = 'block';
       crosshair.style.left = `${cx}px`;
       crosshair.style.top = `${cy}px`;
-    } else {
+    } else if (crosshair.style.display !== 'none') {
       crosshair.style.display = 'none';
     }
   }
@@ -667,7 +674,9 @@ function updateP2pCombatOverlaysVisibility() {
       currentStatus.is_room_host === false &&
       remoteHostPlatforms.length > 0;
     if (!showGuestMap) {
-      hostMap.style.display = 'none';
+      if (hostMap.style.display !== 'none') {
+        hostMap.style.display = 'none';
+      }
       lastRenderedHostMapKey = '';
     } else {
       const wScreen = appState.W || window.innerWidth || 1920;
@@ -1154,7 +1163,9 @@ function updateP2pFloatingHud() {
   const shouldShow =
     currentStatus.phase === 'pk_duel' || (peerPresentOnMyScreen && currentStatus.phase === 'connected');
   if (!shouldShow) {
-    el.style.display = 'none';
+    if (el.style.display !== 'none') {
+      el.style.display = 'none';
+    }
     return;
   }
 
@@ -2020,6 +2031,36 @@ export async function sendWinnerRemoteCmd(
 }
 
 export function updateP2pArena(delta: number, elapsed: number) {
+  const hasAnyP2pWork =
+    isP2pSessionActive() ||
+    peerPresentOnMyScreen ||
+    pvpBolts.length > 0 ||
+    pkFoods.length > 0 ||
+    pendingThunders.length > 0 ||
+    edgeMigrationCooldown > 0 ||
+    myShieldTimer > 0 ||
+    peerShieldTimer > 0 ||
+    myDodgeTimer > 0 ||
+    peerDodgeTimer > 0 ||
+    myDashCooldown > 0 ||
+    heroDropThroughTimer > 0 ||
+    heroAttackAnimTimer > 0 ||
+    peerAttackAnimTimer > 0 ||
+    heroHiddenTimer > 0 ||
+    heroSlideTimer > 0 ||
+    heroBulletShieldActive ||
+    heroBulletShieldCooldown > 0;
+
+  if (!hasAnyP2pWork) {
+    if (!p2pIdleOverlaysCleaned) {
+      updateP2pCombatOverlaysVisibility();
+      updateP2pFloatingHud();
+      p2pIdleOverlaysCleaned = true;
+    }
+    return;
+  }
+  p2pIdleOverlaysCleaned = false;
+
   if (edgeMigrationCooldown > 0) edgeMigrationCooldown = Math.max(0, edgeMigrationCooldown - delta);
   if (myShieldTimer > 0) myShieldTimer = Math.max(0, myShieldTimer - delta);
   if (peerShieldTimer > 0) peerShieldTimer = Math.max(0, peerShieldTimer - delta);

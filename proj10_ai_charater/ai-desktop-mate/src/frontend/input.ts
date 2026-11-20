@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { appState } from '../core/state';
-import { camera } from '../core/scene';
+import { camera, getRenderViewport } from '../core/scene';
 import { DragSample, DesktopState } from '../core/types';
 import { spawnParticles, clearLadder, showParachute } from '../core/particles';
 import { triggerBlackHoleTeleport, setIgnoreWindowCollision } from '../physics/physics';
@@ -39,8 +39,17 @@ let patStrokes = 0;
 let lastPatTime = 0;
 
 export function checkMouseIntersect(clientX: number, clientY: number): boolean {
-  mouseNDC.x = (clientX / appState.W) * 2 - 1;
-  mouseNDC.y = -(clientY / appState.H) * 2 + 1;
+  const vp = getRenderViewport();
+  if (
+    clientX < vp.left ||
+    clientX > vp.left + vp.width ||
+    clientY < vp.top ||
+    clientY > vp.top + vp.height
+  ) {
+    return false;
+  }
+  mouseNDC.x = ((clientX - vp.left) / vp.width) * 2 - 1;
+  mouseNDC.y = -((clientY - vp.top) / vp.height) * 2 + 1;
   raycaster.setFromCamera(mouseNDC, camera);
   const hits = raycaster.intersectObject(appState.hitBoxMesh, true);
   return hits.length > 0;
@@ -332,9 +341,11 @@ export function initInput() {
       appState.state === 'SWINGING_WINDOW';
     const nextDelay = document.hidden
       ? 1000
-      : appState.ecoMode && !isBusyTracking
+      : isBusyTracking
+      ? 65
+      : appState.ecoMode
       ? 180
-      : 65;
+      : 100;
     window.setTimeout(() => {
       void pollDesktopStateOnce(isBusyTracking);
     }, nextDelay);

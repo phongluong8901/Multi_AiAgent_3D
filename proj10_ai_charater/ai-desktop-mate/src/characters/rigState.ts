@@ -4,7 +4,7 @@ export interface DuckNodes {
   beakUpper: THREE.Group | null;
   beakLower: THREE.Group | null;
   neck: THREE.Group | null;
-  cameraRingMat: THREE.MeshStandardMaterial | null;
+  cameraRingMat: THREE.MeshPhongMaterial | THREE.MeshStandardMaterial | null;
   wheels: THREE.Object3D[];
   footRollers: THREE.Group[];
   feet: THREE.Group[];

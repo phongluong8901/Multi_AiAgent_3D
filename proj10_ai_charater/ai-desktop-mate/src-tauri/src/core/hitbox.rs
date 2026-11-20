@@ -90,6 +90,8 @@ pub fn spawn_cursor_tracker(window: WebviewWindow, hitbox: Arc<HitboxState>) {
         let mut prev_alt_q = false;
         let mut prev_alt_w = false;
         let mut last_hotkey_at = Instant::now() - Duration::from_secs(2);
+        let mut cached_scale: f64 = 1.0;
+        let mut cached_win_pos: Option<(i32, i32)> = None;
 
         let mut currently_ignoring = false;
         loop {
@@ -129,41 +131,46 @@ pub fn spawn_cursor_tracker(window: WebviewWindow, hitbox: Arc<HitboxState>) {
                             prev_raw_y = pt.y;
                         }
 
-                        let scale = window.scale_factor().unwrap_or(1.0).max(0.5);
-                        if let Ok(win_pos) = window.outer_position() {
-                            cursor_x = ((pt.x - win_pos.x) as f64 / scale).round() as i32;
-                            cursor_y = ((pt.y - win_pos.y) as f64 / scale).round() as i32;
+                        if tick_count == 1 || tick_count % 30 == 0 {
+                            cached_scale = window.scale_factor().unwrap_or(1.0).max(0.5);
+                            cached_win_pos = window.outer_position().ok().map(|p| (p.x, p.y));
+                        }
+                        if let Some((wx, wy)) = cached_win_pos {
+                            cursor_x = ((pt.x - wx) as f64 / cached_scale).round() as i32;
+                            cursor_y = ((pt.y - wy) as f64 / cached_scale).round() as i32;
                         } else {
-                            cursor_x = (pt.x as f64 / scale).round() as i32;
-                            cursor_y = (pt.y as f64 / scale).round() as i32;
+                            cursor_x = (pt.x as f64 / cached_scale).round() as i32;
+                            cursor_y = (pt.y as f64 / cached_scale).round() as i32;
                         }
                         hitbox.cursor_x.store(cursor_x, Ordering::Relaxed);
                         hitbox.cursor_y.store(cursor_y, Ordering::Relaxed);
                         has_cursor = true;
                     }
 
-                    // Theo dõi nhịp gõ phím toàn cục qua GetAsyncKeyState (46 phím chữ/số/Space/Enter/Backspace)
-                    let mut mask: u64 = 0;
-                    let mut bit_idx: u32 = 0;
-                    for vk in [0x08_i32, 0x0D, 0x20] {
-                        if (GetAsyncKeyState(vk) as u16 & 0x8000) != 0 {
-                            mask |= 1u64 << bit_idx;
+                    // Theo dõi nhịp gõ phím toàn cục qua GetAsyncKeyState (~32ms/lần)
+                    if tick_count % 2 == 0 {
+                        let mut mask: u64 = 0;
+                        let mut bit_idx: u32 = 0;
+                        for vk in [0x08_i32, 0x0D, 0x20] {
+                            if (GetAsyncKeyState(vk) as u16 & 0x8000) != 0 {
+                                mask |= 1u64 << bit_idx;
+                            }
+                            bit_idx += 1;
                         }
-                        bit_idx += 1;
-                    }
-                    for vk in 0x30_i32..=0x5A_i32 {
-                        if (GetAsyncKeyState(vk) as u16 & 0x8000) != 0 {
-                            mask |= 1u64 << bit_idx;
+                        for vk in 0x30_i32..=0x5A_i32 {
+                            if (GetAsyncKeyState(vk) as u16 & 0x8000) != 0 {
+                                mask |= 1u64 << bit_idx;
+                            }
+                            bit_idx += 1;
                         }
-                        bit_idx += 1;
+                        let newly_pressed = mask & !prev_keys_down;
+                        if newly_pressed != 0 {
+                            hitbox
+                                .key_press_counter
+                                .fetch_add(newly_pressed.count_ones() as i32, Ordering::Relaxed);
+                        }
+                        prev_keys_down = mask;
                     }
-                    let newly_pressed = mask & !prev_keys_down;
-                    if newly_pressed != 0 {
-                        hitbox
-                            .key_press_counter
-                            .fetch_add(newly_pressed.count_ones() as i32, Ordering::Relaxed);
-                    }
-                    prev_keys_down = mask;
 
                     // Global Hotkey: Alt+Q (Gọi khung chat) và Alt+W (Bật/Tắt chế độ nấp mép màn hình)
                     left_btn_down = (GetAsyncKeyState(0x01_i32) as u16 & 0x8000) != 0;

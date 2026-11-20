@@ -52,43 +52,43 @@ function buildMicroDuckHierarchy(
     setRigRoot(root);
   }
 
-  const whitePrintMat = new THREE.MeshStandardMaterial({
+  const whitePrintMat = new THREE.MeshPhongMaterial({
     color: new THREE.Color(bodyColor),
-    roughness: 0.42,
-    metalness: 0.08,
+    shininess: 38,
+    specular: 0x333333,
   });
-  const innerFaceMat = new THREE.MeshStandardMaterial({
+  const innerFaceMat = new THREE.MeshPhongMaterial({
     color: 0xe2e8f0,
-    roughness: 0.55,
-    metalness: 0.05,
+    shininess: 24,
+    specular: 0x222222,
   });
-  const orangePrintMat = new THREE.MeshStandardMaterial({
+  const orangePrintMat = new THREE.MeshPhongMaterial({
     color: new THREE.Color(accentColor),
-    roughness: 0.42,
-    metalness: 0.1,
+    shininess: 42,
+    specular: 0x3a2818,
   });
-  const camRingMat = new THREE.MeshStandardMaterial({
+  const camRingMat = new THREE.MeshPhongMaterial({
     color: 0xf59e0b,
-    roughness: 0.34,
-    metalness: 0.14,
+    shininess: 55,
+    specular: 0x554422,
   });
   if (bindGlobalRig) {
     duckNodes.cameraRingMat = camRingMat;
   }
-  const blackServoMat = new THREE.MeshStandardMaterial({
+  const blackServoMat = new THREE.MeshPhongMaterial({
     color: 0x18181b,
-    roughness: 0.55,
-    metalness: 0.35,
+    shininess: 45,
+    specular: 0x444444,
   });
-  const silverBracketMat = new THREE.MeshStandardMaterial({
+  const silverBracketMat = new THREE.MeshPhongMaterial({
     color: 0xd4d4d8,
-    roughness: 0.35,
-    metalness: 0.65,
+    shininess: 78,
+    specular: 0x888888,
   });
-  const lensGlassMat = new THREE.MeshStandardMaterial({
+  const lensGlassMat = new THREE.MeshPhongMaterial({
     color: 0x050811,
-    roughness: 0.1,
-    metalness: 0.85,
+    shininess: 95,
+    specular: 0x99aabb,
   });
   const boltDotMat = new THREE.MeshBasicMaterial({ color: 0x0f172a });
   const highlightMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
@@ -388,7 +388,7 @@ function buildMicroDuckHierarchy(
   lowerBeak.add(lowerBillMesh);
 
   const throatCavityMat = new THREE.MeshBasicMaterial({ color: 0x3b0764 });
-  const tongueMat = new THREE.MeshStandardMaterial({ color: 0xfb7185, roughness: 0.5 });
+  const tongueMat = new THREE.MeshPhongMaterial({ color: 0xfb7185, shininess: 30, specular: 0x2a1518 });
   const innerMouthTray = new THREE.Mesh(new THREE.BoxGeometry(55, 1.1, 30), throatCavityMat);
   innerMouthTray.position.set(0, 0.45, 12.5);
   lowerBeak.add(innerMouthTray);
@@ -552,10 +552,10 @@ function buildMicroDuckHierarchy(
     footGroup.add(rollerGroup);
     localFootRollers.push(rollerGroup);
 
-    const wheelMat = new THREE.MeshStandardMaterial({
+    const wheelMat = new THREE.MeshPhongMaterial({
       color: 0x111827,
-      roughness: 0.6,
-      metalness: 0.2,
+      shininess: 30,
+      specular: 0x262626,
     });
     [10.8, -7.2].forEach((wz) => {
       const wheel = new THREE.Group();

@@ -1,13 +1,14 @@
 import * as THREE from 'three';
 import { appState } from './core/state';
-import { scene, camera, renderer, initScene, updateGroundAura } from './core/scene';
-import { updateParticles } from './core/particles';
-import { updateWaterPool } from './core/waterPool';
+import { initScene, renderSceneOptimized, updateGroundAura } from './core/scene';
+import { hasWideParticlesOrEffects, updateParticles } from './core/particles';
+import { isWaterPoolActive, updateWaterPool } from './core/waterPool';
 import {
+  hasRhythmGooseVisuals,
   registerRhythmGooseSpeakCallback,
   updateRhythmAndGoose,
 } from './core/rhythmAndGoose';
-import { updateP2pArena, isP2pDuelActive } from './core/p2pArena';
+import { updateP2pArena, isP2pDuelActive, isP2pSessionActive } from './core/p2pArena';
 import {
   createMicroDuckCharacter,
   createDetailedAnimeCharacter,
@@ -24,7 +25,8 @@ import {
 } from './characters/vrmManager';
 import { registerPhysicsSpeakCallback, stepPhysicsAndRoam } from './physics/physics';
 import { registerWindowSpeakCallback } from './physics/windowInteract';
-import { registerWindowSwingSpeakCallback } from './physics/windowSwing';
+import { isWindowSwingActive, registerWindowSwingSpeakCallback } from './physics/windowSwing';
+import { isDesktopIconTaskActive } from './physics/desktopIconInteract';
 import {
   initUi,
   speakMessage,
@@ -112,13 +114,23 @@ const ACTIVE_MOTION_STATES = new Set([
 ]);
 
 let lastFrameMs = performance.now();
+let prevRafMs = lastFrameMs;
+let rafIntervalMs = 16.67;
+let nextRenderDueMs = lastFrameMs;
 let simElapsedSec = 0;
 
 function animate() {
   requestAnimationFrame(animate);
   const now = performance.now();
+  const rawDt = now - prevRafMs;
+  prevRafMs = now;
+  if (rawDt >= 3 && rawDt <= 33) {
+    rafIntervalMs = rafIntervalMs * 0.9 + rawDt * 0.1;
+  }
+
   if (document.hidden) {
     lastFrameMs = now;
+    nextRenderDueMs = now;
     return;
   }
 
@@ -126,8 +138,15 @@ function animate() {
     ACTIVE_MOTION_STATES.has(appState.state) ||
     isP2pDuelActive() ||
     appState.rhythmIntensity > 0.08;
-  if (appState.ecoMode && !isActiveMotion && now - lastFrameMs < 31) {
-    return;
+  if (appState.ecoMode && !isActiveMotion) {
+    if (now - lastFrameMs < 31) {
+      return;
+    }
+  } else if (rafIntervalMs < 12.8) {
+    if (now < nextRenderDueMs - 1.5) {
+      return;
+    }
+    nextRenderDueMs = Math.max(now, nextRenderDueMs + 1000 / 60);
   }
 
   const delta = Math.min(0.05, Math.max(0.001, (now - lastFrameMs) / 1000));
@@ -208,7 +227,21 @@ function animate() {
   updateUiPosition(true, delta);
 
   syncHitboxToRust();
-  renderer.render(scene, camera);
+  const needsFullScreen =
+    isWaterPoolActive() ||
+    isWindowSwingActive() ||
+    hasRhythmGooseVisuals() ||
+    isP2pSessionActive() ||
+    isDesktopIconTaskActive() ||
+    hasWideParticlesOrEffects() ||
+    appState.rhythmIntensity > 0.05 ||
+    appState.activeWindowTask !== null ||
+    appState.state === 'FLYING_ROCKET' ||
+    appState.state === 'PARACHUTING' ||
+    appState.state === 'CLIMBING' ||
+    appState.state === 'SWIMMING' ||
+    appState.state === 'SWINGING_WINDOW';
+  renderSceneOptimized(needsFullScreen, delta);
 }
 
 animate();

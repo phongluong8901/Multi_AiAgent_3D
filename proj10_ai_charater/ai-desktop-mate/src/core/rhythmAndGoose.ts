@@ -864,6 +864,16 @@ export function isGooseModeActive(): boolean {
   return gooseState !== null || territoryState !== null;
 }
 
+export function hasRhythmGooseVisuals(): boolean {
+  return (
+    gooseState !== null ||
+    territoryState !== null ||
+    footprints.length > 0 ||
+    laserBolts.length > 0 ||
+    intruderDuckGroup !== null
+  );
+}
+
 export function updateRhythmAndGoose(delta: number, elapsed: number) {
   if (isP2pSessionActive()) {
     appState.rhythmIntensity = 0;

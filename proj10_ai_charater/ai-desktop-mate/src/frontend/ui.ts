@@ -3666,14 +3666,34 @@ async function renderNotificationHistoryList() {
 
 let lastHitboxSync = 0;
 let lastHitboxSig = '';
+let lastCharHitboxKey = '';
+let lastHitboxUiScanAt = 0;
 
 export function syncHitboxToRust(force = false) {
   if (!companionDock) return;
   const now = performance.now();
-  if (!force && now - lastHitboxSync < 50) {
-    return;
+
+  const cx = Math.round(appState.posX);
+  const cy = Math.round(appState.posY - 85 * appState.modelScale);
+  const rad = Math.round(78 * appState.modelScale);
+  const isDragging =
+    appState.state === 'DRAGGING' ||
+    appState.blackHoleWarpMode ||
+    appState.isOcrSnipMode ||
+    isP2pDuelActive();
+  const charKey = `${cx}|${cy}|${rad}|${isDragging ? 1 : 0}`;
+
+  if (!force) {
+    if (charKey === lastCharHitboxKey && now - lastHitboxUiScanAt < 450) {
+      return;
+    }
+    if (now - lastHitboxSync < 50) {
+      return;
+    }
   }
   lastHitboxSync = now;
+  lastCharHitboxKey = charKey;
+  lastHitboxUiScanAt = now;
 
   const uiRects: Array<{ x: number; y: number; w: number; h: number }> = [];
 
@@ -3733,15 +3753,6 @@ export function syncHitboxToRust(force = false) {
   if (stickyNotesWidget && stickyNotesWidget.style.display !== 'none') {
     pushRect(stickyNotesWidget, true);
   }
-
-  const cx = Math.round(appState.posX);
-  const cy = Math.round(appState.posY - 85 * appState.modelScale);
-  const rad = Math.round(78 * appState.modelScale);
-  const isDragging =
-    appState.state === 'DRAGGING' ||
-    appState.blackHoleWarpMode ||
-    appState.isOcrSnipMode ||
-    isP2pDuelActive();
 
   const sig = `${cx}|${cy}|${rad}|${isDragging ? 1 : 0}|${uiRects
     .map((r) => `${r.x},${r.y},${r.w},${r.h}`)

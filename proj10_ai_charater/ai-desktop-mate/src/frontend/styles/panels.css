@@ -36,9 +36,7 @@
 #left-telemetry-panel .panel-header {
   position: sticky;
   top: -11px;
-  background: rgba(15, 23, 42, 0.92);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  background: rgba(15, 23, 42, 0.96);
   z-index: 10;
   padding-top: 2px;
   margin-top: -2px;

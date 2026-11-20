@@ -183,6 +183,16 @@ export class AppState {
   readonly avatarGroup: THREE.Group = new THREE.Group();
   hitBoxMesh!: THREE.Mesh;
 
+  private lastMoodPct: number = -1;
+  private lastEnergyPct: number = -1;
+  private lastHungerPct: number = -1;
+  private moodBarEl: HTMLElement | null = null;
+  private moodValEl: HTMLElement | null = null;
+  private energyBarEl: HTMLElement | null = null;
+  private energyValEl: HTMLElement | null = null;
+  private hungerBarEl: HTMLElement | null = null;
+  private hungerValEl: HTMLElement | null = null;
+
   ensureHitbox() {
     if (!this.hitBoxMesh) {
       const hitGeo = new THREE.BoxGeometry(110, 175, 110);
@@ -194,26 +204,56 @@ export class AppState {
 
   changeMood(deltaMood: number) {
     this.mood = Math.max(0, Math.min(100, this.mood + deltaMood));
-    const moodBarFill = document.getElementById('mood-bar-fill');
-    const moodValue = document.getElementById('mood-value');
-    if (moodBarFill) moodBarFill.style.width = `${this.mood}%`;
-    if (moodValue) moodValue.textContent = `${Math.round(this.mood)}%`;
+    const pct = Math.round(this.mood);
+    if (pct === this.lastMoodPct && this.moodBarEl?.isConnected && this.moodValEl?.isConnected) {
+      return;
+    }
+    if (!this.moodBarEl?.isConnected) {
+      this.moodBarEl = document.getElementById('mood-bar-fill');
+    }
+    if (!this.moodValEl?.isConnected) {
+      this.moodValEl = document.getElementById('mood-value');
+    }
+    if (!this.moodBarEl && !this.moodValEl) return;
+    if (this.moodBarEl) this.moodBarEl.style.width = `${pct}%`;
+    if (this.moodValEl) this.moodValEl.textContent = `${pct}%`;
+    this.lastMoodPct = pct;
   }
 
   changeEnergy(deltaEnergy: number) {
     this.energy = Math.max(0, Math.min(100, this.energy + deltaEnergy));
-    const barFill = document.getElementById('energy-bar-fill');
-    const valEl = document.getElementById('energy-value');
-    if (barFill) barFill.style.width = `${this.energy}%`;
-    if (valEl) valEl.textContent = `${Math.round(this.energy)}%`;
+    const pct = Math.round(this.energy);
+    if (pct === this.lastEnergyPct && this.energyBarEl?.isConnected && this.energyValEl?.isConnected) {
+      return;
+    }
+    if (!this.energyBarEl?.isConnected) {
+      this.energyBarEl = document.getElementById('energy-bar-fill');
+    }
+    if (!this.energyValEl?.isConnected) {
+      this.energyValEl = document.getElementById('energy-value');
+    }
+    if (!this.energyBarEl && !this.energyValEl) return;
+    if (this.energyBarEl) this.energyBarEl.style.width = `${pct}%`;
+    if (this.energyValEl) this.energyValEl.textContent = `${pct}%`;
+    this.lastEnergyPct = pct;
   }
 
   changeHunger(deltaHunger: number) {
     this.hunger = Math.max(0, Math.min(100, this.hunger + deltaHunger));
-    const barFill = document.getElementById('hunger-bar-fill');
-    const valEl = document.getElementById('hunger-value');
-    if (barFill) barFill.style.width = `${this.hunger}%`;
-    if (valEl) valEl.textContent = `${Math.round(this.hunger)}%`;
+    const pct = Math.round(this.hunger);
+    if (pct === this.lastHungerPct && this.hungerBarEl?.isConnected && this.hungerValEl?.isConnected) {
+      return;
+    }
+    if (!this.hungerBarEl?.isConnected) {
+      this.hungerBarEl = document.getElementById('hunger-bar-fill');
+    }
+    if (!this.hungerValEl?.isConnected) {
+      this.hungerValEl = document.getElementById('hunger-value');
+    }
+    if (!this.hungerBarEl && !this.hungerValEl) return;
+    if (this.hungerBarEl) this.hungerBarEl.style.width = `${pct}%`;
+    if (this.hungerValEl) this.hungerValEl.textContent = `${pct}%`;
+    this.lastHungerPct = pct;
   }
 
   setExpression(expr: FaceExpression, duration = 3.2) {
