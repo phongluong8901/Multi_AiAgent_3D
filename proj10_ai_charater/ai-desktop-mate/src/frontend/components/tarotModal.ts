@@ -132,6 +132,9 @@ export const tarotModalHtml = `
             <button id="btn-tarot-ai-deep" class="studio-btn-primary" type="button" style="flex: 1; background: linear-gradient(135deg, #6d28d9, #0ea5e9);">
               Luận Giải Sâu AI (Tử Vi x Tarot)
             </button>
+            <button id="btn-tarot-force-draw" class="action-btn" type="button">
+              Bốc Quẻ Mới Ngay
+            </button>
             <button id="btn-tarot-replay-3d" class="action-btn" type="button">
               Vịt Lật Thẻ 3D Lại
             </button>

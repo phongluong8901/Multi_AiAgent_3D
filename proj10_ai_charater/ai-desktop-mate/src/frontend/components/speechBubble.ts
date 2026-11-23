@@ -4,9 +4,9 @@ export const speechBubbleHtml = `
     <!-- HEADER ĐIỀU KHIỂN & TRẠNG THÁI AI -->
     <div class="bubble-header">
       <div class="bubble-header-left">
-        <span class="badge badge-duck-tag">[DUCK AI]</span>
+        <span class="badge badge-duck-tag">[DUCK]</span>
         <span id="llm-badge" class="badge badge-chat-tag">[LLM: ...]</span>
-        <span id="duck-mood-indicator" class="badge badge-mood-tag">Live</span>
+        <span id="duck-mood-indicator" class="badge badge-mood-tag" style="display: none;">Live</span>
       </div>
       <div class="bubble-header-right">
         <button id="btn-toggle-chat-side" class="btn-expand-history" type="button" title="Đổi vị trí cửa sổ Chat Trái / Phải">
@@ -40,6 +40,9 @@ export const speechBubbleHtml = `
       <div class="chat-history-toolbar">
         <span style="font-size: 10px; font-weight: 700; color: #a5b4fc; letter-spacing: 0.4px;">LỊCH SỬ HỘI THOẠI [SQLITE]</span>
         <div style="display: flex; align-items: center; gap: 4px;">
+          <button id="btn-open-web-chat-bubble" class="btn-expand-history" type="button" title="Mở Web Chat đồng bộ với Local" style="padding: 2px 6px; font-size: 9.5px;">
+            Web Chat
+          </button>
           <button id="btn-clear-chat" class="icon-btn-tiny" type="button" title="Xóa toàn bộ lịch sử chat">
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
               <polyline points="3 6 5 6 21 6"></polyline>
@@ -72,15 +75,51 @@ export const speechBubbleHtml = `
       </div>
     </div>
 
+    <!-- THANH TRẢ LỜI NHANH THÔNG BÁO (ZALO / TELEGRAM / DISCORD) -->
+    <div id="notif-quick-reply-bar" style="display: none; flex-direction: column; gap: 5px; margin: 4px 0 6px; padding: 7px 9px; border-radius: 8px; background: rgba(56, 189, 248, 0.14); border: 1px solid rgba(56, 189, 248, 0.45);">
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px;">
+        <span id="notif-qr-header" style="font-size: 11px; font-weight: 600; color: #7dd3fc; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">[TRẢ LỜI NHANH]</span>
+        <button id="btn-notif-qr-close" type="button" style="border: none; background: transparent; color: #94a3b8; font-size: 11px; cursor: pointer; padding: 0 4px;">Đóng</button>
+      </div>
+      <div style="display: flex; gap: 4px;">
+        <input id="notif-qr-input" type="text" placeholder="Nhắn trả lời nhanh..." style="flex: 1; min-width: 0; padding: 4px 7px; border-radius: 6px; border: 1px solid rgba(148,163,184,0.35); background: rgba(15,23,42,0.9); color: #f8fafc; font-size: 11px;" />
+        <button id="btn-notif-qr-send" type="button" style="padding: 4px 8px; border-radius: 6px; border: none; background: #0284c7; color: #ffffff; font-size: 11px; font-weight: 600; cursor: pointer;">Gửi</button>
+      </div>
+      <div style="display: flex; gap: 4px;">
+        <button id="btn-notif-qr-busy" type="button" style="flex: 1; padding: 3px 6px; border-radius: 5px; border: 1px solid rgba(148,163,184,0.3); background: rgba(30,41,59,0.85); color: #cbd5e1; font-size: 10px; cursor: pointer;">Đang bận xíu</button>
+        <button id="btn-notif-qr-ok" type="button" style="flex: 1; padding: 3px 6px; border-radius: 5px; border: 1px solid rgba(148,163,184,0.3); background: rgba(30,41,59,0.85); color: #cbd5e1; font-size: 10px; cursor: pointer;">Ok bạn nhé</button>
+      </div>
+    </div>
+
+    <!-- GỢI Ý ĐÓNG GÓI QUY TRÌNH AGENT THÀNH TOOL -->
+    <div id="agent-suggest-tool-bar" style="display: none; margin: 4px 0 6px; padding: 6px 8px; border-radius: 8px; background: rgba(16, 185, 129, 0.14); border: 1px solid rgba(16, 185, 129, 0.4); align-items: center; justify-content: space-between; gap: 6px; font-size: 11px;">
+      <span id="agent-suggest-tool-text" style="color: #d1fae5; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">[GỢI Ý] Lưu quy trình vừa chạy thành Tool?</span>
+      <div style="display: flex; gap: 4px; flex-shrink: 0;">
+        <button id="btn-agent-save-as-tool" type="button" style="padding: 3px 8px; border-radius: 6px; border: 1px solid rgba(16,185,129,0.7); background: rgba(16,185,129,0.28); color: #fff; font-size: 10px; font-weight: 600; cursor: pointer;">Đóng gói Tool</button>
+        <button id="btn-agent-dismiss-tool" type="button" style="padding: 3px 6px; border-radius: 6px; border: 1px solid rgba(148,163,184,0.35); background: transparent; color: #cbd5e1; font-size: 10px; cursor: pointer;">Bỏ</button>
+      </div>
+    </div>
+
+    <!-- THANH FILE ĐANG GHIM TRONG THANH CHAT -->
+    <div id="chat-pinned-files-bar" class="chat-pinned-files-bar" style="display: none;"></div>
+
     <!-- KHUNG NHẬP HỎI ĐÁP & RA LỆNH NHANH -->
     <div class="bubble-input-row">
-      <input id="bubble-input" class="bubble-input" type="text" placeholder="Hỏi đáp hoặc kéo PDF/CSV/Excel/Ảnh vào Vịt..." />
-      <input id="any-file-input" type="file" accept=".pdf,.csv,.tsv,.xlsx,.xls,.png,.jpg,.jpeg,.webp,.bmp,.txt,.json,.log,.md" style="display: none;" />
-      <button id="btn-feed-file-btn" class="bubble-btn-file" type="button" title="Chọn PDF, CSV, Excel hoặc Ảnh đút vào miệng Vịt">
+      <input id="bubble-input" class="bubble-input" type="text" placeholder="Hỏi đáp hoặc kéo thả file vào Vịt để ghim xử lý..." />
+      <input id="any-file-input" type="file" multiple accept=".pdf,.csv,.tsv,.xlsx,.xls,.png,.jpg,.jpeg,.webp,.bmp,.txt,.json,.log,.md" style="display: none;" />
+      <button id="btn-feed-file-btn" class="bubble-btn-file" type="button" title="Chọn hoặc kéo thả file vào Vịt để ghim vào thanh chat">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
           <polyline points="17 8 12 3 7 8"></polyline>
           <line x1="12" y1="3" x2="12" y2="15"></line>
+        </svg>
+      </button>
+      <button id="btn-voice-ptt" class="bubble-btn-file" type="button" title="Push-to-Talk: Bấm để nói lệnh giọng nói (Ctrl+Space)">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+          <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+          <line x1="12" y1="19" x2="12" y2="23"></line>
+          <line x1="8" y1="23" x2="16" y2="23"></line>
         </svg>
       </button>
       <button id="btn-send-msg" class="bubble-btn-send" type="button" title="Gửi tin nhắn">
@@ -195,7 +234,7 @@ export const speechBubbleHtml = `
         <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
       </svg>
     </button>
-    <button id="dock-btn-right" class="dock-btn active" type="button" title="Bật/Tắt Bảng Hành động Phải">
+    <button id="dock-btn-right" class="dock-btn" type="button" title="Bật/Tắt Bảng Hành động Phải">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
       </svg>
@@ -244,6 +283,11 @@ export const speechBubbleHtml = `
         <polygon points="12 7 13.4 10.6 17 12 13.4 13.4 12 17 10.6 13.4 7 12 10.6 10.6 12 7"></polygon>
       </svg>
       <span id="dock-tarot-ready-dot" class="tarot-ready-dot" style="display: none;"></span>
+    </button>
+    <button id="dock-btn-anim" class="dock-btn dock-btn-anim" type="button" title="Quản lý Hoạt Ảnh (gắn hoạt ảnh với Tool / Trạng thái / Trang)">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 3l1.9 5.8L20 10l-5 3.6L16.8 20 12 16.6 7.2 20 9 13.6 4 10l6.1-1.2z"></path>
+      </svg>
     </button>
   </div>
 `;

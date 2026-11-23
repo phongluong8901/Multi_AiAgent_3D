@@ -80,20 +80,99 @@ unsafe extern "system" {
 
 #[tauri::command]
 pub fn open_web_or_app(target: String) -> Result<String, String> {
-    let trimmed = target.trim();
+    let trimmed = target.trim().trim_matches('"').trim();
     if trimmed.is_empty() {
         return Err("Đường dẫn hoặc tên ứng dụng trống".to_string());
     }
 
     #[cfg(windows)]
     {
-        // Mở URL (http/https/ms-settings) hoặc ứng dụng Windows bằng cmd /C start
-        let mut cmd = Command::new("cmd.exe");
-        cmd.args(["/C", "start", "", trimmed]);
-        apply_no_window(&mut cmd);
-        cmd.spawn()
-            .map_err(|e| format!("Không thể mở '{trimmed}': {e}"))?;
-        return Ok(format!("Đã mở: {trimmed}"));
+        let lower = trimmed.to_ascii_lowercase();
+        let is_uri_or_path = lower.starts_with("http://")
+            || lower.starts_with("https://")
+            || lower.starts_with("ms-settings:")
+            || lower.starts_with("mailto:")
+            || lower.starts_with("shell:")
+            || std::path::Path::new(trimmed).exists();
+
+        if is_uri_or_path {
+            let mut cmd = Command::new("cmd.exe");
+            cmd.args(["/C", "start", "", trimmed]);
+            apply_no_window(&mut cmd);
+            cmd.spawn()
+                .map_err(|e| format!("Không thể mở '{trimmed}': {e}"))?;
+            return Ok(format!("Đã mở: {trimmed}"));
+        }
+
+        // 1. Dùng resolver thuần Rust (cực nhanh, lọc bỏ Uninstall/Setup, ưu tiên <q>.exe)
+        // Không truyền flags lạ (tránh Squirrel launcher stub như Zalo.exe tự thoát).
+        if let Some(exe_path) = crate::backend::automation_desktop::resolve_app_exe_fast(trimmed) {
+            let mut cmd = Command::new(&exe_path);
+            if let Some(parent) = exe_path.parent() {
+                cmd.current_dir(parent);
+            }
+            cmd.stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null());
+            cmd.spawn()
+                .map_err(|e| format!("Không thể mở '{}': {e}", exe_path.display()))?;
+            if let Some(w) = crate::backend::automation_desktop::wait_and_focus_app_window(trimmed, 8) {
+                return Ok(format!(
+                    "Đã mở: {} ({}) hwnd={} title=\"{}\"",
+                    trimmed,
+                    exe_path.display(),
+                    w.hwnd,
+                    w.title
+                ));
+            }
+            // Nếu exe là stub không lên cửa sổ sau 2s, tiếp tục fallback sang StartApps/Start Menu bên dưới
+        }
+
+        // 2. Tìm qua Get-StartApps hoặc Start Menu / Desktop (.lnk) — không đệ quy LocalAppData\Programs
+        let safe_q = trimmed.replace('\'', "''");
+        let ps = format!(
+            r#"$ErrorActionPreference='SilentlyContinue'
+$q='{safe_q}'
+$apps = Get-StartApps | Where-Object {{ $_.Name -eq $q -and $_.Name -notmatch 'uninstall' }}
+if (-not $apps) {{ $apps = Get-StartApps | Where-Object {{ $_.Name -like "*$q*" -and $_.Name -notmatch 'uninstall' }} }}
+$app = $apps | Select-Object -First 1
+if ($app -and $app.AppID) {{
+  Start-Process ("shell:AppsFolder\" + $app.AppID)
+  Write-Output ("STARTAPP:" + $app.Name + " (" + $app.AppID + ")")
+  exit 0
+}}
+$roots = @(
+  "$env:APPDATA\Microsoft\Windows\Start Menu\Programs",
+  "$env:ProgramData\Microsoft\Windows\Start Menu\Programs",
+  "$env:USERPROFILE\Desktop"
+)
+foreach ($r in $roots) {{
+  if (Test-Path $r) {{
+    $hit = Get-ChildItem -Path $r -Recurse -File -Filter *.lnk | Where-Object {{ $_.BaseName -like "*$q*" -and $_.BaseName -notmatch 'uninstall|setup' }} | Select-Object -First 1
+    if ($hit) {{
+      Start-Process $hit.FullName
+      Write-Output ("FILE:" + $hit.FullName)
+      exit 0
+    }}
+  }}
+}}
+Write-Output "NOT_FOUND"
+exit 1"#
+        );
+        let mut ps_cmd = Command::new("powershell.exe");
+        ps_cmd.args(["-NoProfile", "-NonInteractive", "-Command", &ps]);
+        apply_no_window(&mut ps_cmd);
+        let out = ps_cmd
+            .output()
+            .map_err(|e| format!("Lỗi tìm ứng dụng '{trimmed}': {e}"))?;
+        let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if out.status.success() && !stdout.is_empty() && stdout != "NOT_FOUND" {
+            return Ok(format!("Đã mở '{trimmed}' qua {stdout}"));
+        }
+
+        return Err(format!(
+            "Không tìm thấy ứng dụng '{trimmed}' trên máy (đã kiểm tra PATH, StartApps, Start Menu, Desktop, Programs)."
+        ));
     }
 
     #[cfg(not(windows))]
@@ -579,10 +658,18 @@ $stream = [System.IO.WindowsRuntimeStreamExtensions]::AsRandomAccessStream($fs)
 $decoder = Await ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream)) ([Windows.Graphics.Imaging.BitmapDecoder])
 $bitmap = Await ($decoder.GetSoftwareBitmapAsync()) ([Windows.Graphics.Imaging.SoftwareBitmap])
 $eng = [Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages()
+if (-not $eng) {{
+  $firstLang = [Windows.Media.Ocr.OcrEngine]::AvailableRecognizerLanguages | Select-Object -First 1
+  if ($firstLang) {{ $eng = [Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage($firstLang) }}
+}}
 if (-not $eng) {{ throw "Windows OCR Engine không khả dụng" }}
 $res = Await ($eng.RecognizeAsync($bitmap)) ([Windows.Media.Ocr.OcrResult])
 $stream.Dispose(); $fs.Dispose()
-Write-Output $res.Text
+if ($res.Lines -and $res.Lines.Count -gt 0) {{
+  (($res.Lines | ForEach-Object {{ $_.Text }}) -join "`n").Trim()
+}} else {{
+  Write-Output $res.Text
+}}
 "#
             );
 
@@ -651,7 +738,7 @@ $dir = '{dir_str}'
 if (-not (Test-Path $dir)) {{ New-Item -ItemType Directory -Path $dir -Force | Out-Null }}
 $file = Join-Path $dir ("ocr_snip_" + (Get-Date -Format 'yyyyMMdd_HHmmss_fff') + ".png")
 
-$bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+$bounds = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
 $rx = $bounds.X + [int][Math]::Round({xr:.6} * $bounds.Width)
 $ry = $bounds.Y + [int][Math]::Round({yr:.6} * $bounds.Height)
 $rw = [Math]::Max(12, [int][Math]::Min($bounds.X + $bounds.Width - $rx, [Math]::Round({wr:.6} * $bounds.Width)))
@@ -698,6 +785,10 @@ try {{
   $decoder = Await ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream)) ([Windows.Graphics.Imaging.BitmapDecoder])
   $bitmap = Await ($decoder.GetSoftwareBitmapAsync()) ([Windows.Graphics.Imaging.SoftwareBitmap])
   $eng = [Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages()
+  if (-not $eng) {{
+    $firstLang = [Windows.Media.Ocr.OcrEngine]::AvailableRecognizerLanguages | Select-Object -First 1
+    if ($firstLang) {{ $eng = [Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage($firstLang) }}
+  }}
   if ($eng) {{
     $res = Await ($eng.RecognizeAsync($bitmap)) ([Windows.Media.Ocr.OcrResult])
     if ($res.Lines -and $res.Lines.Count -gt 0) {{

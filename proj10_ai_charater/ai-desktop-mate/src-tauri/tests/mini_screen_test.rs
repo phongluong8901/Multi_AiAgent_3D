@@ -1,5 +1,6 @@
 use ai_desktop_mate_lib::backend::mini_screen::{
-    build_bgr24_bmp, encode_base64, normalize_mini_screen_url, MiniScreenState,
+    build_bgr24_bmp, encode_base64, normalize_mini_screen_url, sanitize_batch_hwnds,
+    MiniScreenState,
 };
 
 #[test]
@@ -43,4 +44,13 @@ fn test_stealth_state_empty_restore_safe() {
     let st = MiniScreenState::new();
     assert!(!st.is_stealth(12345));
     assert_eq!(st.restore_all(), 0);
+}
+
+#[test]
+fn test_sanitize_batch_hwnds_dedups_and_caps_at_four() {
+    assert_eq!(
+        sanitize_batch_hwnds(&[0, 10, 20, 10, 30, 40, 50, 0]),
+        vec![10, 20, 30, 40]
+    );
+    assert!(sanitize_batch_hwnds(&[0, 0]).is_empty());
 }

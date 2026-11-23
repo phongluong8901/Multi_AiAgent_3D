@@ -1,5 +1,5 @@
 export const rightActionPanelHtml = `
-  <aside id="right-action-panel" class="glass-panel">
+  <aside id="right-action-panel" class="glass-panel" style="display: none;">
     <div class="panel-header">
       <div class="panel-title">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
@@ -16,6 +16,7 @@ export const rightActionPanelHtml = `
 
     <div class="status-strip">
       <span id="state-badge" class="badge">[IDLE]</span>
+      <span id="active-clip-badge" class="badge badge-clip" style="display: none;"></span>
       <span id="timer-badge" class="badge badge-timer">25:00</span>
     </div>
 
@@ -107,7 +108,9 @@ export const rightActionPanelHtml = `
         <button id="btn-act-goose" class="action-btn" type="button" style="grid-column: span 2; background: rgba(249, 115, 22, 0.22); border-color: rgba(251, 146, 60, 0.45); color: #fed7aa;">Vịt Tinh Nghịch (Goose Mode)</button>
         <button id="btn-act-defend" class="action-btn" type="button" style="grid-column: span 2; background: rgba(239, 68, 68, 0.22); border-color: rgba(248, 113, 113, 0.5); color: #fecaca;">Bảo Vệ Lãnh Thổ (Đấu Kiếm 3D)</button>
         <button id="btn-act-swim" class="action-btn" type="button" style="grid-column: span 2; background: rgba(14, 165, 233, 0.22); border-color: rgba(56, 189, 248, 0.45); color: #bae6fd;">Hồ Bơi 3D &amp; Đi Bơi Ra Xa</button>
-        <button id="btn-act-swing" class="action-btn" type="button" style="grid-column: span 2; background: rgba(249, 115, 22, 0.16); border-color: rgba(251, 146, 60, 0.42); color: #fed7aa;">Đu Cửa Sổ (Tay Dài &amp; Dập Mông)</button>
+        <button id="btn-act-swing" class="action-btn" type="button" style="background: rgba(249, 115, 22, 0.16); border-color: rgba(251, 146, 60, 0.42); color: #fed7aa;">Đu Cửa Sổ (Tay Dài)</button>
+        <button id="btn-act-paper-crash" class="action-btn" type="button" style="background: rgba(56, 189, 248, 0.2); border-color: rgba(56, 189, 248, 0.5); color: #e0f2fe;">Đâm Thủng Cửa Sổ</button>
+        <button id="btn-act-hulk" class="action-btn" type="button" style="grid-column: span 2; background: rgba(34, 197, 94, 0.22); border-color: rgba(74, 222, 128, 0.52); color: #bbf7d0; font-weight: 700;">Hóa HULK Xanh Giận Dữ (Khổng Lồ)</button>
         <button id="btn-act-edge-peek" class="action-btn" type="button">Nấp Mép Màn (Alt+W)</button>
         <button id="btn-act-weather3d" class="action-btn" type="button">Thời Tiết &amp; Độ Ẩm</button>
         <button id="btn-act-random-fx" class="action-btn" type="button" style="grid-column: span 2; background: rgba(245, 158, 11, 0.18); border-color: rgba(251, 191, 36, 0.42); color: #fde68a;">Chạy Hiệu Ứng &amp; Tính Năng Random</button>
@@ -135,6 +138,12 @@ export const rightActionPanelHtml = `
       <button id="btn-open-notif" class="btn-footer" type="button" style="background: rgba(14, 165, 233, 0.22); border-color: rgba(56, 189, 248, 0.45); color: #38bdf8;">Notification</button>
       <button id="btn-open-long-mem" class="btn-footer" type="button">Long Memory</button>
     </div>
+    <button id="btn-open-anim-manager" class="btn-footer btn-anim-manager" type="button" style="width: 100%; margin-top: 6px;">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 3l1.9 5.8L20 10l-5 3.6L16.8 20 12 16.6 7.2 20 9 13.6 4 10l6.1-1.2z"></path>
+      </svg>
+      <span>Quản lý Hoạt Ảnh &amp; Gắn Tool / Trạng thái</span>
+    </button>
   </aside>
 `;
 

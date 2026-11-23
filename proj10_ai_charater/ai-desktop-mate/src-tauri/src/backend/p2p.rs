@@ -43,6 +43,7 @@ pub struct P2pWirePacket {
     pub y_norm: Option<f64>,
     pub button: Option<String>,
     pub vk: Option<u8>,
+    pub wheel_delta: Option<i32>,
     pub text: Option<String>,
     pub duration_sec: Option<u64>,
     pub reason: Option<String>,
@@ -57,6 +58,10 @@ pub struct P2pWirePacket {
     pub peer_energy: Option<i32>,
     pub foods_json: Option<String>,
     pub food_id: Option<u64>,
+    pub frame_b64: Option<String>,
+    pub frame_w: Option<u32>,
+    pub frame_h: Option<u32>,
+    pub frame_seq: Option<u64>,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -79,6 +84,20 @@ pub struct P2pStatus {
     pub is_room_host: bool,
     pub mobile_url: String,
     pub lan_ips: Vec<String>,
+    pub host_windows_json: String,
+}
+
+#[derive(Serialize, Clone, Debug)]
+pub struct P2pRemoteFrameSnapshot {
+    pub has_frame: bool,
+    pub frame_b64: String,
+    pub width: u32,
+    pub height: u32,
+    pub seq: u64,
+    pub cursor_x: f64,
+    pub cursor_y: f64,
+    pub remaining_sec: u64,
+    pub is_sim_mode: bool,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -140,6 +159,12 @@ struct P2pInner {
     last_pc_aim_x: f64,
     last_pc_aim_y: f64,
     block_generation: u64,
+    remote_frame_b64: String,
+    remote_frame_w: u32,
+    remote_frame_h: u32,
+    remote_frame_seq: u64,
+    remote_cursor_x: f64,
+    remote_cursor_y: f64,
 }
 
 pub struct P2pState {
@@ -258,6 +283,10 @@ fn refresh_expired_timers(inner: &mut P2pInner) {
     if let Some(until) = inner.winner_control_until {
         if now >= until {
             inner.winner_control_until = None;
+            inner.remote_frame_b64.clear();
+            inner.remote_frame_w = 0;
+            inner.remote_frame_h = 0;
+            inner.remote_frame_seq = 0;
             if inner.phase == "winner_control" {
                 inner.phase = if inner.active_stream.is_some() || inner.is_sim_mode || inner.is_web_peer {
                     "connected".to_string()
@@ -314,6 +343,7 @@ fn build_status(inner: &P2pInner) -> P2pStatus {
         is_room_host: inner.is_room_host,
         mobile_url: format!("http://{}:{}/?room={}", inner.local_ip, inner.listen_port, inner.room_code),
         lan_ips: inner.lan_ips.clone(),
+        host_windows_json: inner.host_windows_json.clone(),
     }
 }
 
@@ -344,6 +374,183 @@ fn release_win32_block_input() {
     }
 }
 
+pub fn capture_desktop_frame_bmp_b64(max_w: u32) -> Result<(String, u32, u32, f64, f64), String> {
+    #[cfg(windows)]
+    unsafe {
+        use windows::Win32::Foundation::{HWND, POINT};
+        use windows::Win32::Graphics::Gdi::{
+            CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, GetDC, GetDIBits,
+            ReleaseDC, SelectObject, SetBrushOrgEx, SetStretchBltMode, StretchBlt, BITMAPINFO,
+            BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, HALFTONE, HGDIOBJ, RGBQUAD, SRCCOPY,
+        };
+        use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
+
+        let sw = GetSystemMetrics(0).max(800);
+        let sh = GetSystemMetrics(1).max(600);
+        let mut pt = POINT { x: sw / 2, y: sh / 2 };
+        let _ = GetCursorPos(&mut pt);
+        let cursor_x_norm = (pt.x as f64 / sw as f64).clamp(0.0, 1.0);
+        let cursor_y_norm = (pt.y as f64 / sh as f64).clamp(0.0, 1.0);
+
+        let dst_w = max_w.clamp(320, 960).min(sw as u32);
+        let dst_h = (((dst_w as f64) * (sh as f64) / (sw as f64)).round() as u32).clamp(180, 640);
+
+        let screen_dc = GetDC(HWND::default());
+        if screen_dc.0.is_null() {
+            return Err("Không lấy được Screen DC.".to_string());
+        }
+
+        let dst_dc = CreateCompatibleDC(screen_dc);
+        let dst_bmp = CreateCompatibleBitmap(screen_dc, dst_w as i32, dst_h as i32);
+        if dst_dc.0.is_null() || dst_bmp.0.is_null() {
+            if !dst_bmp.0.is_null() {
+                let _ = DeleteObject(HGDIOBJ(dst_bmp.0));
+            }
+            if !dst_dc.0.is_null() {
+                let _ = DeleteDC(dst_dc);
+            }
+            let _ = ReleaseDC(HWND::default(), screen_dc);
+            return Err("Không tạo được bitmap scale desktop.".to_string());
+        }
+
+        let old_dst = SelectObject(dst_dc, HGDIOBJ(dst_bmp.0));
+        let _ = SetStretchBltMode(dst_dc, HALFTONE);
+        let _ = SetBrushOrgEx(dst_dc, 0, 0, None);
+        let stretch_ok = StretchBlt(
+            dst_dc,
+            0,
+            0,
+            dst_w as i32,
+            dst_h as i32,
+            screen_dc,
+            0,
+            0,
+            sw,
+            sh,
+            SRCCOPY,
+        );
+
+        let row_stride = ((dst_w * 3) + 3) & !3;
+        let mut pixel_buf = vec![0u8; (row_stride * dst_h) as usize];
+        let mut bmi = BITMAPINFO {
+            bmiHeader: BITMAPINFOHEADER {
+                biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+                biWidth: dst_w as i32,
+                biHeight: dst_h as i32,
+                biPlanes: 1,
+                biBitCount: 24,
+                biCompression: BI_RGB.0,
+                biSizeImage: 0,
+                biXPelsPerMeter: 0,
+                biYPelsPerMeter: 0,
+                biClrUsed: 0,
+                biClrImportant: 0,
+            },
+            bmiColors: [RGBQUAD::default(); 1],
+        };
+
+        SelectObject(dst_dc, old_dst);
+        let scanlines = if stretch_ok.as_bool() {
+            GetDIBits(
+                dst_dc,
+                dst_bmp,
+                0,
+                dst_h,
+                Some(pixel_buf.as_mut_ptr().cast()),
+                &mut bmi,
+                DIB_RGB_COLORS,
+            )
+        } else {
+            0
+        };
+
+        let _ = DeleteObject(HGDIOBJ(dst_bmp.0));
+        let _ = DeleteDC(dst_dc);
+        let _ = ReleaseDC(HWND::default(), screen_dc);
+
+        if scanlines == 0 {
+            return Err("Không đọc được điểm ảnh desktop GetDIBits.".to_string());
+        }
+
+        let bmp = crate::backend::mini_screen::build_bgr24_bmp(dst_w, dst_h, &pixel_buf);
+        let b64 = crate::backend::mini_screen::encode_base64(&bmp);
+        Ok((b64, dst_w, dst_h, cursor_x_norm, cursor_y_norm))
+    }
+
+    #[cfg(not(windows))]
+    {
+        let _ = max_w;
+        Err("Chỉ hỗ trợ chụp màn hình trên Windows.".to_string())
+    }
+}
+
+fn spawn_victim_screen_streamer(inner_arc: Arc<Mutex<P2pInner>>) {
+    std::thread::spawn(move || {
+        let mut seq: u64 = 1;
+        loop {
+            let stream_opt: Option<TcpStream>;
+            if let Ok(mut guard) = inner_arc.lock() {
+                refresh_expired_timers(&mut guard);
+                if guard.phase != "victim_controlled" || guard.victim_control_until.is_none() {
+                    break;
+                }
+                if guard.is_sim_mode || guard.is_web_peer {
+                    break;
+                }
+                stream_opt = guard.active_stream.as_ref().and_then(|s| s.try_clone().ok());
+            } else {
+                break;
+            }
+
+            let Some(mut stream) = stream_opt else {
+                break;
+            };
+
+            if let Ok((b64, w, h, cx, cy)) = capture_desktop_frame_bmp_b64(560) {
+                let pkt = P2pWirePacket {
+                    kind: "remote_frame".to_string(),
+                    frame_b64: Some(b64),
+                    frame_w: Some(w),
+                    frame_h: Some(h),
+                    frame_seq: Some(seq),
+                    x_ratio: Some(cx),
+                    y_ratio: Some(cy),
+                    ..Default::default()
+                };
+                if send_json_line(&mut stream, &pkt).is_err() {
+                    break;
+                }
+                seq = seq.wrapping_add(1);
+            }
+            std::thread::sleep(Duration::from_millis(150));
+        }
+    });
+}
+
+pub fn is_extended_vk(vk: u8) -> bool {
+    matches!(
+        vk,
+        0x21 | 0x22 | 0x23 | 0x24 | 0x25 | 0x26 | 0x27 | 0x28 | 0x2D | 0x2E | 0x5B | 0x5C
+    )
+}
+
+#[cfg(windows)]
+unsafe fn send_vk_combo(vks: &[u8]) {
+    unsafe {
+        for &vk in vks {
+            let ext = if is_extended_vk(vk) { 0x0001 } else { 0 };
+            keybd_event(vk, 0, ext, 0);
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        std::thread::sleep(Duration::from_millis(25));
+        for &vk in vks.iter().rev() {
+            let ext = if is_extended_vk(vk) { 0x0001 } else { 0 };
+            keybd_event(vk, 0, ext | 0x0002, 0);
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+}
+
 fn execute_win32_remote_cmd(
     inner_arc: &Arc<Mutex<P2pInner>>,
     jitter_cancel: &Arc<AtomicBool>,
@@ -365,34 +572,112 @@ fn execute_win32_remote_cmd(
                 let _ = SetCursorPos(px, py);
                 Ok(format!("Moved mouse to ({px}, {py})"))
             }
+            "mouse_down" => {
+                if pkt.x_norm.is_some() && pkt.y_norm.is_some() {
+                    let _ = SetCursorPos(px, py);
+                }
+                let btn = pkt.button.as_deref().unwrap_or("left");
+                match btn {
+                    "right" => mouse_event(0x0008, 0, 0, 0, 0),
+                    "middle" => mouse_event(0x0020, 0, 0, 0, 0),
+                    _ => mouse_event(0x0002, 0, 0, 0, 0),
+                }
+                Ok(format!("Mouse down ({btn}) at ({px}, {py})"))
+            }
+            "mouse_up" => {
+                if pkt.x_norm.is_some() && pkt.y_norm.is_some() {
+                    let _ = SetCursorPos(px, py);
+                }
+                let btn = pkt.button.as_deref().unwrap_or("left");
+                match btn {
+                    "right" => mouse_event(0x0010, 0, 0, 0, 0),
+                    "middle" => mouse_event(0x0040, 0, 0, 0, 0),
+                    _ => mouse_event(0x0004, 0, 0, 0, 0),
+                }
+                Ok(format!("Mouse up ({btn}) at ({px}, {py})"))
+            }
             "mouse_click" => {
                 let _ = SetCursorPos(px, py);
                 let btn = pkt.button.as_deref().unwrap_or("left");
                 if btn == "right" {
                     mouse_event(0x0008, 0, 0, 0, 0);
                     mouse_event(0x0010, 0, 0, 0, 0);
+                } else if btn == "middle" {
+                    mouse_event(0x0020, 0, 0, 0, 0);
+                    mouse_event(0x0040, 0, 0, 0, 0);
                 } else {
                     mouse_event(0x0002, 0, 0, 0, 0);
                     mouse_event(0x0004, 0, 0, 0, 0);
                 }
                 Ok(format!("Remote {btn} click at ({px}, {py})"))
             }
+            "mouse_dblclick" => {
+                let _ = SetCursorPos(px, py);
+                mouse_event(0x0002, 0, 0, 0, 0);
+                mouse_event(0x0004, 0, 0, 0, 0);
+                std::thread::sleep(Duration::from_millis(35));
+                mouse_event(0x0002, 0, 0, 0, 0);
+                mouse_event(0x0004, 0, 0, 0, 0);
+                Ok(format!("Remote double-click at ({px}, {py})"))
+            }
+            "mouse_wheel" => {
+                if pkt.x_norm.is_some() && pkt.y_norm.is_some() {
+                    let _ = SetCursorPos(px, py);
+                }
+                let delta = pkt.wheel_delta.unwrap_or(-120).clamp(-600, 600);
+                mouse_event(0x0800, 0, 0, delta as u32, 0);
+                Ok(format!("Mouse wheel ({delta}) at ({px}, {py})"))
+            }
+            "key_down" => {
+                if let Some(vk) = pkt.vk {
+                    let ext = if is_extended_vk(vk) { 0x0001 } else { 0 };
+                    keybd_event(vk, 0, ext, 0);
+                    return Ok(format!("Key down VK 0x{vk:02X}"));
+                }
+                Ok("No vk code".to_string())
+            }
+            "key_up" => {
+                if let Some(vk) = pkt.vk {
+                    let ext = if is_extended_vk(vk) { 0x0001 } else { 0 };
+                    keybd_event(vk, 0, ext | 0x0002, 0);
+                    return Ok(format!("Key up VK 0x{vk:02X}"));
+                }
+                Ok("No vk code".to_string())
+            }
             "key_press" => {
                 if let Some(vk) = pkt.vk {
-                    keybd_event(vk, 0, 0, 0);
+                    let ext = if is_extended_vk(vk) { 0x0001 } else { 0 };
+                    keybd_event(vk, 0, ext, 0);
                     std::thread::sleep(Duration::from_millis(25));
-                    keybd_event(vk, 0, 0x0002, 0);
+                    keybd_event(vk, 0, ext | 0x0002, 0);
                     return Ok(format!("Pressed VK 0x{vk:02X}"));
                 }
                 Ok("No vk code".to_string())
             }
+            "hotkey" => {
+                let hk = pkt.text.as_deref().unwrap_or("");
+                match hk {
+                    "win_d" => send_vk_combo(&[0x5B, 0x44]),
+                    "win_e" => send_vk_combo(&[0x5B, 0x45]),
+                    "alt_tab" => send_vk_combo(&[0x12, 0x09]),
+                    "task_mgr" => send_vk_combo(&[0x11, 0x10, 0x1B]),
+                    "ctrl_c" => send_vk_combo(&[0x11, 0x43]),
+                    "ctrl_v" => send_vk_combo(&[0x11, 0x56]),
+                    "ctrl_a" => send_vk_combo(&[0x11, 0x41]),
+                    "ctrl_z" => send_vk_combo(&[0x11, 0x5A]),
+                    "ctrl_w" => send_vk_combo(&[0x11, 0x57]),
+                    "alt_f4" => send_vk_combo(&[0x12, 0x73]),
+                    "enter" => send_vk_combo(&[0x0D]),
+                    "backspace" => send_vk_combo(&[0x08]),
+                    "escape" => send_vk_combo(&[0x1B]),
+                    "tab" => send_vk_combo(&[0x09]),
+                    "space" => send_vk_combo(&[0x20]),
+                    other => return Ok(format!("Unknown hotkey: {other}")),
+                }
+                Ok(format!("Sent hotkey {hk}"))
+            }
             "minimize_all" => {
-                // Win + D to show desktop / troll
-                keybd_event(0x5B, 0, 0, 0);
-                keybd_event(0x44, 0, 0, 0);
-                std::thread::sleep(Duration::from_millis(30));
-                keybd_event(0x44, 0, 0x0002, 0);
-                keybd_event(0x5B, 0, 0x0002, 0);
+                send_vk_combo(&[0x5B, 0x44]);
                 Ok("Sent Win+D minimize shortcut".to_string())
             }
             "type_text" | "open_notepad_taunt" => {
@@ -575,8 +860,16 @@ fn spawn_peer_reader(
                     }
                 }
                 "state_sync" => {
-                    if let Ok(guard) = inner_arc.lock() {
+                    if let Ok(mut guard) = inner_arc.lock() {
+                        if let Some(ref wj) = pkt.windows_json {
+                            guard.host_windows_json = wj.clone();
+                        }
                         emit_p2p(&guard, "peer_state_sync", Some(pkt.clone()), None);
+                    }
+                }
+                "map_request" => {
+                    if let Ok(guard) = inner_arc.lock() {
+                        emit_p2p(&guard, "map_request", Some(pkt.clone()), None);
                     }
                 }
                 "map_windows" => {
@@ -585,6 +878,27 @@ fn spawn_peer_reader(
                             guard.host_windows_json = wj.clone();
                         }
                         emit_p2p(&guard, "host_map_sync", Some(pkt.clone()), None);
+                    }
+                }
+                "remote_frame" => {
+                    if let Ok(mut guard) = inner_arc.lock() {
+                        if let Some(ref b64) = pkt.frame_b64 {
+                            guard.remote_frame_b64 = b64.clone();
+                        }
+                        if let Some(fw) = pkt.frame_w {
+                            guard.remote_frame_w = fw;
+                        }
+                        if let Some(fh) = pkt.frame_h {
+                            guard.remote_frame_h = fh;
+                        }
+                        guard.remote_frame_seq = pkt.frame_seq.unwrap_or_else(|| guard.remote_frame_seq.wrapping_add(1));
+                        if let Some(cx) = pkt.x_ratio {
+                            guard.remote_cursor_x = cx;
+                        }
+                        if let Some(cy) = pkt.y_ratio {
+                            guard.remote_cursor_y = cy;
+                        }
+                        emit_p2p(&guard, "remote_frame", Some(pkt.clone()), None);
                     }
                 }
                 "blackhole_hide" => {
@@ -611,6 +925,13 @@ fn spawn_peer_reader(
                         guard.pc_energy = 100;
                         guard.peer_energy = 100;
                         guard.pk_foods_json = "[]".to_string();
+                        if let Some(ref wj) = pkt.windows_json {
+                            guard.host_windows_json = wj.clone();
+                        }
+                        guard.remote_frame_b64.clear();
+                        guard.remote_frame_w = 0;
+                        guard.remote_frame_h = 0;
+                        guard.remote_frame_seq = 0;
                         guard.winner_control_until = None;
                         guard.victim_control_until = None;
                         emit_p2p(&guard, "pk_started", Some(pkt.clone()), None);
@@ -623,12 +944,18 @@ fn spawn_peer_reader(
                 }
                 "pk_finish" => {
                     let winner_is_sender = pkt.winner_is_sender.unwrap_or(false);
+                    let mut should_stream_screen = false;
                     if let Ok(mut guard) = inner_arc.lock() {
+                        guard.remote_frame_b64.clear();
+                        guard.remote_frame_w = 0;
+                        guard.remote_frame_h = 0;
+                        guard.remote_frame_seq = 0;
                         if winner_is_sender {
                             guard.phase = "victim_controlled".to_string();
                             guard.victim_control_until =
                                 Some(Instant::now() + Duration::from_secs(60));
                             guard.winner_control_until = None;
+                            should_stream_screen = !guard.is_sim_mode && !guard.is_web_peer;
                         } else {
                             guard.phase = "winner_control".to_string();
                             guard.winner_control_until =
@@ -636,6 +963,9 @@ fn spawn_peer_reader(
                             guard.victim_control_until = None;
                         }
                         emit_p2p(&guard, "pk_finished", Some(pkt.clone()), None);
+                    }
+                    if should_stream_screen {
+                        spawn_victim_screen_streamer(inner_arc.clone());
                     }
                 }
                 "remote_cmd" => {
@@ -678,6 +1008,10 @@ fn spawn_peer_reader(
             guard.is_room_host = false;
             guard.host_windows_json = "[]".to_string();
             guard.pk_foods_json = "[]".to_string();
+            guard.remote_frame_b64.clear();
+            guard.remote_frame_w = 0;
+            guard.remote_frame_h = 0;
+            guard.remote_frame_seq = 0;
             guard.pc_energy = 100;
             guard.peer_energy = 100;
             guard.pc_hidden = false;
@@ -1271,6 +1605,12 @@ impl P2pState {
             last_pc_aim_x: 0.5,
             last_pc_aim_y: 0.5,
             block_generation: 0,
+            remote_frame_b64: String::new(),
+            remote_frame_w: 0,
+            remote_frame_h: 0,
+            remote_frame_seq: 0,
+            remote_cursor_x: 0.5,
+            remote_cursor_y: 0.5,
         }));
 
         let jitter_cancel = Arc::new(AtomicBool::new(false));
@@ -1555,6 +1895,10 @@ pub fn p2p_send_packet(state: State<'_, P2pState>, packet: P2pWirePacket) -> Res
         guard.phase = "pk_duel".to_string();
         guard.winner_control_until = None;
         guard.victim_control_until = None;
+        guard.remote_frame_b64.clear();
+        guard.remote_frame_w = 0;
+        guard.remote_frame_h = 0;
+        guard.remote_frame_seq = 0;
         guard.pc_hp = 100;
         guard.peer_hp = 100;
         guard.pc_energy = 100;
@@ -1577,6 +1921,10 @@ pub fn p2p_send_packet(state: State<'_, P2pState>, packet: P2pWirePacket) -> Res
             }
         }
     } else if packet.kind == "pk_finish" {
+        guard.remote_frame_b64.clear();
+        guard.remote_frame_w = 0;
+        guard.remote_frame_h = 0;
+        guard.remote_frame_seq = 0;
         if packet.winner_is_sender.unwrap_or(false) {
             guard.phase = "winner_control".to_string();
             guard.winner_control_until = Some(Instant::now() + Duration::from_secs(60));
@@ -1592,11 +1940,76 @@ pub fn p2p_send_packet(state: State<'_, P2pState>, packet: P2pWirePacket) -> Res
         return Ok(());
     }
 
+    let start_victim_stream =
+        packet.kind == "pk_finish" && !packet.winner_is_sender.unwrap_or(false);
+
     if let Some(ref mut stream) = guard.active_stream {
-        send_json_line(stream, &packet)
+        let res = send_json_line(stream, &packet);
+        drop(guard);
+        if res.is_ok() && start_victim_stream {
+            spawn_victim_screen_streamer(state.inner.clone());
+        }
+        res
     } else {
         Err("Chưa thiết lập kết nối P2P với máy đối thủ.".to_string())
     }
+}
+
+#[tauri::command]
+pub async fn p2p_poll_remote_frame(
+    state: State<'_, P2pState>,
+    max_width: Option<u32>,
+) -> Result<P2pRemoteFrameSnapshot, String> {
+    let (is_sim, phase, rem_sec, cached) = {
+        let mut guard = state.inner.lock().unwrap();
+        refresh_expired_timers(&mut guard);
+        let rem = guard
+            .winner_control_until
+            .and_then(|t| t.checked_duration_since(Instant::now()))
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let snap = P2pRemoteFrameSnapshot {
+            has_frame: !guard.remote_frame_b64.is_empty(),
+            frame_b64: guard.remote_frame_b64.clone(),
+            width: guard.remote_frame_w,
+            height: guard.remote_frame_h,
+            seq: guard.remote_frame_seq,
+            cursor_x: guard.remote_cursor_x,
+            cursor_y: guard.remote_cursor_y,
+            remaining_sec: rem,
+            is_sim_mode: guard.is_sim_mode,
+        };
+        (guard.is_sim_mode, guard.phase.clone(), rem, snap)
+    };
+
+    if is_sim && phase == "winner_control" {
+        let cap_w = max_width.unwrap_or(680);
+        let (b64, w, h, cx, cy) = tauri::async_runtime::spawn_blocking(move || {
+            capture_desktop_frame_bmp_b64(cap_w)
+        })
+        .await
+        .map_err(|e| format!("Lỗi luồng chụp màn hình Sim: {e}"))??;
+
+        let mut guard = state.inner.lock().unwrap();
+        guard.remote_frame_seq = guard.remote_frame_seq.wrapping_add(1);
+        guard.remote_frame_b64 = b64.clone();
+        guard.remote_frame_w = w;
+        guard.remote_frame_h = h;
+        let seq = guard.remote_frame_seq;
+        return Ok(P2pRemoteFrameSnapshot {
+            has_frame: true,
+            frame_b64: b64,
+            width: w,
+            height: h,
+            seq,
+            cursor_x: cx,
+            cursor_y: cy,
+            remaining_sec: rem_sec,
+            is_sim_mode: true,
+        });
+    }
+
+    Ok(cached)
 }
 
 #[tauri::command]
@@ -1607,6 +2020,7 @@ pub fn p2p_send_remote_command(
     y_norm: Option<f64>,
     button: Option<String>,
     vk: Option<u8>,
+    wheel_delta: Option<i32>,
     text: Option<String>,
     duration_sec: Option<u64>,
 ) -> Result<String, String> {
@@ -1624,6 +2038,21 @@ pub fn p2p_send_remote_command(
         return Err("Bạn chưa thắng trận PK để sử dụng Remote Control!".to_string());
     }
 
+    if is_sim {
+        if let Some(xn) = x_norm {
+            guard.remote_cursor_x = xn.clamp(0.0, 1.0);
+        }
+        if let Some(yn) = y_norm {
+            guard.remote_cursor_y = yn.clamp(0.0, 1.0);
+        }
+        if cmd_type == "mouse_move" {
+            return Ok(String::new());
+        }
+        if button.as_deref() == Some("sim_preview") {
+            return Ok(format!("[SIM PREVIEW] {cmd_type} ({:.2}, {:.2})", guard.remote_cursor_x, guard.remote_cursor_y));
+        }
+    }
+
     let pkt = P2pWirePacket {
         kind: "remote_cmd".to_string(),
         cmd_type: Some(cmd_type.clone()),
@@ -1631,13 +2060,13 @@ pub fn p2p_send_remote_command(
         y_norm,
         button,
         vk,
+        wheel_delta,
         text,
         duration_sec,
         ..Default::default()
     };
 
     if is_sim {
-        // Trong chế độ Test 1 máy, thực thi trực tiếp những lệnh an toàn khi người dùng bấm Test
         drop(guard);
         let res = execute_win32_remote_cmd(&state.inner, &state.jitter_cancel, &pkt)?;
         return Ok(format!("[SIM TEST] {res}"));
@@ -1707,6 +2136,10 @@ pub fn p2p_disconnect(state: State<'_, P2pState>) -> P2pStatus {
     guard.is_room_host = false;
     guard.host_windows_json = "[]".to_string();
     guard.pk_foods_json = "[]".to_string();
+    guard.remote_frame_b64.clear();
+    guard.remote_frame_w = 0;
+    guard.remote_frame_h = 0;
+    guard.remote_frame_seq = 0;
     guard.pc_energy = 100;
     guard.peer_energy = 100;
     guard.pc_migrated_out = false;
@@ -1738,6 +2171,10 @@ pub fn p2p_emergency_release(state: State<'_, P2pState>) -> P2pStatus {
     guard.block_generation = guard.block_generation.wrapping_add(1);
     guard.victim_control_until = None;
     guard.winner_control_until = None;
+    guard.remote_frame_b64.clear();
+    guard.remote_frame_w = 0;
+    guard.remote_frame_h = 0;
+    guard.remote_frame_seq = 0;
     if guard.phase == "victim_controlled" || guard.phase == "winner_control" {
         guard.phase = if guard.active_stream.is_some() || guard.is_sim_mode || guard.is_web_peer {
             "connected".to_string()

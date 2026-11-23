@@ -340,6 +340,23 @@ impl MemoryDb {
                 ai_deep_reading TEXT NOT NULL DEFAULT ''
             );
             CREATE INDEX IF NOT EXISTS idx_tarot_drawn_at ON tarot_readings(drawn_at_ms DESC);
+            CREATE TABLE IF NOT EXISTS cloud_auth_store (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS automation_rules (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                trigger_type TEXT NOT NULL,
+                trigger_value TEXT NOT NULL,
+                skill_id TEXT NOT NULL,
+                args_json TEXT NOT NULL DEFAULT '{}',
+                enabled INTEGER NOT NULL DEFAULT 1,
+                last_run_at INTEGER NOT NULL DEFAULT 0,
+                run_count INTEGER NOT NULL DEFAULT 0,
+                created_at INTEGER NOT NULL
+            );
             ",
         )?;
 
@@ -2116,6 +2133,207 @@ pub(crate) fn db_update_tarot_ai_reading(
     db.bind_str(stmt, 1, ai_text);
     unsafe {
         (db.api.bind_int64)(stmt, 2, id);
+        (db.api.step)(stmt);
+        (db.api.finalize)(stmt);
+    }
+    Ok(())
+}
+
+pub(crate) fn db_cloud_kv_get(state: &MemoryState, key: &str) -> Option<String> {
+    let guard = state.inner.lock().ok()?;
+    let db = guard.as_ref()?;
+    let stmt = db
+        .prepare("SELECT value FROM cloud_auth_store WHERE key = ?1 LIMIT 1")
+        .ok()?;
+    db.bind_str(stmt, 1, key);
+    let mut result: Option<String> = None;
+    unsafe {
+        if (db.api.step)(stmt) == SQLITE_ROW {
+            result = Some(db.col_str(stmt, 0));
+        }
+        (db.api.finalize)(stmt);
+    }
+    result
+}
+
+pub(crate) fn db_cloud_kv_set(state: &MemoryState, key: &str, value: &str) -> Result<(), String> {
+    let guard = state.inner.lock().map_err(|e| e.to_string())?;
+    let db = guard.as_ref().ok_or("SQLite chưa sẵn sàng")?;
+    let now = now_unix();
+    let stmt = db.prepare(
+        "INSERT INTO cloud_auth_store (key, value, updated_at) VALUES (?1, ?2, ?3)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+    )?;
+    db.bind_str(stmt, 1, key);
+    db.bind_str(stmt, 2, value);
+    unsafe {
+        (db.api.bind_int64)(stmt, 3, now);
+        (db.api.step)(stmt);
+        (db.api.finalize)(stmt);
+    }
+    Ok(())
+}
+
+pub(crate) fn db_cloud_kv_delete(state: &MemoryState, key: &str) -> Result<(), String> {
+    let guard = state.inner.lock().map_err(|e| e.to_string())?;
+    let db = guard.as_ref().ok_or("SQLite chưa sẵn sàng")?;
+    let stmt = db.prepare("DELETE FROM cloud_auth_store WHERE key = ?1")?;
+    db.bind_str(stmt, 1, key);
+    unsafe {
+        (db.api.step)(stmt);
+        (db.api.finalize)(stmt);
+    }
+    Ok(())
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct AutomationRuleRecord {
+    pub id: String,
+    pub name: String,
+    pub trigger_type: String,
+    pub trigger_value: String,
+    pub skill_id: String,
+    pub args_json: String,
+    pub enabled: bool,
+    pub last_run_at: i64,
+    pub run_count: i64,
+    pub created_at: i64,
+}
+
+#[tauri::command]
+pub fn auto_rule_list(state: tauri::State<'_, MemoryState>) -> Vec<AutomationRuleRecord> {
+    let Ok(guard) = state.inner.lock() else {
+        return Vec::new();
+    };
+    let Some(db) = guard.as_ref() else {
+        return Vec::new();
+    };
+    let Ok(stmt) = db.prepare(
+        "SELECT id, name, trigger_type, trigger_value, skill_id, args_json, enabled, last_run_at, run_count, created_at
+         FROM automation_rules ORDER BY created_at DESC",
+    ) else {
+        return Vec::new();
+    };
+    let mut rows = Vec::new();
+    unsafe {
+        while (db.api.step)(stmt) == SQLITE_ROW {
+            rows.push(AutomationRuleRecord {
+                id: db.col_str(stmt, 0),
+                name: db.col_str(stmt, 1),
+                trigger_type: db.col_str(stmt, 2),
+                trigger_value: db.col_str(stmt, 3),
+                skill_id: db.col_str(stmt, 4),
+                args_json: db.col_str(stmt, 5),
+                enabled: (db.api.column_int64)(stmt, 6) != 0,
+                last_run_at: (db.api.column_int64)(stmt, 7),
+                run_count: (db.api.column_int64)(stmt, 8),
+                created_at: (db.api.column_int64)(stmt, 9),
+            });
+        }
+        (db.api.finalize)(stmt);
+    }
+    rows
+}
+
+#[tauri::command]
+pub fn auto_rule_upsert(
+    state: tauri::State<'_, MemoryState>,
+    id: String,
+    name: String,
+    trigger_type: String,
+    trigger_value: String,
+    skill_id: String,
+    args_json: String,
+    enabled: bool,
+) -> Result<(), String> {
+    let guard = state.inner.lock().map_err(|e| e.to_string())?;
+    let db = guard.as_ref().ok_or("SQLite chưa sẵn sàng")?;
+    let now = now_unix();
+    let clean_id = if id.trim().is_empty() {
+        format!("rule_{now}")
+    } else {
+        id.trim().to_string()
+    };
+    let stmt = db.prepare(
+        "INSERT INTO automation_rules (id, name, trigger_type, trigger_value, skill_id, args_json, enabled, last_run_at, run_count, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, 0, ?8)
+         ON CONFLICT(id) DO UPDATE SET
+            name = excluded.name,
+            trigger_type = excluded.trigger_type,
+            trigger_value = excluded.trigger_value,
+            skill_id = excluded.skill_id,
+            args_json = excluded.args_json,
+            enabled = excluded.enabled",
+    )?;
+    db.bind_str(stmt, 1, &clean_id);
+    db.bind_str(stmt, 2, name.trim());
+    db.bind_str(stmt, 3, trigger_type.trim());
+    db.bind_str(stmt, 4, trigger_value.trim());
+    db.bind_str(stmt, 5, skill_id.trim());
+    db.bind_str(
+        stmt,
+        6,
+        if args_json.trim().is_empty() {
+            "{}"
+        } else {
+            args_json.trim()
+        },
+    );
+    unsafe {
+        (db.api.bind_int64)(stmt, 7, if enabled { 1 } else { 0 });
+        (db.api.bind_int64)(stmt, 8, now);
+        (db.api.step)(stmt);
+        (db.api.finalize)(stmt);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn auto_rule_toggle(
+    state: tauri::State<'_, MemoryState>,
+    id: String,
+    enabled: bool,
+) -> Result<(), String> {
+    let guard = state.inner.lock().map_err(|e| e.to_string())?;
+    let db = guard.as_ref().ok_or("SQLite chưa sẵn sàng")?;
+    let stmt = db.prepare("UPDATE automation_rules SET enabled = ?1 WHERE id = ?2")?;
+    unsafe {
+        (db.api.bind_int64)(stmt, 1, if enabled { 1 } else { 0 });
+    }
+    db.bind_str(stmt, 2, id.trim());
+    unsafe {
+        (db.api.step)(stmt);
+        (db.api.finalize)(stmt);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn auto_rule_delete(state: tauri::State<'_, MemoryState>, id: String) -> Result<(), String> {
+    let guard = state.inner.lock().map_err(|e| e.to_string())?;
+    let db = guard.as_ref().ok_or("SQLite chưa sẵn sàng")?;
+    let stmt = db.prepare("DELETE FROM automation_rules WHERE id = ?1")?;
+    db.bind_str(stmt, 1, id.trim());
+    unsafe {
+        (db.api.step)(stmt);
+        (db.api.finalize)(stmt);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn auto_rule_mark_ran(state: tauri::State<'_, MemoryState>, id: String) -> Result<(), String> {
+    let guard = state.inner.lock().map_err(|e| e.to_string())?;
+    let db = guard.as_ref().ok_or("SQLite chưa sẵn sàng")?;
+    let now = now_unix();
+    let stmt = db.prepare(
+        "UPDATE automation_rules SET last_run_at = ?1, run_count = run_count + 1 WHERE id = ?2",
+    )?;
+    unsafe {
+        (db.api.bind_int64)(stmt, 1, now);
+    }
+    db.bind_str(stmt, 2, id.trim());
+    unsafe {
         (db.api.step)(stmt);
         (db.api.finalize)(stmt);
     }

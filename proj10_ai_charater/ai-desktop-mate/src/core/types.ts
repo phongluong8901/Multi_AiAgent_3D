@@ -131,6 +131,8 @@ export interface WeatherInfo {
   humidity_pct: number;
   wind_kmh: number;
   description: string;
+  weather_code?: number;
+  is_day?: boolean;
 }
 
 export interface BitcoinInfo {
@@ -380,10 +382,10 @@ export function createDefaultAutoBehaviors(): AutoBehaviorConfig {
 
 export interface SkillParamDef {
   name: string;
-  type: 'string' | 'number' | 'boolean';
+  type: 'string' | 'number' | 'boolean' | 'array' | 'object';
   description: string;
   required?: boolean;
-  default?: string | number | boolean;
+  default?: unknown;
 }
 
 export interface CustomSkillRecord {
@@ -444,9 +446,97 @@ export interface ToolForgeDraft {
   testArgsJson: string;
   expectedKeywords: string[];
   sandbox: SandboxRunResult | null;
+  liveTest?: SkillExecResult | null;
+  liveTestArgsJson?: string;
   healLogs: string[];
   originalRequest: string;
   isGenerating?: boolean;
+}
+
+export interface CloudHubConfigPublic {
+  google_client_id: string;
+  has_google_client_secret: boolean;
+  cloud_hub_api_url: string;
+  is_google_configured: boolean;
+  is_hub_configured: boolean;
+}
+
+export interface CloudAuthStatus {
+  logged_in: boolean;
+  sub: string;
+  email: string;
+  name: string;
+  picture: string;
+  expires_at_ms: number;
+}
+
+export interface CommunitySkillDoc {
+  skill_key: string;
+  id: string;
+  name: string;
+  description: string;
+  language: 'powershell' | 'python' | string;
+  triggers_json: string;
+  params_schema_json: string;
+  code: string;
+  test_args_json: string;
+  expected_keywords_json: string;
+  version: number;
+  code_hash: string;
+  author_sub: string;
+  author_email: string;
+  author_name: string;
+  downloads: number;
+  stars?: number;
+  starred_by?: string[];
+  updated_at_ms: number;
+}
+
+export interface SyncedChatMessage {
+  msg_id: string;
+  role: 'user' | 'assistant' | string;
+  content: string;
+  source: 'desktop' | 'web' | string;
+  created_at_ms: number;
+}
+
+export interface UiaElementInfo {
+  index: number;
+  name: string;
+  control_type: string;
+  automation_id: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  center_x: number;
+  center_y: number;
+  value: string;
+}
+
+export interface CdpTabInfo {
+  id: string;
+  title: string;
+  url: string;
+  ws_url: string;
+}
+
+export interface AutomationRuleRecord {
+  id: string;
+  name: string;
+  trigger_type: string;
+  trigger_value: string;
+  skill_id: string;
+  args_json: string;
+  enabled: boolean;
+  last_run_at: number;
+  run_count: number;
+  created_at: number;
+}
+
+export interface InstallCommunitySkillResult {
+  skill: CustomSkillRecord;
+  sandbox: SandboxRunResult;
 }
 
 export type TarotFortuneCode =
@@ -500,6 +590,12 @@ export interface CapturedWindowFrame {
   is_minimized: boolean;
   is_stealth?: boolean;
   bmp_base64: string;
+}
+
+export interface CapturedWindowBatchItem {
+  hwnd: number;
+  frame: CapturedWindowFrame | null;
+  error: string | null;
 }
 
 export interface MiniWindowEntry {

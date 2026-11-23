@@ -18,6 +18,71 @@ import {
   toggleTarotModal,
 } from '../frontend/ui';
 import { appState } from '../core/state';
+import { fireAnimationTrigger } from '../core/animationBinder';
+import { syncChatPushToCloud, syncChatStreamChunkToCloud } from './toolForge';
+import {
+  buildPinnedFilesPromptContext,
+  clearPinnedChatFiles,
+  formatPinnedFilesChatTag,
+  getPinnedAnalyses,
+  getPinnedChatFiles,
+  getPrimaryPinnedFile,
+  pinFileToChatBar,
+} from '../frontend/features/pinnedChatFiles';
+import { runMultiStepDesktopAgent } from './agentLoop';
+import {
+  COMPACT_LOCAL_TOOLSET_PROMPT,
+  DESKTOP_TOOLSET_PROMPT,
+  parseAiToolCalls,
+  ToolCallItem,
+} from './assistantPrompts';
+import {
+  isQuestionOrMetaDiscussion,
+  parseAccessoryCommand,
+  parseClipboardCommand,
+  parseDeepSystemCommand,
+  parseDesktopIconCommand,
+  parseProcessCommand,
+  parseStickyNoteCommand,
+  parseTimerCommand,
+  parseWebSearchCommand,
+  parseWorkspaceCommand,
+} from './commandParsers';
+
+export { COMPACT_LOCAL_TOOLSET_PROMPT, DESKTOP_TOOLSET_PROMPT, parseAiToolCalls };
+export type { ToolCallItem };
+
+let activeToolAnimDepth = 0;
+
+async function runWithToolAnim<T>(
+  toolKey: string,
+  fn: () => Promise<T>,
+  isOk?: (res: T) => boolean
+): Promise<T> {
+  const ownTrigger = activeToolAnimDepth === 0;
+  if (ownTrigger) fireAnimationTrigger('tool', toolKey, 'start');
+  activeToolAnimDepth++;
+  let ok = false;
+  try {
+    const res = await fn();
+    ok = isOk ? isOk(res) : true;
+    return res;
+  } catch (err) {
+    ok = false;
+    throw err;
+  } finally {
+    activeToolAnimDepth = Math.max(0, activeToolAnimDepth - 1);
+    if (ownTrigger) fireAnimationTrigger('tool', toolKey, ok ? 'success' : 'error');
+  }
+}
+
+function scheduleScanIdleReset(delayMs = 1800) {
+  window.setTimeout(() => {
+    if (appState.state === 'SCANNING') {
+      appState.setState(appState.attachedWindowHwnd !== null ? 'SITTING_WINDOW' : 'IDLE');
+    }
+  }, delayMs);
+}
 import {
   show3DRadar,
   showFishingRod,
@@ -45,6 +110,7 @@ import {
   OcrResultInfo,
   OllamaMessage,
   ScheduledNoteEntry,
+  TranslateResult,
   WeatherEffectMode,
   WeatherInfo,
 } from '../core/types';
@@ -87,6 +153,8 @@ import {
   triggerStartSwimming,
   triggerStopSwimming,
   triggerWindowSwing,
+  triggerWindowPaperCrash,
+  triggerHulkRageMode,
 } from '../physics/physics';
 import { clearCachedVrm } from '../characters/vrmManager';
 import {
@@ -105,11 +173,16 @@ import {
   detectToolForgeRequestIntent,
   executeSavedSkillWithSelfHeal,
   extractArgsWithLocalLlmIfAvailable,
+  extractChatContactAndMessage,
   forgeNewToolFromRequest,
+  getCachedCustomSkills,
+  isSendChatSkill,
   matchSavedSkillForUserText,
   refreshCustomSkills,
   registerToolForgeContext,
+  validateSendChatSkillArgs,
 } from './toolForge';
+import { fetchNotificationHistory } from './notificationService';
 
 let speakCb: ((msg: string) => void) | null = null;
 let danceCb: (() => void) | null = null;
@@ -128,7 +201,59 @@ function speak(msg: string) {
   }
 }
 
-export type LlmRouteMode = 'auto' | 'gemini' | 'local';
+export type LlmRouteMode = 'auto' | 'colab' | 'gemini' | 'local';
+
+export interface ColabScanResult {
+  online: boolean;
+  tunnel_url: string;
+  default_model: string;
+  enabled: boolean;
+  models: string[];
+  error: string;
+}
+
+export let colabCloudOnline = false;
+export let colabCloudUrl = '';
+export let colabCloudModel = localStorage.getItem('mate_colab_model') || 'qwen2.5-coder:14b';
+
+export function setColabCloudModel(modelName: string) {
+  const clean = modelName.trim();
+  if (!clean) return;
+  colabCloudModel = clean;
+  localStorage.setItem('mate_colab_model', clean);
+}
+
+export async function scanColabCloudModels(customUrl?: string): Promise<ColabScanResult> {
+  const res = await invoke<ColabScanResult>('colab_cloud_scan', {
+    customUrl: customUrl ?? null,
+  });
+  colabCloudOnline = Boolean(res.online);
+  if (res.tunnel_url) colabCloudUrl = res.tunnel_url;
+  if (res.online && res.models.length > 0 && !res.models.includes(colabCloudModel)) {
+    colabCloudModel = res.models[0];
+  }
+  updateLlmBadge(isOllamaOnline);
+  return res;
+}
+
+export async function saveColabCloudConfig(
+  tunnelUrl: string,
+  defaultModel: string,
+  enabled = true
+): Promise<ColabScanResult> {
+  const res = await invoke<ColabScanResult>('colab_cloud_save_config', {
+    tunnelUrl,
+    defaultModel,
+    enabled,
+  });
+  colabCloudOnline = Boolean(res.online);
+  colabCloudUrl = res.tunnel_url;
+  if (defaultModel.trim()) {
+    setColabCloudModel(defaultModel);
+  }
+  updateLlmBadge(isOllamaOnline);
+  return res;
+}
 
 export let ollamaModel = localStorage.getItem('mate_ollama_model') || 'qwen2.5:1.5b';
 export let geminiApiKey = '';
@@ -174,7 +299,7 @@ export function setGeminiApiKey(key: string, persistToEnv = false) {
   if (el && el.value !== cleaned) el.value = cleaned;
   updateLlmBadge(isOllamaOnline);
   if (persistToEnv) {
-    void invoke('save_gemini_api_key_env', { apiKey: cleaned }).catch(() => {});
+    void invoke('save_gemini_api_key_env', { apiKey: cleaned }).catch(() => { });
   }
 }
 
@@ -200,8 +325,8 @@ export function shouldRouteToGemini(userText: string, isHeavyTask = false): bool
   if (llmRouteMode === 'gemini') return true;
 
   if (!isOllamaOnline || isHeavyTask) return true;
-  if (userText.trim().length > 36) return true;
-  return /giải thích|tại sao|vì sao|làm sao|như thế nào|hướng dẫn|viết|code|lỗi|bug|python|rust|javascript|typescript|sql|so sánh|phân tích|tóm tắt|dịch|là gì|cách làm|thuật toán|kiến trúc/i.test(
+  if (userText.trim().length > 18) return true;
+  return /giải thích|tại sao|vì sao|làm sao|như thế nào|hướng dẫn|viết|code|lỗi|bug|python|rust|javascript|typescript|sql|so sánh|phân tích|tóm tắt|dịch|là gì|cách làm|thuật toán|kiến trúc|zalo|telegram|discord|messenger|nhắn|nhan tin|gửi tin|gui tin|hỏi\s+|hoi\s+|điền form|dien form|lấy bảng|lay bang|tự động|tu dong|automate|file|csv|xlsx|pdf|tool|skill|check|kiểm tra|kiem tra|lọc|loc|thêm|them|sửa|sua|xóa|xoa|tạo|tao/i.test(
     userText
   );
 }
@@ -211,8 +336,26 @@ async function askHybridLlm(
   geminiSystemPrompt: string,
   messages: OllamaMessage[],
   preferGemini: boolean
-): Promise<{ reply: string; engine: 'Gemini' | 'Local' }> {
+): Promise<{ reply: string; engine: 'Gemini' | 'Local' | 'Colab' }> {
   const localMessages = messages.slice(-4);
+  const colabMessages = messages.slice(-8);
+
+  if (colabCloudOnline && (llmRouteMode === 'colab' || (preferGemini && !geminiApiKey.trim()))) {
+    try {
+      activeStreamEngine = 'Local';
+      const reply = await invoke<string>('ask_colab_cloud_stream', {
+        tunnelUrl: colabCloudUrl || null,
+        model: colabCloudModel,
+        messages: [{ role: 'system', content: geminiSystemPrompt }, ...colabMessages],
+      });
+      updateLlmBadge(isOllamaOnline, 'Colab');
+      return { reply, engine: 'Colab' };
+    } catch {
+      colabCloudOnline = false;
+      updateLlmBadge(isOllamaOnline);
+    }
+  }
+
   if (preferGemini && geminiApiKey.trim()) {
     try {
       const reply = await invoke<string>('ask_gemini', {
@@ -223,6 +366,20 @@ async function askHybridLlm(
       });
       return { reply, engine: 'Gemini' };
     } catch (err) {
+      if (colabCloudOnline) {
+        try {
+          activeStreamEngine = 'Local';
+          const reply = await invoke<string>('ask_colab_cloud_stream', {
+            tunnelUrl: colabCloudUrl || null,
+            model: colabCloudModel,
+            messages: [{ role: 'system', content: geminiSystemPrompt }, ...colabMessages],
+          });
+          updateLlmBadge(isOllamaOnline, 'Colab');
+          return { reply, engine: 'Colab' };
+        } catch {
+          colabCloudOnline = false;
+        }
+      }
       if (isOllamaOnline) {
         activeStreamEngine = 'Local';
         const reply = await invoke<string>('ask_ollama_stream', {
@@ -246,6 +403,20 @@ async function askHybridLlm(
     return { reply, engine: 'Local' };
   } catch (err) {
     updateLlmBadge(false);
+    if (colabCloudOnline) {
+      try {
+        activeStreamEngine = 'Local';
+        const reply = await invoke<string>('ask_colab_cloud_stream', {
+          tunnelUrl: colabCloudUrl || null,
+          model: colabCloudModel,
+          messages: [{ role: 'system', content: geminiSystemPrompt }, ...colabMessages],
+        });
+        updateLlmBadge(false, 'Colab');
+        return { reply, engine: 'Colab' };
+      } catch {
+        colabCloudOnline = false;
+      }
+    }
     if (geminiApiKey.trim()) {
       const reply = await invoke<string>('ask_gemini', {
         apiKey: geminiApiKey,
@@ -275,7 +446,7 @@ export function setCpuAlertPct(pct: number, saveDb = true) {
     void invoke('memory_save_profile', {
       key: 'Ngưỡng CPU',
       value: `${clamped}%`,
-    }).catch(() => {});
+    }).catch(() => { });
     void checkHardwareAlertNow();
   }
 }
@@ -291,7 +462,7 @@ export function setRamAlertGb(gb: number, saveDb = true) {
     void invoke('memory_save_profile', {
       key: 'Ngưỡng RAM',
       value: `${clamped} GB`,
-    }).catch(() => {});
+    }).catch(() => { });
     void checkHardwareAlertNow();
   }
 }
@@ -471,27 +642,34 @@ function formatUptimeText(secs: number): string {
 }
 
 export async function runCheckAppMetrics(interactive = true): Promise<string> {
-  if (interactive) {
-    appState.setState('SCANNING');
-    spawnScanEffect(appState.posX, appState.posY);
-  }
-  try {
-    const m = await invoke<AppProcessMetrics>('get_app_process_metrics');
-    updateAppMetricsDashboard(m);
+  const exec = async () => {
     if (interactive) {
-      showTelemetrySection('app_metrics');
+      appState.setState('SCANNING');
+      spawnScanEffect(appState.posX, appState.posY);
     }
-    const upStr = formatUptimeText(m.uptime_seconds);
-    const summary = `[HIỆU NĂNG APP DUCK AI MANAGER] PID: ${m.pid} | CPU: ${m.app_cpu_pct}% (trên ${m.system_cpu_cores} nhân) | RAM: ${m.app_ram_mb} MB (Đỉnh: ${m.app_peak_ram_mb} MB, Bộ nhớ ảo: ${m.app_virtual_mem_mb} MB) | ${m.app_handles} Handles | Thời gian chạy: ${upStr}`;
-    if (interactive) {
-      speak(`App Duck AI Manager đang chạy siêu nhẹ: CPU chỉ ngốn ${m.app_cpu_pct}% trên ${m.system_cpu_cores} nhân, RAM chỉ chiếm ${m.app_ram_mb} MB. Xem chi tiết bảng bên trái nhé!`);
+    try {
+      const m = await invoke<AppProcessMetrics>('get_app_process_metrics');
+      updateAppMetricsDashboard(m);
+      if (interactive) {
+        showTelemetrySection('app_metrics');
+      }
+      const upStr = formatUptimeText(m.uptime_seconds);
+      const summary = `[HIỆU NĂNG APP DUCK AI MANAGER] PID: ${m.pid} | CPU: ${m.app_cpu_pct}% (trên ${m.system_cpu_cores} nhân) | RAM: ${m.app_ram_mb} MB (Đỉnh: ${m.app_peak_ram_mb} MB, Bộ nhớ ảo: ${m.app_virtual_mem_mb} MB) | ${m.app_handles} Handles | Thời gian chạy: ${upStr}`;
+      if (interactive) {
+        speak(`App Duck AI Manager đang chạy siêu nhẹ: CPU chỉ ngốn ${m.app_cpu_pct}% trên ${m.system_cpu_cores} nhân, RAM chỉ chiếm ${m.app_ram_mb} MB. Xem chi tiết bảng bên trái nhé!`);
+      }
+      return summary;
+    } catch (err) {
+      const msg = `[LỖI ĐO HIỆU NĂNG APP] ${String(err)}`;
+      if (interactive) speak(msg);
+      return msg;
+    } finally {
+      if (interactive) scheduleScanIdleReset();
     }
-    return summary;
-  } catch (err) {
-    const msg = `[LỖI ĐO HIỆU NĂNG APP] ${String(err)}`;
-    if (interactive) speak(msg);
-    return msg;
-  }
+  };
+  return interactive
+    ? runWithToolAnim('telemetry', exec, (s) => !s.startsWith('[LỖI'))
+    : exec();
 }
 
 function updateNetworkDashboard(net: NetworkInfo) {
@@ -531,13 +709,18 @@ function updateBitcoinDashboard(btc: BitcoinInfo) {
   }
 }
 
-function updateLlmBadge(online: boolean, activeEngine?: 'Gemini' | 'Local') {
+function updateLlmBadge(online: boolean, activeEngine?: 'Gemini' | 'Local' | 'Colab') {
   isOllamaOnline = online;
   const badge = document.getElementById('llm-badge');
   if (!badge) return;
 
   const hasGemini = geminiApiKey.trim().length > 0;
-  if (activeEngine === 'Gemini' && hasGemini) {
+  if (activeEngine === 'Colab' || (colabCloudOnline && llmRouteMode === 'colab')) {
+    badge.textContent = `[COLAB: ${colabCloudModel}]`;
+    badge.style.color = '#fde68a';
+    badge.style.borderColor = 'rgba(245, 158, 11, 0.5)';
+    badge.style.background = 'rgba(245, 158, 11, 0.16)';
+  } else if (activeEngine === 'Gemini' && hasGemini) {
     badge.textContent = `[GEMINI: ${geminiModel}]`;
     badge.style.color = '#93c5fd';
     badge.style.borderColor = 'rgba(59, 130, 246, 0.45)';
@@ -586,7 +769,7 @@ export async function refreshLlmStatus(): Promise<NetworkInfo | null> {
             }
           }
         }
-      } catch {}
+      } catch { }
     }
     updateLlmBadge(isOnline);
     updateNetworkDashboard(net);
@@ -613,27 +796,94 @@ function formatNetworkSummary(net: NetworkInfo): string {
 }
 
 function resolveWeatherModeFromInfo(w: WeatherInfo): WeatherEffectMode {
-  const desc = w.description.toLowerCase();
+  const desc = (w.description || '').toLowerCase();
+  const code = typeof w.weather_code === 'number' ? w.weather_code : -1;
   const hour = new Date().getHours();
-  if (/mưa|rain|drizzle|thunder|bão|storm|shower/.test(desc)) return 'rain';
-  if (/tuyết|snow|sleet|ice|frost/.test(desc) || w.temp_c <= 15) return 'cold';
-  if (w.wind_kmh >= 20 || /wind|gió|gale/.test(desc)) return 'wind';
-  if (w.temp_c >= 31 || (/sunny|nắng|hot|clear/.test(desc) && w.temp_c >= 29)) return 'hot';
-  if (hour >= 20 || hour <= 5) return 'night';
+
+  if (
+    (code >= 51 && code <= 67) ||
+    (code >= 80 && code <= 82) ||
+    (code >= 95 && code <= 99) ||
+    /mưa|mua\b|dông|dong\b|giông|giong\b|sấm|sét|bão|rain|drizzle|thunder|storm|shower|downpour/.test(
+      desc
+    )
+  ) {
+    return 'rain';
+  }
+  if (
+    (code >= 71 && code <= 77) ||
+    code === 85 ||
+    code === 86 ||
+    /tuyết|tuyet|băng|rét|sương giá|snow|sleet|ice|frost|blizzard/.test(desc) ||
+    w.temp_c <= 18 ||
+    w.feels_like_c <= 17
+  ) {
+    return 'cold';
+  }
+  if (
+    (w.wind_kmh >= 24 && w.temp_c < 33) ||
+    w.wind_kmh >= 30 ||
+    /gió mạnh|gió lớn|gió giật|gale|squall|lốc|windy/.test(desc)
+  ) {
+    return 'wind';
+  }
+  if (w.is_day === false || (w.is_day === undefined && (hour >= 18 || hour < 6))) {
+    return 'night';
+  }
+  if (
+    w.temp_c >= 31 ||
+    w.feels_like_c >= 33 ||
+    (/nắng|nang\b|sunny|hot/.test(desc) && w.temp_c >= 28)
+  ) {
+    return 'hot';
+  }
   return 'clear';
 }
 
+const WEATHER_ACCESSORY_SET = new Set<AccessoryType>([
+  'sun_hat_glasses',
+  'rain_umbrella',
+  'winter_beanie',
+  'propeller',
+  'halo',
+]);
+
 function applyWeatherAccessory(mode: WeatherEffectMode) {
-  if (mode === 'hot' || mode === 'clear') {
-    equipAccessory3D('sun_hat_glasses', false);
-  } else if (mode === 'rain') {
-    equipAccessory3D('rain_umbrella', false);
-  } else if (mode === 'cold') {
-    equipAccessory3D('winter_beanie', false);
-  } else if (mode === 'wind') {
-    equipAccessory3D('propeller', false);
-  } else if (mode === 'night') {
-    equipAccessory3D('halo', false);
+  const desired: AccessoryType =
+    mode === 'hot'
+      ? 'sun_hat_glasses'
+      : mode === 'rain'
+        ? 'rain_umbrella'
+        : mode === 'cold'
+          ? 'winter_beanie'
+          : mode === 'wind'
+            ? 'propeller'
+            : mode === 'night'
+              ? 'halo'
+              : 'none';
+
+  if (desired === 'none') {
+    if (WEATHER_ACCESSORY_SET.has(appState.activeAccessory)) {
+      equipAccessory3D('none', false);
+    }
+    return;
+  }
+  if (appState.activeAccessory !== desired) {
+    equipAccessory3D(desired, false);
+  }
+}
+
+function syncWeatherUiAndTriggerEvent(
+  mode: WeatherEffectMode,
+  dropdownMode: WeatherEffectMode | 'auto',
+  fireEvent: boolean
+) {
+  const sel = document.getElementById('select-weather-fx') as HTMLSelectElement | null;
+  if (sel) {
+    sel.value = dropdownMode;
+  }
+  if (fireEvent) {
+    fireAnimationTrigger('event', `weather:${mode}`, 'enter');
   }
 }
 
@@ -641,28 +891,38 @@ export async function runWeatherCheck(city?: string, interactive = true): Promis
   if (!city && appState.weatherSourceMode === 'custom') {
     return await syncLiveWeather3D('auto', interactive);
   }
-  if (interactive) {
-    appState.setState('SCANNING');
-    spawnScanEffect(appState.posX, appState.posY);
-  }
-  try {
-    const w = await invoke<WeatherInfo>('check_weather', { city: city || null });
-    updateWeatherDashboard(w);
-    appState.weatherMode = resolveWeatherModeFromInfo(w);
-    applyWeatherAccessory(appState.weatherMode);
-    updateStudioWeatherPreviewUi();
-    const summary = `Thời tiết ${w.location}: ${w.temp_c}°C (cảm giác ${w.feels_like_c}°C), ${w.description}, độ ẩm ${w.humidity_pct}%, gió ${w.wind_kmh} km/h`;
+  const exec = async () => {
     if (interactive) {
-      pushDashboardAlert(summary);
-      appState.setExpression('happy', 3.0);
-      speak(summary);
+      appState.setState('SCANNING');
+      spawnScanEffect(appState.posX, appState.posY);
     }
-    return summary;
-  } catch (err) {
-    const msg = `Lỗi thời tiết: ${String(err)}`;
-    if (interactive) speak(msg);
-    return msg;
-  }
+    try {
+      const prevMode = appState.weatherMode;
+      const w = await invoke<WeatherInfo>('check_weather', { city: city || null });
+      updateWeatherDashboard(w);
+      const nextMode = resolveWeatherModeFromInfo(w);
+      appState.weatherMode = nextMode;
+      applyWeatherAccessory(nextMode);
+      updateStudioWeatherPreviewUi();
+      syncWeatherUiAndTriggerEvent(nextMode, 'auto', interactive || nextMode !== prevMode);
+      const summary = `Thời tiết ${w.location}: ${w.temp_c}°C (cảm giác ${w.feels_like_c}°C), ${w.description}, độ ẩm ${w.humidity_pct}%, gió ${w.wind_kmh} km/h (${nextMode})`;
+      if (interactive) {
+        pushDashboardAlert(summary);
+        appState.setExpression('happy', 3.0);
+        speak(summary);
+      }
+      return summary;
+    } catch (err) {
+      const msg = `Lỗi thời tiết: ${String(err)}`;
+      if (interactive) speak(msg);
+      return msg;
+    } finally {
+      if (interactive) scheduleScanIdleReset();
+    }
+  };
+  return interactive
+    ? runWithToolAnim('weather_3d', exec, (s) => !s.startsWith('Lỗi'))
+    : exec();
 }
 
 function formatBitcoinSummary(btc: BitcoinInfo): string {
@@ -675,103 +935,124 @@ function formatBitcoinSummary(btc: BitcoinInfo): string {
 }
 
 export async function runHardwareCheck(interactive = true): Promise<string> {
-  if (interactive) {
-    appState.setState('SCANNING');
-    spawnScanEffect(appState.posX, appState.posY);
-  }
-  try {
-    const hw = await invoke<HardwareInfo>('check_hardware');
-    updateHardwareDashboard(hw);
-    const summary = formatHardwareSummary(hw);
+  const exec = async () => {
     if (interactive) {
-      showTelemetrySection('hw');
+      appState.setState('SCANNING');
+      spawnScanEffect(appState.posX, appState.posY);
     }
-    const { cpuHigh, ramHigh } = isHardwareOverThreshold(hw);
-    if (cpuHigh || ramHigh) {
-      pushDashboardAlert(
-        `CẢNH BÁO TÀI NGUYÊN: CPU ${hw.cpu_load_pct.toFixed(0)}% (>${cpuAlertPct}%), RAM ${hw.ram_used_gb.toFixed(1)} GB (>${ramAlertGb} GB)`
-      );
+    try {
+      const hw = await invoke<HardwareInfo>('check_hardware');
+      updateHardwareDashboard(hw);
+      const summary = formatHardwareSummary(hw);
       if (interactive) {
-        appState.setState('ALERT');
-        appState.setExpression('surprised', 3.5);
-        spawnAlertEffect(appState.posX, appState.posY);
-        speak('Máy đang vượt ngưỡng cảnh báo rồi! Kiểm tra bảng bên trái nhé.');
+        showTelemetrySection('hw');
       }
-    } else if (interactive) {
-      speak('Đã quét xong phần cứng! Xem chi tiết bên trái nhé.');
+      const { cpuHigh, ramHigh } = isHardwareOverThreshold(hw);
+      if (cpuHigh || ramHigh) {
+        pushDashboardAlert(
+          `CẢNH BÁO TÀI NGUYÊN: CPU ${hw.cpu_load_pct.toFixed(0)}% (>${cpuAlertPct}%), RAM ${hw.ram_used_gb.toFixed(1)} GB (>${ramAlertGb} GB)`
+        );
+        if (interactive) {
+          appState.setState('ALERT');
+          appState.setExpression('surprised', 3.5);
+          spawnAlertEffect(appState.posX, appState.posY);
+          speak('Máy đang vượt ngưỡng cảnh báo rồi! Kiểm tra bảng bên trái nhé.');
+        }
+      } else if (interactive) {
+        speak('Đã quét xong phần cứng! Xem chi tiết bên trái nhé.');
+      }
+      return summary;
+    } catch (err) {
+      const msg = `Lỗi phần cứng: ${String(err)}`;
+      if (interactive) {
+        showTelemetrySection('alert');
+        pushDashboardAlert(msg);
+        speak(msg);
+      }
+      return msg;
+    } finally {
+      if (interactive) scheduleScanIdleReset();
     }
-    return summary;
-  } catch (err) {
-    const msg = `Lỗi phần cứng: ${String(err)}`;
-    if (interactive) {
-      showTelemetrySection('alert');
-      pushDashboardAlert(msg);
-      speak(msg);
-    }
-    return msg;
-  }
+  };
+  return interactive
+    ? runWithToolAnim('telemetry', exec, (s) => !s.startsWith('Lỗi'))
+    : exec();
 }
 
 export async function runNetworkCheck(interactive = true): Promise<string> {
-  if (interactive) {
-    appState.setState('SCANNING');
-    spawnScanEffect(appState.posX, appState.posY);
-  }
-  try {
-    const net = await invoke<NetworkInfo>('check_network');
-    updateLlmBadge(net.ollama_ok);
-    updateNetworkDashboard(net);
-    const summary = formatNetworkSummary(net);
+  const exec = async () => {
     if (interactive) {
-      showTelemetrySection('net');
+      appState.setState('SCANNING');
+      spawnScanEffect(appState.posX, appState.posY);
     }
-    if (!net.internet_ok) {
-      pushDashboardAlert('CẢNH BÁO: Mất kết nối Internet!');
+    try {
+      const net = await invoke<NetworkInfo>('check_network');
+      updateLlmBadge(net.ollama_ok);
+      updateNetworkDashboard(net);
+      const summary = formatNetworkSummary(net);
       if (interactive) {
-        appState.setState('ALERT');
-        spawnAlertEffect(appState.posX, appState.posY);
+        showTelemetrySection('net');
       }
+      if (!net.internet_ok) {
+        pushDashboardAlert('CẢNH BÁO: Mất kết nối Internet!');
+        if (interactive) {
+          appState.setState('ALERT');
+          spawnAlertEffect(appState.posX, appState.posY);
+        }
+      }
+      if (interactive) {
+        speak(`Đã kiểm tra mạng (${net.internet_ok ? `Ping ${net.latency_ms}ms` : 'Mất mạng'}). Xem bên trái nhé!`);
+      }
+      return summary;
+    } catch (err) {
+      const msg = `Lỗi mạng: ${String(err)}`;
+      if (interactive) speak(msg);
+      return msg;
+    } finally {
+      if (interactive) scheduleScanIdleReset();
     }
-    if (interactive) {
-      speak(`Đã kiểm tra mạng (${net.internet_ok ? `Ping ${net.latency_ms}ms` : 'Mất mạng'}). Xem bên trái nhé!`);
-    }
-    return summary;
-  } catch (err) {
-    const msg = `Lỗi mạng: ${String(err)}`;
-    if (interactive) speak(msg);
-    return msg;
-  }
+  };
+  return interactive
+    ? runWithToolAnim('telemetry', exec, (s) => !s.startsWith('Lỗi'))
+    : exec();
 }
 
 export async function runBitcoinCheck(interactive = true): Promise<string> {
-  if (interactive) {
-    appState.setState('SCANNING');
-    spawnScanEffect(appState.posX, appState.posY);
-  }
-  try {
-    const btc = await invoke<BitcoinInfo>('check_bitcoin');
-    lastBtcPrice = btc.price_usd;
-    updateBitcoinDashboard(btc);
-    const summary = formatBitcoinSummary(btc);
+  const exec = async () => {
     if (interactive) {
-      showTelemetrySection('btc');
-      if (btc.change_24h_pct >= 2.0 && danceCb) {
-        danceCb();
-      } else {
-        spawnParticles(appState.posX, appState.posY - 100, 8, 0xfbbf24);
+      appState.setState('SCANNING');
+      spawnScanEffect(appState.posX, appState.posY);
+    }
+    try {
+      const btc = await invoke<BitcoinInfo>('check_bitcoin');
+      lastBtcPrice = btc.price_usd;
+      updateBitcoinDashboard(btc);
+      const summary = formatBitcoinSummary(btc);
+      if (interactive) {
+        showTelemetrySection('btc');
+        if (btc.change_24h_pct >= 2.0 && danceCb) {
+          danceCb();
+        } else {
+          spawnParticles(appState.posX, appState.posY - 100, 8, 0xfbbf24);
+        }
+        speak(`${summary} — Đã hiển thị bên trái!`);
       }
-      speak(`${summary} — Đã hiển thị bên trái!`);
+      return summary;
+    } catch (err) {
+      const msg = `Lỗi lấy giá BTC: ${String(err)}`;
+      if (interactive) {
+        showTelemetrySection('alert');
+        pushDashboardAlert(msg);
+        speak(msg);
+      }
+      return msg;
+    } finally {
+      if (interactive) scheduleScanIdleReset();
     }
-    return summary;
-  } catch (err) {
-    const msg = `Lỗi lấy giá BTC: ${String(err)}`;
-    if (interactive) {
-      showTelemetrySection('alert');
-      pushDashboardAlert(msg);
-      speak(msg);
-    }
-    return msg;
-  }
+  };
+  return interactive
+    ? runWithToolAnim('telemetry', exec, (s) => !s.startsWith('Lỗi'))
+    : exec();
 }
 
 export async function runGeminiVisionScreen(query?: string) {
@@ -779,32 +1060,38 @@ export async function runGeminiVisionScreen(query?: string) {
     speak('Bạn chưa nhập Gemini API Key trong Studio 3D để dùng tính năng Gemini Vision!');
     return;
   }
-  appState.setState('SCANNING');
-  spawnScanEffect(appState.posX, appState.posY);
-  speak('Đang chụp màn hình và gửi cho Gemini Vision phân tích...');
+  await runWithToolAnim('vision', async () => {
+    appState.setState('SCANNING');
+    spawnScanEffect(appState.posX, appState.posY);
+    speak('Đang chụp màn hình và gửi cho Gemini Vision phân tích...');
 
-  try {
-    const base64Img = await invoke<string>('capture_and_encode_screenshot');
-    const promptText = query && query.trim().length > 0
-      ? `Bạn là trợ lý Duck AI Manager. Hãy nhìn vào ảnh chụp màn hình desktop của người dùng và trả lời câu hỏi: "${query}". Trả lời ngắn gọn, trực tiếp, xúc tích bằng tiếng Việt trong 2-3 câu.`
-      : 'Bạn là trợ lý Duck AI Manager. Hãy nhìn vào ảnh chụp màn hình desktop hiện tại của người dùng và tóm tắt ngắn gọn: Người dùng đang mở ứng dụng/công việc gì? Có lỗi code, thông báo hay nội dung gì đáng chú ý không? Trả lời xúc tích trong 2-3 câu tiếng Việt.';
+    try {
+      const base64Img = await invoke<string>('capture_and_encode_screenshot');
+      const promptText = query && query.trim().length > 0
+        ? `Bạn là trợ lý Duck AI Manager. Hãy nhìn vào ảnh chụp màn hình desktop của người dùng và trả lời câu hỏi: "${query}". Trả lời ngắn gọn, trực tiếp, xúc tích bằng tiếng Việt trong 2-3 câu.`
+        : 'Bạn là trợ lý Duck AI Manager. Hãy nhìn vào ảnh chụp màn hình desktop hiện tại của người dùng và tóm tắt ngắn gọn: Người dùng đang mở ứng dụng/công việc gì? Có lỗi code, thông báo hay nội dung gì đáng chú ý không? Trả lời xúc tích trong 2-3 câu tiếng Việt.';
 
-    const analysis = await invoke<string>('ask_gemini_vision', {
-      apiKey: geminiApiKey,
-      model: geminiModel || 'gemini-3.5-flash',
-      prompt: promptText,
-      imageBase64: base64Img,
-    });
+      const analysis = await invoke<string>('ask_gemini_vision', {
+        apiKey: geminiApiKey,
+        model: geminiModel || 'gemini-3.5-flash',
+        prompt: promptText,
+        imageBase64: base64Img,
+      });
 
-    appState.setState('WAVING');
-    appState.setExpression('happy', 3.5);
-    speak(`[GEMINI VISION] ${analysis}`);
-    pushChatHistory('assistant', `[Gemini Vision] ${analysis}`);
-  } catch (err) {
-    const msg = `Lỗi Gemini Vision: ${String(err)}`;
-    appState.setState('ALERT');
-    speak(msg);
-  }
+      appState.setState('WAVING');
+      appState.setExpression('happy', 3.5);
+      speak(`[GEMINI VISION] ${analysis}`);
+      pushChatHistory('assistant', `[Gemini Vision] ${analysis}`);
+      return true;
+    } catch (err) {
+      const msg = `Lỗi Gemini Vision: ${String(err)}`;
+      appState.setState('ALERT');
+      speak(msg);
+      return false;
+    } finally {
+      scheduleScanIdleReset(600);
+    }
+  }, (ok) => ok);
 }
 
 export async function runFullDashboardScan(interactive = false) {
@@ -931,7 +1218,7 @@ function updateMemoryDashboard(ins: MemoryInsights) {
               }
               void runMemoryCheck(false);
             })
-            .catch(() => {});
+            .catch(() => { });
         });
 
         row.appendChild(txt);
@@ -956,7 +1243,7 @@ function updateMemoryDashboard(ins: MemoryInsights) {
           summaryEl.textContent = sum;
         }
       })
-      .catch(() => {});
+      .catch(() => { });
   }
 }
 
@@ -1014,8 +1301,7 @@ export async function runBrowserHistoryCheck(interactive = true): Promise<Browse
       if (topYt) {
         const cleanTitle = topYt.title.replace(/\s*[-—|]\s*YouTube$/i, '').trim();
         speak(
-          `[${bh.browser_name}] Bạn hay nghe/xem "${cleanTitle}" (${topYt.visit_count} lượt)${
-            topSite ? ` và hay vào "${topSite.title.slice(0, 24)}"` : ''
+          `[${bh.browser_name}] Bạn hay nghe/xem "${cleanTitle}" (${topYt.visit_count} lượt)${topSite ? ` và hay vào "${topSite.title.slice(0, 24)}"` : ''
           }. Bấm "Đồng ý" để mở ngay video/kênh này nhé!`
         );
         showSuggestionButtons(
@@ -1085,7 +1371,7 @@ export async function refreshLongMemoryUi(): Promise<LongMemoryEntry[]> {
           chk.addEventListener('change', () => {
             void invoke('long_memory_toggle', { id: entry.id, enabled: chk.checked })
               .then(() => void refreshLongMemoryUi())
-              .catch(() => {});
+              .catch(() => { });
           });
 
           const txtWrap = document.createElement('div');
@@ -1103,9 +1389,8 @@ export async function refreshLongMemoryUi(): Promise<LongMemoryEntry[]> {
           headerLine.appendChild(titleSpan);
 
           const bodySpan = document.createElement('div');
-          bodySpan.style.cssText = `font-size:11px;line-height:1.35;color:${
-            entry.enabled ? '#cbd5e1' : '#64748b'
-          };word-break:break-word;`;
+          bodySpan.style.cssText = `font-size:11px;line-height:1.35;color:${entry.enabled ? '#cbd5e1' : '#64748b'
+            };word-break:break-word;`;
           bodySpan.textContent = entry.content;
 
           txtWrap.appendChild(headerLine);
@@ -1122,7 +1407,7 @@ export async function refreshLongMemoryUi(): Promise<LongMemoryEntry[]> {
           delBtn.addEventListener('click', () => {
             void invoke('long_memory_delete', { id: entry.id })
               .then(() => void refreshLongMemoryUi())
-              .catch(() => {});
+              .catch(() => { });
           });
 
           card.appendChild(left);
@@ -1192,7 +1477,9 @@ function pushChatHistory(role: 'user' | 'assistant', content: string) {
     chatHistory.splice(0, chatHistory.length - 8);
   }
   appendChatMessage(role, content);
-  void invoke('memory_save_chat', { role, content }).catch(() => {});
+  void invoke('memory_save_chat', { role, content }).catch(() => { });
+  const syncMsgId = `desk_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+  void syncChatPushToCloud(syncMsgId, role, content, Date.now()).catch(() => { });
 }
 
 function recordLearnedCommand(cmdLabel: string) {
@@ -1202,8 +1489,8 @@ function recordLearnedCommand(cmdLabel: string) {
     appTitle: cmdLabel,
     hourOfDay: hour,
     durationSec: 60,
-  }).catch(() => {});
-  void invoke('memory_record_feedback', { patternKey, accepted: true }).catch(() => {});
+  }).catch(() => { });
+  void invoke('memory_record_feedback', { patternKey, accepted: true }).catch(() => { });
 }
 
 function syncCheckbox(id: string, checked: boolean) {
@@ -1226,7 +1513,7 @@ async function extractAndSaveUserFacts(userText: string): Promise<string | null>
     await invoke('memory_save_profile', {
       key: 'Quy tắc cửa sổ',
       value: 'Không tự ý kéo/đẩy cửa sổ',
-    }).catch(() => {});
+    }).catch(() => { });
     ruleConfirmation = 'Đã ghi nhớ vào SQLite: Tớ sẽ không tự ý kéo hay đẩy cửa sổ của bạn nữa!';
   } else if (
     lower.includes('cho phép kéo cửa sổ') ||
@@ -1238,7 +1525,7 @@ async function extractAndSaveUserFacts(userText: string): Promise<string | null>
     await invoke('memory_save_profile', {
       key: 'Quy tắc cửa sổ',
       value: 'Cho phép tương tác cửa sổ',
-    }).catch(() => {});
+    }).catch(() => { });
     ruleConfirmation = 'Đã ghi nhớ: Tớ có thể tương tác kéo/đẩy cửa sổ giúp bạn!';
   }
 
@@ -1254,7 +1541,7 @@ async function extractAndSaveUserFacts(userText: string): Promise<string | null>
     await invoke('memory_save_profile', {
       key: 'Quy tắc chủ động',
       value: 'Tắt tự động nhắc/kiểm tra',
-    }).catch(() => {});
+    }).catch(() => { });
     ruleConfirmation = 'Đã ghi nhớ: Tớ sẽ giữ yên lặng, chỉ kiểm tra khi bạn hỏi!';
   } else if (lower.includes('bật tự động kiểm tra') || lower.includes('tự nhắc tớ')) {
     setAutoCheckEnabled(true);
@@ -1262,7 +1549,7 @@ async function extractAndSaveUserFacts(userText: string): Promise<string | null>
     await invoke('memory_save_profile', {
       key: 'Quy tắc chủ động',
       value: 'Bật tự động nhắc/kiểm tra',
-    }).catch(() => {});
+    }).catch(() => { });
     ruleConfirmation = 'Đã ghi nhớ: Tớ sẽ chủ động theo dõi và nhắc bạn định kỳ!';
   }
 
@@ -1305,7 +1592,7 @@ async function extractAndSaveUserFacts(userText: string): Promise<string | null>
       category: 'rule',
       title: 'Rule qua chat',
       content: val,
-    }).catch(() => {});
+    }).catch(() => { });
     void refreshLongMemoryUi();
     ruleConfirmation = `Đã thêm vào Long Memory (Rule dài hạn): "${val}"`;
   }
@@ -1316,7 +1603,7 @@ async function extractAndSaveUserFacts(userText: string): Promise<string | null>
       category: 'persona',
       title: 'Tính cách nhân vật',
       content: val,
-    }).catch(() => {});
+    }).catch(() => { });
     void refreshLongMemoryUi();
     ruleConfirmation = `Đã cập nhật Prompt Tính cách trong Long Memory: "${val}"`;
   }
@@ -1329,7 +1616,7 @@ async function extractAndSaveUserFacts(userText: string): Promise<string | null>
     await invoke('memory_save_profile', {
       key: 'Tên chủ nhân',
       value: nameMatch[1].trim(),
-    }).catch(() => {});
+    }).catch(() => { });
   }
 
   const likeMatch = userText.match(
@@ -1339,7 +1626,7 @@ async function extractAndSaveUserFacts(userText: string): Promise<string | null>
     await invoke('memory_save_profile', {
       key: 'Sở thích',
       value: likeMatch[1].trim(),
-    }).catch(() => {});
+    }).catch(() => { });
   }
 
   const roleMatch = userText.match(
@@ -1349,7 +1636,7 @@ async function extractAndSaveUserFacts(userText: string): Promise<string | null>
     await invoke('memory_save_profile', {
       key: 'Công việc',
       value: roleMatch[1].trim(),
-    }).catch(() => {});
+    }).catch(() => { });
   }
 
   // 4. Lưu ý / mệnh lệnh ghi nhớ chung ("nhớ là...", "lưu ý...", "từ giờ...")
@@ -1358,114 +1645,134 @@ async function extractAndSaveUserFacts(userText: string): Promise<string | null>
     await invoke('memory_save_profile', {
       key: 'Lưu ý cá nhân',
       value: noteMatch[1].trim(),
-    }).catch(() => {});
+    }).catch(() => { });
   }
 
   return ruleConfirmation;
 }
 
 export async function runPcOpen(target: string, label: string) {
-  try {
-    appState.setState('FISHING');
-    appState.setExpression('happy', 3.0);
-    playCastRodSound(appState.posX);
-    speak(`[CÂU CÁ APP] Quăng cần câu ứng dụng "${label}"...`);
+  await runWithToolAnim('open_app', async () => {
+    try {
+      appState.setState('FISHING');
+      appState.setExpression('happy', 3.0);
+      playCastRodSound(appState.posX);
+      speak(`[CÂU CÁ APP] Quăng cần câu ứng dụng "${label}"...`);
 
-    showFishingRod(true, label, async () => {
-      try {
-        await invoke<string>('open_web_or_app', { target });
-        appState.squashX = 0.88;
-        appState.squashY = 1.15;
-        appState.velY = -10;
-        appState.setState('JUMPING');
-        spawnParticles(appState.posX, appState.posY - 90, 14, 0x38bdf8);
-        spawnShockwave(appState.posX, appState.posY, 0x38bdf8);
-        playSuccessChimeSound(appState.posX);
-        appState.changeMood(3);
-        speak(`Câu trúng rồi! Đã giật cần mở ứng dụng "${label}" lên cho bạn nhé!`);
-      } catch (err) {
-        speak(`[LỖI MỞ ỨNG DỤNG] ${String(err)}`);
-      }
-    });
-  } catch (err) {
-    speak(`[LỖI MỞ ỨNG DỤNG] ${String(err)}`);
-  }
+      showFishingRod(true, label, async () => {
+        try {
+          await invoke<string>('open_web_or_app', { target });
+          appState.squashX = 0.88;
+          appState.squashY = 1.15;
+          appState.velY = -10;
+          appState.setState('JUMPING');
+          spawnParticles(appState.posX, appState.posY - 90, 14, 0x38bdf8);
+          spawnShockwave(appState.posX, appState.posY, 0x38bdf8);
+          playSuccessChimeSound(appState.posX);
+          appState.changeMood(3);
+          speak(`Câu trúng rồi! Đã giật cần mở ứng dụng "${label}" lên cho bạn nhé!`);
+        } catch (err) {
+          speak(`[LỖI MỞ ỨNG DỤNG] ${String(err)}`);
+        }
+      });
+      return true;
+    } catch (err) {
+      speak(`[LỖI MỞ ỨNG DỤNG] ${String(err)}`);
+      return false;
+    }
+  }, (ok) => ok);
 }
 
 export async function runPcOpenFile(fileTarget: string) {
-  try {
-    appState.setState('FISHING');
-    appState.setExpression('happy', 3.0);
-    playCastRodSound(appState.posX);
-    speak(`[CÂU CÁ FILE] Đang tìm kiếm và quăng cần mở file "${fileTarget}"...`);
+  await runWithToolAnim('open_file', async () => {
+    try {
+      appState.setState('FISHING');
+      appState.setExpression('happy', 3.0);
+      playCastRodSound(appState.posX);
+      speak(`[CÂU CÁ FILE] Đang tìm kiếm và quăng cần mở file "${fileTarget}"...`);
 
-    showFishingRod(true, fileTarget, async () => {
-      try {
-        const fullPath = await invoke<string>('open_local_file_or_search', { query: fileTarget });
-        appState.squashX = 0.88;
-        appState.squashY = 1.15;
-        appState.velY = -10;
-        appState.setState('JUMPING');
-        spawnParticles(appState.posX, appState.posY - 90, 14, 0x38bdf8);
-        spawnShockwave(appState.posX, appState.posY, 0x38bdf8);
-        playSuccessChimeSound(appState.posX);
-        appState.changeMood(5);
-        speak(`[THÀNH CÔNG] Đã mở file "${fileTarget}" (${fullPath}) bằng ứng dụng mặc định cho bạn rồi nhé!`);
-      } catch (err) {
-        speak(`[LỖI MỞ FILE] ${String(err)}`);
-      }
-    });
-  } catch (err) {
-    speak(`[LỖI MỞ FILE] ${String(err)}`);
-  }
+      showFishingRod(true, fileTarget, async () => {
+        try {
+          const fullPath = await invoke<string>('open_local_file_or_search', { query: fileTarget });
+          appState.squashX = 0.88;
+          appState.squashY = 1.15;
+          appState.velY = -10;
+          appState.setState('JUMPING');
+          spawnParticles(appState.posX, appState.posY - 90, 14, 0x38bdf8);
+          spawnShockwave(appState.posX, appState.posY, 0x38bdf8);
+          playSuccessChimeSound(appState.posX);
+          appState.changeMood(5);
+          speak(`[THÀNH CÔNG] Đã mở file "${fileTarget}" (${fullPath}) bằng ứng dụng mặc định cho bạn rồi nhé!`);
+        } catch (err) {
+          speak(`[LỖI MỞ FILE] ${String(err)}`);
+        }
+      });
+      return true;
+    } catch (err) {
+      speak(`[LỖI MỞ FILE] ${String(err)}`);
+      return false;
+    }
+  }, (ok) => ok);
 }
 
 export async function runPcMedia(
   action: 'vol_up' | 'vol_down' | 'mute' | 'play_pause' | 'next' | 'prev'
 ) {
-  try {
-    const msg = await invoke<string>('control_media', { action });
-    spawnParticles(appState.posX, appState.posY - 100, 6, 0xa78bfa);
-    speak(`[MEDIA] ${msg}!`);
-  } catch (err) {
-    speak(`[LỖI MEDIA] ${String(err)}`);
-  }
+  await runWithToolAnim('media', async () => {
+    try {
+      const msg = await invoke<string>('control_media', { action });
+      spawnParticles(appState.posX, appState.posY - 100, 6, 0xa78bfa);
+      speak(`[MEDIA] ${msg}!`);
+      return true;
+    } catch (err) {
+      speak(`[LỖI MEDIA] ${String(err)}`);
+      return false;
+    }
+  }, (ok) => ok);
 }
 
 export async function runOpenLatestScreenshot(openFolder = false) {
-  try {
-    const path = await invoke<string>('open_latest_screenshot', { openFolder });
-    appState.setExpression('happy', 2.5);
-    speak(openFolder ? `[MỞ THƯ MỤC ẢNH] ${path}` : `[ĐÃ MỞ ẢNH] ${path}`);
-  } catch (err) {
-    speak(`[LỖI MỞ ẢNH] ${String(err)}`);
-  }
+  await runWithToolAnim('screenshot', async () => {
+    try {
+      const path = await invoke<string>('open_latest_screenshot', { openFolder });
+      appState.setExpression('happy', 2.5);
+      speak(openFolder ? `[MỞ THƯ MỤC ẢNH] ${path}` : `[ĐÃ MỞ ẢNH] ${path}`);
+      return true;
+    } catch (err) {
+      speak(`[LỖI MỞ ẢNH] ${String(err)}`);
+      return false;
+    }
+  }, (ok) => ok);
 }
 
 export async function runHardwareAction(
   action: 'brightness_up' | 'brightness_down' | 'clean_ram' | 'taskmgr',
   interactive = true
 ): Promise<string> {
-  if (interactive) {
-    appState.setState('SCANNING');
-    spawnScanEffect(appState.posX, appState.posY);
-  }
-  try {
-    const msg = await invoke<string>('hardware_action', { action });
-    appState.setExpression('happy', 3.0);
-    pushDashboardAlert(msg);
+  return runWithToolAnim('hardware', async () => {
     if (interactive) {
-      speak(`[PHẦN CỨNG] ${msg}`);
+      appState.setState('SCANNING');
+      spawnScanEffect(appState.posX, appState.posY);
     }
-    if (action === 'clean_ram') {
-      void runHardwareCheck(false);
+    try {
+      const msg = await invoke<string>('hardware_action', { action });
+      appState.setExpression('happy', 3.0);
+      pushDashboardAlert(msg);
+      if (interactive) {
+        speak(`[PHẦN CỨNG] ${msg}`);
+      }
+      if (action === 'clean_ram') {
+        void runHardwareCheck(false);
+      }
+      return msg;
+    } catch (err) {
+      const errMsg = `[LỖI PHẦN CỨNG] ${String(err)}`;
+      if (interactive) speak(errMsg);
+      return errMsg;
+    } finally {
+      if (interactive) scheduleScanIdleReset();
     }
-    return msg;
-  } catch (err) {
-    const errMsg = `[LỖI PHẦN CỨNG] ${String(err)}`;
-    if (interactive) speak(errMsg);
-    return errMsg;
-  }
+  }, (s) => !s.startsWith('[LỖI'));
 }
 
 export async function translateTextWithAi(
@@ -1490,77 +1797,83 @@ export async function translateTextWithAi(
 }
 
 export async function runOcrAndSummarize(takeNew = true): Promise<string> {
-  appState.setState('SCANNING');
-  spawnScanEffect(appState.posX, appState.posY);
-  speak('[OCR MÀN HÌNH] Đang chụp và đọc chữ trên màn hình...');
-  try {
-    const ocr = await invoke<OcrResultInfo>('ocr_latest_screenshot', { takeNew });
-    const cleaned = ocr.raw_text.replace(/\s+/g, ' ').trim();
-    if (!cleaned) {
-      const emptyMsg = '[OCR] Đã quét ảnh nhưng chưa thấy văn bản nào rõ ràng trên màn hình!';
-      speak(emptyMsg);
-      return emptyMsg;
-    }
-
-    let summary = `Nội dung quét được trên màn hình: "${cleaned.slice(0, 180)}${cleaned.length > 180 ? '...' : ''}"`;
-    if (!isStreamingActive && (isOllamaOnline || geminiApiKey.trim())) {
-      try {
-        const ocrSys =
-          'Bạn là trợ lý phân tích màn hình. Hãy tóm tắt thật súc tích trong tối đa 2 câu tiếng Việt có dấu (không dùng emoji) cho biết ảnh chụp màn hình này đang hiển thị nội dung gì.';
-        const res = await askHybridLlm(
-          ocrSys,
-          ocrSys,
-          [
-            {
-              role: 'user',
-              content: `Văn bản OCR quét được từ ảnh chụp màn hình:\n${cleaned.slice(0, 1200)}`,
-            },
-          ],
-          shouldRouteToGemini(cleaned, true)
-        );
-        if (res.reply) {
-          summary = `[${res.engine}] ${res.reply}`;
-        }
-      } catch {
-        // Giữ fallback summary nếu cả Local & Gemini bận/offline
+  return runWithToolAnim('ocr', async () => {
+    appState.setState('SCANNING');
+    spawnScanEffect(appState.posX, appState.posY);
+    speak('[OCR MÀN HÌNH] Đang chụp và đọc chữ trên màn hình...');
+    try {
+      const ocr = await invoke<OcrResultInfo>('ocr_latest_screenshot', { takeNew });
+      const cleaned = ocr.raw_text.replace(/\s+/g, ' ').trim();
+      if (!cleaned) {
+        const emptyMsg = '[OCR] Đã quét ảnh nhưng chưa thấy văn bản nào rõ ràng trên màn hình!';
+        speak(emptyMsg);
+        return emptyMsg;
       }
-    }
 
-    appState.setExpression('happy', 3.2);
-    pushDashboardAlert(`[OCR] ${summary}`);
-    pushChatHistory('assistant', summary);
-    speak(`[TÓM TẮT OCR] ${summary} (Bấm "Đồng ý" để mở ảnh vừa chụp)`);
-    showSuggestionButtons(
-      () => void runOpenLatestScreenshot(false),
-      () => void runOpenLatestScreenshot(true)
-    );
-    return summary;
-  } catch (err) {
-    const errMsg = `[LỖI OCR] ${String(err)}`;
-    speak(errMsg);
-    return errMsg;
-  }
+      let summary = `Nội dung quét được trên màn hình: "${cleaned.slice(0, 180)}${cleaned.length > 180 ? '...' : ''}"`;
+      if (!isStreamingActive && (isOllamaOnline || geminiApiKey.trim())) {
+        try {
+          const ocrSys =
+            'Bạn là trợ lý phân tích màn hình. Hãy tóm tắt thật súc tích trong tối đa 2 câu tiếng Việt có dấu (không dùng emoji) cho biết ảnh chụp màn hình này đang hiển thị nội dung gì.';
+          const res = await askHybridLlm(
+            ocrSys,
+            ocrSys,
+            [
+              {
+                role: 'user',
+                content: `Văn bản OCR quét được từ ảnh chụp màn hình:\n${cleaned.slice(0, 1200)}`,
+              },
+            ],
+            shouldRouteToGemini(cleaned, true)
+          );
+          if (res.reply) {
+            summary = `[${res.engine}] ${res.reply}`;
+          }
+        } catch {
+          // Giữ fallback summary nếu cả Local & Gemini bận/offline
+        }
+      }
+
+      appState.setExpression('happy', 3.2);
+      pushDashboardAlert(`[OCR] ${summary}`);
+      pushChatHistory('assistant', summary);
+      speak(`[TÓM TẮT OCR] ${summary} (Bấm "Đồng ý" để mở ảnh vừa chụp)`);
+      showSuggestionButtons(
+        () => void runOpenLatestScreenshot(false),
+        () => void runOpenLatestScreenshot(true)
+      );
+      return summary;
+    } catch (err) {
+      const errMsg = `[LỖI OCR] ${String(err)}`;
+      speak(errMsg);
+      return errMsg;
+    } finally {
+      scheduleScanIdleReset();
+    }
+  }, (s) => !s.startsWith('[LỖI'));
 }
 
 export async function runPcScreenshot(): Promise<string> {
-  speak('[CHỤP MÀN HÌNH] Đang chụp lại màn hình cho bạn...');
-  try {
-    const savedPath = await invoke<string>('take_screenshot');
-    spawnParticles(appState.posX, appState.posY - 110, 12, 0x34d399);
-    spawnShockwave(appState.posX, appState.posY, 0x34d399);
-    appState.setExpression('happy', 3.0);
-    const msg = `[ĐÃ LƯU ẢNH] Đã chụp màn hình (${savedPath})! Bấm "Đồng ý" để mở xem ảnh ngay, hoặc "Để sau" để mở thư mục chứa ảnh.`;
-    speak(msg);
-    showSuggestionButtons(
-      () => void runOpenLatestScreenshot(false),
-      () => void runOpenLatestScreenshot(true)
-    );
-    return `Đã chụp màn hình và lưu tại ${savedPath}`;
-  } catch (err) {
-    const errMsg = `[LỖI CHỤP MÀN HÌNH] ${String(err)}`;
-    speak(errMsg);
-    return errMsg;
-  }
+  return runWithToolAnim('screenshot', async () => {
+    speak('[CHỤP MÀN HÌNH] Đang chụp lại màn hình cho bạn...');
+    try {
+      const savedPath = await invoke<string>('take_screenshot');
+      spawnParticles(appState.posX, appState.posY - 110, 12, 0x34d399);
+      spawnShockwave(appState.posX, appState.posY, 0x34d399);
+      appState.setExpression('happy', 3.0);
+      const msg = `[ĐÃ LƯU ẢNH] Đã chụp màn hình (${savedPath})! Bấm "Đồng ý" để mở xem ảnh ngay, hoặc "Để sau" để mở thư mục chứa ảnh.`;
+      speak(msg);
+      showSuggestionButtons(
+        () => void runOpenLatestScreenshot(false),
+        () => void runOpenLatestScreenshot(true)
+      );
+      return `Đã chụp màn hình và lưu tại ${savedPath}`;
+    } catch (err) {
+      const errMsg = `[LỖI CHỤP MÀN HÌNH] ${String(err)}`;
+      speak(errMsg);
+      return errMsg;
+    }
+  }, (s) => !s.startsWith('[LỖI'));
 }
 
 export async function runProcessManager(
@@ -1568,31 +1881,35 @@ export async function runProcessManager(
   target = '',
   interactive = true
 ): Promise<string> {
-  if (interactive) {
-    appState.setState('SCANNING');
-    spawnScanEffect(appState.posX, appState.posY);
-  }
-  try {
-    const res = await invoke<string>('manage_processes', {
-      action,
-      target: target.trim() || null,
-    });
-    appState.setExpression(action === 'kill' ? 'happy' : 'neutral', 2.8);
-    if (action === 'kill') {
-      spawnParticles(appState.posX, appState.posY - 90, 10, 0x34d399);
-      void runHardwareCheck(false);
-    }
-    pushDashboardAlert(`[TIẾN TRÌNH] ${res}`);
+  return runWithToolAnim('process_manager', async () => {
     if (interactive) {
-      speak(`[TIẾN TRÌNH] ${res}`);
+      appState.setState('SCANNING');
+      spawnScanEffect(appState.posX, appState.posY);
     }
-    return res;
-  } catch (err) {
-    const errMsg = `[TIẾN TRÌNH] ${String(err)}`;
-    appState.setExpression('sad', 2.5);
-    if (interactive) speak(errMsg);
-    return errMsg;
-  }
+    try {
+      const res = await invoke<string>('manage_processes', {
+        action,
+        target: target.trim() || null,
+      });
+      appState.setExpression(action === 'kill' ? 'happy' : 'neutral', 2.8);
+      if (action === 'kill') {
+        spawnParticles(appState.posX, appState.posY - 90, 10, 0x34d399);
+        void runHardwareCheck(false);
+      }
+      pushDashboardAlert(`[TIẾN TRÌNH] ${res}`);
+      if (interactive) {
+        speak(`[TIẾN TRÌNH] ${res}`);
+      }
+      return res;
+    } catch (err) {
+      const errMsg = `[LỖI TIẾN TRÌNH] ${String(err)}`;
+      appState.setExpression('sad', 2.5);
+      if (interactive) speak(errMsg);
+      return errMsg;
+    } finally {
+      if (interactive) scheduleScanIdleReset();
+    }
+  }, (s) => !s.startsWith('[LỖI'));
 }
 
 export async function runSmartWebSearch(
@@ -1600,39 +1917,41 @@ export async function runSmartWebSearch(
   query: string,
   interactive = true
 ): Promise<string> {
-  const cleanEngine = engine.trim().toLowerCase() || 'google';
-  const cleanQuery = query.trim();
-  const encoded = encodeURIComponent(cleanQuery);
+  return runWithToolAnim('web_search', async () => {
+    const cleanEngine = engine.trim().toLowerCase() || 'google';
+    const cleanQuery = query.trim();
+    const encoded = encodeURIComponent(cleanQuery);
 
-  let url = 'https://www.google.com';
-  let engineLabel = 'Google';
+    let url = 'https://www.google.com';
+    let engineLabel = 'Google';
 
-  if (cleanEngine.includes('youtube') || cleanEngine === 'yt') {
-    engineLabel = 'YouTube';
-    url = cleanQuery ? `https://www.youtube.com/results?search_query=${encoded}` : 'https://www.youtube.com';
-  } else if (cleanEngine.includes('github') || cleanEngine === 'gh') {
-    engineLabel = 'GitHub';
-    url = cleanQuery ? `https://github.com/search?q=${encoded}` : 'https://github.com';
-  } else if (cleanEngine.includes('stackoverflow') || cleanEngine === 'so') {
-    engineLabel = 'StackOverflow';
-    url = cleanQuery ? `https://stackoverflow.com/search?q=${encoded}` : 'https://stackoverflow.com';
-  } else if (cleanEngine.includes('duckduckgo') || cleanEngine === 'ddg') {
-    engineLabel = 'DuckDuckGo';
-    url = cleanQuery ? `https://duckduckgo.com/?q=${encoded}` : 'https://duckduckgo.com';
-  } else {
-    engineLabel = 'Google';
-    url = cleanQuery ? `https://www.google.com/search?q=${encoded}` : 'https://www.google.com';
-  }
+    if (cleanEngine.includes('youtube') || cleanEngine === 'yt') {
+      engineLabel = 'YouTube';
+      url = cleanQuery ? `https://www.youtube.com/results?search_query=${encoded}` : 'https://www.youtube.com';
+    } else if (cleanEngine.includes('github') || cleanEngine === 'gh') {
+      engineLabel = 'GitHub';
+      url = cleanQuery ? `https://github.com/search?q=${encoded}` : 'https://github.com';
+    } else if (cleanEngine.includes('stackoverflow') || cleanEngine === 'so') {
+      engineLabel = 'StackOverflow';
+      url = cleanQuery ? `https://stackoverflow.com/search?q=${encoded}` : 'https://stackoverflow.com';
+    } else if (cleanEngine.includes('duckduckgo') || cleanEngine === 'ddg') {
+      engineLabel = 'DuckDuckGo';
+      url = cleanQuery ? `https://duckduckgo.com/?q=${encoded}` : 'https://duckduckgo.com';
+    } else {
+      engineLabel = 'Google';
+      url = cleanQuery ? `https://www.google.com/search?q=${encoded}` : 'https://www.google.com';
+    }
 
-  const label = cleanQuery ? `${engineLabel} (${cleanQuery})` : engineLabel;
-  if (interactive) {
-    await runPcOpen(url, label);
-  } else {
-    await invoke<string>('open_web_or_app', { target: url }).catch(() => {});
-  }
-  return cleanQuery
-    ? `Đã mở tìm kiếm ${engineLabel} cho "${cleanQuery}".`
-    : `Đã mở trang ${engineLabel}.`;
+    const label = cleanQuery ? `${engineLabel} (${cleanQuery})` : engineLabel;
+    if (interactive) {
+      await runPcOpen(url, label);
+    } else {
+      await invoke<string>('open_web_or_app', { target: url }).catch(() => { });
+    }
+    return cleanQuery
+      ? `Đã mở tìm kiếm ${engineLabel} cho "${cleanQuery}".`
+      : `Đã mở trang ${engineLabel}.`;
+  });
 }
 
 export async function runClipboardTool(
@@ -1640,69 +1959,71 @@ export async function runClipboardTool(
   text = '',
   interactive = true
 ): Promise<string> {
-  try {
-    if (action === 'copy') {
-      const content = text.trim();
-      if (!content) {
-        const emptyErr = '[CLIPBOARD] Không có nội dung để chép vào Clipboard.';
-        if (interactive) speak(emptyErr);
-        return emptyErr;
+  return runWithToolAnim('clipboard', async () => {
+    try {
+      if (action === 'copy') {
+        const content = text.trim();
+        if (!content) {
+          const emptyErr = '[CLIPBOARD] Không có nội dung để chép vào Clipboard.';
+          if (interactive) speak(emptyErr);
+          return emptyErr;
+        }
+        const res = await invoke<string>('set_clipboard_text', { text: content });
+        spawnParticles(appState.posX, appState.posY - 90, 8, 0x38bdf8);
+        if (interactive) speak(`[CLIPBOARD] ${res}`);
+        return res;
       }
-      const res = await invoke<string>('set_clipboard_text', { text: content });
-      spawnParticles(appState.posX, appState.posY - 90, 8, 0x38bdf8);
-      if (interactive) speak(`[CLIPBOARD] ${res}`);
-      return res;
-    }
 
-    const clipRaw = await invoke<string>('get_clipboard_text');
-    const clean = clipRaw.trim();
-    if (!clean) {
-      const emptyMsg = '[CLIPBOARD] Clipboard hiện đang trống!';
-      if (interactive) speak(emptyMsg);
-      return emptyMsg;
-    }
-
-    if (action === 'read') {
-      const preview = `${clean.slice(0, 220)}${clean.length > 220 ? '...' : ''}`;
-      const msg = `[CLIPBOARD] Nội dung đang copy: "${preview}"`;
-      if (interactive) {
-        speak(msg);
+      const clipRaw = await invoke<string>('get_clipboard_text');
+      const clean = clipRaw.trim();
+      if (!clean) {
+        const emptyMsg = '[CLIPBOARD] Clipboard hiện đang trống!';
+        if (interactive) speak(emptyMsg);
+        return emptyMsg;
       }
-      return msg;
-    }
 
-    if (!isStreamingActive && (isOllamaOnline || geminiApiKey.trim())) {
-      const taskPrompt =
-        action === 'translate'
-          ? 'Dịch nội dung sau sang tiếng Việt tự nhiên, súc tích (tối đa 3 câu, không dùng emoji):'
-          : 'Tóm tắt hoặc giải thích nhanh nội dung sau bằng tiếng Việt súc tích (tối đa 2-3 câu, không dùng emoji):';
-      const llmRes = await askHybridLlm(
-        taskPrompt,
-        taskPrompt,
-        [{ role: 'user', content: clean.slice(0, 1500) }],
-        shouldRouteToGemini(clean, true)
-      );
-      const resultText = llmRes.reply?.trim() || clean.slice(0, 200);
-      if (interactive) {
-        speak(`[CLIPBOARD - ${action === 'translate' ? 'DỊCH' : 'TÓM TẮT'}] ${resultText} (Bấm "Đồng ý" để chép kết quả vào Clipboard)`);
-        showSuggestionButtons(
-          () => {
-            void invoke<string>('set_clipboard_text', { text: resultText })
-              .then((m) => speak(`[CLIPBOARD] ${m}`))
-              .catch(() => {});
-          },
-          () => {}
+      if (action === 'read') {
+        const preview = `${clean.slice(0, 220)}${clean.length > 220 ? '...' : ''}`;
+        const msg = `[CLIPBOARD] Nội dung đang copy: "${preview}"`;
+        if (interactive) {
+          speak(msg);
+        }
+        return msg;
+      }
+
+      if (!isStreamingActive && (isOllamaOnline || geminiApiKey.trim())) {
+        const taskPrompt =
+          action === 'translate'
+            ? 'Dịch nội dung sau sang tiếng Việt tự nhiên, súc tích (tối đa 3 câu, không dùng emoji):'
+            : 'Tóm tắt hoặc giải thích nhanh nội dung sau bằng tiếng Việt súc tích (tối đa 2-3 câu, không dùng emoji):';
+        const llmRes = await askHybridLlm(
+          taskPrompt,
+          taskPrompt,
+          [{ role: 'user', content: clean.slice(0, 1500) }],
+          shouldRouteToGemini(clean, true)
         );
+        const resultText = llmRes.reply?.trim() || clean.slice(0, 200);
+        if (interactive) {
+          speak(`[CLIPBOARD - ${action === 'translate' ? 'DỊCH' : 'TÓM TẮT'}] ${resultText} (Bấm "Đồng ý" để chép kết quả vào Clipboard)`);
+          showSuggestionButtons(
+            () => {
+              void invoke<string>('set_clipboard_text', { text: resultText })
+                .then((m) => speak(`[CLIPBOARD] ${m}`))
+                .catch(() => { });
+            },
+            () => { }
+          );
+        }
+        return resultText;
       }
-      return resultText;
-    }
 
-    return `[CLIPBOARD] Đã đọc (${clean.length} ký tự): "${clean.slice(0, 180)}"`;
-  } catch (err) {
-    const errMsg = `[LỖI CLIPBOARD] ${String(err)}`;
-    if (interactive) speak(errMsg);
-    return errMsg;
-  }
+      return `[CLIPBOARD] Đã đọc (${clean.length} ký tự): "${clean.slice(0, 180)}"`;
+    } catch (err) {
+      const errMsg = `[LỖI CLIPBOARD] ${String(err)}`;
+      if (interactive) speak(errMsg);
+      return errMsg;
+    }
+  }, (s) => !s.startsWith('[LỖI'));
 }
 
 export async function runDeepSystemControl(
@@ -1710,28 +2031,32 @@ export async function runDeepSystemControl(
   param = '',
   interactive = true
 ): Promise<string> {
-  if (interactive) {
-    appState.setState('SCANNING');
-    spawnScanEffect(appState.posX, appState.posY);
-  }
-  try {
-    const res = await invoke<string>('deep_system_control', {
-      action,
-      param: param.trim() || null,
-    });
-    appState.setExpression('happy', 3.0);
-    spawnParticles(appState.posX, appState.posY - 90, 10, 0x38bdf8);
-    pushDashboardAlert(`[HỆ THỐNG] ${res}`);
+  return runWithToolAnim('system_control', async () => {
     if (interactive) {
-      speak(`[HỆ THỐNG] ${res}`);
+      appState.setState('SCANNING');
+      spawnScanEffect(appState.posX, appState.posY);
     }
-    return res;
-  } catch (err) {
-    const errMsg = `[LỖI HỆ THỐNG] ${String(err)}`;
-    appState.setExpression('sad', 2.8);
-    if (interactive) speak(errMsg);
-    return errMsg;
-  }
+    try {
+      const res = await invoke<string>('deep_system_control', {
+        action,
+        param: param.trim() || null,
+      });
+      appState.setExpression('happy', 3.0);
+      spawnParticles(appState.posX, appState.posY - 90, 10, 0x38bdf8);
+      pushDashboardAlert(`[HỆ THỐNG] ${res}`);
+      if (interactive) {
+        speak(`[HỆ THỐNG] ${res}`);
+      }
+      return res;
+    } catch (err) {
+      const errMsg = `[LỖI HỆ THỐNG] ${String(err)}`;
+      appState.setExpression('sad', 2.8);
+      if (interactive) speak(errMsg);
+      return errMsg;
+    } finally {
+      if (interactive) scheduleScanIdleReset();
+    }
+  }, (s) => !s.startsWith('[LỖI'));
 }
 
 function launchHabitAppTitle(appTitle: string) {
@@ -1755,82 +2080,84 @@ function launchHabitAppTitle(appTitle: string) {
 export async function runSmartDbSupportBriefing(
   autoLaunchWorkspace = false
 ): Promise<string> {
-  const hour = new Date().getHours();
-  const [insights, schedules, longList, browser] = await Promise.all([
-    runMemoryCheck(false),
-    invoke<ScheduledNoteEntry[]>('schedule_note_list').catch(() => [] as ScheduledNoteEntry[]),
-    invoke<LongMemoryEntry[]>('long_memory_list').catch(() => [] as LongMemoryEntry[]),
-    invoke<BrowserInsights | null>('memory_scan_browser_history').catch(() => null),
-  ]);
+  return runWithToolAnim('workspace', async () => {
+    const hour = new Date().getHours();
+    const [insights, schedules, longList, browser] = await Promise.all([
+      runMemoryCheck(false),
+      invoke<ScheduledNoteEntry[]>('schedule_note_list').catch(() => [] as ScheduledNoteEntry[]),
+      invoke<LongMemoryEntry[]>('long_memory_list').catch(() => [] as LongMemoryEntry[]),
+      invoke<BrowserInsights | null>('memory_scan_browser_history').catch(() => null),
+    ]);
 
-  const pendingNotes = schedules.filter((n) => !n.is_done);
-  const timedNotes = pendingNotes.filter((n) => n.schedule_time);
-  const topApps = insights?.top_apps_today?.slice(0, 3) || [];
-  const habit = insights?.habit_for_hour;
-  const activeLong = longList.filter((l) => l.enabled);
-  const topYt = browser?.top_youtube?.[0];
+    const pendingNotes = schedules.filter((n) => !n.is_done);
+    const timedNotes = pendingNotes.filter((n) => n.schedule_time);
+    const topApps = insights?.top_apps_today?.slice(0, 3) || [];
+    const habit = insights?.habit_for_hour;
+    const activeLong = longList.filter((l) => l.enabled);
+    const topYt = browser?.top_youtube?.[0];
 
-  if (autoLaunchWorkspace) {
-    if (habit) {
-      launchHabitAppTitle(habit.app_title);
-    } else if (topApps[0]) {
-      launchHabitAppTitle(topApps[0].app_title);
-    } else if (topYt) {
-      void runPcOpen(topYt.url, topYt.title.slice(0, 28));
-    }
-    if (pendingNotes.length > 0) {
-      toggleStickyNotesWidget(true);
-    }
-  }
-
-  const parts: string[] = [];
-  if (pendingNotes.length > 0) {
-    const sample = timedNotes[0] || pendingNotes[0];
-    parts.push(
-      `Có ${pendingNotes.length} lịch/note chưa xong (gần nhất: "${sample.content.slice(0, 30)}"${sample.schedule_time ? ` lúc ${sample.schedule_time}` : ''})`
-    );
-  } else {
-    parts.push('Không còn lịch hẹn tồn đọng');
-  }
-
-  if (habit) {
-    parts.push(`Khung ${hour}h bạn hay dùng "${habit.app_title}"`);
-  } else if (topApps.length > 0) {
-    parts.push(
-      `Hôm nay dùng nhiều: ${topApps.map((a) => `${a.app_title} (${Math.max(1, Math.round(a.total_sec / 60))}p)`).join(', ')}`
-    );
-  }
-
-  const factCount = (insights?.profile_facts?.length || 0) + activeLong.length;
-  parts.push(`DB đang áp dụng ${factCount} quy tắc & sở thích cá nhân`);
-
-  const summary = `[TRỢ LÝ DB & WORKSPACE] ${parts.join(' | ')}.`;
-  showTelemetrySection('memory');
-  pushDashboardAlert(summary);
-  appState.setState('WAVING');
-  appState.setExpression('happy', 3.5);
-
-  if (habit || topYt || pendingNotes.length > 0) {
-    speak(`${summary} Bấm "Đồng ý" để mở nhanh Workspace thói quen & xem Lịch hẹn nhé!`);
-    showSuggestionButtons(
-      () => {
-        if (habit) {
-          launchHabitAppTitle(habit.app_title);
-        } else if (topYt) {
-          void runPcOpen(topYt.url, topYt.title.slice(0, 28));
-        }
-        if (pendingNotes.length > 0) {
-          toggleStickyNotesWidget(true);
-        }
-      },
-      () => {
-        if (pendingNotes.length > 0) toggleStickyNotesWidget(true);
+    if (autoLaunchWorkspace) {
+      if (habit) {
+        launchHabitAppTitle(habit.app_title);
+      } else if (topApps[0]) {
+        launchHabitAppTitle(topApps[0].app_title);
+      } else if (topYt) {
+        void runPcOpen(topYt.url, topYt.title.slice(0, 28));
       }
-    );
-  } else {
-    speak(summary);
-  }
-  return summary;
+      if (pendingNotes.length > 0) {
+        toggleStickyNotesWidget(true);
+      }
+    }
+
+    const parts: string[] = [];
+    if (pendingNotes.length > 0) {
+      const sample = timedNotes[0] || pendingNotes[0];
+      parts.push(
+        `Có ${pendingNotes.length} lịch/note chưa xong (gần nhất: "${sample.content.slice(0, 30)}"${sample.schedule_time ? ` lúc ${sample.schedule_time}` : ''})`
+      );
+    } else {
+      parts.push('Không còn lịch hẹn tồn đọng');
+    }
+
+    if (habit) {
+      parts.push(`Khung ${hour}h bạn hay dùng "${habit.app_title}"`);
+    } else if (topApps.length > 0) {
+      parts.push(
+        `Hôm nay dùng nhiều: ${topApps.map((a) => `${a.app_title} (${Math.max(1, Math.round(a.total_sec / 60))}p)`).join(', ')}`
+      );
+    }
+
+    const factCount = (insights?.profile_facts?.length || 0) + activeLong.length;
+    parts.push(`DB đang áp dụng ${factCount} quy tắc & sở thích cá nhân`);
+
+    const summary = `[TRỢ LÝ DB & WORKSPACE] ${parts.join(' | ')}.`;
+    showTelemetrySection('memory');
+    pushDashboardAlert(summary);
+    appState.setState('WAVING');
+    appState.setExpression('happy', 3.5);
+
+    if (habit || topYt || pendingNotes.length > 0) {
+      speak(`${summary} Bấm "Đồng ý" để mở nhanh Workspace thói quen & xem Lịch hẹn nhé!`);
+      showSuggestionButtons(
+        () => {
+          if (habit) {
+            launchHabitAppTitle(habit.app_title);
+          } else if (topYt) {
+            void runPcOpen(topYt.url, topYt.title.slice(0, 28));
+          }
+          if (pendingNotes.length > 0) {
+            toggleStickyNotesWidget(true);
+          }
+        },
+        () => {
+          if (pendingNotes.length > 0) toggleStickyNotesWidget(true);
+        }
+      );
+    } else {
+      speak(summary);
+    }
+    return summary;
+  });
 }
 
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
@@ -1935,7 +2262,7 @@ export async function summarizeLastIngestedFile(
     () => {
       void invoke<string>('set_clipboard_text', { text: finalSummary })
         .then((m) => speak(`[CLIPBOARD] ${m}`))
-        .catch(() => {});
+        .catch(() => { });
     },
     'Show Dashboard',
     'Copy Tóm Tắt'
@@ -1945,6 +2272,7 @@ export async function summarizeLastIngestedFile(
 
 export async function handleDroppedAnyFile(fileOrPath: File | string): Promise<void> {
   setFileDragHoverMode(false);
+  fireAnimationTrigger('event', 'file_drop', 'enter');
   const isPathStr = typeof fileOrPath === 'string';
   const fileName = isPathStr
     ? fileOrPath.split(/[\\/]/).pop() || 'dropped_file'
@@ -2003,24 +2331,15 @@ export async function handleDroppedAnyFile(fileOrPath: File | string): Promise<v
     }
 
     lastIngestedAnalysis = analysis;
-    const promptMsg = `[ĐÃ HẤP THỤ ${analysis.file_type}] Nuốt xong "${analysis.file_name}" (${analysis.file_size_kb} KB)! ${analysis.quick_overview} — Bạn muốn tớ Show Dashboard phân tích hay Tóm tắt nội dung file?`;
+    pinFileToChatBar(analysis);
+    window.dispatchEvent(new CustomEvent('duck-focus-chat-input'));
+    const promptMsg = `[ĐÃ GHIM ${analysis.file_type}] Đã hấp thụ và ghim "${analysis.file_name}" (${analysis.file_size_kb} KB) vào thanh chat! ${analysis.quick_overview} — Hãy gõ yêu cầu xử lý file ngay bên dưới (tóm tắt, phân tích, chỉnh sửa, lọc dữ liệu...) hoặc bấm Tóm tắt / Dashboard ở thanh ghim.`;
     pushChatHistory('assistant', promptMsg);
     pushDashboardAlert(analysis.quick_overview);
     appState.setState('WAVING');
     appState.setExpression('happy', 3.5);
     speak(promptMsg);
-
-    showSuggestionButtons(
-      () => {
-        openFileAnalyticsDashboard(analysis);
-        speak(`[DASHBOARD] Đã mở bảng phân tích trực quan cho "${analysis.file_name}"!`);
-      },
-      () => {
-        void summarizeLastIngestedFile(analysis);
-      },
-      'Show Dashboard',
-      'Tóm Tắt File'
-    );
+    hideSuggestionButtons();
   } catch (err) {
     const errMsg = `[LỖI HẤP THỤ FILE] ${String(err)}`;
     appState.setExpression('sad', 2.5);
@@ -2033,86 +2352,96 @@ export async function runPortManager(
   port?: number,
   interactive = true
 ): Promise<string> {
-  if (interactive) {
-    appState.setState('SCANNING');
-    spawnScanEffect(appState.posX, appState.posY);
-  }
-  try {
-    const res = await invoke<string>('manage_ports', {
-      action,
-      port: port && port > 0 ? port : null,
-    });
-    appState.setExpression('happy', 2.8);
-    if (action === 'kill') {
-      spawnParticles(appState.posX, appState.posY - 90, 12, 0x34d399);
-    }
-    pushDashboardAlert(`[PORT DEV] ${res}`);
+  return runWithToolAnim('port_manager', async () => {
     if (interactive) {
-      speak(`[PORT DEV] ${res}`);
+      appState.setState('SCANNING');
+      spawnScanEffect(appState.posX, appState.posY);
     }
-    return res;
-  } catch (err) {
-    const errMsg = `[PORT DEV] ${String(err)}`;
-    appState.setExpression('sad', 2.5);
-    if (interactive) speak(errMsg);
-    return errMsg;
-  }
+    try {
+      const res = await invoke<string>('manage_ports', {
+        action,
+        port: port && port > 0 ? port : null,
+      });
+      appState.setExpression('happy', 2.8);
+      if (action === 'kill') {
+        spawnParticles(appState.posX, appState.posY - 90, 12, 0x34d399);
+      }
+      pushDashboardAlert(`[PORT DEV] ${res}`);
+      if (interactive) {
+        speak(`[PORT DEV] ${res}`);
+      }
+      return res;
+    } catch (err) {
+      const errMsg = `[LỖI PORT DEV] ${String(err)}`;
+      appState.setExpression('sad', 2.5);
+      if (interactive) speak(errMsg);
+      return errMsg;
+    } finally {
+      if (interactive) scheduleScanIdleReset();
+    }
+  }, (s) => !s.startsWith('[LỖI'));
 }
 
 export async function runGitStatusCheck(path = '', interactive = true): Promise<string> {
-  if (interactive) {
-    appState.setState('SCANNING');
-    spawnScanEffect(appState.posX, appState.posY);
-  }
-  try {
-    const res = await invoke<string>('check_git_status', {
-      path: path.trim() || null,
-    });
-    appState.setExpression('happy', 3.0);
-    pushDashboardAlert(res);
+  return runWithToolAnim('git_status', async () => {
     if (interactive) {
-      speak(res);
+      appState.setState('SCANNING');
+      spawnScanEffect(appState.posX, appState.posY);
     }
-    return res;
-  } catch (err) {
-    const errMsg = `[GIT] ${String(err)}`;
-    appState.setExpression('sad', 2.5);
-    if (interactive) speak(errMsg);
-    return errMsg;
-  }
+    try {
+      const res = await invoke<string>('check_git_status', {
+        path: path.trim() || null,
+      });
+      appState.setExpression('happy', 3.0);
+      pushDashboardAlert(res);
+      if (interactive) {
+        speak(res);
+      }
+      return res;
+    } catch (err) {
+      const errMsg = `[LỖI GIT] ${String(err)}`;
+      appState.setExpression('sad', 2.5);
+      if (interactive) speak(errMsg);
+      return errMsg;
+    } finally {
+      if (interactive) scheduleScanIdleReset();
+    }
+  }, (s) => !s.startsWith('[LỖI'));
 }
 
 export async function runClipboardHistoryCheck(interactive = true): Promise<string> {
-  try {
-    const items = await invoke<ClipboardHistoryEntry[]>('clipboard_history_list');
-    if (!items || items.length === 0) {
-      const empty = '[CLIPBOARD HISTORY] Chưa lưu lịch sử copy nào trong phiên hôm nay.';
-      if (interactive) speak(empty);
-      return empty;
+  return runWithToolAnim('clipboard_history', async () => {
+    try {
+      const items = await invoke<ClipboardHistoryEntry[]>('clipboard_history_list');
+      if (!items || items.length === 0) {
+        const empty = '[CLIPBOARD HISTORY] Chưa lưu lịch sử copy nào trong phiên hôm nay.';
+        if (interactive) speak(empty);
+        return empty;
+      }
+      const previewList = items
+        .slice(0, 3)
+        .map((it, idx) => `#${idx + 1}: "${it.content.slice(0, 38)}${it.content.length > 38 ? '...' : ''}"`)
+        .join(' | ');
+      const msg = `[LỊCH SỬ CLIPBOARD (${items.length} mục)] ${previewList}`;
+      if (interactive) {
+        const pick = items[Math.min(1, items.length - 1)];
+        speak(`${msg} — Bấm "Đồng ý" để copy lại mục "${pick.content.slice(0, 26)}"!`);
+        showSuggestionButtons(
+          () => {
+            void invoke<string>('set_clipboard_text', { text: pick.content })
+              .then((m) => speak(`[CLIPBOARD] ${m}`))
+              .catch(() => { });
+          },
+          () => { }
+        );
+      }
+      return msg;
+    } catch (err) {
+      const errMsg = `[LỖI CLIPBOARD HISTORY] ${String(err)}`;
+      if (interactive) speak(errMsg);
+      return errMsg;
     }
-    const previewList = items
-      .slice(0, 3)
-      .map((it, idx) => `#${idx + 1}: "${it.content.slice(0, 38)}${it.content.length > 38 ? '...' : ''}"`)
-      .join(' | ');
-    const msg = `[LỊCH SỬ CLIPBOARD (${items.length} mục)] ${previewList}`;
-    if (interactive) {
-      const pick = items[Math.min(1, items.length - 1)];
-      speak(`${msg} — Bấm "Đồng ý" để copy lại mục "${pick.content.slice(0, 26)}"!`);
-      showSuggestionButtons(
-        () => {
-          void invoke<string>('set_clipboard_text', { text: pick.content })
-            .then((m) => speak(`[CLIPBOARD] ${m}`))
-            .catch(() => {});
-        },
-        () => {}
-      );
-    }
-    return msg;
-  } catch (err) {
-    const errMsg = `[LỖI CLIPBOARD HISTORY] ${String(err)}`;
-    if (interactive) speak(errMsg);
-    return errMsg;
-  }
+  }, (s) => !s.startsWith('[LỖI'));
 }
 
 export async function createCustomMacroFromText(
@@ -2132,54 +2461,56 @@ export async function createCustomMacroFromText(
 }
 
 export async function runMacroRoutine(name: string, interactive = true): Promise<string> {
-  const query = name.trim().toLowerCase();
-  try {
-    const list = await invoke<MacroEntry[]>('macro_list');
-    if (list.length === 0) {
-      const msg = '[MACRO] Chưa có Macro nào trong SQLite.';
-      if (interactive) speak(msg);
-      return msg;
-    }
-    if (!query || query === 'list') {
-      const summary = `[MACRO ĐÃ LƯU (${list.length})] ${list.map((m) => `"${m.trigger_name}"`).join(', ')}.`;
-      if (interactive) speak(summary);
-      return summary;
-    }
-
-    const found =
-      list.find((m) => m.trigger_name.toLowerCase() === query) ||
-      list.find((m) => m.trigger_name.toLowerCase().includes(query) || query.includes(m.trigger_name.toLowerCase()));
-
-    if (!found) {
-      const msg = `[MACRO] Không tìm thấy Macro "${name}". Hiện có: ${list.map((m) => m.trigger_name).join(', ')}.`;
-      if (interactive) speak(msg);
-      return msg;
-    }
-
-    appState.setState('WAVING');
-    appState.setExpression('happy', 3.5);
-    spawnParticles(appState.posX, appState.posY - 90, 14, 0x38bdf8);
-
-    const parsed = parseAiToolCalls(found.actions_json);
-    if (parsed.toolCalls.length > 0) {
-      for (let i = 0; i < parsed.toolCalls.length; i++) {
-        await dispatchAiToolCall(parsed.toolCalls[i]);
-        if (i < parsed.toolCalls.length - 1) {
-          await new Promise((r) => setTimeout(r, 700));
-        }
+  return runWithToolAnim('macro', async () => {
+    const query = name.trim().toLowerCase();
+    try {
+      const list = await invoke<MacroEntry[]>('macro_list');
+      if (list.length === 0) {
+        const msg = '[MACRO] Chưa có Macro nào trong SQLite.';
+        if (interactive) speak(msg);
+        return msg;
       }
-    } else {
-      await executeChainedHeuristicCommands(found.actions_json);
-    }
+      if (!query || query === 'list') {
+        const summary = `[MACRO ĐÃ LƯU (${list.length})] ${list.map((m) => `"${m.trigger_name}"`).join(', ')}.`;
+        if (interactive) speak(summary);
+        return summary;
+      }
 
-    const msg = `[MACRO "${found.trigger_name.toUpperCase()}"] Đã kích hoạt xong ${Math.max(1, parsed.toolCalls.length)} hành động tự động!`;
-    if (interactive) speak(msg);
-    return msg;
-  } catch (err) {
-    const errMsg = `[LỖI MACRO] ${String(err)}`;
-    if (interactive) speak(errMsg);
-    return errMsg;
-  }
+      const found =
+        list.find((m) => m.trigger_name.toLowerCase() === query) ||
+        list.find((m) => m.trigger_name.toLowerCase().includes(query) || query.includes(m.trigger_name.toLowerCase()));
+
+      if (!found) {
+        const msg = `[MACRO] Không tìm thấy Macro "${name}". Hiện có: ${list.map((m) => m.trigger_name).join(', ')}.`;
+        if (interactive) speak(msg);
+        return msg;
+      }
+
+      appState.setState('WAVING');
+      appState.setExpression('happy', 3.5);
+      spawnParticles(appState.posX, appState.posY - 90, 14, 0x38bdf8);
+
+      const parsed = parseAiToolCalls(found.actions_json);
+      if (parsed.toolCalls.length > 0) {
+        for (let i = 0; i < parsed.toolCalls.length; i++) {
+          await dispatchAiToolCall(parsed.toolCalls[i]);
+          if (i < parsed.toolCalls.length - 1) {
+            await new Promise((r) => setTimeout(r, 700));
+          }
+        }
+      } else {
+        await executeChainedHeuristicCommands(found.actions_json);
+      }
+
+      const msg = `[MACRO "${found.trigger_name.toUpperCase()}"] Đã kích hoạt xong ${Math.max(1, parsed.toolCalls.length)} hành động tự động!`;
+      if (interactive) speak(msg);
+      return msg;
+    } catch (err) {
+      const errMsg = `[LỖI MACRO] ${String(err)}`;
+      if (interactive) speak(errMsg);
+      return errMsg;
+    }
+  }, (s) => !s.startsWith('[LỖI'));
 }
 
 export function updateWeatherDashboard(w: WeatherInfo) {
@@ -2217,81 +2548,90 @@ export async function syncLiveWeather3D(
   interactive = true,
   cityOverride?: string
 ): Promise<string> {
-  if (cityOverride !== undefined) {
-    const cleanCity = cityOverride.trim() || 'auto';
-    appState.weatherCityQuery = cleanCity;
-    localStorage.setItem('mate_weather_city', cleanCity);
-  } else {
-    appState.weatherCityQuery = localStorage.getItem('mate_weather_city') || 'auto';
-  }
-
-  if (overrideMode === 'auto' && appState.weatherSourceMode === 'custom' && cityOverride === undefined) {
-    const customMode = appState.weatherCustomMode || 'clear';
-    const customInfo: WeatherInfo = {
-      location: appState.weatherCustomLocation || 'Tùy chỉnh',
-      temp_c: appState.weatherCustomTempC,
-      feels_like_c: appState.weatherCustomTempC,
-      humidity_pct: appState.weatherCustomHumidityPct,
-      wind_kmh: customMode === 'wind' ? 28 : 8,
-      description: appState.weatherCustomDesc || 'Thời tiết tùy chỉnh',
-    };
-    updateWeatherDashboard(customInfo);
-    appState.weatherMode = customMode;
-    applyWeatherAccessory(customMode);
-    updateStudioWeatherPreviewUi();
-    const msg = `[THỜI TIẾT CUSTOM] ${customInfo.location}: ${customInfo.temp_c.toFixed(1)}°C, Độ ẩm ${customInfo.humidity_pct}% - ${customInfo.description}. Hiệu ứng 3D: "${customMode}".`;
-    if (interactive) {
-      showTelemetrySection('weather');
-      pushDashboardAlert(msg);
-      speak(msg);
+  const exec = async (): Promise<string> => {
+    const prevMode = appState.weatherMode;
+    if (cityOverride !== undefined) {
+      const cleanCity = cityOverride.trim() || 'auto';
+      appState.weatherCityQuery = cleanCity;
+      localStorage.setItem('mate_weather_city', cleanCity);
+    } else {
+      appState.weatherCityQuery = localStorage.getItem('mate_weather_city') || 'auto';
     }
-    return msg;
-  }
 
-  if (overrideMode !== 'auto') {
-    appState.weatherMode = overrideMode;
-    applyWeatherAccessory(overrideMode);
-    updateStudioWeatherPreviewUi();
-    const labels: Record<WeatherEffectMode, string> = {
-      clear: 'Trời quang đãng (Mây trắng + Mặt trời nhẹ)',
-      rain: 'Mưa rơi 3D + Mây Sấm Sét + Ô che mưa',
-      hot: 'Nắng nóng 3D + Mặt Trời rực rỡ + Nón rơm & Kính râm',
-      cold: 'Tuyết rơi 3D + Người Tuyết + Mũ Len ấm áp',
-      wind: 'Gió xoáy 3D + Lốc xoáy & Mũ chong chóng',
-      night: 'Ban đêm 3D + Trăng Sao + Vòng hào quang',
-    };
-    const msg = `[THỜI TIẾT 3D] Đã chuyển môi trường & phụ kiện sang: ${labels[overrideMode]}.`;
-    if (interactive) {
-      showTelemetrySection('weather');
-      speak(msg);
+    if (overrideMode === 'auto' && appState.weatherSourceMode === 'custom' && cityOverride === undefined) {
+      const customMode = appState.weatherCustomMode || 'clear';
+      const customInfo: WeatherInfo = {
+        location: appState.weatherCustomLocation || 'Tùy chỉnh',
+        temp_c: appState.weatherCustomTempC,
+        feels_like_c: appState.weatherCustomTempC,
+        humidity_pct: appState.weatherCustomHumidityPct,
+        wind_kmh: customMode === 'wind' ? 28 : 8,
+        description: appState.weatherCustomDesc || 'Thời tiết tùy chỉnh',
+      };
+      updateWeatherDashboard(customInfo);
+      appState.weatherMode = customMode;
+      applyWeatherAccessory(customMode);
+      updateStudioWeatherPreviewUi();
+      syncWeatherUiAndTriggerEvent(customMode, 'auto', interactive || customMode !== prevMode);
+      const msg = `[THỜI TIẾT CUSTOM] ${customInfo.location}: ${customInfo.temp_c.toFixed(1)}°C, Độ ẩm ${customInfo.humidity_pct}% - ${customInfo.description}. Hiệu ứng 3D: "${customMode}".`;
+      if (interactive) {
+        showTelemetrySection('weather');
+        pushDashboardAlert(msg);
+        speak(msg);
+      }
+      return msg;
     }
-    return msg;
-  }
 
-  try {
-    const cityParam = appState.weatherCityQuery || 'auto';
-    const w = await invoke<WeatherInfo>('check_weather', { city: cityParam });
-    updateWeatherDashboard(w);
-    const mode = resolveWeatherModeFromInfo(w);
-    appState.weatherMode = mode;
-    applyWeatherAccessory(mode);
-    updateStudioWeatherPreviewUi();
-    const msg = `[THỜI TIẾT LIVE] ${w.location}: ${w.temp_c.toFixed(1)}°C (cảm giác ${w.feels_like_c.toFixed(1)}°C), Độ ẩm ${w.humidity_pct}%, Gió ${w.wind_kmh.toFixed(1)} km/h - ${w.description}. Hiệu ứng 3D: "${mode}".`;
-    if (interactive) {
-      showTelemetrySection('weather');
-      pushDashboardAlert(msg);
-      speak(msg);
+    if (overrideMode !== 'auto') {
+      appState.weatherMode = overrideMode;
+      applyWeatherAccessory(overrideMode);
+      updateStudioWeatherPreviewUi();
+      syncWeatherUiAndTriggerEvent(overrideMode, overrideMode, interactive || overrideMode !== prevMode);
+      const labels: Record<WeatherEffectMode, string> = {
+        clear: 'Trời quang đãng (Mây trắng + Mặt trời nhẹ)',
+        rain: 'Mưa rơi 3D + Mây Sấm Sét + Ô che mưa',
+        hot: 'Nắng nóng 3D + Mặt Trời rực rỡ + Nón rơm & Kính râm',
+        cold: 'Tuyết rơi 3D + Người Tuyết + Mũ Len ấm áp',
+        wind: 'Gió xoáy 3D + Lốc xoáy & Mũ chong chóng',
+        night: 'Ban đêm 3D + Trăng Sao + Vòng hào quang',
+      };
+      const msg = `[THỜI TIẾT 3D] Đã chuyển môi trường & phụ kiện sang: ${labels[overrideMode]}.`;
+      if (interactive) {
+        showTelemetrySection('weather');
+        speak(msg);
+      }
+      return msg;
     }
-    return msg;
-  } catch {
-    const hour = new Date().getHours();
-    const fallbackMode: WeatherEffectMode = hour >= 20 || hour <= 5 ? 'night' : 'clear';
-    appState.weatherMode = fallbackMode;
-    updateStudioWeatherPreviewUi();
-    const msg = `[THỜI TIẾT 3D] Offline -> tự động đặt chế độ "${fallbackMode}".`;
-    if (interactive) speak(msg);
-    return msg;
-  }
+
+    try {
+      const cityParam = appState.weatherCityQuery || 'auto';
+      const w = await invoke<WeatherInfo>('check_weather', { city: cityParam });
+      updateWeatherDashboard(w);
+      const mode = resolveWeatherModeFromInfo(w);
+      appState.weatherMode = mode;
+      applyWeatherAccessory(mode);
+      updateStudioWeatherPreviewUi();
+      syncWeatherUiAndTriggerEvent(mode, 'auto', interactive || mode !== prevMode);
+      const msg = `[THỜI TIẾT LIVE] ${w.location}: ${w.temp_c.toFixed(1)}°C (cảm giác ${w.feels_like_c.toFixed(1)}°C), Độ ẩm ${w.humidity_pct}%, Gió ${w.wind_kmh.toFixed(1)} km/h - ${w.description}. Hiệu ứng 3D: "${mode}".`;
+      if (interactive) {
+        showTelemetrySection('weather');
+        pushDashboardAlert(msg);
+        speak(msg);
+      }
+      return msg;
+    } catch {
+      const hour = new Date().getHours();
+      const fallbackMode: WeatherEffectMode = hour >= 18 || hour < 6 ? 'night' : 'clear';
+      appState.weatherMode = fallbackMode;
+      applyWeatherAccessory(fallbackMode);
+      updateStudioWeatherPreviewUi();
+      syncWeatherUiAndTriggerEvent(fallbackMode, 'auto', interactive || fallbackMode !== prevMode);
+      const msg = `[THỜI TIẾT 3D] Offline -> tự động đặt chế độ "${fallbackMode}".`;
+      if (interactive) speak(msg);
+      return msg;
+    }
+  };
+  return interactive ? runWithToolAnim('weather_3d', exec) : exec();
 }
 
 let cachedNewsArticles: NewsArticleItem[] = [];
@@ -2311,103 +2651,110 @@ export async function loadAndSpeakLiveNews(
   sourceOverride?: string,
   interactive = true
 ): Promise<string> {
-  if (interactive) {
-    appState.setState('SCANNING');
-    spawnScanEffect(appState.posX, appState.posY);
-  }
-  const { mode, customUrl } = getConfiguredNewsSource();
-  const requested = (sourceOverride || mode || 'multi_random').trim();
+  const exec = async () => {
+    if (interactive) {
+      appState.setState('SCANNING');
+      spawnScanEffect(appState.posX, appState.posY);
+    }
+    const { mode, customUrl } = getConfiguredNewsSource();
+    const requested = (sourceOverride || mode || 'multi_random').trim();
 
-  const pool = ['znews', 'cafef', 'money', 'vnexpress'];
-  let targetSource = requested;
-  if (requested === 'multi_random') {
-    targetSource = pool[Math.floor(Math.random() * pool.length)];
-  } else if (requested === 'custom') {
-    targetSource = customUrl.trim() || 'https://znews.vn';
-  }
+    const pool = ['znews', 'cafef', 'money', 'vnexpress'];
+    let targetSource = requested;
+    if (requested === 'multi_random') {
+      targetSource = pool[Math.floor(Math.random() * pool.length)];
+    } else if (requested === 'custom') {
+      targetSource = customUrl.trim() || 'https://znews.vn';
+    }
 
-  try {
-    let articles = await invoke<NewsArticleItem[]>('fetch_live_news', { source: targetSource }).catch(
-      () => [] as NewsArticleItem[]
-    );
-    // Nếu chế độ ngẫu nhiên gặp nguồn lỗi tạm thời, thử các nguồn dự phòng trong danh sách
-    if (articles.length === 0 && requested === 'multi_random') {
-      for (const alt of pool) {
-        if (alt === targetSource) continue;
-        articles = await invoke<NewsArticleItem[]>('fetch_live_news', { source: alt }).catch(
-          () => [] as NewsArticleItem[]
-        );
-        if (articles.length > 0) {
-          targetSource = alt;
-          break;
+    try {
+      let articles = await invoke<NewsArticleItem[]>('fetch_live_news', { source: targetSource }).catch(
+        () => [] as NewsArticleItem[]
+      );
+      // Nếu chế độ ngẫu nhiên gặp nguồn lỗi tạm thời, thử các nguồn dự phòng trong danh sách
+      if (articles.length === 0 && requested === 'multi_random') {
+        for (const alt of pool) {
+          if (alt === targetSource) continue;
+          articles = await invoke<NewsArticleItem[]>('fetch_live_news', { source: alt }).catch(
+            () => [] as NewsArticleItem[]
+          );
+          if (articles.length > 0) {
+            targetSource = alt;
+            break;
+          }
         }
       }
-    }
 
-    if (articles.length === 0) {
-      const errMsg = `[TIN TỨC] Không tải được tin mới từ nguồn "${targetSource}". Kiểm tra lại mạng hoặc URL RSS.`;
+      if (articles.length === 0) {
+        const errMsg = `[TIN TỨC] Không tải được tin mới từ nguồn "${targetSource}". Kiểm tra lại mạng hoặc URL RSS.`;
+        if (interactive) speak(errMsg);
+        return errMsg;
+      }
+
+      cachedNewsArticles = articles;
+      const badgeEl = document.getElementById('val-news-badge');
+      if (badgeEl) badgeEl.textContent = articles[0].source.toUpperCase();
+
+      const listEl = document.getElementById('news-feed-list');
+      if (listEl) {
+        listEl.innerHTML = '';
+        articles.slice(0, 8).forEach((art, idx) => {
+          const row = document.createElement('div');
+          row.className = 'news-item-row';
+          row.title = 'Click để mở bài báo gốc trong trình duyệt';
+
+          const titleDiv = document.createElement('div');
+          titleDiv.className = 'news-item-title';
+          titleDiv.textContent = `${idx + 1}. ${art.title}`;
+
+          const metaDiv = document.createElement('div');
+          metaDiv.className = 'news-item-meta';
+          metaDiv.textContent = `[${art.source}] ${art.pub_date || 'Mới nhất'}`;
+
+          row.appendChild(titleDiv);
+          row.appendChild(metaDiv);
+          row.addEventListener('click', () => {
+            if (art.link) {
+              void runPcOpen(art.link, art.source);
+            }
+          });
+          listEl.appendChild(row);
+        });
+      }
+
+      const pickIdx = Math.min(articles.length - 1, Math.floor(Math.random() * Math.min(3, articles.length)));
+      const top = articles[pickIdx];
+      const second = articles[(pickIdx + 1) % articles.length];
+      const spoken =
+        articles.length > 1 && second.title !== top.title
+          ? `[TIN MỚI - ${top.source.toUpperCase()}] 1) ${top.title} | 2) ${second.title}`
+          : `[TIN MỚI - ${top.source.toUpperCase()}] ${top.title}`;
+
+      if (interactive) {
+        showTelemetrySection('news');
+        appState.setState('WAVING');
+        appState.setExpression('happy', 3.0);
+        speak(spoken);
+        pushDashboardAlert(`[NEWS ${top.source}] ${top.title}`);
+        if (top.link) {
+          showSuggestionButtons(
+            () => void runPcOpen(top.link, top.source),
+            () => { }
+          );
+        }
+      }
+      return spoken;
+    } catch (err) {
+      const errMsg = `[LỖI TIN TỨC] ${String(err)}`;
       if (interactive) speak(errMsg);
       return errMsg;
+    } finally {
+      if (interactive) scheduleScanIdleReset();
     }
-
-    cachedNewsArticles = articles;
-    const badgeEl = document.getElementById('val-news-badge');
-    if (badgeEl) badgeEl.textContent = articles[0].source.toUpperCase();
-
-    const listEl = document.getElementById('news-feed-list');
-    if (listEl) {
-      listEl.innerHTML = '';
-      articles.slice(0, 8).forEach((art, idx) => {
-        const row = document.createElement('div');
-        row.className = 'news-item-row';
-        row.title = 'Click để mở bài báo gốc trong trình duyệt';
-
-        const titleDiv = document.createElement('div');
-        titleDiv.className = 'news-item-title';
-        titleDiv.textContent = `${idx + 1}. ${art.title}`;
-
-        const metaDiv = document.createElement('div');
-        metaDiv.className = 'news-item-meta';
-        metaDiv.textContent = `[${art.source}] ${art.pub_date || 'Mới nhất'}`;
-
-        row.appendChild(titleDiv);
-        row.appendChild(metaDiv);
-        row.addEventListener('click', () => {
-          if (art.link) {
-            void runPcOpen(art.link, art.source);
-          }
-        });
-        listEl.appendChild(row);
-      });
-    }
-
-    const pickIdx = Math.min(articles.length - 1, Math.floor(Math.random() * Math.min(3, articles.length)));
-    const top = articles[pickIdx];
-    const second = articles[(pickIdx + 1) % articles.length];
-    const spoken =
-      articles.length > 1 && second.title !== top.title
-        ? `[TIN MỚI - ${top.source.toUpperCase()}] 1) ${top.title} | 2) ${second.title}`
-        : `[TIN MỚI - ${top.source.toUpperCase()}] ${top.title}`;
-
-    if (interactive) {
-      showTelemetrySection('news');
-      appState.setState('WAVING');
-      appState.setExpression('happy', 3.0);
-      speak(spoken);
-      pushDashboardAlert(`[NEWS ${top.source}] ${top.title}`);
-      if (top.link) {
-        showSuggestionButtons(
-          () => void runPcOpen(top.link, top.source),
-          () => {}
-        );
-      }
-    }
-    return spoken;
-  } catch (err) {
-    const errMsg = `[LỖI TIN TỨC] ${String(err)}`;
-    if (interactive) speak(errMsg);
-    return errMsg;
-  }
+  };
+  return interactive
+    ? runWithToolAnim('news', exec, (s) => !s.startsWith('[TIN TỨC] Không') && !s.startsWith('[LỖI'))
+    : exec();
 }
 
 export function playEnglishVocabAudio(item?: EnglishVocabItem | null) {
@@ -2439,6 +2786,169 @@ export function playEnglishVocabAudio(item?: EnglishVocabItem | null) {
   speakWebTts();
 }
 
+const englishAutoRepairedWords = new Set<string>();
+
+function hasVietnameseDiacritics(text: string): boolean {
+  return /[\u00C0-\u1EF9đĐ]/.test(text);
+}
+
+function formatPartOfSpeechVi(pos: string): string {
+  const low = pos.trim().toLowerCase();
+  const map: Record<string, string> = {
+    noun: 'Danh từ (noun)',
+    verb: 'Động từ (verb)',
+    adjective: 'Tính từ (adj)',
+    adj: 'Tính từ (adj)',
+    adverb: 'Trạng từ (adv)',
+    adv: 'Trạng từ (adv)',
+    preposition: 'Giới từ (prep)',
+    conjunction: 'Liên từ (conj)',
+    pronoun: 'Đại từ (pron)',
+    interjection: 'Thán từ (interj)',
+    vocab: 'Từ vựng',
+  };
+  return map[low] || pos;
+}
+
+function isUntranslatedOrPlaceholderVi(text: string, sourceEn: string, requireDiacriticWhenAsciiMatch = true): boolean {
+  const t = text.trim();
+  const s = sourceEn.trim();
+  if (!t) return true;
+  const lowT = t.toLowerCase();
+  if (
+    lowT.includes('chưa dịch được') ||
+    lowT.includes('mymemory warning') ||
+    lowT.includes('query length limit')
+  ) {
+    return true;
+  }
+  if (s && lowT === s.toLowerCase()) return true;
+  if (requireDiacriticWhenAsciiMatch && s && !hasVietnameseDiacritics(t)) {
+    return true;
+  }
+  return false;
+}
+
+function needsVietnameseTranslation(item: EnglishVocabItem): boolean {
+  const meaningBad =
+    isUntranslatedOrPlaceholderVi(item.meaning_vi || '', item.word, true) ||
+    (Boolean(item.definition_en) &&
+      (item.meaning_vi || '').toLowerCase().includes(item.definition_en.trim().toLowerCase()));
+  const exampleBad = isUntranslatedOrPlaceholderVi(
+    item.example_vi || '',
+    item.example_en || '',
+    true
+  );
+  return meaningBad || exampleBad;
+}
+
+async function quickTranslateEnToVi(text: string): Promise<string> {
+  const clean = text.trim();
+  if (!clean) return '';
+  try {
+    const res = await invoke<TranslateResult>('translate_text_quick', {
+      text: clean,
+      targetLang: 'vi',
+    });
+    const out = (res?.translated_text || '').trim();
+    if (!out) return '';
+    if (isUntranslatedOrPlaceholderVi(out, clean, false)) return '';
+    return out;
+  } catch {
+    return '';
+  }
+}
+
+export async function translateEnglishItemToVi(
+  item: EnglishVocabItem,
+  force = false
+): Promise<EnglishVocabItem> {
+  const updated: EnglishVocabItem = { ...item };
+  let needMeaning =
+    force ||
+    isUntranslatedOrPlaceholderVi(updated.meaning_vi || '', updated.word, true) ||
+    (Boolean(updated.definition_en) &&
+      (updated.meaning_vi || '').toLowerCase().includes(updated.definition_en.trim().toLowerCase()));
+  let needExample =
+    force ||
+    isUntranslatedOrPlaceholderVi(updated.example_vi || '', updated.example_en || '', true);
+
+  if (!needMeaning && !needExample) {
+    return updated;
+  }
+
+  // Step 1: Online translate fallback via Rust quick translator
+  if (needMeaning) {
+    const [wVi, dVi] = await Promise.all([
+      quickTranslateEnToVi(updated.word),
+      updated.definition_en ? quickTranslateEnToVi(updated.definition_en) : Promise.resolve(''),
+    ]);
+    const validW = wVi && !isUntranslatedOrPlaceholderVi(wVi, updated.word, true) ? wVi : '';
+    const validD =
+      dVi && !isUntranslatedOrPlaceholderVi(dVi, updated.definition_en || '', true) ? dVi : '';
+    if (validW && validD) {
+      updated.meaning_vi = validW.toLowerCase() === validD.toLowerCase() ? validW : `${validW} - ${validD}`;
+      needMeaning = false;
+    } else if (validW) {
+      updated.meaning_vi = validW;
+      needMeaning = false;
+    } else if (validD) {
+      updated.meaning_vi = validD;
+      needMeaning = false;
+    }
+  }
+
+  if (needExample && updated.example_en) {
+    const exVi = await quickTranslateEnToVi(updated.example_en);
+    if (exVi && !isUntranslatedOrPlaceholderVi(exVi, updated.example_en, true)) {
+      updated.example_vi = exVi;
+      needExample = false;
+    }
+  }
+
+  // Step 2: AI translation fallback (Gemini / Local Ollama) if online translator failed or echoed English
+  if ((needMeaning || needExample) && (isOllamaOnline || geminiApiKey.trim())) {
+    try {
+      const sysPrompt =
+        'Bạn là từ điển Anh-Việt chính xác. Dịch ngắn gọn, tự nhiên sang tiếng Việt có dấu, KHÔNG dùng emoji. Trả về đúng 2 dòng theo mẫu:\nNGHIA_VI: <nghĩa tiếng Việt ngắn gọn kèm giải thích nếu cần>\nVIDU_VI: <bản dịch tiếng Việt cho câu ví dụ>';
+      const userPrompt = `Từ: ${updated.word} (${updated.part_of_speech})\nĐịnh nghĩa: ${updated.definition_en}\nCâu ví dụ: ${updated.example_en}`;
+      const res = await askHybridLlm(
+        sysPrompt,
+        sysPrompt,
+        [{ role: 'user', content: userPrompt }],
+        Boolean(geminiApiKey.trim())
+      );
+      const reply = (res.reply || '').trim();
+      if (reply) {
+        const nghiaMatch = reply.match(/NGHIA_VI\s*:\s*(.+)/i);
+        const viduMatch = reply.match(/VIDU_VI\s*:\s*(.+)/i);
+        if (needMeaning && nghiaMatch?.[1]?.trim()) {
+          updated.meaning_vi = nghiaMatch[1].trim();
+          needMeaning = false;
+        }
+        if (needExample && viduMatch?.[1]?.trim()) {
+          updated.example_vi = viduMatch[1].trim();
+          needExample = false;
+        }
+      }
+    } catch {
+      // Giữ trạng thái fallback bên dưới nếu AI offline
+    }
+  }
+
+  if (isUntranslatedOrPlaceholderVi(updated.meaning_vi || '', updated.word, false)) {
+    updated.meaning_vi = 'Chưa dịch được nghĩa tiếng Việt (bấm "Dịch TV" để dịch bằng AI)';
+  }
+  if (
+    updated.example_en &&
+    isUntranslatedOrPlaceholderVi(updated.example_vi || '', updated.example_en, false)
+  ) {
+    updated.example_vi = '(Chưa dịch được câu ví dụ - bấm "Dịch TV" để dịch)';
+  }
+
+  return updated;
+}
+
 function renderEnglishCard(item: EnglishVocabItem) {
   currentEnglishItem = item;
   const setTxt = (id: string, val: string) => {
@@ -2446,11 +2956,45 @@ function renderEnglishCard(item: EnglishVocabItem) {
     if (el) el.textContent = val;
   };
   setTxt('eng-word', item.word);
-  setTxt('eng-pos', item.part_of_speech);
+  setTxt('eng-pos', formatPartOfSpeechVi(item.part_of_speech));
   setTxt('eng-phonetic', `${item.phonetic}  [${item.topic}]`);
-  setTxt('eng-meaning-vi', item.meaning_vi);
-  setTxt('eng-def-en', `EN: ${item.definition_en}`);
-  setTxt('eng-example', `VD: "${item.example_en}" -> ${item.example_vi}`);
+  setTxt('eng-meaning-vi', `Nghĩa TV: ${item.meaning_vi}`);
+  setTxt('eng-def-en', `Định nghĩa EN: ${item.definition_en}`);
+  setTxt('eng-example-en', item.example_en ? `Ví dụ EN: "${item.example_en}"` : '');
+  setTxt('eng-example-vi', item.example_vi ? `Dịch TV: ${item.example_vi}` : '');
+}
+
+export async function translateCurrentEnglishLesson(): Promise<string> {
+  let target = currentEnglishItem;
+  if (!target) {
+    const list = await invoke<EnglishVocabItem[]>('vocab_list_words', { limit: 1 }).catch(
+      () => [] as EnglishVocabItem[]
+    );
+    if (list.length > 0) target = list[0];
+  }
+  if (!target) {
+    return loadNextEnglishLesson(undefined, true);
+  }
+
+  const btn = document.getElementById('btn-eng-translate') as HTMLButtonElement | null;
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Đang dịch...';
+  }
+  try {
+    const translated = await translateEnglishItemToVi(target, true);
+    await invoke<EnglishVocabItem[]>('vocab_save_word', { item: translated }).catch(() => []);
+    renderEnglishCard(translated);
+    await refreshEnglishVocabHistoryUi();
+    const msg = `[DỊCH TIẾNG ANH -> TV] ${translated.word.toUpperCase()} (${formatPartOfSpeechVi(translated.part_of_speech)}): ${translated.meaning_vi} | Ví dụ: "${translated.example_en}" -> ${translated.example_vi}`;
+    speak(msg);
+    return msg;
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'Dịch TV';
+    }
+  }
 }
 
 export async function refreshEnglishVocabHistoryUi(): Promise<EnglishVocabItem[]> {
@@ -2466,17 +3010,51 @@ export async function refreshEnglishVocabHistoryUi(): Promise<EnglishVocabItem[]
         const chip = document.createElement('div');
         chip.className = 'eng-word-chip';
         chip.title = `${item.word} ${item.phonetic}: ${item.meaning_vi}`;
-        chip.innerHTML = `<b style="color:#c4b5fd;">${item.word}</b><span style="color:#94a3b8; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${item.meaning_vi}</span>`;
+        const boldWord = document.createElement('b');
+        boldWord.style.color = '#c4b5fd';
+        boldWord.textContent = item.word;
+        const meaningSpan = document.createElement('span');
+        meaningSpan.style.cssText =
+          'color:#94a3b8; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;';
+        meaningSpan.textContent = item.meaning_vi;
+        chip.append(boldWord, meaningSpan);
         chip.addEventListener('click', () => {
-          renderEnglishCard(item);
-          playEnglishVocabAudio(item);
-          speak(`[ÔN TẬP] ${item.word} ${item.phonetic} (${item.part_of_speech}): ${item.meaning_vi}. VD: ${item.example_en}`);
+          void (async () => {
+            let displayItem = item;
+            if (needsVietnameseTranslation(item) && !englishAutoRepairedWords.has(item.word)) {
+              englishAutoRepairedWords.add(item.word);
+              displayItem = await translateEnglishItemToVi(item, false);
+              if (!needsVietnameseTranslation(displayItem)) {
+                await invoke<EnglishVocabItem[]>('vocab_save_word', { item: displayItem }).catch(
+                  () => []
+                );
+              }
+            }
+            renderEnglishCard(displayItem);
+            playEnglishVocabAudio(displayItem);
+            speak(
+              `[ÔN TẬP] ${displayItem.word} ${displayItem.phonetic} (${formatPartOfSpeechVi(displayItem.part_of_speech)}): ${displayItem.meaning_vi}. VD: ${displayItem.example_en}${displayItem.example_vi ? ` -> ${displayItem.example_vi}` : ''}`
+            );
+          })();
         });
         histEl.appendChild(chip);
       });
     }
     if (!currentEnglishItem && list.length > 0) {
-      renderEnglishCard(list[0]);
+      const first = list[0];
+      renderEnglishCard(first);
+      if (needsVietnameseTranslation(first) && !englishAutoRepairedWords.has(first.word)) {
+        englishAutoRepairedWords.add(first.word);
+        void translateEnglishItemToVi(first, false).then((fixed) => {
+          if (!needsVietnameseTranslation(fixed)) {
+            void invoke('vocab_save_word', { item: fixed }).catch(() => { });
+            if (currentEnglishItem?.word === fixed.word) {
+              renderEnglishCard(fixed);
+            }
+            void refreshEnglishVocabHistoryUi();
+          }
+        });
+      }
     }
     return list;
   } catch {
@@ -2488,70 +3066,87 @@ export async function loadNextEnglishLesson(
   topicOverride?: string,
   interactive = true
 ): Promise<string> {
-  if (interactive) {
-    appState.setState('SCANNING');
-    spawnScanEffect(appState.posX, appState.posY);
-    speak('[ENGLISH LIVE] Đang tải từ vựng mới thời gian thực từ Datamuse & Dictionary API...');
-  }
-
-  const savedTopic = localStorage.getItem('mate_english_topic') || 'random';
-  const topicToUse = (topicOverride ?? savedTopic).trim() || 'random';
-
-  try {
-    const existing = await invoke<EnglishVocabItem[]>('vocab_list_words', { limit: 120 }).catch(
-      () => [] as EnglishVocabItem[]
-    );
-    const excludeWords = existing.map((e) => e.word);
-
-    const item = await invoke<EnglishVocabItem>('fetch_real_english_lesson', {
-      topic: topicToUse,
-      excludeWords,
-    });
-
-    await invoke<EnglishVocabItem[]>('vocab_save_word', { item }).catch(() => []);
-    renderEnglishCard(item);
-    await refreshEnglishVocabHistoryUi();
-
-    const msg = `[HỌC TIẾNG ANH LIVE] ${item.word.toUpperCase()} (${item.part_of_speech}) ${item.phonetic} => Nghĩa: ${item.meaning_vi} | VD: "${item.example_en}" (${item.example_vi})`;
+  const exec = async () => {
     if (interactive) {
-      showTelemetrySection('english');
-      playEnglishVocabAudio(item);
-      appState.setState('WAVING');
-      appState.setExpression('happy', 3.4);
-      spawnParticles(appState.posX, appState.posY - 100, 12, 0xa78bfa);
-      speak(msg);
-      pushDashboardAlert(`[ENGLISH] ${item.word}: ${item.meaning_vi}`);
+      appState.setState('SCANNING');
+      spawnScanEffect(appState.posX, appState.posY);
+      speak('[ENGLISH LIVE] Đang tải từ vựng mới và dịch nghĩa tiếng Việt...');
     }
-    return msg;
-  } catch (err) {
-    const errMsg = `[LỖI HỌC TIẾNG ANH] ${String(err)}`;
-    if (interactive) speak(errMsg);
-    return errMsg;
-  }
+
+    const savedTopic = localStorage.getItem('mate_english_topic') || 'random';
+    const topicToUse = (topicOverride ?? savedTopic).trim() || 'random';
+
+    try {
+      const existing = await invoke<EnglishVocabItem[]>('vocab_list_words', { limit: 120 }).catch(
+        () => [] as EnglishVocabItem[]
+      );
+      const excludeWords = existing.map((e) => e.word);
+
+      const rawItem = await invoke<EnglishVocabItem>('fetch_real_english_lesson', {
+        topic: topicToUse,
+        excludeWords,
+      });
+      const item = await translateEnglishItemToVi(rawItem, false);
+
+      await invoke<EnglishVocabItem[]>('vocab_save_word', { item }).catch(() => []);
+      renderEnglishCard(item);
+      await refreshEnglishVocabHistoryUi();
+
+      const msg = `[HỌC TIẾNG ANH LIVE] ${item.word.toUpperCase()} (${formatPartOfSpeechVi(item.part_of_speech)}) ${item.phonetic} => Nghĩa: ${item.meaning_vi} | VD: "${item.example_en}" (${item.example_vi})`;
+      if (interactive) {
+        showTelemetrySection('english');
+        playEnglishVocabAudio(item);
+        appState.setState('WAVING');
+        appState.setExpression('happy', 3.4);
+        spawnParticles(appState.posX, appState.posY - 100, 12, 0xa78bfa);
+        speak(msg);
+        pushDashboardAlert(`[ENGLISH] ${item.word}: ${item.meaning_vi}`);
+      }
+      return msg;
+    } catch (err) {
+      const errMsg = `[LỖI HỌC TIẾNG ANH] ${String(err)}`;
+      if (interactive) speak(errMsg);
+      return errMsg;
+    } finally {
+      if (interactive) scheduleScanIdleReset();
+    }
+  };
+  return interactive
+    ? runWithToolAnim('english', exec, (s) => !s.startsWith('[LỖI'))
+    : exec();
 }
 
 export async function runEnglishMiniQuiz(): Promise<string> {
-  const list = await refreshEnglishVocabHistoryUi();
-  if (list.length === 0) {
-    return loadNextEnglishLesson('random', true);
-  }
-  const pick = list[Math.floor(Math.random() * list.length)];
-  renderEnglishCard(pick);
-  playEnglishVocabAudio(pick);
-  const quizText = `[ĐỐ VUI TIẾNG ANH] Từ "${pick.word}" (${pick.phonetic}, ${pick.part_of_speech}) có nghĩa tiếng Việt là gì? Bấm "Đồng ý" để xem đáp án & câu ví dụ!`;
-  showTelemetrySection('english');
-  speak(quizText);
-  showSuggestionButtons(
-    () => {
-      playEnglishVocabAudio(pick);
-      speak(`[ĐÁP ÁN] "${pick.word}" = ${pick.meaning_vi} | VD: "${pick.example_en}" (${pick.example_vi})`);
-      appState.changeMood(5);
-    },
-    () => {
-      void loadNextEnglishLesson('random', true);
+  return runWithToolAnim('english', async () => {
+    const list = await refreshEnglishVocabHistoryUi();
+    if (list.length === 0) {
+      return loadNextEnglishLesson('random', true);
     }
-  );
-  return quizText;
+    const rawPick = list[Math.floor(Math.random() * list.length)];
+    let pick = rawPick;
+    if (needsVietnameseTranslation(rawPick)) {
+      pick = await translateEnglishItemToVi(rawPick, false);
+      if (!needsVietnameseTranslation(pick)) {
+        await invoke<EnglishVocabItem[]>('vocab_save_word', { item: pick }).catch(() => []);
+      }
+    }
+    renderEnglishCard(pick);
+    playEnglishVocabAudio(pick);
+    const quizText = `[ĐỐ VUI TIẾNG ANH] Từ "${pick.word}" (${pick.phonetic}, ${formatPartOfSpeechVi(pick.part_of_speech)}) có nghĩa tiếng Việt là gì? Bấm "Đồng ý" để xem đáp án & câu ví dụ!`;
+    showTelemetrySection('english');
+    speak(quizText);
+    showSuggestionButtons(
+      () => {
+        playEnglishVocabAudio(pick);
+        speak(`[ĐÁP ÁN] "${pick.word}" = ${pick.meaning_vi} | VD: "${pick.example_en}" (${pick.example_vi})`);
+        appState.changeMood(5);
+      },
+      () => {
+        void loadNextEnglishLesson('random', true);
+      }
+    );
+    return quizText;
+  });
 }
 
 export async function triggerRandomFeatureOrEffect(interactive = true): Promise<string> {
@@ -2666,7 +3261,7 @@ async function tryHandlePcCommand(userText: string): Promise<boolean> {
   // 2. Khóa màn hình
   if (lower.includes('khóa màn hình') || lower.includes('khoa man hinh') || lower === 'lock') {
     speak('Đang khóa màn hình máy tính ngay đây!');
-    await invoke('lock_pc_screen').catch(() => {});
+    await invoke('lock_pc_screen').catch(() => { });
     return true;
   }
 
@@ -2817,8 +3412,8 @@ async function generateDailySummary(ins: MemoryInsights): Promise<string> {
   const appsText =
     ins.top_apps_today.length > 0
       ? ins.top_apps_today
-          .map((a) => `${a.app_title} (${Math.max(1, Math.round(a.total_sec / 60))} phút)`)
-          .join(', ')
+        .map((a) => `${a.app_title} (${Math.max(1, Math.round(a.total_sec / 60))} phút)`)
+        .join(', ')
       : 'Chưa có dữ liệu ứng dụng';
   const rulesText =
     ins.profile_facts.length > 0
@@ -2846,245 +3441,33 @@ async function generateDailySummary(ins: MemoryInsights): Promise<string> {
       // Dùng summary mặc định
     }
   }
-  await invoke('memory_save_daily_summary', { summary }).catch(() => {});
+  await invoke('memory_save_daily_summary', { summary }).catch(() => { });
   const summaryEl = document.getElementById('dash-mem-summary');
   if (summaryEl) summaryEl.textContent = summary;
   return summary;
 }
 
-export interface ToolCallItem {
-  tool: string;
-  params: Record<string, any>;
-}
-
-export const COMPACT_LOCAL_TOOLSET_PROMPT = `
-[BỘ CÔNG CỤ DUCK AI MANAGER]:
-Bạn là Duck AI Manager - trợ lý 3D trực tiếp điều khiển Windows.
-Giao tiếp tiếng Việt hóm hỉnh, thân thiện (1-2 câu), KHÔNG dùng emoji.
-QUY TẮC CÔNG CỤ:
-- CHÍNH BẠN tự động gắn thẻ [TOOL:tên_tool:{...}] ở cuối câu trả lời khi người dùng yêu cầu hành động.
-- TUYỆT ĐỐI KHÔNG bảo người dùng tự chèn thẻ hay nhập tool.
-Danh sách thẻ:
-- Hiệu năng app / phần cứng / mạng: [TOOL:telemetry:{"type":"app_metrics"}] hoặc [TOOL:telemetry:{"type":"hardware"}] hoặc [TOOL:telemetry:{"type":"network"}]
-- Mở file / app / thư mục: [TOOL:open_file:{"path":"tên_file"}] / [TOOL:open_app:{"target":"tên_app"}] / [TOOL:open_folder:{"path":"Downloads"}]
-- Tìm kiếm web: [TOOL:web_search:{"engine":"google/youtube/github/stackoverflow","query":"từ_khóa"}]
-- Chỉnh cửa sổ: [TOOL:control_window:{"action":"split_2/grid/shrink/expand/minimize"}]
-- Hẹn giờ / Nhắc việc: [TOOL:timer:{"minutes":10,"task":"nội_dung"}] hoặc [TOOL:timer:{"action":"stop"}]
-- Tiến trình RAM/CPU: [TOOL:process:{"action":"top"}] hoặc [TOOL:process:{"action":"kill","target":"tên_app"}]
-- Ghim Note / Lịch hẹn: [TOOL:sticky_note:{"action":"pin/save_desktop/clear","text":"nội_dung","time":"HH:MM","daily":false}]
-- Hệ thống sâu: [TOOL:system_control:{"action":"empty_recycle_bin/kill_unresponsive/flush_dns/power_high/power_balanced/power_saver/shutdown_timer/cancel_shutdown/open_panel","param":"services/devmgmt/diskmgmt/sound/bluetooth/startup"}]
-- Trợ lý DB & Workspace: [TOOL:workspace:{"action":"briefing/restore"}]
-- DevTools (Port / Git / Lịch sử Clipboard): [TOOL:port_manager:{"action":"list/kill","port":3000}] / [TOOL:git_status:{}] / [TOOL:clipboard_history:{"action":"list/clear"}]
-- Macro / Thời tiết 3D / Nấp mép: [TOOL:macro:{"action":"run/list","name":"chế độ code"}] / [TOOL:weather_3d:{"mode":"auto/rain/hot/cold/night/clear","city":"Hanoi"}] / [TOOL:edge_peek:{"action":"on/off"}]
-- Tin tức / Học Tiếng Anh / Hiệu ứng Random: [TOOL:news:{"source":"znews/cafef/money/vnexpress/custom"}] / [TOOL:english:{"action":"learn/quiz","topic":"random/technology/business/ielts"}] / [TOOL:random_fx:{}]
-- Clipboard: [TOOL:clipboard:{"action":"read/summarize/translate/copy","text":"..."}]
-- Chụp ảnh / OCR: [TOOL:screenshot:{"mode":"capture/ocr/open"}]
-- Hồ bơi 3D / Động tác: [TOOL:swim:{"action":"start/stop"}] / [TOOL:character_action:{"action":"dance/backflip/spin/radar/blackhole/feed/switch_duck/switch_idol"}]
-- Dọn RAM / Nhạc: [TOOL:hardware:{"action":"clean_ram"}] / [TOOL:media:{"action":"vol_up/vol_down/play_pause"}]
-- Kéo/xếp icon Desktop: [TOOL:desktop_icon:{"action":"drag/circle/grid/restore","name":"tên_icon"}]
-- Phụ kiện 3D / Chế độ: [TOOL:accessory:{"type":"crown/cyber_visor/headset/propeller/halo/random/none"}] / [TOOL:goose_mode:{"action":"start"}] / [TOOL:beat_dance:{"action":"start"}]
-Đa lệnh: Gắn nhiều thẻ liên tiếp nhau.`;
-
-export const DESKTOP_TOOLSET_PROMPT = `
-[HỆ THỐNG CÔNG CỤ VÀ ĐIỀU KHIỂN MÁY TÍNH - DESKTOP TOOL CALLING]:
-Bạn là Duck AI Manager (chú vịt MicroDuck / Cyber Idol 3D) có ĐẦY ĐỦ QUYỀN tương tác với máy tính Windows của chủ nhân. Bạn KHÔNG PHẢI chỉ là mô hình ngôn ngữ thông thường; bạn được trang bị bộ công cụ điều khiển Windows mạnh mẽ.
-
-KHI NÀO CẦN DÙNG TOOL:
-- Khi người dùng yêu cầu làm bất kỳ hành động nào trên máy tính (mở file, mở app, mở thư mục, chia màn hình, chỉnh cửa sổ, chụp ảnh màn hình, OCR, hẹn giờ nhắc việc, xem/đóng tiến trình, tìm kiếm web, ghim note, đọc/chép clipboard, kiểm tra phần cứng/mạng/thời tiết, lộn nhào, đi bơi,...), bạn LUÔN LUÔN được phép và PHẢI thực hiện ngay.
-- ĐỪNG BAO GIỜ từ chối hay nói "Tôi không thể giúp bạn" hoặc "Tôi chỉ là mô hình ngôn ngữ". Bạn CÓ ĐỦ TOOL ĐỂ THỰC HIỆN.
-- Hãy trả lời trò chuyện tự nhiên, ngắn gọn, vui tươi, thân thiện bằng tiếng Việt (1-2 câu, KHÔNG dùng emoji) VÀ chèn thẻ tool ở cuối câu.
-
-CÚ PHÁP TOOL:
-[TOOL:tên_tool:{"tham_số":"giá_trị"}]
-
-DANH SÁCH TOOL ĐƯỢC CẤP QUYỀN:
-1. open_file: Mở bất kỳ file nào trên máy tính (file csv, excel, code, pdf, txt, word,...). Bạn chỉ cần truyền tên file hoặc đường dẫn.
-   Cú pháp: [TOOL:open_file:{"path":"tên_file_hoặc_đường_dẫn"}]
-   Ví dụ:
-   - "mo t file a.csv" -> "Tớ đang mở file a.csv cho bạn ngay đây nhé! [TOOL:open_file:{"path":"a.csv"}]"
-   - "mở file data.xlsx" -> "Được rồi, để tớ mở file data.xlsx lên nhé! [TOOL:open_file:{"path":"data.xlsx"}]"
-
-2. open_app: Mở ứng dụng hoặc trang web.
-   Cú pháp: [TOOL:open_app:{"target":"tên_ứng_dụng_hoặc_url", "label":"tên_hiển_thị"}]
-   Ví dụ:
-   - "mở chrome" -> "Tớ mở trình duyệt Google Chrome cho bạn nhé! [TOOL:open_app:{"target":"chrome","label":"Google Chrome"}]"
-   - "bật calculator" -> "Đang mở máy tính cho bạn tính toán nhé! [TOOL:open_app:{"target":"calc","label":"Calculator"}]"
-
-3. open_folder: Mở thư mục Windows Explorer (Desktop, Downloads, Documents hoặc đường dẫn).
-   Cú pháp: [TOOL:open_folder:{"path":"Downloads"}]
-
-4. control_window: Điều khiển sắp xếp hoặc di chuyển cửa sổ ứng dụng trên màn hình.
-   action hỗ trợ: "shrink", "expand", "push_left", "push_right", "minimize", "maximize", "center", "split_2", "grid", "cascade", "climb", "explore", "interact".
-   Cú pháp: [TOOL:control_window:{"action":"grid"}]
-
-5. swim: Điều khiển hồ bơi 3D nước sâu và chú vịt đi bơi giải nhiệt.
-   action: "start" (nhảy xuống hồ bơi bơi ra xa), "stop" (bơi vào bờ lên cạn).
-   Cú pháp: [TOOL:swim:{"action":"start"}]
-
-6. character_action: Động tác 3D và biến hình nhân vật.
-   action hỗ trợ: "dance", "backflip" (lộn nhào), "spin" (xoay tít), "wheel_roll" (lướt bánh xe), "radar" (quét 360), "sleep" (ngủ đông), "blackhole" (hố đen dịch chuyển), "feed" (thả đồ ăn 3D), "jump_window" (nhảy lên nóc cửa sổ), "climb" (leo mép), "switch_duck", "switch_idol".
-   Cú pháp: [TOOL:character_action:{"action":"backflip"}]
-
-7. telemetry: Đọc dữ liệu hệ thống phần cứng, mạng, bitcoin, thời tiết trực tiếp từ Windows.
-   type hỗ trợ: "hardware", "network", "app_metrics", "bitcoin", "weather".
-   Cú pháp: [TOOL:telemetry:{"type":"hardware"}] hoặc [TOOL:telemetry:{"type":"weather","city":"Hanoi"}]
-
-8. hardware: Điều khiển phần cứng máy tính.
-   action hỗ trợ: "clean_ram", "brightness_up", "brightness_down", "lock_screen", "taskmgr".
-   Cú pháp: [TOOL:hardware:{"action":"clean_ram"}]
-
-9. media: Điều khiển âm lượng và bài hát.
-   action hỗ trợ: "vol_up", "vol_down", "mute", "play_pause", "next", "prev".
-   Cú pháp: [TOOL:media:{"action":"vol_up"}]
-
-10. vision & screenshot: Nhìn màn hình bằng Gemini Vision hoặc chụp ảnh / OCR đọc chữ.
-    Cú pháp: [TOOL:vision:{"query":"mô_tả"}] hoặc [TOOL:screenshot:{"mode":"capture/ocr/open"}]
-
-11. desktop_icon: Di chuyển, kéo thả và sắp xếp các icon ứng dụng ngoài màn hình Windows Desktop.
-    action hỗ trợ: "drag", "circle", "grid", "restore".
-    Cú pháp: [TOOL:desktop_icon:{"action":"drag","name":"Zalo"}] hoặc [TOOL:desktop_icon:{"action":"circle"}]
-
-12. accessory: Trang bị hoặc tháo phụ kiện 3D trên đầu nhân vật ("crown", "cyber_visor", "headset", "propeller", "halo", "random", "none").
-    Cú pháp: [TOOL:accessory:{"type":"crown"}]
-
-13. goose_mode & beat_dance:
-    - [TOOL:goose_mode:{"action":"start"}] (Vịt Tinh Nghịch dấu chân 3D & kéo chuột)
-    - [TOOL:beat_dance:{"action":"start"}] (nhảy múa với cột Equalizer 3D theo nhạc hệ thống)
-
-14. timer: Hẹn giờ đếm ngược tùy chỉnh số phút và nội dung nhắc việc.
-    Cú pháp: [TOOL:timer:{"minutes":10,"task":"Họp team"}] hoặc [TOOL:timer:{"action":"stop"}]
-
-15. process: Kiểm tra Top 5 ứng dụng ngốn RAM/CPU hoặc đóng an toàn tiến trình đang mở.
-    action hỗ trợ: "top" (xem top ngốn RAM), "kill" (đóng app theo tên trong target).
-    Cú pháp: [TOOL:process:{"action":"top"}] hoặc [TOOL:process:{"action":"kill","target":"notepad"}]
-
-16. web_search: Tìm kiếm trực tiếp trên Google, YouTube, GitHub hoặc StackOverflow.
-    Cú pháp: [TOOL:web_search:{"engine":"google/youtube/github/stackoverflow","query":"từ_khóa"}]
-
-17. sticky_note: Ghim ghi chú & đặt lịch thông báo (lưu SQLite) trên góc màn hình hoặc xuất ra Desktop/Duck_AI_Notes.txt.
-    action hỗ trợ: "pin" (ghim & hẹn giờ), "save_desktop" (ghim & lưu file Desktop), "clear" (xóa sạch note).
-    Cú pháp: [TOOL:sticky_note:{"action":"pin","text":"Họp team","time":"14:30","daily":false}]
-
-18. clipboard: Đọc, tóm tắt, dịch hoặc chép nội dung vào Clipboard Windows.
-    action hỗ trợ: "read", "summarize", "translate", "copy" (kèm text).
-    Cú pháp: [TOOL:clipboard:{"action":"read"}] hoặc [TOOL:clipboard:{"action":"copy","text":"nội_dung"}]
-
-19. system_control: Quản lý & tác động sâu vào hệ thống Windows.
-    action hỗ trợ: "empty_recycle_bin" (dọn sạch thùng rác), "kill_unresponsive" (đóng app bị treo Not Responding), "flush_dns" (làm mới DNS sửa lỗi mạng), "power_high" / "power_balanced" / "power_saver" (đổi chế độ nguồn điện), "shutdown_timer" (kèm param số phút), "cancel_shutdown" (hủy tắt máy), "open_panel" (mở services/devmgmt/diskmgmt/resmon/sound/bluetooth/display/startup/update).
-    Cú pháp: [TOOL:system_control:{"action":"flush_dns"}] hoặc [TOOL:system_control:{"action":"open_panel","param":"devmgmt"}]
-
-20. workspace: Tổng hợp thông minh dữ liệu đã học trong SQLite (lịch hẹn, thói quen ứng dụng giờ hiện tại, quy tắc) hoặc tự động mở lại Workspace thói quen.
-    Cú pháp: [TOOL:workspace:{"action":"briefing"}] hoặc [TOOL:workspace:{"action":"restore"}]
-
-21. port_manager: Quét các Port localhost đang Listen hoặc đóng tiến trình chiếm Port (dành cho Developer).
-    Cú pháp: [TOOL:port_manager:{"action":"list"}] hoặc [TOOL:port_manager:{"action":"kill","port":3000}]
-
-22. git_status: Kiểm tra nhanh nhánh Git, các file thay đổi và commit gần nhất của dự án.
-    Cú pháp: [TOOL:git_status:{}]
-
-23. clipboard_history: Xem danh sách tối đa 20 đoạn văn bản/code đã copy gần nhất trong SQLite hoặc xóa lịch sử.
-    Cú pháp: [TOOL:clipboard_history:{"action":"list"}] hoặc [TOOL:clipboard_history:{"action":"clear"}]
-
-24. macro: Kích hoạt Macro chuỗi đa hành động lưu trong SQLite ("chế độ code", "chế độ họp", "chế độ giải lao"...) hoặc liệt kê macro.
-    Cú pháp: [TOOL:macro:{"action":"run","name":"chế độ code"}]
-
-25. weather_3d & edge_peek: Bật hiệu ứng thời tiết 3D quanh nhân vật ("auto", "rain", "hot", "cold", "night", "clear") kèm thành phố (nhiệt độ, độ ẩm, gió) hoặc bật/tắt chế độ nấp mép màn hình.
-    Cú pháp: [TOOL:weather_3d:{"mode":"auto","city":"Hanoi"}] hoặc [TOOL:edge_peek:{"action":"toggle"}]
-
-26. news: Đọc thông tin báo mới trực tiếp theo cấu hình nguồn báo (Znews, CafeF, Money/VnEconomy, VnExpress, Dân Trí, HackerNews hoặc link RSS tùy chỉnh).
-    Cú pháp: [TOOL:news:{"source":"znews"}] hoặc [TOOL:news:{"source":"cafef"}]
-
-27. english: Tải & dạy 1 từ vựng Tiếng Anh mới vô tận thời gian thực kèm IPA, phát âm bản xứ, nghĩa Việt, câu ví dụ hoặc đố vui ôn tập.
-    Cú pháp: [TOOL:english:{"action":"learn","topic":"random"}] hoặc [TOOL:english:{"action":"quiz"}]
-
-28. random_fx: Bùng nổ hiệu ứng 3D ngẫu nhiên quanh nhân vật (Mưa sao băng, Cực quang, Pháo hoa 3D, Matrix...) hoặc kích hoạt ngẫu nhiên tính năng hay.
-    Cú pháp: [TOOL:random_fx:{}]
-
-CHUỖI HÀNH ĐỘNG ĐA LỆNH (MULTI-TOOL CHAINING):
-- Khi người dùng đưa ra câu lệnh gồm nhiều hành động nối tiếp nhau (ví dụ: "tìm trên youtube nhạc lofi rồi bật nhảy theo nhạc", "hẹn giờ 15 phút nhắc họp rồi ghim note nội dung đó", "thu nhỏ cửa sổ rồi chụp ảnh quét OCR"), hãy xuất NHIỀU THẺ TOOL LIÊN TIẾP trong cùng một câu trả lời để hệ thống thực thi tuần tự!
-- Ví dụ:
-  - "tìm nhạc lofi trên youtube rồi nhảy theo nhạc" -> "Tớ mở YouTube tìm nhạc lofi chill và bật nhảy theo nhạc ngay đây! [TOOL:web_search:{"engine":"youtube","query":"lofi chill"}][TOOL:beat_dance:{"action":"start"}]"
-  - "hẹn 10 phút nghỉ mắt rồi xem top ngốn ram" -> "Đã đặt hẹn giờ 10 phút và quét ngay các ứng dụng đang ngốn RAM nhất! [TOOL:timer:{"minutes":10,"task":"Nghỉ mắt"}][TOOL:process:{"action":"top"}]"
-`;
-
-function parseRelaxedJsonParams(rawParam: string): Record<string, any> {
-  const trimmed = rawParam.trim();
-  if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
-    try {
-      return JSON.parse(trimmed);
-    } catch {
-      try {
-        const fixed = trimmed
-          .replace(/'/g, '"')
-          .replace(/([{,]\s*)([a-zA-Z0-9_]+)\s*:/g, '$1"$2":');
-        return JSON.parse(fixed);
-      } catch {
-        const res: Record<string, any> = { raw: trimmed };
-        const kvRegex = /([a-zA-Z0-9_]+)["':\s]+([^,{}'"]+)/g;
-        let m: RegExpExecArray | null;
-        while ((m = kvRegex.exec(trimmed)) !== null) {
-          res[m[1].toLowerCase()] = m[2].trim();
-        }
-        return res;
-      }
-    }
-  }
-  return { target: trimmed, path: trimmed, action: trimmed, type: trimmed, raw: trimmed };
-}
-
-export function parseAiToolCalls(text: string): { cleanText: string; toolCalls: ToolCallItem[] } {
-  const toolCalls: ToolCallItem[] = [];
-  let cleanText = text;
-
-  // 1. Match [TOOL:name:{...}] or **TOOL:name:{...}** or TOOL:name:{...}
-  const toolRegex = /(?:\[|\*\*|\b)(?:TOOL|TOOL_CALL):([a-zA-Z0-9_]+):?(\{.*?\}|[^\n\]\*]*)(?:\]|\*\*|\b)/gis;
-  let match: RegExpExecArray | null;
-  while ((match = toolRegex.exec(text)) !== null) {
-    const name = match[1].trim().toLowerCase();
-    const rawParam = (match[2] || '').trim();
-    const params = parseRelaxedJsonParams(rawParam);
-    toolCalls.push({ tool: name, params });
-  }
-  cleanText = cleanText.replace(toolRegex, '').trim();
-
-  // Strip any hallucinated prompt instructions from LLM
-  cleanText = cleanText.replace(/(?:Hãy|Bạn hãy|Vui lòng)?\s*(?:chèn|nhập|gửi|cung cấp)\s*thẻ\s*(?:này|tool|công cụ)?\s*(?:vào|cho tôi xem)?[:\s]*/gi, '').trim();
-
-  // 2. Match legacy [ACTION:spec]
-  const actionRegex = /\[(?:[A-Z_]+:)?ACTION:([^\]]+)\]/gi;
-  while ((match = actionRegex.exec(text)) !== null) {
-    const spec = match[1].trim();
-    if (spec.toLowerCase().startsWith('open_file:')) {
-      toolCalls.push({ tool: 'open_file', params: { path: spec.slice(10).trim() } });
-    } else if (spec.toLowerCase().startsWith('open:')) {
-      toolCalls.push({ tool: 'open_app', params: { target: spec.slice(5).trim() } });
-    } else if (['push_left', 'push_right', 'shrink', 'expand', 'minimize', 'maximize', 'split_2', 'grid', 'cascade', 'center', 'climb', 'explore', 'interact'].includes(spec)) {
-      toolCalls.push({ tool: 'control_window', params: { action: spec } });
-    }
-  }
-  cleanText = cleanText.replace(actionRegex, '').trim();
-
-  // 3. Match JSON code block: ```json { "tool": "...", "params": {...} } ```
-  const codeBlockRegex = /```(?:json)?\s*(\{[\s\S]*?"tool"[\s\S]*?\})\s*```/gi;
-  while ((match = codeBlockRegex.exec(text)) !== null) {
-    try {
-      const parsed = JSON.parse(match[1]);
-      if (parsed.tool) {
-        toolCalls.push({ tool: String(parsed.tool).toLowerCase(), params: parsed.params || {} });
-      }
-    } catch {
-      // ignore invalid json block
-    }
-  }
-  cleanText = cleanText.replace(codeBlockRegex, '').trim();
-
-  cleanText = cleanText.replace(/\n{3,}/g, '\n\n').trim();
-  return { cleanText, toolCalls };
-}
-
 let lastToolOutputSummary = '';
 
+/**
+ * Bọc lớp điều phối Tool để phát trigger hoạt ảnh (start / success / error)
+ * cho Animation Binder mà không chạm vào logic từng tool.
+ */
 export async function dispatchAiToolCall(toolCall: ToolCallItem): Promise<boolean> {
+  const toolName = String(toolCall.tool || '').toLowerCase().trim();
+  fireAnimationTrigger('tool', toolName, 'start');
+  activeToolAnimDepth++;
+  let ok = false;
+  try {
+    ok = await dispatchAiToolCallInner(toolCall);
+  } finally {
+    activeToolAnimDepth = Math.max(0, activeToolAnimDepth - 1);
+    fireAnimationTrigger('tool', toolName, ok ? 'success' : 'error');
+  }
+  return ok;
+}
+
+async function dispatchAiToolCallInner(toolCall: ToolCallItem): Promise<boolean> {
   const { tool, params } = toolCall;
   const toolName = tool.toLowerCase().trim();
 
@@ -3183,6 +3566,10 @@ export async function dispatchAiToolCall(toolCall: ToolCallItem): Promise<boolea
           triggerClimbWindow();
         } else if (action === 'swing' || action === 'window_swing') {
           triggerWindowSwing();
+        } else if (action === 'paper_crash' || action === 'crash_window') {
+          triggerWindowPaperCrash();
+        } else if (action === 'hulk' || action === 'hulk_rage') {
+          triggerHulkRageMode();
         } else if (action === 'switch_duck') {
           await clearCachedVrm();
           createMicroDuckCharacter();
@@ -3246,7 +3633,7 @@ export async function dispatchAiToolCall(toolCall: ToolCallItem): Promise<boolea
         } else if (action === 'taskmgr') {
           lastToolOutputSummary = await runHardwareAction('taskmgr', false);
         } else if (action === 'lock_screen' || action === 'lock') {
-          await invoke('lock_pc_screen').catch(() => {});
+          await invoke('lock_pc_screen').catch(() => { });
           lastToolOutputSummary = 'Đã khóa màn hình Windows.';
         }
         return true;
@@ -3366,10 +3753,10 @@ export async function dispatchAiToolCall(toolCall: ToolCallItem): Promise<boolea
           actRaw === 'copy' || actRaw === 'write' || actRaw === 'set'
             ? 'copy'
             : actRaw === 'summarize' || actRaw === 'summary'
-            ? 'summarize'
-            : actRaw === 'translate'
-            ? 'translate'
-            : 'read';
+              ? 'summarize'
+              : actRaw === 'translate'
+                ? 'translate'
+                : 'read';
         const clipText = String(params.text || params.content || '').trim();
         lastToolOutputSummary = await runClipboardTool(clipAction, clipText, false);
         return true;
@@ -3452,7 +3839,7 @@ export async function dispatchAiToolCall(toolCall: ToolCallItem): Promise<boolea
       case 'clipboard_history': {
         const act = String(params.action || 'list').toLowerCase().trim();
         if (act === 'clear') {
-          await invoke('clipboard_history_clear').catch(() => {});
+          await invoke('clipboard_history_clear').catch(() => { });
           lastToolOutputSummary = 'Đã xóa lịch sử Clipboard trong SQLite.';
         } else {
           lastToolOutputSummary = await runClipboardHistoryCheck(false);
@@ -3473,12 +3860,23 @@ export async function dispatchAiToolCall(toolCall: ToolCallItem): Promise<boolea
         }
         return true;
       }
-      case 'weather_3d': {
+      case 'weather_3d':
+      case 'weather': {
         const rawMode = String(params.mode || params.type || 'auto').toLowerCase().trim();
         const city = params.city ? String(params.city).trim() : undefined;
         const validModes = ['auto', 'clear', 'rain', 'hot', 'cold', 'wind', 'night'];
         const mode = (validModes.includes(rawMode) ? rawMode : 'auto') as WeatherEffectMode | 'auto';
         lastToolOutputSummary = await syncLiveWeather3D(mode, true, city);
+        return true;
+      }
+      case 'tarot': {
+        toggleTarotModal(true);
+        lastToolOutputSummary = 'Đã mở bàn trải bài Tarot & Tử Vi 6H.';
+        return true;
+      }
+      case 'mini_screen': {
+        toggleMiniScreenPanel(true, 'web');
+        lastToolOutputSummary = 'Đã mở Màn Hình Mini (PiP).';
         return true;
       }
       case 'news':
@@ -3509,18 +3907,41 @@ export async function dispatchAiToolCall(toolCall: ToolCallItem): Promise<boolea
         const force = act === 'on' || act === 'start' || act === 'enable'
           ? true
           : act === 'off' || act === 'stop' || act === 'disable'
-          ? false
-          : undefined;
+            ? false
+            : undefined;
         lastToolOutputSummary = toggleEdgePeekMode(force);
         return true;
       }
       case 'custom_skill': {
         const skillId = String(params.id || params.skill_id || '').trim();
-        const rawArgs =
+        const rawArgs: Record<string, unknown> =
           params.args && typeof params.args === 'object'
-            ? (params.args as Record<string, unknown>)
+            ? { ...(params.args as Record<string, unknown>) }
             : {};
+        const primaryPinned = getPrimaryPinnedFile();
+        if (primaryPinned?.filePath) {
+          for (const key of Object.keys(rawArgs)) {
+            const kLow = key.toLowerCase();
+            if (
+              (kLow.includes('path') || kLow.includes('file')) &&
+              typeof rawArgs[key] === 'string' &&
+              !String(rawArgs[key]).trim()
+            ) {
+              rawArgs[key] = primaryPinned.filePath;
+            }
+          }
+        }
         if (skillId) {
+          const skillDef = getCachedCustomSkills().find((s) => s.id === skillId);
+          if (skillDef && isSendChatSkill(skillDef)) {
+            const lastUserMsg =
+              [...chatHistory].reverse().find((m) => m.role === 'user')?.content || '';
+            const unsafeReason = validateSendChatSkillArgs(lastUserMsg, rawArgs);
+            if (unsafeReason) {
+              lastToolOutputSummary = `[AN TOÀN] ${unsafeReason}`;
+              return true;
+            }
+          }
           lastToolOutputSummary = await executeSavedSkillWithSelfHeal(
             skillId,
             rawArgs,
@@ -3549,11 +3970,42 @@ export async function dispatchAiToolCall(toolCall: ToolCallItem): Promise<boolea
         }
         break;
       }
+      case 'agent_task':
+      case 'automate': {
+        const goalText = String(params.goal || params.task || params.request || '').trim();
+        if (goalText) {
+          lastToolOutputSummary = await runDesktopAgentGoal(goalText);
+          speak(lastToolOutputSummary);
+          return true;
+        }
+        break;
+      }
     }
   } catch (err) {
     console.error('[DISPATCH_TOOL_ERROR]', toolName, err);
   }
   return false;
+}
+
+export async function runDesktopAgentGoal(
+  goalText: string,
+  onProgress?: (txt: string) => void
+): Promise<string> {
+  const res = await runMultiStepDesktopAgent(goalText, {
+    getGeminiKey: () => geminiApiKey,
+    getGeminiModel: () => geminiModel,
+    getOllamaModel: () => ollamaModel,
+    isOllamaOnline: () => isOllamaOnline,
+    isColabOnline: () => colabCloudOnline,
+    getColabUrl: () => colabCloudUrl,
+    getColabModel: () => colabCloudModel,
+    onProgress: (txt) => {
+      setStreamSpeechText(txt);
+      onProgress?.(txt);
+    },
+  });
+  lastToolOutputSummary = res;
+  return res;
 }
 
 export async function executeChainedHeuristicCommands(userText: string): Promise<boolean> {
@@ -3744,7 +4196,8 @@ export async function fallbackHeuristicCommandHandler(
     lower.includes('nhìn màn hình') ||
     lower.includes('gemini vision') ||
     lower.includes('màn hình đang có gì') ||
-    lower.includes('đang làm gì')
+    lower.includes('trên màn hình đang có gì') ||
+    lower.includes('màn hình đang làm gì')
   ) {
     recordLearnedCommand('Gemini Vision Màn hình');
     await runGeminiVisionScreen(userText);
@@ -3778,6 +4231,33 @@ export async function fallbackHeuristicCommandHandler(
     recordLearnedCommand('Mở Dialog Điều Khiển Máy Tính');
     window.dispatchEvent(new CustomEvent('duck-open-pc-control'));
     pushChatHistory('assistant', 'Đã mở hộp thoại Điều khiển Máy tính & Google.');
+    return true;
+  }
+
+  if (
+    lower.includes('đâm thủng cửa sổ') ||
+    lower.includes('dam thung cua so') ||
+    lower.includes('đâm xuyên cửa sổ') ||
+    lower.includes('dam xuyen cua so') ||
+    lower.includes('thủng trang giấy') ||
+    lower.includes('thung trang giay')
+  ) {
+    recordLearnedCommand('Đâm thủng cửa sổ trang giấy');
+    const crashMsg = triggerWindowPaperCrash();
+    pushChatHistory('assistant', crashMsg);
+    return true;
+  }
+
+  if (
+    lower.includes('hóa hulk') ||
+    lower.includes('hoa hulk') ||
+    lower.includes('hulk xanh') ||
+    lower.includes('khổng lồ xanh') ||
+    lower.includes('khong lo xanh')
+  ) {
+    recordLearnedCommand('Hóa HULK xanh giận dữ');
+    const hulkMsg = triggerHulkRageMode();
+    pushChatHistory('assistant', hulkMsg);
     return true;
   }
 
@@ -3978,8 +4458,8 @@ export async function fallbackHeuristicCommandHandler(
       stickyCmd.mode === 'clear'
         ? await clearStickyNotes()
         : stickyCmd.mode === 'open'
-        ? (toggleStickyNotesWidget(true), 'Đã mở bảng Ghi chú & Lịch hẹn trên màn hình.')
-        : await pinStickyNote(
+          ? (toggleStickyNotesWidget(true), 'Đã mở bảng Ghi chú & Lịch hẹn trên màn hình.')
+          : await pinStickyNote(
             stickyCmd.text,
             stickyCmd.saveDesktop,
             stickyCmd.scheduleTime,
@@ -4092,343 +4572,10 @@ function sanitizeStreamingText(raw: string): string {
   return clean;
 }
 
-function parseAccessoryCommand(text: string): AccessoryType | 'random' | 'cycle' | null {
-  const lower = text.toLowerCase().trim();
-  if (lower.includes('tháo mũ') || lower.includes('bỏ mũ') || lower.includes('tháo kính') || lower.includes('tháo phụ kiện') || lower.includes('gỡ phụ kiện')) {
-    return 'none';
-  }
-  if (lower.includes('vương miện') || lower.includes('vuong mien') || lower.includes('crown')) {
-    return 'crown';
-  }
-  if (lower.includes('đeo kính') || lower.includes('kính mát') || lower.includes('kính cyber') || lower.includes('visor')) {
-    return 'cyber_visor';
-  }
-  if (lower.includes('tai nghe') || lower.includes('headset') || lower.includes('headphone')) {
-    return 'headset';
-  }
-  if (lower.includes('chong chóng') || lower.includes('chong chong') || lower.includes('propeller')) {
-    return 'propeller';
-  }
-  if (lower.includes('hào quang') || lower.includes('vòng thiên thần') || lower.includes('halo')) {
-    return 'halo';
-  }
-  if (lower.includes('đổi mũ') || lower.includes('đổi phụ kiện') || lower.includes('đội mũ') || lower.includes('đội nón')) {
-    return 'cycle';
-  }
-  return null;
-}
-
-function parseDesktopIconCommand(
-  text: string
-): { mode: 'drag' | 'circle' | 'grid' | 'restore'; name?: string } | null {
-  const lower = text.toLowerCase().trim();
-  if (
-    lower.includes('xếp icon vòng tròn') ||
-    lower.includes('xep icon vong tron') ||
-    lower.includes('vòng tròn icon')
-  ) {
-    return { mode: 'circle' };
-  }
-  if (
-    lower.includes('xếp lưới icon') ||
-    lower.includes('xếp icon lưới') ||
-    lower.includes('sắp xếp icon') ||
-    lower.includes('dọn icon')
-  ) {
-    return { mode: 'grid' };
-  }
-  if (
-    lower.includes('trả vị trí icon') ||
-    lower.includes('trả lại vị trí icon') ||
-    lower.includes('khôi phục icon') ||
-    lower.includes('reset icon')
-  ) {
-    return { mode: 'restore' };
-  }
-
-  if (lower.includes('kéo to') || lower.includes('cửa sổ')) {
-    return null;
-  }
-
-  const iconActionRegex =
-    /(?:kéo|di chuyển|dịch chuyển|tha|lôi|chuyển|đẩy|move|drag)\s+(?:icon|biểu tượng|app|ứng dụng|shortcut)?\s*([^\n]+)?/i;
-  const m = text.match(iconActionRegex);
-  if (!m) return null;
-
-  const rest = (m[1] || '').toLowerCase();
-  const isIconVerbContext =
-    lower.includes('icon') ||
-    lower.includes('desktop') ||
-    lower.includes('ngoài màn') ||
-    lower.includes('trên màn') ||
-    /(?:thùng rác|recycle|this pc|zalo|word|notepad|sourcetree|redis|network|chrome|folder)/i.test(
-      rest
-    );
-
-  if (!isIconVerbContext) return null;
-
-  const cleanedName = (m[1] || '')
-    .replace(
-      /\b(?:icon|biểu tượng|app|ứng dụng|shortcut|này|kia|đi dạo|chỗ khác|vị trí khác|vị trí mới|ra chỗ khác|vào giữa|ngoài|trên|màn hình|desktop|cho tớ|cho bạn|giúp|hộ|với|nhé|nha|đi|qua|sang|tới|lên|xuống)\b/gi,
-      ' '
-    )
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  return { mode: 'drag', name: cleanedName };
-}
-
-function parseTimerCommand(
-  text: string
-): { mode: 'start'; minutes: number; task: string } | { mode: 'stop' } | null {
-  const lower = text.toLowerCase().trim();
-  if (
-    /^(?:tắt|hủy|huỷ|dừng|bỏ|ngừng|stop|cancel)\s+(?:hẹn giờ|hen gio|báo thức|bao thuc|đếm ngược|dem nguoc|timer|pomodoro)/i.test(
-      lower
-    )
-  ) {
-    return { mode: 'stop' };
-  }
-
-  const hasTimerVerb =
-    /(?:hẹn giờ|hen gio|đặt giờ|dat gio|báo thức|bao thuc|đếm ngược|dem nguoc|nhắc tớ|nhắc mình|nhắc tôi|set timer|countdown)/i.test(
-      lower
-    );
-  if (!hasTimerVerb) return null;
-
-  const numMatch = lower.match(
-    /(\d+(?:[.,]\d+)?)\s*(giây|giay|s\b|sec|phút|phut|p\b|min|giờ|gio|tiếng|tieng|h\b|hour)/i
-  );
-  if (!numMatch) return null;
-
-  const rawNum = parseFloat(numMatch[1].replace(',', '.'));
-  if (!Number.isFinite(rawNum) || rawNum <= 0) return null;
-
-  const unit = numMatch[2].toLowerCase();
-  let minutes = rawNum;
-  if (unit.startsWith('giây') || unit.startsWith('giay') || unit === 's' || unit.startsWith('sec')) {
-    minutes = rawNum / 60;
-  } else if (unit.startsWith('giờ') || unit.startsWith('gio') || unit.startsWith('tiếng') || unit.startsWith('tieng') || unit === 'h' || unit.startsWith('hour')) {
-    minutes = rawNum * 60;
-  }
-
-  const taskMatch = text.match(/(?:để|nhắc|rằng|nội dung|:)\s*([^\n]+)$/i);
-  const rawAfterTime = text.slice((numMatch.index ?? 0) + numMatch[0].length).trim();
-  const cleanedTask = (taskMatch?.[1] || rawAfterTime || 'Hẹn giờ')
-    .replace(/\b(?:nữa|sau|giúp tớ|giúp mình|hộ|với|nhé|nha|đi|nhắc tớ|nhắc mình|nhắc tôi)\b/gi, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  return {
-    mode: 'start',
-    minutes,
-    task: cleanedTask || 'Hẹn giờ',
-  };
-}
-
-function parseProcessCommand(
-  text: string
-): { action: 'top' | 'kill'; target: string } | null {
-  const lower = text.toLowerCase().trim();
-  if (
-    /(?:top|xem|kiểm tra|check|liệt kê|ứng dụng nào|app nào|tiến trình nào).*(?:ngốn ram|ngon ram|chiếm ram|chiem ram|ngốn cpu|ngon cpu|tiến trình|tien trinh|process)/i.test(
-      lower
-    ) ||
-    lower === 'top ram' ||
-    lower === 'top process'
-  ) {
-    return { action: 'top', target: '' };
-  }
-
-  const killMatch = text.match(
-    /^(?:đóng|dong|tắt|tat|kill|buộc dừng|buoc dung|thoát|thoat)\s+(?:tiến trình|tien trinh|process|app|ứng dụng|ung dung)?\s*([^\n?!.]+)$/i
-  );
-  if (!killMatch?.[1]) return null;
-
-  const target = killMatch[1]
-    .replace(/\b(?:giúp|hộ|cho tớ|cho mình|đi|nhé|nha|ngay)\b/gi, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  const tLower = target.toLowerCase();
-  if (
-    !target ||
-    /^(?:tiếng|tieng|âm|am|nhạc|nhac|màn hình|man hinh|hẹn giờ|hen gio|pomodoro|phụ kiện|phu kien|bảng|cửa sổ|ứng dụng|app|tiến trình|máy|tất cả)$/i.test(
-      tLower
-    )
-  ) {
-    return null;
-  }
-  return { action: 'kill', target };
-}
-
-function parseWebSearchCommand(
-  text: string
-): { engine: string; query: string } | null {
-  const lower = text.toLowerCase().trim();
-  if (!/(?:youtube|youtobe|github|stackoverflow|stack overflow|google|\bgg\b)/i.test(lower)) {
-    return null;
-  }
-  const m = text.match(
-    /(?:tìm|tim|tra|search|mở|mo|tìm kiếm|tim kiem)\s+(?:trên\s+|ở\s+|bằng\s+)?(youtube|youtobe|github|stackoverflow|stack overflow|google|gg)\s*(?:từ khóa|ve|về|:)?\s*(.+)$/i
-  );
-  if (!m?.[1] || !m?.[2]) return null;
-  const eng = m[1].toLowerCase().replace(/\s+/g, '');
-  const query = m[2]
-    .replace(/\b(?:giúp|hộ|tớ|mình|nhé|nha|với|lên)\b/gi, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  if (!query || query.length < 2) return null;
-  return {
-    engine: eng === 'youtobe' ? 'youtube' : eng === 'gg' ? 'google' : eng,
-    query,
-  };
-}
-
-function parseStickyNoteCommand(
-  text: string
-):
-  | { mode: 'clear' }
-  | { mode: 'open' }
-  | { mode: 'pin'; text: string; saveDesktop: boolean; scheduleTime: string; repeatDaily: boolean }
-  | null {
-  const lower = text.toLowerCase().trim();
-  if (
-    /(?:xóa hết|xoa het|dọn sạch|clear)\s+(?:note|ghi chú|ghi chu|sticky|lịch hẹn|lich hen)/i.test(
-      lower
-    )
-  ) {
-    return { mode: 'clear' };
-  }
-  if (
-    /^(?:mở|xem|bật|hiện)\s+(?:bảng\s+)?(?:ghim note|ghi chú|lịch hẹn|lich hen|sticky note)$/i.test(
-      lower
-    )
-  ) {
-    return { mode: 'open' };
-  }
-
-  const timeMatch = text.match(/\b(\d{1,2})[:hg](\d{2})?\b/i);
-  let scheduleTime = '';
-  if (timeMatch?.[1]) {
-    const hh = Number(timeMatch[1]);
-    const mm = timeMatch[2] ? Number(timeMatch[2]) : 0;
-    if (hh >= 0 && hh <= 23 && mm >= 0 && mm <= 59) {
-      scheduleTime = `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
-    }
-  }
-  const repeatDaily = /(?:hàng ngày|hằng ngày|mỗi ngày|daily|every day)/i.test(lower);
-
-  const m = text.match(
-    /(?:ghim note|ghim ghi chú|ghim ghi chu|sticky note|tạo ghi chú|tao ghi chu|lưu note|luu note|lưu ghi chú|luu ghi chu|viết note|viet note|đặt lịch|dat lich|lịch hẹn|lich hen|nhắc việc|nhac viec|nhắc nhở lúc|nhắc tớ lúc|nhắc mình lúc|nhắc lúc)\s*(?:ra desktop|lên màn hình|nổi|lúc)?\s*[:\-]?\s*(.+)$/i
-  );
-  if (!m?.[1]) return null;
-
-  let cleanText = m[1].trim();
-  if (scheduleTime && timeMatch?.[0]) {
-    cleanText = cleanText.replace(timeMatch[0], ' ');
-  }
-  cleanText = cleanText
-    .replace(/\b(?:hàng ngày|hằng ngày|mỗi ngày|daily|lúc|vào lúc|nhắc tớ|nhắc mình|nhắc tôi)\b/gi, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  if (!cleanText || cleanText.length < 2) return null;
-  const saveDesktop =
-    lower.includes('desktop') || lower.includes('ra file') || lower.includes('lưu file');
-  return { mode: 'pin', text: cleanText, saveDesktop, scheduleTime, repeatDaily };
-}
-
-function parseDeepSystemCommand(
-  text: string
-): { action: string; param: string } | null {
-  const lower = text.toLowerCase().trim();
-  if (
-    lower.includes('dọn thùng rác') ||
-    lower.includes('xóa thùng rác') ||
-    lower.includes('empty recycle bin') ||
-    lower.includes('dọn recycle bin')
-  ) {
-    return { action: 'empty_recycle_bin', param: '' };
-  }
-  if (
-    lower.includes('đóng app treo') ||
-    lower.includes('tắt app treo') ||
-    lower.includes('ứng dụng bị treo') ||
-    lower.includes('not responding') ||
-    lower.includes('kill hung')
-  ) {
-    return { action: 'kill_unresponsive', param: '' };
-  }
-  if (lower.includes('flush dns') || lower.includes('làm mới dns') || lower.includes('reset dns')) {
-    return { action: 'flush_dns', param: '' };
-  }
-  if (lower.includes('hủy tắt máy') || lower.includes('huy tat may') || lower.includes('cancel shutdown')) {
-    return { action: 'cancel_shutdown', param: '' };
-  }
-  const shutMatch = lower.match(/(?:hẹn giờ tắt máy|tắt máy sau|shutdown)\s*(\d+)/i);
-  if (shutMatch?.[1]) {
-    return { action: 'shutdown_timer', param: shutMatch[1] };
-  }
-  if (lower.includes('hiệu năng cao') || lower.includes('high performance')) {
-    return { action: 'power_high', param: '' };
-  }
-  if (lower.includes('tiết kiệm pin') || lower.includes('power saver')) {
-    return { action: 'power_saver', param: '' };
-  }
-  if (lower.includes('nguồn cân bằng') || lower.includes('balanced power')) {
-    return { action: 'power_balanced', param: '' };
-  }
-  if (lower.includes('device manager') || lower.includes('trình quản lý thiết bị')) {
-    return { action: 'open_panel', param: 'devmgmt' };
-  }
-  if (lower.includes('disk management') || lower.includes('quản lý ổ đĩa')) {
-    return { action: 'open_panel', param: 'diskmgmt' };
-  }
-  if (lower.includes('resource monitor')) {
-    return { action: 'open_panel', param: 'resmon' };
-  }
-  if (lower.includes('services') && (lower.includes('mở') || lower.includes('xem'))) {
-    return { action: 'open_panel', param: 'services' };
-  }
-  if (lower.includes('startup apps') || lower.includes('ứng dụng khởi động')) {
-    return { action: 'open_panel', param: 'startup' };
-  }
-  if (lower.includes('bluetooth') && (lower.includes('mở') || lower.includes('cài đặt'))) {
-    return { action: 'open_panel', param: 'bluetooth' };
-  }
-  if (lower.includes('cài đặt âm thanh') || lower.includes('sound settings')) {
-    return { action: 'open_panel', param: 'sound' };
-  }
-  if (lower.includes('windows update') || lower.includes('cập nhật windows')) {
-    return { action: 'open_panel', param: 'update' };
-  }
-  return null;
-}
-
-function parseWorkspaceCommand(text: string): { autoRestore: boolean } | null {
-  const lower = text.toLowerCase().trim();
-  if (
-    lower.includes('khôi phục workspace') ||
-    lower.includes('mở app thói quen') ||
-    lower.includes('mở workspace')
-  ) {
-    return { autoRestore: true };
-  }
-  if (
-    lower.includes('trợ lý db') ||
-    lower.includes('hỗ trợ hôm nay') ||
-    lower.includes('hôm nay có lịch gì') ||
-    lower.includes('tóm tắt lịch hẹn') ||
-    lower.includes('kiểm tra lịch hẹn')
-  ) {
-    return { autoRestore: false };
-  }
-  return null;
-}
-
 async function tryRunDevMacroWeatherEdgeCommand(
   text: string
 ): Promise<{ label: string; msg: string } | null> {
+  if (isQuestionOrMetaDiscussion(text)) return null;
   const lower = text.toLowerCase().trim();
 
   // 1. Nấp mép màn hình / Focus mode
@@ -4440,17 +4587,29 @@ async function tryRunDevMacroWeatherEdgeCommand(
 
   // 2. Thời tiết, Nhiệt độ, Độ ẩm & Hiệu ứng 3D
   if (
-    /(?:thời tiết|thoi tiet|nhiệt độ|nhiet do|độ ẩm|do am|hiệu ứng mưa|hiệu ứng nắng|hiệu ứng tuyết|hiệu ứng gió|gió xoáy|hiệu ứng ban đêm|tắt hiệu ứng thời tiết)/i.test(
+    /(?:thời tiết|thoi tiet|nhiệt độ\s+(?:hôm nay|ở|tại|ngoài trời|hiện tại)|độ ẩm\s+(?:hôm nay|ở|tại|ngoài trời)|hiệu ứng\s*(?:mưa|nắng|tuyết|lạnh|gió|ban đêm|quang|trời)|gió xoáy|bật trời|cho trời|trời\s*(?:mưa|nắng|tuyết|lạnh|gió|quang|tối|ban đêm)|tắt hiệu ứng thời tiết)/i.test(
       lower
     )
   ) {
     let mode: WeatherEffectMode | 'auto' = 'auto';
-    if (lower.includes('tắt hiệu ứng')) mode = 'clear';
-    else if (lower.includes('hiệu ứng mưa')) mode = 'rain';
-    else if (lower.includes('hiệu ứng nắng')) mode = 'hot';
-    else if (lower.includes('hiệu ứng tuyết') || lower.includes('hiệu ứng lạnh')) mode = 'cold';
-    else if (lower.includes('hiệu ứng gió') || lower.includes('gió xoáy')) mode = 'wind';
-    else if (lower.includes('hiệu ứng ban đêm')) mode = 'night';
+    if (lower.includes('tắt hiệu ứng') || lower.includes('trời quang') || lower.includes('hiệu ứng quang')) {
+      mode = 'clear';
+    } else if (lower.includes('hiệu ứng mưa') || lower.includes('trời mưa') || lower.includes('bật mưa')) {
+      mode = 'rain';
+    } else if (lower.includes('hiệu ứng nắng') || lower.includes('trời nắng') || lower.includes('nắng nóng')) {
+      mode = 'hot';
+    } else if (
+      lower.includes('hiệu ứng tuyết') ||
+      lower.includes('hiệu ứng lạnh') ||
+      lower.includes('trời tuyết') ||
+      lower.includes('trời lạnh')
+    ) {
+      mode = 'cold';
+    } else if (lower.includes('hiệu ứng gió') || lower.includes('gió xoáy') || lower.includes('trời gió')) {
+      mode = 'wind';
+    } else if (lower.includes('hiệu ứng ban đêm') || lower.includes('ban đêm') || lower.includes('trời tối')) {
+      mode = 'night';
+    }
 
     let cityOverride: string | undefined;
     if (lower.includes('sài gòn') || lower.includes('sai gon') || lower.includes('hồ chí minh') || lower.includes('hcm')) {
@@ -4461,6 +4620,33 @@ async function tryRunDevMacroWeatherEdgeCommand(
       cityOverride = 'Da Nang';
     } else if (lower.includes('đà lạt') || lower.includes('da lat')) {
       cityOverride = 'Da Lat';
+    } else if (lower.includes('hải phòng') || lower.includes('hai phong')) {
+      cityOverride = 'Hai Phong';
+    } else if (lower.includes('cần thơ') || lower.includes('can tho')) {
+      cityOverride = 'Can Tho';
+    } else if (lower.includes('nha trang')) {
+      cityOverride = 'Nha Trang';
+    } else if (lower.includes('huế') || lower.includes('hue')) {
+      cityOverride = 'Hue';
+    } else if (lower.includes('vũng tàu') || lower.includes('vung tau')) {
+      cityOverride = 'Vung Tau';
+    } else if (lower.includes('sa pa') || lower.includes('sapa')) {
+      cityOverride = 'Sapa';
+    } else {
+      const mCity = text.match(
+        /(?:thời tiết|thoi tiet|nhiệt độ|nhiet do)\s+(?:ở|o|tại|tai|của|cua|in|at)?\s*([a-zA-ZÀ-ỹ0-9\s\-]{2,32})$/i
+      );
+      if (mCity?.[1]) {
+        const cand = mCity[1].trim();
+        const cl = cand.toLowerCase();
+        if (
+          !/^(?:hôm nay|hom nay|bây giờ|bay gio|hiện tại|hien tai|thế nào|the nao|sao rồi|ra sao|3d|live|auto)$/i.test(
+            cl
+          )
+        ) {
+          cityOverride = cand;
+        }
+      }
     }
     const msg = await syncLiveWeather3D(mode, true, cityOverride);
     return { label: 'Thời tiết & Độ ẩm Live', msg };
@@ -4468,7 +4654,7 @@ async function tryRunDevMacroWeatherEdgeCommand(
 
   // 2b. Đọc tin tức mới cấu hình được (Znews, CafeF, Money, VnExpress...)
   if (
-    /(?:đọc báo|doc bao|tin mới|tin moi|điểm tin|diem tin|tin tức|tin tuc|znews|cafef|moneyh|vneconomy|vnexpress|hackernews)/i.test(
+    /(?:đọc báo|doc bao|điểm tin|diem tin|xem tin tức|đọc tin mới|tin tức hôm nay|tin tức mới|znews|cafef|moneyh|vneconomy|vnexpress|dantri|tuoitre|hackernews)/i.test(
       lower
     )
   ) {
@@ -4491,7 +4677,7 @@ async function tryRunDevMacroWeatherEdgeCommand(
     const msg = await runEnglishMiniQuiz();
     return { label: 'Đố Vui Tiếng Anh', msg };
   }
-  if (/(?:học tiếng anh|hoc tieng anh|từ vựng|tu vung|dạy tiếng anh|english word|new word)/i.test(lower)) {
+  if (/(?:học tiếng anh|hoc tieng anh|học từ vựng|hoc tu vung|dạy tiếng anh|day tieng anh|từ vựng hôm nay|english word|new word)/i.test(lower)) {
     const topicMatch = text.match(/(?:chủ đề|chu de|topic)\s+([a-zA-Z0-9\s\-]{2,32})$/i);
     const topic = topicMatch?.[1]?.trim();
     const msg = await loadNextEnglishLesson(topic, true);
@@ -4524,7 +4710,7 @@ async function tryRunDevMacroWeatherEdgeCommand(
 
   // 5. Clipboard History
   if (/(?:xóa lịch sử clipboard|clear clipboard history)/i.test(lower)) {
-    await invoke('clipboard_history_clear').catch(() => {});
+    await invoke('clipboard_history_clear').catch(() => { });
     const msg = '[CLIPBOARD HISTORY] Đã xóa sạch lịch sử clipboard trong SQLite.';
     speak(msg);
     return { label: 'Xóa lịch sử Clipboard', msg };
@@ -4545,19 +4731,23 @@ async function tryRunDevMacroWeatherEdgeCommand(
     const msg = await runMacroRoutine('list', true);
     return { label: 'Danh sách Macro', msg };
   }
-  const runMacroMatch = lower.match(/(?:chạy|bật|kích hoạt|mở|run)\s+(?:macro\s+)?(chế độ\s+code|chế độ\s+họp|chế độ\s+giải lao|[a-z0-9_ ]{2,25})/i);
+  const runMacroMatch = lower.match(
+    /(?:chạy|chay|bật|bat|kích hoạt|kich hoat|mở|mo|run)\s+(?:macro\s+)?(chế độ\s+code|chế độ\s+họp|chế độ\s+giải lao|[a-z0-9_ ]{2,25})/i
+  );
+  const runMacroBuiltin =
+    /(?:chạy|chay|bật|bat|kích hoạt|kich hoat|mở|mo|run)\s+(?:macro\s+)?(?:chế độ\s+code|chế độ\s+họp|chế độ\s+giải lao)/i.test(
+      lower
+    );
   if (
-    lower.includes('chế độ code') ||
-    lower.includes('chế độ họp') ||
-    lower.includes('chế độ giải lao') ||
+    runMacroBuiltin ||
     lower.startsWith('chạy macro ') ||
     lower.startsWith('run macro ')
   ) {
     const targetName = lower.startsWith('chạy macro ')
       ? text.slice(11).trim()
       : lower.startsWith('run macro ')
-      ? text.slice(10).trim()
-      : runMacroMatch?.[1] || lower;
+        ? text.slice(10).trim()
+        : runMacroMatch?.[1] || lower;
     const msg = await runMacroRoutine(targetName, true);
     return { label: `Macro: ${targetName}`, msg };
   }
@@ -4565,33 +4755,45 @@ async function tryRunDevMacroWeatherEdgeCommand(
   return null;
 }
 
-function parseClipboardCommand(
-  text: string
-): { action: 'read' | 'summarize' | 'translate' | 'copy'; text: string } | null {
-  const lower = text.toLowerCase().trim();
-  if (!lower.includes('clipboard') && !lower.includes('bộ nhớ tạm')) {
+export { extractChatContactAndMessage as parseChatAppMessageCommand };
+
+function parseReadOnlyCheckChatAppCommand(text: string): { app: string } | null {
+  if (extractChatContactAndMessage(text)) return null;
+  const norm = text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D')
+    .toLowerCase()
+    .trim();
+
+  if (
+    /\b(?:gui|send|nhan cho|nhan tin cho|tra loi|reply|ib cho|inbox cho)\b/.test(norm)
+  ) {
     return null;
   }
 
-  const copyMatch = text.match(
-    /(?:copy|chép|chep|ghi|lưu)\s+(?:vào\s+|vao\s+)?(?:clipboard|bộ nhớ tạm)\s*[:\-]?\s*(.+)$/i
-  );
-  if (copyMatch?.[1] && copyMatch[1].trim().length > 0) {
-    return { action: 'copy', text: copyMatch[1].trim() };
-  }
-  if (lower.includes('dịch') || lower.includes('dich') || lower.includes('translate')) {
-    return { action: 'translate', text: '' };
-  }
-  if (
-    lower.includes('tóm tắt') ||
-    lower.includes('tom tat') ||
-    lower.includes('giải thích') ||
-    lower.includes('giai thich') ||
-    lower.includes('summarize')
-  ) {
-    return { action: 'summarize', text: '' };
-  }
-  return { action: 'read', text: '' };
+  const appMatch = norm.match(/\b(zalo|telegram|discord|messenger)\b/);
+  if (!appMatch?.[1]) return null;
+
+  const hasCheckIntent =
+    /\b(?:check|kiem tra|xem|doc|co tin nhan|tin nhan moi|thong bao|notification|unread|chua doc|new message)\b/.test(
+      norm
+    );
+  if (!hasCheckIntent) return null;
+
+  const rawApp = appMatch[1].toLowerCase();
+  const app = rawApp.charAt(0).toUpperCase() + rawApp.slice(1);
+  return { app };
+}
+
+function formatRelativeTimeVi(rawTs: number): string {
+  const tsMs = rawTs > 1e12 ? rawTs : rawTs * 1000;
+  const diffSec = Math.max(0, Math.floor((Date.now() - tsMs) / 1000));
+  if (diffSec < 60) return 'vừa xong';
+  if (diffSec < 3600) return `${Math.floor(diffSec / 60)} phút trước`;
+  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)} giờ trước`;
+  return new Date(tsMs).toLocaleDateString('vi-VN');
 }
 
 async function tryZeroLatencyFastPath(userText: string): Promise<boolean> {
@@ -4605,6 +4807,110 @@ async function tryZeroLatencyFastPath(userText: string): Promise<boolean> {
     .replace(/đ/g, 'd')
     .replace(/Đ/g, 'D')
     .toLowerCase();
+
+  const pinnedAnalyses = getPinnedAnalyses();
+  const primaryPinned = getPrimaryPinnedFile();
+  const historyTag = formatPinnedFilesChatTag();
+
+  // 0-pin. Thao tác nhanh trực tiếp trên File đang ghim (bỏ ghim / mở / dashboard / tóm tắt)
+  if (primaryPinned) {
+    if (
+      /^(?:bỏ ghim|bo ghim|gỡ ghim|go ghim|xóa file ghim|xoa file ghim|xóa đính kèm|xoa dinh kem|clear pinned|unpin)(?:\s+(?:file|tệp|hết|all|này|nay))?[?!.\s]*$/i.test(
+        text
+      )
+    ) {
+      pushChatHistory('user', `${historyTag}${text}`);
+      clearPinnedChatFiles();
+      const reply = '[GHIM FILE] Đã bỏ ghim tất cả file khỏi thanh chat.';
+      speak(reply);
+      pushChatHistory('assistant', reply);
+      return true;
+    }
+
+    if (
+      /(?:mở|mo|open)\s+(?:giúp\s+|hộ\s+)?(?:file|tệp|tep)\s+(?:này|nay|đang ghim|dang ghim|vừa kéo|vua keo|vừa thả|vua tha)/i.test(
+        lower
+      ) &&
+      primaryPinned.filePath
+    ) {
+      pushChatHistory('user', `${historyTag}${text}`);
+      void runPcOpenFile(primaryPinned.filePath);
+      const reply = `[FAST-PATH] Đang mở file đang ghim "${primaryPinned.fileName}" cho bạn!`;
+      speak(reply);
+      pushChatHistory('assistant', reply);
+      return true;
+    }
+
+    if (
+      /(?:mở|mo|xem|show|hiện|hien)\s+(?:bảng\s+)?(?:dashboard|biểu đồ|bieu do)(?:\s+(?:của\s+)?(?:file|tệp|này|nay|đang ghim))?/i.test(
+        lower
+      )
+    ) {
+      pushChatHistory('user', `${historyTag}${text}`);
+      openFileAnalyticsDashboard(primaryPinned.analysis);
+      const reply = `[DASHBOARD] Đã mở bảng phân tích cho "${primaryPinned.fileName}"!`;
+      speak(reply);
+      pushChatHistory('assistant', reply);
+      return true;
+    }
+
+    if (
+      /^(?:hãy\s+|hay\s+|giúp\s+tớ\s+|giup\s+to\s+)?(?:tóm tắt|tom tat|summarize)(?:\s+(?:nhanh|lại|lai|giúp|giup|hộ|ho|cho tớ|cho to|cho tôi|cho toi))?(?:\s+(?:file|tệp|tep|tài liệu|tai lieu)(?:\s+(?:này|nay|đang ghim|dang ghim|vừa kéo|vua keo))?)?[?!.\s]*$/i.test(
+        text
+      )
+    ) {
+      pushChatHistory('user', `${historyTag}${text}`);
+      await summarizeLastIngestedFile(primaryPinned.analysis);
+      return true;
+    }
+  }
+
+  // 0a3. Kiểm tra tin nhắn/thông báo mới CHỈ ĐỌC (không bao giờ tự gửi tin nhắn)
+  const checkChatCmd = parseReadOnlyCheckChatAppCommand(text);
+  if (checkChatCmd) {
+    pushChatHistory('user', `${historyTag}${text}`);
+    const appLow = checkChatCmd.app.toLowerCase();
+    const history = await fetchNotificationHistory();
+    const matchedNotifs = history
+      .filter(
+        (n) =>
+          n.app_or_origin.toLowerCase().includes(appLow) ||
+          n.title.toLowerCase().includes(appLow) ||
+          n.body.toLowerCase().includes(appLow)
+      )
+      .sort((a, b) => b.timestamp - a.timestamp)
+      .slice(0, 5);
+
+    const openAppWin = appState.openWindows.find(
+      (w) =>
+        (w.process_name || '').toLowerCase().includes(appLow) ||
+        w.title.toLowerCase().includes(appLow)
+    );
+    const unreadMatch = openAppWin?.title.match(/\((\d+)\)/);
+    const winStatus = openAppWin
+      ? `Cửa sổ ${checkChatCmd.app} đang mở ("${openAppWin.title}")${unreadMatch?.[1] ? ` - có dấu hiệu ${unreadMatch[1]} mục chưa đọc trên tiêu đề.` : '.'
+      }`
+      : `Không thấy cửa sổ ${checkChatCmd.app} đang mở trên Desktop.`;
+
+    let reply: string;
+    if (matchedNotifs.length > 0) {
+      const lines = matchedNotifs.map(
+        (n, i) =>
+          `${i + 1}. [${formatRelativeTimeVi(n.timestamp)}] ${n.title}: "${n.body.slice(0, 120)}"`
+      );
+      reply = `[KIỂM TRA ${checkChatCmd.app.toUpperCase()} - CHỈ ĐỌC]\n${winStatus}\nCó ${matchedNotifs.length} thông báo ${checkChatCmd.app} gần đây:\n${lines.join('\n')}`;
+    } else {
+      reply = `[KIỂM TRA ${checkChatCmd.app.toUpperCase()} - CHỈ ĐỌC]\n${winStatus}\nChưa ghi nhận thông báo ${checkChatCmd.app} mới nào trong Lịch sử Thông báo hệ thống. Nếu bạn muốn Vịt nhìn trực tiếp màn hình ${checkChatCmd.app}, hãy nói "xem màn hình".`;
+    }
+    speak(reply);
+    pushChatHistory('assistant', reply);
+    return true;
+  }
+
+  // Bỏ qua toàn bộ fast-path còn lại nếu câu nói là câu hỏi kiến thức, giải thích, hoặc phản hồi/than phiền lỗi
+  if (isQuestionOrMetaDiscussion(text)) {
+    return false;
+  }
 
   // 0-mini. Màn Hình Mini (Mini Screen PiP - YouTube/Web Always-on-Top hoặc Chiếu App/Tab Live)
   if (
@@ -4669,7 +4975,7 @@ async function tryZeroLatencyFastPath(userText: string): Promise<boolean> {
   }
 
   if (
-    /(?:boc|lat|xem|rut)\s+(?:the\s+|bai\s+|que\s+)?(?:tarot|boi|tu vi|van menh|van may)|(?:hom nay|nay)\s+(?:co\s+)?(?:may man|xui xeo|dai cat|tieu cat|cat hay hung)/.test(
+    /(?:boc|lat|xem|rut)\s+(?:the\s+|bai\s+|que\s+)?(?:tarot|boi|tu vi|van menh|van may)|(?:hom nay|nay)\s+(?:co\s+)?(?:may man|xui xeo).*(?:tarot|boi|tu vi|van menh|van may|que)|\bxem boi\b/.test(
       normTarotCheck
     )
   ) {
@@ -4691,15 +4997,6 @@ async function tryZeroLatencyFastPath(userText: string): Promise<boolean> {
       const msg = 'Đã mở Xưởng Skill AI & Sandbox Kiểm Nghiệm.';
       speak(msg);
       pushChatHistory('assistant', msg);
-      return true;
-    }
-
-    if (!geminiApiKey.trim()) {
-      window.dispatchEvent(new CustomEvent('duck-open-tool-forge', { detail: { requestText: text } }));
-      const errMsg =
-        '[TOOL FORGE] Local LLM không có skill sẵn và không tự viết script. Cần GEMINI_API_KEY trong .env để Gemini viết & kiểm nghiệm tool trên Sandbox.';
-      speak(errMsg);
-      pushChatHistory('assistant', errMsg);
       return true;
     }
 
@@ -4731,26 +5028,86 @@ async function tryZeroLatencyFastPath(userText: string): Promise<boolean> {
     return true;
   }
 
-  // 0b. Khớp các Custom Skill đã kiểm chứng & lưu trong SQLite (ưu tiên Local LLM trích xuất tham số)
-  const matchedSkill = matchSavedSkillForUserText(text);
-  if (matchedSkill) {
+  // 0a2. Fast-path OCR & Chụp màn hình tức thì
+  if (
+    /(?:cắt vùng ocr|cat vung ocr|ocr vùng|ocr vung|cắt màn hình dịch|cat man hinh dich|dịch vùng|dich vung|ocr dịch|ocr dich)/i.test(
+      lower
+    )
+  ) {
     pushChatHistory('user', text);
+    fireAnimationTrigger('tool', 'ocr', 'start');
+    window.dispatchEvent(new CustomEvent('duck-start-ocr-snip'));
+    const reply = '[OCR VÙNG] Đang mở chế độ kéo cắt vùng màn hình để nhận diện chữ & dịch thuật!';
+    speak(reply);
+    pushChatHistory('assistant', reply);
+    return true;
+  }
+  if (
+    /(?:chạy|chay|quét|quet|đọc|doc|bật|bat|cắt|cat|dùng|dung|run|scan)\s+(?:vùng\s+|vung\s+|màn hình\s+|man hinh\s+)?ocr\b|\bocr\s+(?:màn hình|man hinh|ảnh|anh|vùng|vung)|đọc chữ màn hình|doc chu man hinh|quét chữ màn hình|quet chu man hinh|đọc ảnh chụp|doc anh chup/i.test(
+      lower
+    ) ||
+    lower === 'ocr'
+  ) {
+    pushChatHistory('user', text);
+    await runOcrAndSummarize(true);
+    return true;
+  }
+  if (
+    /(?:chụp màn hình|chup man hinh|chụp ảnh màn hình|chup anh man hinh|take screenshot)/i.test(
+      lower
+    )
+  ) {
+    pushChatHistory('user', text);
+    const out = await runPcScreenshot();
+    pushChatHistory('assistant', out);
+    return true;
+  }
+
+  const matchedSkill = matchSavedSkillForUserText(text, pinnedAnalyses);
+  if (matchedSkill) {
     isBusy = true;
+    let pushedUserMsg = false;
     try {
-      speak(`[SKILL: ${matchedSkill.skill.name}] Local LLM đang chuẩn bị tham số & thực thi tool đã lưu...`);
       const finalArgs = await extractArgsWithLocalLlmIfAvailable(
         matchedSkill.skill,
         text,
-        matchedSkill.args
+        matchedSkill.args,
+        pinnedAnalyses
       );
+      if (finalArgs && finalArgs._should_execute === false) {
+        return false;
+      }
+
+      const cleanArgs: Record<string, unknown> = { ...finalArgs };
+      delete cleanArgs._should_execute;
+      delete cleanArgs._reason;
+
+      if (isSendChatSkill(matchedSkill.skill)) {
+        const unsafeReason = validateSendChatSkillArgs(text, cleanArgs);
+        if (unsafeReason) {
+          pushChatHistory('user', `${historyTag}${text}`);
+          pushedUserMsg = true;
+          const blockedMsg = `[AN TOÀN] ${unsafeReason}`;
+          speak(blockedMsg);
+          pushChatHistory('assistant', blockedMsg);
+          return true;
+        }
+      }
+
+      pushChatHistory('user', `${historyTag}${text}`);
+      pushedUserMsg = true;
+      speak(`[SKILL: ${matchedSkill.skill.name}] Đang phân tích yêu cầu, chuẩn bị dữ liệu & thực thi tool đã lưu...`);
       const outMsg = await executeSavedSkillWithSelfHeal(
         matchedSkill.skill.id,
-        finalArgs,
+        cleanArgs,
         (line) => setStreamSpeechText(line)
       );
       speak(outMsg);
       pushChatHistory('assistant', outMsg);
     } catch (err) {
+      if (!pushedUserMsg) {
+        pushChatHistory('user', `${historyTag}${text}`);
+      }
       const errMsg = `[SKILL LỖI] ${String(err)}`;
       speak(errMsg);
       pushChatHistory('assistant', errMsg);
@@ -4760,12 +5117,56 @@ async function tryZeroLatencyFastPath(userText: string): Promise<boolean> {
     return true;
   }
 
+  // Nếu đang ghim file mà không khớp thao tác nhanh / skill sửa file -> chuyển thẳng cho LLM xử lý theo dữ liệu đang ghim
+  if (pinnedAnalyses.length > 0) {
+    return false;
+  }
+
   // Nếu là chuỗi đa lệnh ("... rồi ...", "... sau đó ..."), bỏ qua fast-path đơn lẻ để LLM/chained handler thực thi trọn vẹn tất cả mệnh đề
   if (/(?:\s+(?:rồi|sau đó|tiếp theo|đồng thời|và rồi|then|and then)\s+|\s*;\s*)/i.test(text)) {
     return false;
   }
 
-  // 0. Kéo thả & Sắp xếp Icon ngoài Desktop
+  // 0. Fast-Path điều khiển trực tiếp App Chat (Zalo / Telegram / Discord / Messenger)
+  const chatAppCmd = extractChatContactAndMessage(text);
+  if (chatAppCmd) {
+    pushChatHistory('user', text);
+    isBusy = true;
+    setStreamSpeechText(
+      `[AUTO CHAT] Đang mở ${chatAppCmd.app}, tìm "${chatAppCmd.contact}" và gửi "${chatAppCmd.message}"...`
+    );
+    try {
+      const out = await invoke<string>('auto_chat_app_send_message', chatAppCmd);
+      window.dispatchEvent(
+        new CustomEvent('duck-agent-suggest-tool', {
+          detail: {
+            goal: text,
+            summary: out,
+            steps: [
+              {
+                step: 1,
+                action: 'chat_app_send',
+                params: chatAppCmd,
+                obs: out,
+              },
+            ],
+            createdAt: Date.now(),
+          },
+        })
+      );
+      speak(out);
+      pushChatHistory('assistant', out);
+    } catch (err) {
+      const failMsg = `[AUTO CHAT LỖI] ${String(err)}`;
+      speak(failMsg);
+      pushChatHistory('assistant', failMsg);
+    } finally {
+      isBusy = false;
+    }
+    return true;
+  }
+
+  // 0a. Kéo thả & Sắp xếp Icon ngoài Desktop
   const iconCmd = parseDesktopIconCommand(text);
   if (iconCmd) {
     pushChatHistory('user', text);
@@ -4843,8 +5244,8 @@ async function tryZeroLatencyFastPath(userText: string): Promise<boolean> {
       stickyCmd.mode === 'clear'
         ? await clearStickyNotes()
         : stickyCmd.mode === 'open'
-        ? (toggleStickyNotesWidget(true), 'Đã mở bảng Ghi chú & Lịch hẹn trên màn hình.')
-        : await pinStickyNote(
+          ? (toggleStickyNotesWidget(true), 'Đã mở bảng Ghi chú & Lịch hẹn trên màn hình.')
+          : await pinStickyNote(
             stickyCmd.text,
             stickyCmd.saveDesktop,
             stickyCmd.scheduleTime,
@@ -4896,7 +5297,7 @@ async function tryZeroLatencyFastPath(userText: string): Promise<boolean> {
 
   // 1. Mở file: "mo t file a.csv", "mở file data.xlsx", "open file config.json"
   const fileMatch = text.match(
-    /(?:mở|mo|bật|bat|chạy|chay|open)\s+(?:t\s+|tớ\s+|cho tớ\s+|cho t\s+|giúp\s+|hộ\s+)?(?:file|tệp|tep|tập tin|tap tin)?\s*["']?([a-zA-Z0-9_.\-\\/: ]+\.[a-zA-Z0-9]{1,8})["']?/i
+    /^(?:hãy\s+|hay\s+|giúp\s+tớ\s+|giup\s+to\s+|nhờ\s+|nho\s+)?(?:mở|mo|bật|bat|chạy|chay|open)\s+(?:t\s+|tớ\s+|cho tớ\s+|cho t\s+|giúp\s+|hộ\s+)?(?:file|tệp|tep|tập tin|tap tin)?\s*["']?([a-zA-Z0-9_.\-\\/: ]+\.[a-zA-Z0-9]{1,8})["']?$/i
   );
   if (fileMatch?.[1]) {
     const filename = fileMatch[1].trim();
@@ -4912,7 +5313,12 @@ async function tryZeroLatencyFastPath(userText: string): Promise<boolean> {
   }
 
   // 2. Đi bơi / lên bờ
-  if (lower.includes('đi bơi') || lower.includes('bơi đi') || lower.includes('xuống hồ') || lower.includes('swim')) {
+  if (
+    lower.includes('đi bơi') ||
+    lower.includes('bơi đi') ||
+    lower.includes('xuống hồ') ||
+    lower === 'swim'
+  ) {
     triggerStartSwimming(true);
     pushChatHistory('user', text);
     const reply = 'Nóng quá, tớ nhảy xuống hồ bơi giải nhiệt ngay đây!';
@@ -4930,7 +5336,32 @@ async function tryZeroLatencyFastPath(userText: string): Promise<boolean> {
   }
 
   // 3. Động tác 3D
-  if (lower.includes('lộn nhào') || lower.includes('backflip') || lower.includes('nhào lộn')) {
+  if (
+    lower.includes('đâm thủng cửa sổ') ||
+    lower.includes('dam thung cua so') ||
+    lower.includes('đâm xuyên cửa sổ') ||
+    lower.includes('dam xuyen cua so') ||
+    lower.includes('thủng trang giấy') ||
+    lower.includes('thung trang giay')
+  ) {
+    const crashMsg = triggerWindowPaperCrash();
+    pushChatHistory('user', text);
+    pushChatHistory('assistant', crashMsg);
+    return true;
+  }
+  if (
+    lower.includes('hóa hulk') ||
+    lower.includes('hoa hulk') ||
+    lower.includes('hulk xanh') ||
+    lower.includes('khổng lồ xanh') ||
+    lower.includes('khong lo xanh')
+  ) {
+    const hulkMsg = triggerHulkRageMode();
+    pushChatHistory('user', text);
+    pushChatHistory('assistant', hulkMsg);
+    return true;
+  }
+  if (lower.includes('lộn nhào') || lower === 'backflip' || lower.includes('nhào lộn')) {
     triggerBackflip();
     pushChatHistory('user', text);
     const reply = 'Xem cú lộn nhào ngoạn mục của tớ này!';
@@ -4938,7 +5369,7 @@ async function tryZeroLatencyFastPath(userText: string): Promise<boolean> {
     speak(`[FAST-PATH] ${reply}`);
     return true;
   }
-  if (lower.includes('nhảy múa') || lower.includes('múa đi') || lower.includes('dance')) {
+  if (lower.includes('nhảy múa') || lower.includes('múa đi') || lower === 'dance') {
     if (danceCb) danceCb();
     pushChatHistory('user', text);
     const reply = 'Cùng nhảy theo điệu nhạc sôi động nào!';
@@ -4976,7 +5407,11 @@ async function tryZeroLatencyFastPath(userText: string): Promise<boolean> {
   }
 
   // 4. Quản lý cửa sổ
-  if (lower.includes('chia đôi') || lower.includes('split') || lower.includes('chia 2')) {
+  const hasWinCtx = /(?:màn hình|man hinh|cửa sổ|cua so|window|app)/i.test(lower);
+  if (
+    (lower.includes('chia đôi') || lower.includes('chia 2') || (lower.includes('split') && hasWinCtx)) &&
+    (hasWinCtx || text.length <= 16)
+  ) {
     void arrangeDesktopWindows('split_2');
     pushChatHistory('user', text);
     const reply = 'Tớ chia đôi màn hình 50/50 cho bạn ngay đây!';
@@ -4984,7 +5419,10 @@ async function tryZeroLatencyFastPath(userText: string): Promise<boolean> {
     speak(`[FAST-PATH] ${reply}`);
     return true;
   }
-  if (lower.includes('xếp lưới') || lower.includes('grid') || lower.includes('dọn màn hình')) {
+  if (
+    (lower.includes('xếp lưới') || lower.includes('dọn màn hình') || (lower.includes('grid') && hasWinCtx)) &&
+    (hasWinCtx || text.length <= 16)
+  ) {
     void arrangeDesktopWindows('grid');
     pushChatHistory('user', text);
     const reply = 'Đã sắp xếp toàn bộ cửa sổ thành lưới gọn gàng cho bạn!';
@@ -4992,7 +5430,10 @@ async function tryZeroLatencyFastPath(userText: string): Promise<boolean> {
     speak(`[FAST-PATH] ${reply}`);
     return true;
   }
-  if (lower.includes('thu nhỏ') || lower.includes('shrink')) {
+  if (
+    (lower.includes('thu nhỏ') || (lower.includes('shrink') && hasWinCtx)) &&
+    (hasWinCtx || text.length <= 16)
+  ) {
     startPhysicalResize('shrink');
     pushChatHistory('user', text);
     const reply = 'Đã thu nhỏ kích thước cửa sổ cho bạn!';
@@ -5025,8 +5466,8 @@ async function tryZeroLatencyFastPath(userText: string): Promise<boolean> {
     const app = appMatch[1].toLowerCase();
     const target = app === 'calc' || app === 'calculator' ? 'calc'
       : app === 'vscode' || app === 'code' ? 'code'
-      : app === 'youtube' ? 'https://www.youtube.com'
-      : app;
+        : app === 'youtube' ? 'https://www.youtube.com'
+          : app;
     void runPcOpen(target, app);
     pushChatHistory('user', text);
     const reply = `Tớ mở ${app} cho bạn ngay đây nhé!`;
@@ -5036,7 +5477,13 @@ async function tryZeroLatencyFastPath(userText: string): Promise<boolean> {
   }
 
   // 7. Hiệu năng ứng dụng Duck AI Manager
-  if (lower.includes('hiệu năng app') || lower.includes('hiệu năng của app') || lower.includes('hiệu năng') || lower.includes('app metrics') || lower.includes('thông số app')) {
+  if (
+    lower.includes('hiệu năng app') ||
+    lower.includes('hiệu năng của app') ||
+    lower.includes('hiệu năng vịt') ||
+    lower.includes('app metrics') ||
+    lower.includes('thông số app')
+  ) {
     const res = await runCheckAppMetrics(true);
     pushChatHistory('user', text);
     pushChatHistory('assistant', res);
@@ -5054,7 +5501,12 @@ async function tryZeroLatencyFastPath(userText: string): Promise<boolean> {
   }
 
   // 9. Trí nhớ & Thói quen
-  if (lower.includes('trí nhớ') || lower.includes('thói quen')) {
+  if (
+    /(?:xem|kiểm tra|check|phân tích|phan tich|mở|mo|hiện|hien)\s+.*(?:trí nhớ|tri nho|thói quen|thoi quen)/i.test(
+      lower
+    ) ||
+    (text.length <= 18 && (lower.includes('trí nhớ') || lower.includes('thói quen')))
+  ) {
     pushChatHistory('user', text);
     const ins = await runMemoryCheck(true);
     const topApps = ins?.top_apps_today?.slice(0, 3).map((a) => a.app_title).join(', ') || 'Chưa có';
@@ -5126,23 +5578,30 @@ export async function chatWithLocalLlm(userText: string) {
     return;
   }
 
-  pushChatHistory('user', userText);
+  const pinnedFiles = getPinnedChatFiles();
+  const hasPinnedFiles = pinnedFiles.length > 0;
+  const historyTag = formatPinnedFilesChatTag();
+  pushChatHistory('user', `${historyTag}${userText}`);
 
   // Background học quy tắc & sự kiện cá nhân từ người dùng
-  void extractAndSaveUserFacts(userText).catch(() => {});
+  void extractAndSaveUserFacts(userText).catch(() => { });
 
-  const isLlmAvailable = isOllamaOnline || Boolean(geminiApiKey.trim());
+  const isLlmAvailable = isOllamaOnline || colabCloudOnline || Boolean(geminiApiKey.trim());
 
-  // Nếu người dùng không bật Ollama và chưa nhập Gemini API Key -> dùng bộ heuristic xử lý offline
+  // Nếu người dùng không bật Ollama, Colab và chưa nhập Gemini API Key -> dùng bộ heuristic xử lý offline
   if (!isLlmAvailable) {
     const handled = await fallbackHeuristicCommandHandler(userText);
     if (handled) return;
+    if (hasPinnedFiles) {
+      await summarizeLastIngestedFile(pinnedFiles[pinnedFiles.length - 1].analysis);
+      return;
+    }
     speak('[LLM OFFLINE] Hãy bật Ollama ("ollama serve") hoặc nhập Gemini API Key trong Studio 3D để trò chuyện tự do nhé!');
     return;
   }
 
   isBusy = true;
-  const useGemini = shouldRouteToGemini(userText, false);
+  const useGemini = shouldRouteToGemini(userText, hasPinnedFiles);
 
   // Bật chế độ nhận Token Stream thời gian thực
   activeStreamEngine = useGemini ? geminiModel : ollamaModel;
@@ -5201,22 +5660,27 @@ export async function chatWithLocalLlm(userText: string) {
   const memoryBlock = memoryLines.length > 0 ? `\n${memoryLines.join('\n')}` : '';
   const compactLongBlock = longMemoryBlock ? `\n${longMemoryBlock.trim().slice(0, 420)}` : '';
   const customSkillsBlock = buildCustomSkillsPromptBlock();
+  const pinnedLocalBlock = buildPinnedFilesPromptContext(false);
+  const pinnedRichBlock = buildPinnedFilesPromptContext(true);
+  const lengthRule = hasPinnedFiles
+    ? 'trả lời đầy đủ, rõ ràng, có cấu trúc dựa trên dữ liệu file đang ghim'
+    : '2-4 câu ngắn gọn, trọn vẹn ý, tiếng Việt';
 
   const localSystemPrompt = `Bạn là Duck AI Manager - trợ lý 3D đồng hành trên Windows.
 ${COMPACT_LOCAL_TOOLSET_PROMPT}${customSkillsBlock}${compactLongBlock}
-${temporalStr}${memoryBlock}
+${temporalStr}${memoryBlock}${pinnedLocalBlock}
 YÊU CẦU:
-- Tận dụng lịch hẹn, thói quen, hồ sơ chủ nhân và các CUSTOM SKILLS đã kiểm chứng ở trên để trả lời hữu ích, đúng ngữ cảnh cá nhân (2-4 câu ngắn gọn, trọn vẹn ý, tiếng Việt).
+- Tận dụng lịch hẹn, thói quen, hồ sơ chủ nhân, các CUSTOM SKILLS và FILE ĐANG GHIM ở trên để trả lời hữu ích, đúng ngữ cảnh (${lengthRule}).
 - TUYỆT ĐỐI KHÔNG dùng emoji.
-- Khi cần thực hiện thao tác máy tính, CHÍNH BẠN gắn thẻ [TOOL:tên_tool:{...}] ở cuối câu.`;
+- Khi cần thực hiện thao tác máy tính hoặc xử lý file trên đĩa, CHÍNH BẠN gắn thẻ [TOOL:tên_tool:{...}] ở cuối câu.`;
 
   const geminiSystemPrompt = `Bạn là Duck AI Manager - trợ lý 3D đồng hành trên Windows.
 ${DESKTOP_TOOLSET_PROMPT}${customSkillsBlock}${longMemoryBlock}
-${temporalStr}${memoryBlock}
+${temporalStr}${memoryBlock}${pinnedRichBlock}
 YÊU CẦU:
-- Chủ động tận dụng lịch hẹn, thói quen, quy tắc, CUSTOM SKILLS và ngữ cảnh đã lưu trong SQLite để hỗ trợ thông minh, ngắn gọn nhưng đầy đủ ý (2-4 câu, kết thúc trọn câu, tiếng Việt).
+- Chủ động tận dụng lịch hẹn, thói quen, quy tắc, CUSTOM SKILLS, FILE ĐANG GHIM và ngữ cảnh đã lưu trong SQLite để hỗ trợ thông minh (${lengthRule}).
 - TUYỆT ĐỐI KHÔNG dùng emoji.
-- Khi cần thực hiện thao tác máy tính, CHÍNH BẠN gắn thẻ [TOOL:tên_tool:{...}] ở cuối câu.`;
+- Khi cần thực hiện thao tác máy tính hoặc xử lý file trên đĩa, CHÍNH BẠN gắn thẻ [TOOL:tên_tool:{...}] ở cuối câu.`;
 
   const messagesToSend = useGemini ? chatHistory.slice(-8) : chatHistory.slice(-4);
   try {
@@ -5252,20 +5716,28 @@ YÊU CẦU:
       finalCleanText = `${finalCleanText} ${lastToolOutputSummary}`;
     }
 
-    // Safety fallback: Nếu LLM quên gắn thẻ tool hoặc chuỗi hành động đa lệnh cần fallback
-    if (!executedTool) {
+    // Safety fallback: Chỉ kích hoạt nếu không phải câu hỏi/than phiền và có mục đích gửi tin rõ ràng hoặc không ghim file
+    if (!executedTool && !isQuestionOrMetaDiscussion(userText)) {
+      if (extractChatContactAndMessage(userText)) {
+        executedTool = await dispatchAiToolCall({ tool: 'agent_task', params: { goal: userText } });
+        if (executedTool && lastToolOutputSummary) {
+          finalCleanText = `${finalCleanText}\n${lastToolOutputSummary}`.trim();
+        }
+      }
+    }
+    if (!executedTool && !isQuestionOrMetaDiscussion(userText) && !hasPinnedFiles) {
       const chainedHandled = await executeChainedHeuristicCommands(userText);
       if (chainedHandled) {
         executedTool = true;
       } else {
-        const lower = userText.toLowerCase();
+        const lower = userText.toLowerCase().trim();
         const explicitFileMatch = userText.match(
-          /(?:mở|mo|bật|bat|chạy|chay|open)\s+(?:t\s+|tớ\s+|cho tớ\s+|cho t\s+|giúp\s+|hộ\s+)?(?:file|tệp|tep|tập tin|tap tin)?\s*["']?([a-zA-Z0-9_.\-\\/: ]+\.[a-zA-Z0-9]{1,8})["']?/i
+          /^(?:hãy\s+|hay\s+|giúp\s+tớ\s+|giup\s+to\s+|nhờ\s+|nho\s+)?(?:mở|mo|bật|bat|chạy|chay|open)\s+(?:t\s+|tớ\s+|cho tớ\s+|cho t\s+|giúp\s+|hộ\s+)?(?:file|tệp|tep|tập tin|tap tin)?\s*["']?([a-zA-Z0-9_.\-\\/: ]+\.[a-zA-Z0-9]{1,8})["']?$/i
         );
         if (explicitFileMatch?.[1]) {
           void runPcOpenFile(explicitFileMatch[1].trim());
           executedTool = true;
-        } else if (lower.includes('đi bơi') || lower.includes('bơi đi') || lower.includes('swim')) {
+        } else if (/\b(?:đi bơi|bơi đi|xuống hồ)\b/.test(lower) || lower === 'swim') {
           triggerStartSwimming(true);
           executedTool = true;
         } else if (lower.includes('lên bờ') || lower.includes('dừng bơi')) {
@@ -5314,7 +5786,7 @@ function presentHabitSuggestion(appTitle: string, hour: number, totalSec: number
     showSuggestionButtons(
       () => {
         appState.setExpression('happy', 3.0);
-        void invoke('memory_record_feedback', { patternKey, accepted: true }).catch(() => {});
+        void invoke('memory_record_feedback', { patternKey, accepted: true }).catch(() => { });
         void runPcOpen(
           `https://www.youtube.com/results?search_query=${encodeURIComponent(topic)}`,
           topic
@@ -5322,7 +5794,7 @@ function presentHabitSuggestion(appTitle: string, hour: number, totalSec: number
       },
       () => {
         appState.setExpression('sad', 2.4);
-        void invoke('memory_record_feedback', { patternKey, accepted: false }).catch(() => {});
+        void invoke('memory_record_feedback', { patternKey, accepted: false }).catch(() => { });
         speak('Okela, khi nào cần tớ sẽ nhắc sau nhé!');
       }
     );
@@ -5337,7 +5809,7 @@ function presentHabitSuggestion(appTitle: string, hour: number, totalSec: number
     showSuggestionButtons(
       () => {
         appState.setExpression('happy', 3.0);
-        void invoke('memory_record_feedback', { patternKey, accepted: true }).catch(() => {});
+        void invoke('memory_record_feedback', { patternKey, accepted: true }).catch(() => { });
         void runPcOpen(
           `https://www.google.com/search?q=${encodeURIComponent(site)}`,
           site
@@ -5345,7 +5817,7 @@ function presentHabitSuggestion(appTitle: string, hour: number, totalSec: number
       },
       () => {
         appState.setExpression('sad', 2.4);
-        void invoke('memory_record_feedback', { patternKey, accepted: false }).catch(() => {});
+        void invoke('memory_record_feedback', { patternKey, accepted: false }).catch(() => { });
         speak('Okela, khi nào cần tớ sẽ nhắc sau nhé!');
       }
     );
@@ -5358,7 +5830,7 @@ function presentHabitSuggestion(appTitle: string, hour: number, totalSec: number
   showSuggestionButtons(
     () => {
       appState.setExpression('happy', 3.0);
-      void invoke('memory_record_feedback', { patternKey, accepted: true }).catch(() => {});
+      void invoke('memory_record_feedback', { patternKey, accepted: true }).catch(() => { });
       if (appTitle === 'YouTube') {
         void runPcOpen('https://www.youtube.com', 'YouTube');
       } else if (appTitle === 'VS Code') {
@@ -5369,7 +5841,7 @@ function presentHabitSuggestion(appTitle: string, hour: number, totalSec: number
     },
     () => {
       appState.setExpression('sad', 2.4);
-      void invoke('memory_record_feedback', { patternKey, accepted: false }).catch(() => {});
+      void invoke('memory_record_feedback', { patternKey, accepted: false }).catch(() => { });
       speak('Okela, khi nào cần tớ sẽ nhắc sau nhé!');
     }
   );
@@ -5701,11 +6173,17 @@ export function checkClipboardAndBreakInterval() {
     const clean = text.trim();
     if (clean === lastClipboardContent) return;
     lastClipboardContent = clean;
-    void invoke('clipboard_history_add', { content: clean }).catch(() => {});
+    void invoke('clipboard_history_add', { content: clean }).catch(() => { });
 
     const isUrl = /^https?:\/\/[^\s]+$/i.test(clean);
     const isCode = clean.includes('{') && clean.includes('}') || clean.includes('function') || clean.includes('const ') || clean.includes('def ') || clean.includes('import ');
-    const isEnglishParagraph = /^[a-zA-Z0-9\s.,'"`?!:;()\-]+$/.test(clean) && clean.split(' ').length > 4;
+    const hasEnFunctionWord = /\b(the|and|for|with|that|this|from|have|will|your|about|which|when|what|where|would|could|should)\b/i.test(clean);
+    const hasViNoAccentWord = /\b(hoi|xem|chua|com|anh|em|ban|minh|giup|zalo|nhan|gui|khong|duoc|nho|vao|tren|cho|voi|lam|ngu)\b/i.test(clean);
+    const isEnglishParagraph =
+      /^[a-zA-Z0-9\s.,'"`?!:;()\-]+$/.test(clean) &&
+      clean.split(/\s+/).length > 4 &&
+      hasEnFunctionWord &&
+      !hasViNoAccentWord;
 
     if (isUrl && clean.includes('youtube.com')) {
       speak('Thấy bạn vừa copy link YouTube! Bạn có muốn tớ mở video này không?');
@@ -5713,7 +6191,7 @@ export function checkClipboardAndBreakInterval() {
         () => {
           void runPcOpen(clean, 'YouTube Video');
         },
-        () => {}
+        () => { }
       );
     } else if (isCode && clean.length > 15) {
       speak(`Bạn vừa copy 1 đoạn code (${clean.slice(0, 28)}...). Cần tớ giải thích hoặc tối ưu không?`);
@@ -5721,7 +6199,7 @@ export function checkClipboardAndBreakInterval() {
         () => {
           void chatWithLocalLlm(`Hãy giải thích hoặc kiểm tra lỗi đoạn code này giúp tôi: ${clean}`);
         },
-        () => {}
+        () => { }
       );
     } else if (isEnglishParagraph) {
       speak(`Bạn vừa copy đoạn tiếng Anh: "${clean.slice(0, 32)}...". Cần tớ dịch sang tiếng Việt không?`);
@@ -5729,15 +6207,16 @@ export function checkClipboardAndBreakInterval() {
         () => {
           void chatWithLocalLlm(`Dịch đoạn tiếng Anh này sang tiếng Việt ngắn gọn: ${clean}`);
         },
-        () => {}
+        () => { }
       );
     }
-  }).catch(() => {});
+  }).catch(() => { });
 }
 
 export function initAssistant() {
   registerToolForgeContext({
     getGeminiModel: () => geminiModel,
+    getGeminiApiKey: () => geminiApiKey,
     getOllamaModel: () => ollamaModel,
     isOllamaOnline: () => isOllamaOnline,
     hasGeminiKey: () => Boolean(geminiApiKey.trim()),
@@ -5748,6 +6227,21 @@ export function initAssistant() {
     void refreshLlmStatus();
 
     // Lắng nghe Token Stream thời gian thực từ Local LLM / Rust và lọc sạch thẻ [TOOL:...] + đồng bộ cảm xúc câu đầu
+    let webStreamSentLen = 0;
+    let webStreamTimer: number | null = null;
+    const flushWebStreamChunk = () => {
+      webStreamTimer = null;
+      const cleanFull = sanitizeStreamingText(streamingBuffer);
+      if (cleanFull.length < webStreamSentLen) {
+        webStreamSentLen = 0;
+      }
+      if (cleanFull.length > webStreamSentLen) {
+        const delta = cleanFull.slice(webStreamSentLen);
+        webStreamSentLen = cleanFull.length;
+        void syncChatStreamChunkToCloud('live', delta, false).catch(() => { });
+      }
+    };
+
     void listen<string>('llm_stream_token', (event) => {
       if (!isStreamingActive) return;
       const token = event.payload;
@@ -5759,6 +6253,9 @@ export function initAssistant() {
           applyAutoEmotionFromText(cleanPartial);
         }
         setStreamSpeechText(`[${activeStreamEngine}] ${cleanPartial}`);
+        if (webStreamTimer === null) {
+          webStreamTimer = window.setTimeout(flushWebStreamChunk, 85);
+        }
       }
     });
 
@@ -5771,7 +6268,7 @@ export function initAssistant() {
           }
         }
       })
-      .catch(() => {});
+      .catch(() => { });
 
     // Tự động áp dụng các quy tắc hành vi đã học từ SQLite khi khởi động
     void runMemoryCheck(false).then((ins) => {
@@ -5813,7 +6310,7 @@ export function initAssistant() {
         appTitle: appName,
         hourOfDay: hour,
         durationSec: 15,
-      }).catch(() => {});
+      }).catch(() => { });
     }
   }, 15_000);
 

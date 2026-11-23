@@ -477,6 +477,33 @@ pub async fn embed_ollama(model: String, text: String) -> Result<Vec<f32>, Strin
     .map_err(|e| format!("Lỗi tác vụ nền: {e}"))?
 }
 
+pub fn parse_gemini_candidate_text(v: &serde_json::Value) -> Option<(String, String)> {
+    let parts = v["candidates"][0]["content"]["parts"].as_array()?;
+    let finish_reason = v["candidates"][0]["finishReason"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+    let non_thought = parts
+        .iter()
+        .filter(|p| p["thought"].as_bool() != Some(true))
+        .filter_map(|p| p["text"].as_str())
+        .collect::<Vec<_>>()
+        .join("");
+    if !non_thought.trim().is_empty() {
+        return Some((non_thought.trim().to_string(), finish_reason));
+    }
+    let all_joined = parts
+        .iter()
+        .filter_map(|p| p["text"].as_str())
+        .collect::<Vec<_>>()
+        .join("");
+    if !all_joined.trim().is_empty() {
+        Some((all_joined.trim().to_string(), finish_reason))
+    } else {
+        None
+    }
+}
+
 #[tauri::command]
 pub async fn ask_gemini(
     api_key: String,
@@ -484,6 +511,8 @@ pub async fn ask_gemini(
     system_prompt: String,
     messages: Vec<OllamaMessage>,
     json_mode: Option<bool>,
+    max_output_tokens: Option<u32>,
+    thinking_budget: Option<u32>,
 ) -> Result<String, String> {
     let clean_key = resolve_gemini_api_key(&api_key);
     if clean_key.is_empty() {
@@ -495,6 +524,16 @@ pub async fn ask_gemini(
         model.trim().to_string()
     };
     let use_json_mode = json_mode.unwrap_or(false);
+    let out_tokens = max_output_tokens
+        .unwrap_or(if use_json_mode { 16384 } else { 8192 })
+        .clamp(1024, 32768);
+    let effective_thinking = thinking_budget.or_else(|| {
+        if use_json_mode || max_output_tokens.is_some() {
+            Some(2048)
+        } else {
+            None
+        }
+    });
 
     tauri::async_runtime::spawn_blocking(move || {
         let mut contents: Vec<serde_json::Value> = Vec::new();
@@ -515,18 +554,29 @@ pub async fn ask_gemini(
             }));
         }
 
-        let gen_config = if use_json_mode {
-            serde_json::json!({
-                "temperature": 0.2,
-                "maxOutputTokens": 8192,
-                "responseMimeType": "application/json"
-            })
+        let temp = if use_json_mode {
+            0.2
+        } else if max_output_tokens.is_some() {
+            0.25
         } else {
-            serde_json::json!({
-                "temperature": 0.65,
-                "maxOutputTokens": 4096
-            })
+            0.65
         };
+        let mut gen_map = serde_json::Map::new();
+        gen_map.insert("temperature".to_string(), serde_json::json!(temp));
+        gen_map.insert("maxOutputTokens".to_string(), serde_json::json!(out_tokens));
+        if use_json_mode {
+            gen_map.insert(
+                "responseMimeType".to_string(),
+                serde_json::json!("application/json"),
+            );
+        }
+        if let Some(tb) = effective_thinking {
+            gen_map.insert(
+                "thinkingConfig".to_string(),
+                serde_json::json!({ "thinkingBudget": tb }),
+            );
+        }
+        let gen_config = serde_json::Value::Object(gen_map);
 
         let payload = serde_json::json!({
             "system_instruction": {
@@ -542,43 +592,24 @@ pub async fn ask_gemini(
             },
             "contents": contents,
             "generationConfig": {
-                "temperature": 0.2,
-                "maxOutputTokens": 8192
+                "temperature": 0.25,
+                "maxOutputTokens": out_tokens.min(8192)
             }
         });
 
-        let timeout_str = if use_json_mode { "55" } else { "35" };
+        let timeout_str = if use_json_mode || out_tokens >= 12000 {
+            "95"
+        } else {
+            "45"
+        };
 
-        // Danh sách dự phòng: requested_model -> gemini-3.5-flash -> gemini-2.5-flash -> gemini-2.0-flash -> gemini-1.5-flash
+        // Danh sách dự phòng: requested_model -> gemini-3.5-flash -> gemini-2.5-flash -> gemini-2.0-flash
         let mut models_to_try = vec![requested_model.clone()];
-        for candidate in ["gemini-3.5-flash", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"] {
+        for candidate in ["gemini-3.5-flash", "gemini-2.5-flash", "gemini-2.0-flash"] {
             if !models_to_try.contains(&candidate.to_string()) {
                 models_to_try.push(candidate.to_string());
             }
         }
-
-        let extract_candidate_text = |v: &serde_json::Value| -> Option<String> {
-            let parts = v["candidates"][0]["content"]["parts"].as_array()?;
-            let non_thought = parts
-                .iter()
-                .filter(|p| p["thought"].as_bool() != Some(true))
-                .filter_map(|p| p["text"].as_str())
-                .collect::<Vec<_>>()
-                .join("");
-            if !non_thought.trim().is_empty() {
-                return Some(non_thought.trim().to_string());
-            }
-            let all_joined = parts
-                .iter()
-                .filter_map(|p| p["text"].as_str())
-                .collect::<Vec<_>>()
-                .join("");
-            if !all_joined.trim().is_empty() {
-                Some(all_joined.trim().to_string())
-            } else {
-                None
-            }
-        };
 
         let mut last_err = String::new();
         for m in models_to_try {
@@ -588,40 +619,48 @@ pub async fn ask_gemini(
             );
             match post_ollama_json(&url, payload.to_string(), timeout_str) {
                 Ok(v) => {
-                    if let Some(text) = extract_candidate_text(&v) {
+                    if let Some((text, finish_reason)) = parse_gemini_candidate_text(&v) {
+                        if finish_reason == "MAX_TOKENS"
+                            && use_json_mode
+                            && serde_json::from_str::<serde_json::Value>(&text).is_err()
+                        {
+                            last_err = format!(
+                                "Gemini ({m}) bị cắt ngắn do MAX_TOKENS ({} ký tự).",
+                                text.len()
+                            );
+                            continue;
+                        }
                         return Ok(text);
                     }
                     if let Some(err_msg) = v["error"]["message"].as_str() {
                         last_err = format!("Gemini ({m}): {err_msg}");
-                        let lower = err_msg.to_lowercase();
-                        if use_json_mode && (lower.contains("responsemimetype") || lower.contains("mime")) {
-                            if let Ok(v2) = post_ollama_json(&url, fallback_payload.to_string(), timeout_str) {
-                                if let Some(text2) = extract_candidate_text(&v2) {
-                                    return Ok(text2);
-                                }
-                                if let Some(err2) = v2["error"]["message"].as_str() {
-                                    last_err = format!("Gemini ({m}): {err2}");
-                                }
-                            }
-                            continue;
-                        }
-                        if lower.contains("high demand")
-                            || lower.contains("overloaded")
-                            || lower.contains("not found")
-                            || lower.contains("resource_exhausted")
-                            || lower.contains("capacity")
-                            || lower.contains("503")
-                        {
-                            continue;
-                        } else {
-                            return Err(last_err);
-                        }
                     } else {
                         last_err = format!("Gemini ({m}) không trả về nội dung.");
-                        continue;
                     }
+                    continue;
                 }
                 Err(e) => {
+                    let lower = e.to_lowercase();
+                    if lower.contains("api key not valid") || lower.contains("invalid api key") {
+                        return Err(e);
+                    }
+                    if lower.contains("responsemimetype")
+                        || lower.contains("mime")
+                        || lower.contains("thinking")
+                        || lower.contains("unknown name")
+                        || lower.contains("maxoutputtokens")
+                    {
+                        if let Ok(v2) = post_ollama_json(&url, fallback_payload.to_string(), timeout_str) {
+                            if let Some((text2, finish2)) = parse_gemini_candidate_text(&v2) {
+                                if !(finish2 == "MAX_TOKENS"
+                                    && use_json_mode
+                                    && serde_json::from_str::<serde_json::Value>(&text2).is_err())
+                                {
+                                    return Ok(text2);
+                                }
+                            }
+                        }
+                    }
                     last_err = e;
                     continue;
                 }
@@ -679,7 +718,7 @@ pub async fn ask_gemini_vision(
         });
 
         let mut models_to_try = vec![requested_model.clone()];
-        for candidate in ["gemini-3.5-flash", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"] {
+        for candidate in ["gemini-3.5-flash", "gemini-2.5-flash", "gemini-2.0-flash"] {
             if !models_to_try.contains(&candidate.to_string()) {
                 models_to_try.push(candidate.to_string());
             }
@@ -737,5 +776,330 @@ pub async fn ask_gemini_vision(
     })
     .await
     .map_err(|e| format!("Lỗi tác vụ nền: {e}"))?
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct ColabCloudConfig {
+    pub tunnel_url: String,
+    pub default_model: String,
+    #[serde(default = "default_colab_temp")]
+    pub temperature: f64,
+    #[serde(default = "default_colab_ctx")]
+    pub num_ctx: i64,
+    #[serde(default = "default_colab_keep_alive")]
+    pub keep_alive: i64,
+    #[serde(default = "default_true_flag")]
+    pub enabled: bool,
+}
+
+#[derive(Serialize, Clone, Debug)]
+pub struct ColabScanResult {
+    pub online: bool,
+    pub tunnel_url: String,
+    pub default_model: String,
+    pub enabled: bool,
+    pub models: Vec<String>,
+    pub error: String,
+}
+
+fn default_colab_temp() -> f64 {
+    0.2
+}
+
+fn default_colab_ctx() -> i64 {
+    8192
+}
+
+fn default_colab_keep_alive() -> i64 {
+    -1
+}
+
+fn default_true_flag() -> bool {
+    true
+}
+
+impl Default for ColabCloudConfig {
+    fn default() -> Self {
+        Self {
+            tunnel_url: String::new(),
+            default_model: "qwen2.5-coder:14b".to_string(),
+            temperature: 0.2,
+            num_ctx: 8192,
+            keep_alive: -1,
+            enabled: true,
+        }
+    }
+}
+
+fn colab_config_candidate_paths() -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            paths.push(dir.join("model_local_cloud").join("colab_config.json"));
+        }
+    }
+    if let Ok(cwd) = std::env::current_dir() {
+        paths.push(cwd.join("model_local_cloud").join("colab_config.json"));
+        if let Some(parent) = cwd.parent() {
+            paths.push(parent.join("model_local_cloud").join("colab_config.json"));
+        }
+    }
+    if let Some(app_root) = PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent() {
+        if let Some(ws_root) = app_root.parent() {
+            paths.push(ws_root.join("model_local_cloud").join("colab_config.json"));
+        }
+    }
+    paths
+}
+
+fn read_colab_cloud_config() -> ColabCloudConfig {
+    let mut cfg = ColabCloudConfig::default();
+    for path in colab_config_candidate_paths() {
+        if let Ok(raw) = std::fs::read_to_string(&path) {
+            if let Ok(parsed) = serde_json::from_str::<ColabCloudConfig>(&raw) {
+                cfg = parsed;
+                break;
+            }
+        }
+    }
+    if let Some(env_url) = read_env_value("COLAB_OLLAMA_URL") {
+        cfg.tunnel_url = env_url;
+    }
+    cfg.tunnel_url = cfg.tunnel_url.trim().trim_end_matches('/').to_string();
+    if cfg.default_model.trim().is_empty() {
+        cfg.default_model = "qwen2.5-coder:14b".to_string();
+    }
+    cfg
+}
+
+fn scan_colab_sync(cfg: &ColabCloudConfig, custom_url: Option<&str>) -> ColabScanResult {
+    let url = custom_url
+        .map(|s| s.trim().trim_end_matches('/').to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| cfg.tunnel_url.clone());
+
+    if url.is_empty() {
+        return ColabScanResult {
+            online: false,
+            tunnel_url: String::new(),
+            default_model: cfg.default_model.clone(),
+            enabled: cfg.enabled,
+            models: Vec::new(),
+            error: "Chưa cấu hình URL Cloudflare Tunnel.".to_string(),
+        };
+    }
+
+    let tags_url = format!("{url}/api/tags");
+    let mut cmd = Command::new("curl.exe");
+    cmd.args(["-sS", "-m", "4", &tags_url]);
+    apply_no_window(&mut cmd);
+
+    let out = match cmd.output() {
+        Ok(o) => o,
+        Err(e) => {
+            return ColabScanResult {
+                online: false,
+                tunnel_url: url,
+                default_model: cfg.default_model.clone(),
+                enabled: cfg.enabled,
+                models: Vec::new(),
+                error: format!("Không gọi được curl: {e}"),
+            };
+        }
+    };
+
+    let text = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if !out.status.success() || text.is_empty() {
+        return ColabScanResult {
+            online: false,
+            tunnel_url: url,
+            default_model: cfg.default_model.clone(),
+            enabled: cfg.enabled,
+            models: Vec::new(),
+            error: "Colab GPU Tunnel hiện không phản hồi (chưa bật Colab).".to_string(),
+        };
+    }
+
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return ColabScanResult {
+            online: false,
+            tunnel_url: url,
+            default_model: cfg.default_model.clone(),
+            enabled: cfg.enabled,
+            models: Vec::new(),
+            error: "Tunnel trả về HTML/lỗi thay vì Ollama /api/tags (Colab đã ngắt).".to_string(),
+        };
+    };
+
+    let models: Vec<String> = v["models"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|m| m["name"].as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    ColabScanResult {
+        online: !models.is_empty(),
+        tunnel_url: url,
+        default_model: cfg.default_model.clone(),
+        enabled: cfg.enabled,
+        models: models.clone(),
+        error: if models.is_empty() {
+            "Tunnel mở nhưng chưa có model nào.".to_string()
+        } else {
+            String::new()
+        },
+    }
+}
+
+#[tauri::command]
+pub async fn colab_cloud_scan(custom_url: Option<String>) -> Result<ColabScanResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let cfg = read_colab_cloud_config();
+        scan_colab_sync(&cfg, custom_url.as_deref())
+    })
+    .await
+    .map_err(|e| format!("Lỗi tác vụ quét Colab: {e}"))
+}
+
+#[tauri::command]
+pub async fn colab_cloud_save_config(
+    tunnel_url: String,
+    default_model: String,
+    enabled: bool,
+) -> Result<ColabScanResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut cfg = read_colab_cloud_config();
+        cfg.tunnel_url = tunnel_url.trim().trim_end_matches('/').to_string();
+        if !default_model.trim().is_empty() {
+            cfg.default_model = default_model.trim().to_string();
+        }
+        cfg.enabled = enabled;
+
+        let target_path = colab_config_candidate_paths()
+            .into_iter()
+            .find(|p| p.exists())
+            .or_else(|| {
+                PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                    .parent()
+                    .and_then(|r| r.parent())
+                    .map(|ws| ws.join("model_local_cloud").join("colab_config.json"))
+            });
+
+        if let Some(p) = target_path {
+            if let Some(parent) = p.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            if let Ok(json_str) = serde_json::to_string_pretty(&cfg) {
+                let _ = std::fs::write(&p, json_str.as_bytes());
+            }
+        }
+        Ok(scan_colab_sync(&cfg, None))
+    })
+    .await
+    .map_err(|e| format!("Lỗi lưu cấu hình Colab: {e}"))?
+}
+
+#[tauri::command]
+pub async fn ask_colab_cloud_stream(
+    window: tauri::Window,
+    tunnel_url: Option<String>,
+    model: String,
+    messages: Vec<OllamaMessage>,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let cfg = read_colab_cloud_config();
+        let base = tunnel_url
+            .as_deref()
+            .map(|s| s.trim().trim_end_matches('/').to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| cfg.tunnel_url.clone());
+
+        if base.is_empty() {
+            return Err("Chưa có URL Colab GPU Tunnel.".to_string());
+        }
+
+        let target_model = if model.trim().is_empty() {
+            cfg.default_model.clone()
+        } else {
+            model.trim().to_string()
+        };
+
+        let payload = serde_json::json!({
+            "model": target_model,
+            "messages": messages,
+            "stream": true,
+            "keep_alive": cfg.keep_alive,
+            "options": {
+                "temperature": cfg.temperature,
+                "num_ctx": cfg.num_ctx
+            }
+        });
+        let payload_str = payload.to_string();
+        let chat_url = format!("{base}/api/chat");
+
+        let mut cmd = Command::new("curl.exe");
+        cmd.args([
+            "-N",
+            "-sS",
+            "-m",
+            "90",
+            "-X",
+            "POST",
+            &chat_url,
+            "-H",
+            "Content-Type: application/json",
+            "--data-binary",
+            "@-",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+        apply_no_window(&mut cmd);
+
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| format!("Không thể gọi curl tới Colab: {e}"))?;
+        if let Some(mut stdin) = child.stdin.take() {
+            let _ = stdin.write_all(payload_str.as_bytes());
+        }
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| "Không mở được luồng đọc Colab GPU.".to_string())?;
+
+        let reader = BufReader::new(stdout);
+        let mut full_content = String::new();
+        for line_res in reader.lines() {
+            let Ok(line) = line_res else { break };
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(trimmed) {
+                if let Some(err_msg) = v["error"].as_str() {
+                    return Err(format!("Colab GPU báo lỗi: {err_msg}"));
+                }
+                if let Some(token) = v["message"]["content"].as_str() {
+                    if !token.is_empty() {
+                        full_content.push_str(token);
+                        let _ = window.emit("llm_stream_token", token);
+                    }
+                }
+                if v["done"].as_bool().unwrap_or(false) {
+                    break;
+                }
+            }
+        }
+        let _ = child.wait();
+        if full_content.trim().is_empty() {
+            return Err("Colab GPU Tunnel không phản hồi nội dung.".to_string());
+        }
+        Ok(full_content.trim().to_string())
+    })
+    .await
+    .map_err(|e| format!("Lỗi tác vụ nền Colab: {e}"))?
 }
 

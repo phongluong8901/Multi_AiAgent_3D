@@ -194,10 +194,12 @@ export const leftTelemetryPanelHtml = `
         <div id="eng-phonetic" style="font-size: 10.5px; color: #38bdf8; margin-bottom: 4px;">/live-api/</div>
         <div id="eng-meaning-vi" style="font-size: 11px; color: #fde68a; font-weight: 600; line-height: 1.35; margin-bottom: 4px;">Bấm "Từ Mới" để tải từ vựng thời gian thực từ Datamuse &amp; Dictionary API.</div>
         <div id="eng-def-en" style="font-size: 10px; color: #94a3b8; line-height: 1.3; margin-bottom: 4px;"></div>
-        <div id="eng-example" style="font-size: 10px; color: #cbd5e1; line-height: 1.35; border-left: 2px solid #8b5cf6; padding-left: 5px;"></div>
+        <div id="eng-example-en" style="font-size: 10px; color: #cbd5e1; line-height: 1.35; border-left: 2px solid #8b5cf6; padding-left: 5px; margin-bottom: 3px;"></div>
+        <div id="eng-example-vi" style="font-size: 10px; color: #86efac; line-height: 1.35; border-left: 2px solid #22c55e; padding-left: 5px;"></div>
       </div>
       <div style="display: flex; gap: 4px; margin-bottom: 5px;">
         <button id="btn-eng-next" class="btn-mini-action" type="button" style="color: #ddd6fe; border-color: rgba(167, 139, 250, 0.4);">Từ Mới</button>
+        <button id="btn-eng-translate" class="btn-mini-action" type="button" style="color: #86efac; border-color: rgba(52, 211, 153, 0.45);" title="Dịch lại từ vựng, giải nghĩa và câu ví dụ sang tiếng Việt">Dịch TV</button>
         <button id="btn-eng-audio" class="btn-mini-action" type="button">Phát Âm</button>
         <button id="btn-eng-quiz" class="btn-mini-action" type="button">Đố Vui</button>
       </div>

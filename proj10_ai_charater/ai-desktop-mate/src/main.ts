@@ -2,13 +2,14 @@ import * as THREE from 'three';
 import { appState } from './core/state';
 import { initScene, renderSceneOptimized, updateGroundAura } from './core/scene';
 import { hasWideParticlesOrEffects, updateParticles } from './core/particles';
+import { hasActiveActionProps3D, updateActionProps3D } from './core/props3d';
 import { isWaterPoolActive, updateWaterPool } from './core/waterPool';
 import {
   hasRhythmGooseVisuals,
   registerRhythmGooseSpeakCallback,
   updateRhythmAndGoose,
 } from './core/rhythmAndGoose';
-import { updateP2pArena, isP2pDuelActive, isP2pSessionActive } from './core/p2pArena';
+import { updateP2pArena, isP2pSessionActive } from './core/p2pArena';
 import {
   createMicroDuckCharacter,
   createDetailedAnimeCharacter,
@@ -29,6 +30,7 @@ import { isWindowSwingActive, registerWindowSwingSpeakCallback } from './physics
 import { isDesktopIconTaskActive } from './physics/desktopIconInteract';
 import {
   initUi,
+  isTypewriterActive,
   speakMessage,
   triggerDance,
   updateTypewriter,
@@ -37,6 +39,16 @@ import {
 } from './frontend/ui';
 import { initInput } from './frontend/input';
 import { initAssistant, registerAssistantCallbacks } from './backend/assistant';
+import {
+  applyAnimationOverlayFrame,
+  beginAnimationOverlayFrame,
+  initAnimationBinder,
+  isAnimationOverlayActive,
+  onAnimationFired,
+  trackCharacterStateTransition,
+} from './core/animationBinder';
+import { initAnimationManagerUi } from './frontend/components/animationManagerModal';
+import { initUiMotion } from './frontend/uiMotion';
 
 const container = document.getElementById('canvas-container') as HTMLElement;
 initScene(container);
@@ -87,6 +99,14 @@ try {
   console.error('[INIT ERROR] initAssistant failed:', err);
 }
 
+try {
+  initAnimationBinder();
+  initAnimationManagerUi();
+  initUiMotion();
+} catch (err) {
+  console.error('[INIT ERROR] initAnimationBinder failed:', err);
+}
+
 document.body.classList.toggle('eco-mode', appState.ecoMode);
 
 const ACTIVE_MOTION_STATES = new Set([
@@ -118,32 +138,144 @@ let prevRafMs = lastFrameMs;
 let rafIntervalMs = 16.67;
 let nextRenderDueMs = lastFrameMs;
 let simElapsedSec = 0;
+let idleStillSec = 0;
+let lastWakeCursorX = appState.globalCursorX;
+let lastWakeCursorY = appState.globalCursorY;
+let lastRenderedPosX = appState.posX;
+let lastRenderedPosY = appState.posY;
+let lastRenderedFacing = appState.facingAngle;
+let rafId: number | null = null;
+let idleTimerId: number | null = null;
+let wasThrottledIdle = false;
+
+function scheduleNextFrame(delayMs: number) {
+  if (rafId !== null || idleTimerId !== null) return;
+  if (delayMs > 0) {
+    idleTimerId = window.setTimeout(() => {
+      idleTimerId = null;
+      rafId = requestAnimationFrame(animate);
+    }, delayMs);
+  } else {
+    rafId = requestAnimationFrame(animate);
+  }
+}
+
+function wakeRenderLoopNow() {
+  idleStillSec = 0;
+  wasThrottledIdle = false;
+  if (idleTimerId !== null) {
+    window.clearTimeout(idleTimerId);
+    idleTimerId = null;
+    if (rafId === null) {
+      rafId = requestAnimationFrame(animate);
+    }
+  }
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) wakeRenderLoopNow();
+});
+window.addEventListener('pointerdown', wakeRenderLoopNow, { passive: true });
+window.addEventListener(
+  'pointermove',
+  (e) => {
+    if (
+      Math.hypot(
+        e.clientX - appState.posX,
+        e.clientY - (appState.posY - 85 * appState.modelScale)
+      ) < 280
+    ) {
+      wakeRenderLoopNow();
+    }
+  },
+  { passive: true }
+);
+onAnimationFired((_b, clip) => {
+  if (!clip.ambientLowFps) wakeRenderLoopNow();
+});
 
 function animate() {
-  requestAnimationFrame(animate);
+  rafId = null;
   const now = performance.now();
   const rawDt = now - prevRafMs;
   prevRafMs = now;
-  if (rawDt >= 3 && rawDt <= 33) {
+  if (!wasThrottledIdle && rawDt >= 3 && rawDt <= 22) {
     rafIntervalMs = rafIntervalMs * 0.9 + rawDt * 0.1;
   }
 
   if (document.hidden) {
     lastFrameMs = now;
     nextRenderDueMs = now;
+    idleStillSec = 0;
+    wasThrottledIdle = true;
+    scheduleNextFrame(250);
     return;
   }
 
+  const cursorMoved =
+    Math.abs(appState.globalCursorX - lastWakeCursorX) > 2 ||
+    Math.abs(appState.globalCursorY - lastWakeCursorY) > 2;
+  if (cursorMoved) {
+    lastWakeCursorX = appState.globalCursorX;
+    lastWakeCursorY = appState.globalCursorY;
+  }
+  const cursorDistToDuck = Math.hypot(
+    appState.globalCursorX - appState.posX,
+    appState.globalCursorY - (appState.posY - 85 * appState.modelScale)
+  );
+  const cursorWake = cursorMoved && cursorDistToDuck < 280;
+
+  const needsFullScreen =
+    isWaterPoolActive() ||
+    isWindowSwingActive() ||
+    hasRhythmGooseVisuals() ||
+    isP2pSessionActive() ||
+    isDesktopIconTaskActive() ||
+    hasWideParticlesOrEffects() ||
+    appState.activeWindowTask !== null ||
+    appState.state === 'FLYING_ROCKET' ||
+    appState.state === 'PARACHUTING' ||
+    appState.state === 'CLIMBING' ||
+    appState.state === 'SWIMMING' ||
+    appState.state === 'SWINGING_WINDOW';
+
+  const isSettling =
+    Math.abs(appState.posX - lastRenderedPosX) > 0.25 ||
+    Math.abs(appState.posY - lastRenderedPosY) > 0.25 ||
+    Math.abs(appState.facingAngle - lastRenderedFacing) > 0.008 ||
+    Math.abs(appState.squashX - 1.0) > 0.008 ||
+    Math.abs(appState.squashY - 1.0) > 0.008;
+
   const isActiveMotion =
     ACTIVE_MOTION_STATES.has(appState.state) ||
-    isP2pDuelActive() ||
-    appState.rhythmIntensity > 0.08;
-  if (appState.ecoMode && !isActiveMotion) {
-    if (now - lastFrameMs < 31) {
+    needsFullScreen ||
+    appState.rhythmIntensity > 0.12 ||
+    hasActiveActionProps3D() ||
+    cursorWake ||
+    isSettling ||
+    appState.isFileDragHovering ||
+    appState.expressionTimer > 0 ||
+    appState.speechLipSyncTimer > 0 ||
+    isAnimationOverlayActive() ||
+    isTypewriterActive();
+
+  if (isActiveMotion) {
+    idleStillSec = 0;
+  } else {
+    idleStillSec = Math.min(10, idleStillSec + Math.min(0.05, Math.max(0.001, rawDt / 1000)));
+  }
+
+  const shouldThrottleIdle = !isActiveMotion && (appState.ecoMode || idleStillSec >= 3.0);
+  if (shouldThrottleIdle) {
+    if (now - lastFrameMs < 24) {
+      wasThrottledIdle = true;
+      scheduleNextFrame(24);
       return;
     }
   } else if (rafIntervalMs < 12.8) {
     if (now < nextRenderDueMs - 1.5) {
+      wasThrottledIdle = false;
+      scheduleNextFrame(0);
       return;
     }
     nextRenderDueMs = Math.max(now, nextRenderDueMs + 1000 / 60);
@@ -154,8 +286,10 @@ function animate() {
   simElapsedSec += delta;
   const elapsed = simElapsedSec;
 
+  beginAnimationOverlayFrame();
   stepPhysicsAndRoam(delta);
   updateP2pArena(delta, elapsed);
+  trackCharacterStateTransition();
 
   let targetFacing = 0;
   if (appState.state === 'PUSHING' || appState.state === 'PULLING') {
@@ -222,26 +356,19 @@ function animate() {
   updateAccessoryAnimation(elapsed, delta);
   updateRhythmAndGoose(delta, elapsed);
   updateParticles(delta);
+  updateActionProps3D(delta, elapsed);
   updateWaterPool(delta, elapsed);
   updateTypewriter(delta);
   updateUiPosition(true, delta);
+  applyAnimationOverlayFrame(delta);
 
   syncHitboxToRust();
-  const needsFullScreen =
-    isWaterPoolActive() ||
-    isWindowSwingActive() ||
-    hasRhythmGooseVisuals() ||
-    isP2pSessionActive() ||
-    isDesktopIconTaskActive() ||
-    hasWideParticlesOrEffects() ||
-    appState.rhythmIntensity > 0.05 ||
-    appState.activeWindowTask !== null ||
-    appState.state === 'FLYING_ROCKET' ||
-    appState.state === 'PARACHUTING' ||
-    appState.state === 'CLIMBING' ||
-    appState.state === 'SWIMMING' ||
-    appState.state === 'SWINGING_WINDOW';
+  lastRenderedPosX = appState.posX;
+  lastRenderedPosY = appState.posY;
+  lastRenderedFacing = appState.facingAngle;
   renderSceneOptimized(needsFullScreen, delta);
+  wasThrottledIdle = shouldThrottleIdle;
+  scheduleNextFrame(shouldThrottleIdle ? 24 : 0);
 }
 
-animate();
+scheduleNextFrame(0);

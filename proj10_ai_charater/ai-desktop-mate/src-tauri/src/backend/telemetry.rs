@@ -42,6 +42,10 @@ pub struct WeatherInfo {
     pub humidity_pct: u64,
     pub wind_kmh: f64,
     pub description: String,
+    #[serde(default)]
+    pub weather_code: Option<i64>,
+    #[serde(default)]
+    pub is_day: Option<bool>,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -238,6 +242,21 @@ fn wmo_code_to_vi(code: i64) -> &'static str {
     }
 }
 
+fn wwo_code_to_wmo(wwo: i64) -> Option<i64> {
+    match wwo {
+        113 => Some(0),
+        116 | 119 | 122 => Some(2),
+        143 | 248 | 260 => Some(45),
+        176 | 263 | 266 | 293 | 296 | 299 | 302 | 305 | 308 | 311 | 314 | 353 | 356 | 359 => {
+            Some(61)
+        }
+        179 | 182 | 185 | 227 | 230 | 317 | 320 | 323 | 326 | 329 | 332 | 335 | 338 | 350
+        | 362 | 365 | 368 | 371 | 374 | 377 => Some(73),
+        200 | 386 | 389 | 392 | 395 => Some(95),
+        _ => None,
+    }
+}
+
 #[tauri::command]
 pub async fn check_weather(city: Option<String>) -> Result<WeatherInfo, String> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -250,25 +269,48 @@ pub async fn check_weather(city: Option<String>) -> Result<WeatherInfo, String> 
 
         let is_auto = query_city.eq_ignore_ascii_case("auto");
         let lower_city = query_city.to_lowercase();
-        let (lat, lon, city_label) = if lower_city.contains("danang") || lower_city.contains("da+nang") || lower_city.contains("đà+nẵng") {
-            (16.0544, 108.2022, "Đà Nẵng")
-        } else if lower_city.contains("ho+chi+minh") || lower_city.contains("saigon") || lower_city.contains("hcm") || lower_city.contains("hồ+chí+minh") {
-            (10.8231, 106.6297, "TP. Hồ Chí Minh")
+        let (mut lat, mut lon, mut city_label, matched_preset) = if lower_city.contains("danang")
+            || lower_city.contains("da+nang")
+            || lower_city.contains("đà+nẵng")
+        {
+            (16.0544, 108.2022, "Đà Nẵng".to_string(), true)
+        } else if lower_city.contains("ho+chi+minh")
+            || lower_city.contains("saigon")
+            || lower_city.contains("hcm")
+            || lower_city.contains("hồ+chí+minh")
+        {
+            (10.8231, 106.6297, "TP. Hồ Chí Minh".to_string(), true)
         } else if lower_city.contains("hai+phong") || lower_city.contains("hải+phòng") {
-            (20.8449, 106.6881, "Hải Phòng")
+            (20.8449, 106.6881, "Hải Phòng".to_string(), true)
         } else if lower_city.contains("can+tho") || lower_city.contains("cần+thơ") {
-            (10.0452, 105.7469, "Cần Thơ")
+            (10.0452, 105.7469, "Cần Thơ".to_string(), true)
         } else if lower_city.contains("nha+trang") {
-            (12.2388, 109.1967, "Nha Trang")
+            (12.2388, 109.1967, "Nha Trang".to_string(), true)
         } else if lower_city.contains("hue") || lower_city.contains("huế") {
-            (16.4637, 107.5909, "Huế")
+            (16.4637, 107.5909, "Huế".to_string(), true)
         } else if lower_city.contains("da+lat") || lower_city.contains("đà+lạt") {
-            (11.9404, 108.4583, "Đà Lạt")
+            (11.9404, 108.4583, "Đà Lạt".to_string(), true)
+        } else if lower_city.contains("vung+tau") || lower_city.contains("vũng+tàu") {
+            (10.3460, 107.0843, "Vũng Tàu".to_string(), true)
+        } else if lower_city.contains("sapa") || lower_city.contains("sa+pa") {
+            (22.3364, 103.8438, "Sa Pa".to_string(), true)
+        } else if lower_city.contains("quy+nhon") || lower_city.contains("quy+nhơn") {
+            (13.7830, 109.2197, "Quy Nhơn".to_string(), true)
+        } else if lower_city.contains("vinh") {
+            (18.6796, 105.6813, "Vinh".to_string(), true)
+        } else if lower_city.contains("phu+quoc") || lower_city.contains("phú+quốc") {
+            (10.2899, 103.9840, "Phú Quốc".to_string(), true)
+        } else if lower_city.contains("ha+long") || lower_city.contains("hạ+long") {
+            (20.9599, 107.0425, "Hạ Long".to_string(), true)
+        } else if lower_city.contains("bien+hoa") || lower_city.contains("biên+hòa") {
+            (10.9574, 106.8427, "Biên Hòa".to_string(), true)
+        } else if is_auto || lower_city.contains("hanoi") || lower_city.contains("ha+noi") || lower_city.contains("hà+nội") {
+            (21.0285, 105.8542, "Hà Nội".to_string(), true)
         } else {
-            (21.0285, 105.8542, "Hà Nội")
+            (21.0285, 105.8542, "Hà Nội".to_string(), false)
         };
 
-        // Thử nhanh wttr.in với timeout 4s (nếu "auto" thì để wttr.in tự định vị IP)
+        // Thử nhanh wttr.in với timeout 3s (nếu "auto" thì để wttr.in tự định vị IP)
         let wttr_url = if is_auto {
             "https://wttr.in/?format=j1&lang=vi".to_string()
         } else {
@@ -299,6 +341,10 @@ pub async fn check_weather(city: Option<String>) -> Result<WeatherInfo, String> 
                             .as_str()
                             .and_then(|s| s.parse::<f64>().ok())
                             .unwrap_or(0.0);
+                        let weather_code = cond["weatherCode"]
+                            .as_str()
+                            .and_then(|s| s.parse::<i64>().ok())
+                            .and_then(wwo_code_to_wmo);
                         let desc = cond["lang_vi"]
                             .get(0)
                             .and_then(|d| d["value"].as_str())
@@ -306,12 +352,32 @@ pub async fn check_weather(city: Option<String>) -> Result<WeatherInfo, String> 
                             .unwrap_or("Ổn định")
                             .trim()
                             .to_string();
-                        let area = v["nearest_area"]
-                            .get(0)
-                            .and_then(|a| a["areaName"].get(0))
-                            .and_then(|n| n["value"].as_str())
-                            .unwrap_or(city_label)
-                            .to_string();
+                        let area = if is_auto {
+                            let region_val = v["nearest_area"]
+                                .get(0)
+                                .and_then(|a| a["region"].get(0))
+                                .and_then(|n| n["value"].as_str())
+                                .unwrap_or("")
+                                .trim();
+                            let area_val = v["nearest_area"]
+                                .get(0)
+                                .and_then(|a| a["areaName"].get(0))
+                                .and_then(|n| n["value"].as_str())
+                                .unwrap_or("")
+                                .trim();
+                            let picked = if !region_val.is_empty() { region_val } else { area_val };
+                            if picked.eq_ignore_ascii_case("Ha Noi") || picked.eq_ignore_ascii_case("Hanoi") {
+                                "Hà Nội".to_string()
+                            } else if picked.to_ascii_lowercase().contains("ho chi minh") {
+                                "TP. Hồ Chí Minh".to_string()
+                            } else if !picked.is_empty() {
+                                picked.to_string()
+                            } else {
+                                city_label.clone()
+                            }
+                        } else {
+                            city_label.clone()
+                        };
 
                         return Ok(WeatherInfo {
                             location: area,
@@ -320,15 +386,45 @@ pub async fn check_weather(city: Option<String>) -> Result<WeatherInfo, String> 
                             humidity_pct,
                             wind_kmh,
                             description: desc,
+                            weather_code,
+                            is_day: None,
                         });
                     }
                 }
             }
         }
 
-        // Nguồn dự phòng Open-Meteo REST API
+        // Open-Meteo Geocoding fallback cho thành phố ngoài danh sách preset
+        if !is_auto && !matched_preset {
+            let geo_url = format!(
+                "https://geocoding-api.open-meteo.com/v1/search?name={query_city}&count=1&language=vi"
+            );
+            let mut geo_cmd = Command::new("curl.exe");
+            geo_cmd.args(["-s", "-m", "3", &geo_url]);
+            apply_no_window(&mut geo_cmd);
+            if let Ok(gout) = geo_cmd.output() {
+                if gout.status.success() {
+                    let gtxt = String::from_utf8_lossy(&gout.stdout);
+                    if let Ok(gv) = serde_json::from_str::<serde_json::Value>(gtxt.trim()) {
+                        if let Some(first) = gv["results"].get(0) {
+                            if let (Some(glat), Some(glon)) =
+                                (first["latitude"].as_f64(), first["longitude"].as_f64())
+                            {
+                                lat = glat;
+                                lon = glon;
+                                if let Some(gname) = first["name"].as_str() {
+                                    city_label = gname.to_string();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Nguồn dự phòng Open-Meteo REST API (lấy cả weather_code & is_day theo giờ địa phương)
         let om_url = format!(
-            "https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,wind_speed_10m,weather_code"
+            "https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,wind_speed_10m,weather_code,is_day"
         );
         let mut om_cmd = Command::new("curl.exe");
         om_cmd.args(["-s", "-m", "4", &om_url]);
@@ -344,29 +440,26 @@ pub async fn check_weather(city: Option<String>) -> Result<WeatherInfo, String> 
                         let humidity_pct = cur["relative_humidity_2m"].as_u64().unwrap_or(60);
                         let wind_kmh = cur["wind_speed_10m"].as_f64().unwrap_or(5.0);
                         let code = cur["weather_code"].as_i64().unwrap_or(-1);
+                        let is_day = cur["is_day"].as_i64().map(|d| d == 1);
 
                         return Ok(WeatherInfo {
-                            location: city_label.to_string(),
+                            location: city_label.clone(),
                             temp_c,
                             feels_like_c,
                             humidity_pct,
                             wind_kmh,
                             description: wmo_code_to_vi(code).to_string(),
+                            weather_code: if code >= 0 { Some(code) } else { None },
+                            is_day,
                         });
                     }
                 }
             }
         }
 
-        // Dữ liệu dự phòng khi ngoại tuyến
-        Ok(WeatherInfo {
-            location: city_label.to_string(),
-            temp_c: 24.5,
-            feels_like_c: 24.5,
-            humidity_pct: 68,
-            wind_kmh: 8.0,
-            description: "Trời dịu mát (ngoại tuyến)".to_string(),
-        })
+        Err(format!(
+            "Không thể lấy dữ liệu thời tiết thực tế cho '{city_label}'. Hãy kiểm tra kết nối mạng."
+        ))
     })
     .await
     .map_err(|e| format!("Lỗi tác vụ nền: {e}"))?
@@ -995,30 +1088,244 @@ pub async fn fetch_live_news(source: String) -> Result<Vec<NewsArticleItem>, Str
     .map_err(|e| format!("Lỗi tác vụ đọc tin: {e}"))?
 }
 
-fn translate_en_to_vi_live(text: &str) -> Option<String> {
+fn curl_json_get(base_url: &str, params: &[(&str, &str)], timeout_secs: u32) -> Option<String> {
+    let mut cmd = Command::new("curl.exe");
+    let timeout_str = timeout_secs.to_string();
+    cmd.args([
+        "-s",
+        "-L",
+        "-m",
+        &timeout_str,
+        "-A",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+        "-H",
+        "Accept: application/json, text/plain, */*",
+        "-G",
+        base_url,
+    ]);
+    for (k, v) in params {
+        cmd.arg("--data-urlencode");
+        cmd.arg(format!("{k}={v}"));
+    }
+    apply_no_window(&mut cmd);
+    let out = cmd.output().ok()?;
+    if !out.status.success() && out.stdout.is_empty() {
+        return None;
+    }
+    let body = String::from_utf8_lossy(&out.stdout).to_string();
+    if body.trim().is_empty() {
+        None
+    } else {
+        Some(body)
+    }
+}
+
+pub fn is_valid_vi_translation(source_en: &str, candidate_vi: &str) -> bool {
+    let src = source_en.trim();
+    let cand = candidate_vi.trim();
+    if cand.is_empty() {
+        return false;
+    }
+    let upper = cand.to_uppercase();
+    if upper.contains("MYMEMORY WARNING")
+        || upper.contains("QUERY LENGTH LIMIT")
+        || upper.contains("PLEASE SELECT TWO DISTINCT LANGUAGES")
+        || upper.contains("NO QUERY SPECIFIED")
+    {
+        return false;
+    }
+    !cand.eq_ignore_ascii_case(src)
+}
+
+pub fn parse_google_translate_gtx_vi(
+    body: &str,
+    source_en: &str,
+    is_single_word: bool,
+) -> Option<String> {
+    let v: serde_json::Value = serde_json::from_str(body.trim()).ok()?;
+    let mut primary = String::new();
+    if let Some(segs) = v.get(0).and_then(|s| s.as_array()) {
+        for seg in segs {
+            if let Some(part) = seg.get(0).and_then(|p| p.as_str()) {
+                primary.push_str(part);
+            }
+        }
+    }
+    let primary_trimmed = primary.trim().to_string();
+
+    if is_single_word {
+        let mut glosses: Vec<String> = Vec::new();
+        let push_unique = |list: &mut Vec<String>, cand: &str| {
+            let t = cand.trim();
+            if t.is_empty() || !is_valid_vi_translation(source_en, t) {
+                return;
+            }
+            if !list.iter().any(|x| x.eq_ignore_ascii_case(t)) {
+                list.push(t.to_string());
+            }
+        };
+
+        if !primary_trimmed.is_empty() {
+            push_unique(&mut glosses, &primary_trimmed);
+        }
+
+        if let Some(dict_arr) = v.get(1).and_then(|d| d.as_array()) {
+            for entry in dict_arr {
+                if let Some(terms) = entry.get(1).and_then(|t| t.as_array()) {
+                    for term in terms {
+                        if let Some(t) = term.as_str() {
+                            push_unique(&mut glosses, t);
+                            if glosses.len() >= 3 {
+                                break;
+                            }
+                        }
+                    }
+                }
+                if glosses.len() >= 3 {
+                    break;
+                }
+            }
+        }
+
+        if !glosses.is_empty() {
+            return Some(glosses.join(", "));
+        }
+    }
+
+    if is_valid_vi_translation(source_en, &primary_trimmed) {
+        Some(primary_trimmed)
+    } else {
+        None
+    }
+}
+
+pub fn parse_google_clients5_vi(body: &str, source_en: &str) -> Option<String> {
+    let v: serde_json::Value = serde_json::from_str(body.trim()).ok()?;
+    let mut candidate = String::new();
+    if let Some(arr) = v.as_array() {
+        if let Some(first) = arr.first() {
+            if let Some(s) = first.as_str() {
+                candidate = s.to_string();
+            } else if let Some(inner) = first.as_array() {
+                if let Some(s) = inner.first().and_then(|x| x.as_str()) {
+                    candidate = s.to_string();
+                }
+            }
+        }
+    } else if let Some(sents) = v.get("sentences").and_then(|s| s.as_array()) {
+        for s in sents {
+            if let Some(tr) = s.get("trans").and_then(|x| x.as_str()) {
+                candidate.push_str(tr);
+            }
+        }
+    }
+    let out = candidate.trim().to_string();
+    if is_valid_vi_translation(source_en, &out) {
+        Some(out)
+    } else {
+        None
+    }
+}
+
+pub fn parse_mymemory_vi(body: &str, source_en: &str) -> Option<String> {
+    let v: serde_json::Value = serde_json::from_str(body.trim()).ok()?;
+    if let Some(status) = v.get("responseStatus").and_then(|s| s.as_i64()) {
+        if status == 429 || status == 403 {
+            return None;
+        }
+    }
+    let txt = v
+        .get("responseData")
+        .and_then(|d| d.get("translatedText"))
+        .and_then(|t| t.as_str())?
+        .trim()
+        .to_string();
+    if is_valid_vi_translation(source_en, &txt) {
+        Some(txt)
+    } else {
+        None
+    }
+}
+
+pub fn format_english_meaning_vi(
+    picked_word: &str,
+    word_vi: Option<String>,
+    def_vi: Option<String>,
+) -> String {
+    let w_clean = word_vi
+        .map(|s| s.trim().to_string())
+        .filter(|s| is_valid_vi_translation(picked_word, s));
+    let d_clean = def_vi
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case(picked_word));
+
+    match (w_clean, d_clean) {
+        (Some(w), Some(d)) => {
+            if w.eq_ignore_ascii_case(&d) {
+                w
+            } else {
+                format!("{w} - {d}")
+            }
+        }
+        (Some(w), None) => w,
+        (None, Some(d)) => d,
+        (None, None) => String::new(),
+    }
+}
+
+fn translate_en_to_vi_live(text: &str, is_single_word: bool) -> Option<String> {
     let clean = text.trim();
     if clean.is_empty() {
         return None;
     }
-    let encoded = url_encode_component(clean);
-    let url = format!(
-        "https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=vi&dt=t&q={encoded}"
-    );
-    let body = fetch_url_utf8(&url, 5).ok()?;
-    let v: serde_json::Value = serde_json::from_str(body.trim()).ok()?;
-    let segs = v.get(0)?.as_array()?;
-    let mut joined = String::new();
-    for seg in segs {
-        if let Some(part) = seg.get(0).and_then(|p| p.as_str()) {
-            joined.push_str(part);
+
+    // Engine 1: Google Translate (dt=t + dt=bd for richer dictionary glosses)
+    if let Some(body) = curl_json_get(
+        "https://translate.googleapis.com/translate_a/single",
+        &[
+            ("client", "gtx"),
+            ("sl", "en"),
+            ("tl", "vi"),
+            ("dt", "t"),
+            ("dt", "bd"),
+            ("q", clean),
+        ],
+        8,
+    ) {
+        if let Some(res) = parse_google_translate_gtx_vi(&body, clean, is_single_word) {
+            return Some(res);
         }
     }
-    let out = joined.trim().to_string();
-    if out.is_empty() {
-        None
-    } else {
-        Some(out)
+
+    // Engine 2: Google Translate Chrome Extension endpoint
+    if let Some(body) = curl_json_get(
+        "https://clients5.google.com/translate_a/t",
+        &[
+            ("client", "dict-chrome-ex"),
+            ("sl", "en"),
+            ("tl", "vi"),
+            ("q", clean),
+        ],
+        8,
+    ) {
+        if let Some(res) = parse_google_clients5_vi(&body, clean) {
+            return Some(res);
+        }
     }
+
+    // Engine 3: MyMemory free translation fallback
+    let short_mm: String = clean.chars().take(450).collect();
+    if let Some(body) = curl_json_get(
+        "https://api.mymemory.translated.net/get",
+        &[("q", &short_mm), ("langpair", "en|vi")],
+        8,
+    ) {
+        if let Some(res) = parse_mymemory_vi(&body, clean) {
+            return Some(res);
+        }
+    }
+
+    None
 }
 
 #[tauri::command]
@@ -1285,15 +1592,10 @@ pub async fn fetch_real_english_lesson(
             );
         }
 
-        let word_vi = translate_en_to_vi_live(&picked_word).unwrap_or_else(|| picked_word.clone());
-        let def_vi = translate_en_to_vi_live(&definition_en).unwrap_or_else(|| definition_en.clone());
-        let meaning_vi = if word_vi.eq_ignore_ascii_case(&def_vi) {
-            word_vi
-        } else {
-            format!("{word_vi} - {def_vi}")
-        };
-        let example_vi = translate_en_to_vi_live(&example_en)
-            .unwrap_or_else(|| "(Chưa dịch được câu ví dụ)".to_string());
+        let word_vi = translate_en_to_vi_live(&picked_word, true);
+        let def_vi = translate_en_to_vi_live(&definition_en, false);
+        let meaning_vi = format_english_meaning_vi(&picked_word, word_vi, def_vi);
+        let example_vi = translate_en_to_vi_live(&example_en, false).unwrap_or_default();
 
         Ok(EnglishVocabItem {
             word: picked_word,

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { appState } from '../../core/state';
 import {
   setRigRoot,
@@ -20,6 +21,94 @@ import {
 } from '../rigState';
 import { resetFaceCanvas } from '../animeIdol/animeFace';
 import { reattachActiveAccessory } from '../accessories3d';
+
+function mergeStaticMeshesInGroup(
+  group: THREE.Group,
+  excludeNodes: Set<THREE.Object3D>
+) {
+  group.updateMatrixWorld(true);
+  const invGroupMat = group.matrixWorld.clone().invert();
+  const relMat = new THREE.Matrix4();
+
+  const buckets = new Map<THREE.Material, THREE.Mesh[]>();
+  const collect = (obj: THREE.Object3D) => {
+    if (obj !== group && excludeNodes.has(obj)) return;
+    if (obj instanceof THREE.Mesh && !Array.isArray(obj.material)) {
+      const list = buckets.get(obj.material) || [];
+      list.push(obj);
+      buckets.set(obj.material, list);
+    }
+    for (const child of obj.children) {
+      collect(child);
+    }
+  };
+  collect(group);
+
+  const candidateGeosToDispose = new Set<THREE.BufferGeometry>();
+
+  for (const [mat, meshes] of buckets.entries()) {
+    if (meshes.length < 2) continue;
+
+    const normalizedGeos: THREE.BufferGeometry[] = [];
+    for (const m of meshes) {
+      relMat.multiplyMatrices(invGroupMat, m.matrixWorld);
+      const g = m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone();
+      g.applyMatrix4(relMat);
+      if (!g.getAttribute('normal')) {
+        g.computeVertexNormals();
+      }
+      for (const attrName of Object.keys(g.attributes)) {
+        if (attrName !== 'position' && attrName !== 'normal') {
+          g.deleteAttribute(attrName);
+        }
+      }
+      normalizedGeos.push(g);
+    }
+
+    const merged = mergeGeometries(normalizedGeos, false);
+    normalizedGeos.forEach((g) => g.dispose());
+    if (!merged) continue;
+
+    for (const m of meshes) {
+      if (m.children.length > 0) {
+        for (const ch of [...m.children]) {
+          group.attach(ch);
+        }
+      }
+      m.parent?.remove(m);
+      candidateGeosToDispose.add(m.geometry);
+    }
+
+    group.add(new THREE.Mesh(merged, mat));
+  }
+
+  const pruneEmptyGroups = (obj: THREE.Object3D) => {
+    for (const ch of [...obj.children]) {
+      pruneEmptyGroups(ch);
+    }
+    if (
+      obj !== group &&
+      !excludeNodes.has(obj) &&
+      !(obj instanceof THREE.Mesh) &&
+      obj.children.length === 0
+    ) {
+      obj.parent?.remove(obj);
+    }
+  };
+  pruneEmptyGroups(group);
+
+  const activeGeos = new Set<THREE.BufferGeometry>();
+  group.traverse((obj) => {
+    if (obj instanceof THREE.Mesh) {
+      activeGeos.add(obj.geometry);
+    }
+  });
+  for (const geo of candidateGeosToDispose) {
+    if (!activeGeos.has(geo)) {
+      geo.dispose();
+    }
+  }
+}
 
 /** Dựng cây khung 3D MicroDuck dùng chung cho nhân vật chính và bản sao (đổi màu, không kèm rig/hiệu ứng phụ) */
 function buildMicroDuckHierarchy(
@@ -585,6 +674,33 @@ function buildMicroDuckHierarchy(
     setRigRightShin(rightLeg.knee);
   }
   hips.add(leftLeg.hip, rightLeg.hip);
+
+  const excludeNodes = new Set<THREE.Object3D>([
+    torso,
+    neck,
+    head,
+    upperBeak,
+    lowerBeak,
+    leftArm,
+    rightArm,
+    leftLeg.hip,
+    rightLeg.hip,
+    leftLeg.knee,
+    rightLeg.knee,
+    ...localFeet,
+    ...localFootRollers,
+    ...localWheels,
+  ]);
+  root.updateMatrixWorld(true);
+  mergeStaticMeshesInGroup(hips, excludeNodes);
+  mergeStaticMeshesInGroup(torso, excludeNodes);
+  mergeStaticMeshesInGroup(neck, excludeNodes);
+  mergeStaticMeshesInGroup(head, excludeNodes);
+  mergeStaticMeshesInGroup(leftLeg.hip, excludeNodes);
+  mergeStaticMeshesInGroup(rightLeg.hip, excludeNodes);
+  for (const foot of localFeet) {
+    mergeStaticMeshesInGroup(foot, excludeNodes);
+  }
 
   return { root, legL: leftLeg.hip, legR: rightLeg.hip };
 }

@@ -219,9 +219,13 @@ export const p2pArenaModalHtml = `
     <!-- PHẦN 3: BẢNG ĐIỀU KHIỂN MÁY THUA TRONG 60 GIÂY (WINNER CONTROL DECK) -->
     <div id="p2p-remote-control-box" class="studio-section" style="display: none; border-color: rgba(250, 204, 21, 0.55); background: rgba(67, 20, 7, 0.25); margin-bottom: 0;">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-        <span class="studio-section-title" style="margin: 0; color: #fde047;">[WINNER] Điều Khiển Chuột &amp; Phím Máy Thua</span>
+        <span class="studio-section-title" style="margin: 0; color: #fde047;">[WINNER] Điều Khiển Máy Thua (UltraViewer)</span>
         <span id="p2p-winner-countdown" class="badge" style="background: rgba(250, 204, 21, 0.24); color: #fef08a; border-color: rgba(250, 204, 21, 0.65);">60s</span>
       </div>
+
+      <button id="btn-p2p-open-ultraview" class="studio-btn-primary" type="button" style="width: 100%; margin-bottom: 8px; background: linear-gradient(135deg, #0284c7, #2563eb); border: 1px solid rgba(56, 189, 248, 0.55);">
+        Mở Màn Hình UltraViewer Live (Tương Tác Trực Tiếp)
+      </button>
 
       <label style="display: flex; align-items: center; gap: 6px; font-size: 10.5px; color: #fde68a; margin-bottom: 6px; cursor: pointer;">
         <input id="p2p-chk-livemouse" type="checkbox" checked />
@@ -229,6 +233,7 @@ export const p2pArenaModalHtml = `
       </label>
 
       <div id="p2p-remote-touchpad" class="p2p-remote-touchpad" title="Rê chuột để di chuyển con trỏ máy đối thủ; Click Trái/Phải để click từ xa">
+        <img id="p2p-touchpad-live-img" class="p2p-touchpad-live-img" alt="Remote Preview" style="display: none;" />
         <div class="p2p-touchpad-hint">Rê hoặc Click vào màn hình thu nhỏ này để điều khiển chuột máy thua</div>
         <div id="p2p-touchpad-cursor" class="p2p-touchpad-cursor"></div>
       </div>
@@ -243,6 +248,59 @@ export const p2pArenaModalHtml = `
         <button id="btn-p2p-cmd-jitter" class="action-btn" type="button">Xoay Chuột 4s</button>
         <button id="btn-p2p-cmd-minimize" class="action-btn" type="button">Thu Nhỏ Màn (Win+D)</button>
         <button id="btn-p2p-cmd-block" class="action-btn" type="button" style="background: rgba(239, 68, 68, 0.24); border-color: rgba(248, 113, 113, 0.55); color: #fecaca;">Khóa Phím/Chuột 8s</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- CỬA SỔ ULTRAVIEWER P2P TRỰC TIẾP 60 GIÂY CHO NGƯỜI THẮNG -->
+  <div id="p2p-ultraview-modal" class="glass-panel" style="display: none;">
+    <div class="p2p-uv-topbar">
+      <div class="p2p-uv-title-group">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+          <line x1="8" y1="21" x2="16" y2="21"></line>
+          <line x1="12" y1="17" x2="12" y2="21"></line>
+        </svg>
+        <span class="p2p-uv-title">UltraViewer P2P Live</span>
+        <span id="p2p-uv-peer-name" class="badge" style="background: rgba(56, 189, 248, 0.16); color: #7dd3fc; border-color: rgba(56, 189, 248, 0.4);">Máy Thua</span>
+        <span id="p2p-uv-fps-badge" class="badge" style="background: rgba(16, 185, 129, 0.16); color: #6ee7b7; border-color: rgba(52, 211, 153, 0.35);">[CONNECTING...]</span>
+        <span id="p2p-uv-countdown" class="badge" style="background: rgba(250, 204, 21, 0.24); color: #fef08a; border-color: rgba(250, 204, 21, 0.65); font-weight: 800;">60s</span>
+      </div>
+      <div class="p2p-uv-controls-group">
+        <label class="p2p-uv-chk"><input id="p2p-uv-chk-mouse" type="checkbox" checked /><span>Chuột Trực Tiếp</span></label>
+        <label class="p2p-uv-chk"><input id="p2p-uv-chk-kbd" type="checkbox" checked /><span>Gửi Bàn Phím</span></label>
+        <label id="p2p-uv-sim-exec-wrap" class="p2p-uv-chk" style="display: none; color: #fda4af;"><input id="p2p-uv-chk-sim-exec" type="checkbox" /><span>Click Thật (Sim)</span></label>
+        <button id="btn-p2p-uv-size" class="action-btn" type="button" style="padding: 3px 8px; font-size: 10.5px;">Phóng To</button>
+        <button id="btn-p2p-uv-close" class="action-btn" type="button" style="padding: 3px 8px; font-size: 10.5px; border-color: rgba(248, 113, 113, 0.45); color: #fecaca;">Đóng Viewer</button>
+      </div>
+    </div>
+
+    <div id="p2p-uv-viewport" class="p2p-uv-viewport" tabindex="0" title="Click vào đây để điều khiển chuột & bàn phím sang máy thua">
+      <img id="p2p-uv-screen-img" class="p2p-uv-screen-img" alt="Remote Desktop Live Screen" draggable="false" style="display: none;" />
+      <div id="p2p-uv-placeholder" class="p2p-uv-placeholder">Đang kết nối luồng hình ảnh UltraViewer từ màn hình máy đối thủ...</div>
+      <div id="p2p-uv-cursor" class="p2p-uv-cursor"></div>
+      <div id="p2p-uv-focus-hint" class="p2p-uv-focus-hint">Rê/Click/Kéo/Cuộn chuột &amp; Gõ phím trực tiếp trên màn hình đối thủ</div>
+    </div>
+
+    <div class="p2p-uv-toolbar">
+      <div class="p2p-uv-hotkey-row">
+        <button class="action-btn p2p-uv-hk-btn" type="button" data-uv-hotkey="win_d">Win+D</button>
+        <button class="action-btn p2p-uv-hk-btn" type="button" data-uv-hotkey="alt_tab">Alt+Tab</button>
+        <button class="action-btn p2p-uv-hk-btn" type="button" data-uv-hotkey="win_e">Explorer</button>
+        <button class="action-btn p2p-uv-hk-btn" type="button" data-uv-hotkey="task_mgr">Task Mgr</button>
+        <button class="action-btn p2p-uv-hk-btn" type="button" data-uv-hotkey="ctrl_c">Ctrl+C</button>
+        <button class="action-btn p2p-uv-hk-btn" type="button" data-uv-hotkey="ctrl_v">Ctrl+V</button>
+        <button class="action-btn p2p-uv-hk-btn" type="button" data-uv-hotkey="enter">Enter</button>
+        <button class="action-btn p2p-uv-hk-btn" type="button" data-uv-hotkey="backspace">Backspace</button>
+        <button class="action-btn p2p-uv-hk-btn" type="button" data-uv-hotkey="escape">Esc</button>
+        <span class="p2p-ctrl-divider"></span>
+        <button id="btn-p2p-uv-notepad" class="action-btn p2p-uv-hk-btn" type="button">Notepad Trêu</button>
+        <button id="btn-p2p-uv-jitter" class="action-btn p2p-uv-hk-btn" type="button">Xoay Chuột 4s</button>
+        <button id="btn-p2p-uv-block" class="action-btn p2p-uv-hk-btn" type="button" style="border-color: rgba(248, 113, 113, 0.55); color: #fecaca;">Khóa Input 8s</button>
+      </div>
+      <div class="url-row" style="margin: 0;">
+        <input id="p2p-uv-text-input" class="studio-input" type="text" placeholder="Gửi nhanh 1 đoạn văn bản gõ sang máy đối thủ rồi nhấn Gửi..." />
+        <button id="btn-p2p-uv-send-text" class="studio-btn-primary" type="button" style="padding: 4px 12px; font-size: 11px;">Gửi Văn Bản</button>
       </div>
     </div>
   </div>

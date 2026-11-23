@@ -360,12 +360,12 @@ function ensureWeatherProps(mode: string) {
 
   const group = new THREE.Group();
   const s = 1.0;
-  const skyY = 232;
+  const skyY = 200;
 
   if (mode === 'rain') {
-    const stormCloud = buildCloudCluster(0x475569, 1.12 * s);
-    stormCloud.position.set(-14 * s, skyY, -4);
-    stormCloud.userData.baseY = skyY;
+    const stormCloud = buildCloudCluster(0x475569, 1.05 * s);
+    stormCloud.position.set(0, skyY + 4, -4);
+    stormCloud.userData.baseY = skyY + 4;
     stormCloud.name = 'cloudFloat';
     group.add(stormCloud);
 
@@ -374,45 +374,54 @@ function ensureWeatherProps(mode: string) {
     lightning.name = 'lightning';
     const b1 = new THREE.Mesh(new THREE.BoxGeometry(5 * s, 16 * s, 3 * s), boltMat);
     b1.rotation.z = -0.35;
-    b1.position.set(-14 * s, skyY - 18 * s, -3);
+    b1.position.set(-4 * s, skyY - 14 * s, -3);
     const b2 = new THREE.Mesh(new THREE.BoxGeometry(4 * s, 15 * s, 3 * s), boltMat);
     b2.rotation.z = 0.45;
-    b2.position.set(-17 * s, skyY - 30 * s, -3);
+    b2.position.set(-7 * s, skyY - 26 * s, -3);
     lightning.add(b1, b2);
     group.add(lightning);
   } else if (mode === 'hot') {
     const sunGroup = new THREE.Group();
     sunGroup.name = 'sunGroup';
-    sunGroup.position.set(38 * s, skyY, -6);
+    sunGroup.position.set(34 * s, skyY - 2, -6);
 
     const sunMat = new THREE.MeshStandardMaterial({
       color: 0xfbbf24,
       emissive: 0xf97316,
-      emissiveIntensity: 0.85,
+      emissiveIntensity: 0.9,
       roughness: 0.25,
     });
-    const core = new THREE.Mesh(new THREE.SphereGeometry(15 * s, 20, 16), sunMat);
+    const core = new THREE.Mesh(new THREE.SphereGeometry(16 * s, 20, 16), sunMat);
     sunGroup.add(core);
 
     const glowRing = new THREE.Mesh(
-      new THREE.RingGeometry(18 * s, 22 * s, 24),
+      new THREE.RingGeometry(19 * s, 23 * s, 24),
       new THREE.MeshBasicMaterial({
         color: 0xfde047,
         side: THREE.DoubleSide,
         transparent: true,
-        opacity: 0.55,
+        opacity: 0.62,
       })
     );
-    sunGroup.add(glowRing);
+    const outerRing = new THREE.Mesh(
+      new THREE.RingGeometry(25 * s, 28 * s, 24),
+      new THREE.MeshBasicMaterial({
+        color: 0xf97316,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.35,
+      })
+    );
+    sunGroup.add(glowRing, outerRing);
 
     const rays = new THREE.Group();
     rays.name = 'sunRays';
-    const rayGeo = new THREE.ConeGeometry(2.6 * s, 8.5 * s, 6);
+    const rayGeo = new THREE.ConeGeometry(2.6 * s, 9 * s, 6);
     const rayMat = new THREE.MeshBasicMaterial({ color: 0xfacc15 });
     for (let i = 0; i < 8; i++) {
       const ang = (i / 8) * Math.PI * 2;
       const r = new THREE.Mesh(rayGeo, rayMat);
-      r.position.set(Math.cos(ang) * 24 * s, Math.sin(ang) * 24 * s, 0);
+      r.position.set(Math.cos(ang) * 25 * s, Math.sin(ang) * 25 * s, 0);
       r.rotation.z = ang - Math.PI / 2;
       rays.add(r);
     }
@@ -420,8 +429,8 @@ function ensureWeatherProps(mode: string) {
     group.add(sunGroup);
   } else if (mode === 'cold') {
     // 1. Đám mây tuyết đồng bộ chiều cao skyY
-    const snowCloud = buildCloudCluster(0xe2e8f0, 1.05 * s);
-    snowCloud.position.set(-14 * s, skyY, -4);
+    const snowCloud = buildCloudCluster(0xe2e8f0, 1.02 * s);
+    snowCloud.position.set(-10 * s, skyY, -4);
     snowCloud.userData.baseY = skyY;
     snowCloud.name = 'cloudFloat';
     group.add(snowCloud);
@@ -429,7 +438,7 @@ function ensureWeatherProps(mode: string) {
     // 2. Người Tuyết 3D đứng trên mặt đất bên cạnh vịt
     const snowman = new THREE.Group();
     snowman.name = 'snowman';
-    snowman.position.set(-66 * s, 0, -4);
+    snowman.position.set(-62 * s, 0, -4);
     const snowMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.85 });
     const coalMat = new THREE.MeshBasicMaterial({ color: 0x0f172a });
     const carrotMat = new THREE.MeshStandardMaterial({ color: 0xf97316, roughness: 0.4 });
@@ -473,27 +482,27 @@ function ensureWeatherProps(mode: string) {
     snowman.add(bodyLower, bodyHead, scarf, btn1, btn2, armL, armR, nose, eyeL, eyeR, hatBrim, hatTop);
     group.add(snowman);
   } else if (mode === 'wind') {
-    // Cơn lốc gió xoáy 3D cân tâm tại chiều cao skyY
+    // Cơn lốc gió xoáy 3D ngang tầm thân Vịt
     const vortex = new THREE.Group();
     vortex.name = 'windVortex';
-    vortex.position.set(38 * s, skyY, -4);
+    vortex.position.set(-56 * s, 94 * s, -4);
     const windMat = new THREE.MeshBasicMaterial({
       color: 0xbae6fd,
       transparent: true,
       opacity: 0.78,
     });
     for (let i = 0; i < 6; i++) {
-      const radius = (5.5 + i * 3.4) * s;
-      const ring = new THREE.Mesh(new THREE.TorusGeometry(radius, 1.6 * s, 8, 22), windMat);
+      const radius = (5.0 + i * 3.1) * s;
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(radius, 1.5 * s, 8, 22), windMat);
       ring.rotation.x = Math.PI / 2 + 0.14;
       ring.position.set(Math.sin(i * 1.1) * 4 * s, (i - 2.5) * 9 * s, 0);
       vortex.add(ring);
     }
     group.add(vortex);
   } else if (mode === 'night') {
-    // Mặt trăng sáng + 2 ngôi sao nhỏ đồng bộ tại skyY
+    // Mặt trăng sáng + 5 ngôi sao rải đều đồng bộ quanh skyY
     const moon = new THREE.Mesh(
-      new THREE.SphereGeometry(15 * s, 18, 16),
+      new THREE.SphereGeometry(14.5 * s, 18, 16),
       new THREE.MeshStandardMaterial({
         color: 0xfef08a,
         emissive: 0xeab308,
@@ -501,11 +510,11 @@ function ensureWeatherProps(mode: string) {
         roughness: 0.4,
       })
     );
-    moon.position.set(38 * s, skyY, -6);
+    moon.position.set(34 * s, skyY - 2, -6);
     group.add(moon);
 
     const moonHalo = new THREE.Mesh(
-      new THREE.RingGeometry(18 * s, 22 * s, 24),
+      new THREE.RingGeometry(17.5 * s, 21.5 * s, 24),
       new THREE.MeshBasicMaterial({
         color: 0xfde047,
         side: THREE.DoubleSide,
@@ -513,58 +522,67 @@ function ensureWeatherProps(mode: string) {
         opacity: 0.38,
       })
     );
-    moonHalo.position.set(38 * s, skyY, -6);
+    moonHalo.position.set(34 * s, skyY - 2, -6);
     group.add(moonHalo);
 
     const stars = new THREE.Group();
     stars.name = 'nightStars';
     const starMat = new THREE.MeshBasicMaterial({ color: 0xfde047 });
     const starPts: Array<[number, number, number]> = [
-      [14, 238, -4],
-      [20, 222, -4],
+      [-36, 174, -4],
+      [-16, 198, -4],
+      [8, 210, -4],
+      [14, 172, -4],
+      [56, 206, -4],
     ];
     for (const [sx, sy, sz] of starPts) {
-      const st = new THREE.Mesh(new THREE.OctahedronGeometry(4.2 * s, 0), starMat);
+      const st = new THREE.Mesh(new THREE.OctahedronGeometry(3.8 * s, 0), starMat);
       st.position.set(sx * s, sy * s, sz);
       stars.add(st);
     }
     group.add(stars);
   } else {
-    // clear: 1 Mặt trời 3D dịu nhẹ đồng bộ chiều cao skyY
+    // clear: Mặt trời 3D dịu nhẹ + đám mây trắng đồng bộ tại skyY
+    const clearCloud = buildCloudCluster(0xf8fafc, 0.78 * s);
+    clearCloud.position.set(-22 * s, skyY - 4, -4);
+    clearCloud.userData.baseY = skyY - 4;
+    clearCloud.name = 'cloudFloat';
+    group.add(clearCloud);
+
     const clearSun = new THREE.Group();
     clearSun.name = 'sunGroup';
-    clearSun.position.set(38 * s, skyY, -6);
+    clearSun.position.set(34 * s, skyY - 2, -6);
 
     const clearSunCore = new THREE.Mesh(
-      new THREE.SphereGeometry(14 * s, 18, 14),
+      new THREE.SphereGeometry(13.5 * s, 18, 14),
       new THREE.MeshStandardMaterial({
         color: 0xfde047,
         emissive: 0xf59e0b,
-        emissiveIntensity: 0.6,
+        emissiveIntensity: 0.55,
         roughness: 0.3,
       })
     );
     clearSun.add(clearSunCore);
 
     const clearGlow = new THREE.Mesh(
-      new THREE.RingGeometry(17 * s, 21 * s, 24),
+      new THREE.RingGeometry(16.5 * s, 20 * s, 24),
       new THREE.MeshBasicMaterial({
         color: 0xfef08a,
         side: THREE.DoubleSide,
         transparent: true,
-        opacity: 0.45,
+        opacity: 0.42,
       })
     );
     clearSun.add(clearGlow);
 
     const clearRays = new THREE.Group();
     clearRays.name = 'sunRays';
-    const cRayGeo = new THREE.ConeGeometry(2.6 * s, 8.5 * s, 6);
+    const cRayGeo = new THREE.ConeGeometry(2.4 * s, 8.0 * s, 6);
     const cRayMat = new THREE.MeshBasicMaterial({ color: 0xfacc15 });
     for (let i = 0; i < 8; i++) {
       const ang = (i / 8) * Math.PI * 2;
       const r = new THREE.Mesh(cRayGeo, cRayMat);
-      r.position.set(Math.cos(ang) * 23 * s, Math.sin(ang) * 23 * s, 0);
+      r.position.set(Math.cos(ang) * 22 * s, Math.sin(ang) * 22 * s, 0);
       r.rotation.z = ang - Math.PI / 2;
       clearRays.add(r);
     }
@@ -1517,6 +1535,7 @@ export function triggerRandomSpecial3DEffect(
 
 export function updateParticles(delta: number) {
   const s = appState.modelScale || 1.0;
+  const step = delta * 60;
 
   for (let i = particles.length - 1; i >= 0; i--) {
     const p = particles[i];
@@ -1527,9 +1546,9 @@ export function updateParticles(delta: number) {
       continue;
     }
     const progress = p.life / p.maxLife;
-    p.mesh.position.x += p.vx;
-    p.mesh.position.y += p.vy;
-    p.mesh.position.z += p.vz;
+    p.mesh.position.x += p.vx * step;
+    p.mesh.position.y += p.vy * step;
+    p.mesh.position.z += p.vz * step;
     p.mesh.rotation.y += delta * 6;
     p.mesh.rotation.x += delta * 4;
     p.mesh.scale.setScalar((p.baseScale ?? 1.0) * (1 - progress * 0.7));
@@ -1812,7 +1831,7 @@ export function updateParticles(delta: number) {
       const tNow = performance.now() * 0.001;
       const { cloud, sunRays, lightning, snowman, vortex, stars } = weatherRefs;
       if (cloud) {
-        cloud.position.y = (cloud.userData.baseY ?? 232) + Math.sin(tNow * 2.2) * 3.5;
+        cloud.position.y = (cloud.userData.baseY ?? 200) + Math.sin(tNow * 2.2) * 3.5;
       }
       if (sunRays) {
         sunRays.rotation.z += delta * 1.4;
@@ -1843,57 +1862,57 @@ export function updateParticles(delta: number) {
   // Hiệu ứng hạt thời tiết 3D Live Weather Aura đồng bộ với chiều cao chuẩn skyY
   if (appState.weatherMode !== 'clear' && appState.state !== 'SWIMMING' && !isP2pSessionActive()) {
     const mode = appState.weatherMode;
-    const skyY = 232 * s;
+    const skyY = 200 * s;
     const prob = mode === 'rain' ? delta * 18 : mode === 'wind' ? delta * 14 : delta * 7;
     if (Math.random() < prob) {
       let colorHex = 0x38bdf8;
       let vx = (Math.random() - 0.5) * 0.6;
       let vy = -6.5;
-      let px = appState.posX + (Math.random() - 0.5) * 120 * s;
+      let px = appState.posX + (Math.random() - 0.5) * 110 * s;
       let py = appState.posY - skyY;
       let maxLife = 0.75;
       let scale = 0.75;
 
       if (mode === 'rain') {
         colorHex = Math.random() < 0.6 ? 0x38bdf8 : 0x7dd3fc;
-        vx = -0.6;
-        vy = -9.5;
-        px = appState.posX - 14 * s + (Math.random() - 0.5) * 58 * s;
-        py = appState.posY - (skyY - 8 * s);
-        maxLife = 0.62;
-        scale = 0.6;
+        vx = -0.65;
+        vy = -6.5;
+        px = appState.posX + (Math.random() - 0.5) * 64 * s;
+        py = appState.posY - (skyY - 4 * s);
+        maxLife = 0.52;
+        scale = 0.58;
       } else if (mode === 'hot') {
         colorHex = Math.random() < 0.5 ? 0xf97316 : 0xfacc15;
-        vx = (Math.random() - 0.5) * 1.1;
-        vy = (Math.random() - 0.5) * 1.2;
-        px = appState.posX + 38 * s + (Math.random() - 0.5) * 48 * s;
-        py = appState.posY - (skyY + (Math.random() - 0.5) * 20 * s);
-        maxLife = 0.75;
-        scale = 0.65;
+        vx = (Math.random() - 0.5) * 0.9;
+        vy = 1.6 + Math.random() * 1.4;
+        px = appState.posX + (Math.random() - 0.5) * 86 * s;
+        py = appState.posY - (40 + Math.random() * 130) * s;
+        maxLife = 0.72;
+        scale = 0.62;
       } else if (mode === 'cold') {
         colorHex = 0xe0f2fe;
         vx = Math.sin(performance.now() * 0.004 + px) * 0.9;
-        vy = -1.8 - Math.random() * 0.9;
-        px = appState.posX - 14 * s + (Math.random() - 0.5) * 64 * s;
-        py = appState.posY - (skyY - 8 * s);
-        maxLife = 1.55;
-        scale = 0.85;
+        vy = -2.2 - Math.random() * 0.8;
+        px = appState.posX - 10 * s + (Math.random() - 0.5) * 72 * s;
+        py = appState.posY - (skyY - 6 * s);
+        maxLife = 1.45;
+        scale = 0.82;
       } else if (mode === 'wind') {
         colorHex = Math.random() < 0.5 ? 0xbae6fd : 0x86efac;
-        vx = 4.5 + Math.random() * 3.0;
-        vy = Math.sin(performance.now() * 0.01 + px) * 1.8;
-        px = appState.posX - 45 * s;
-        py = appState.posY - (skyY + (Math.random() - 0.5) * 32 * s);
-        maxLife = 0.72;
-        scale = 0.7;
+        vx = 5.2 + Math.random() * 2.2;
+        vy = Math.sin(performance.now() * 0.01 + px) * 1.2;
+        px = appState.posX - 58 * s;
+        py = appState.posY - (35 + Math.random() * 130) * s;
+        maxLife = 0.65;
+        scale = 0.68;
       } else if (mode === 'night') {
         colorHex = Math.random() < 0.5 ? 0xa78bfa : 0x34d399;
-        vx = (Math.random() - 0.5) * 1.0;
-        vy = (Math.random() - 0.5) * 0.8 + 0.4;
-        px = appState.posX + (Math.random() - 0.5) * 95 * s;
-        py = appState.posY - (skyY + (Math.random() - 0.5) * 24 * s);
+        vx = (Math.random() - 0.5) * 0.8;
+        vy = (Math.random() - 0.5) * 0.6 + 0.3;
+        px = appState.posX + (Math.random() - 0.5) * 90 * s;
+        py = appState.posY - (140 + Math.random() * 65) * s;
         maxLife = 1.15;
-        scale = 0.65;
+        scale = 0.62;
       }
 
       if (particles.length < MAX_ACTIVE_PARTICLES) {

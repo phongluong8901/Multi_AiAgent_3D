@@ -32,6 +32,15 @@ export function animateMicroDuck(elapsed: number, delta: number, lerpRate: numbe
 
   let targetNeckPitch = 0.14 + Math.sin(elapsed * 2.2) * 0.04;
 
+  const weatherTorsoZ =
+    appState.state === 'IDLE' || appState.state === 'SITTING_WINDOW'
+      ? appState.weatherMode === 'cold'
+        ? Math.sin(elapsed * 26) * 0.032
+        : appState.weatherMode === 'wind'
+        ? 0.07 + Math.sin(elapsed * 4.5) * 0.04
+        : 0
+      : 0;
+
   if (!isSpecialAir) {
     if (appState.state === 'SITTING_WINDOW' || appState.state === 'TIRED') {
       const isTired = appState.state === 'TIRED';
@@ -42,7 +51,7 @@ export function animateMicroDuck(elapsed: number, delta: number, lerpRate: numbe
         lerpRate
       );
       lerpRot(rigTorso, 'x', isTired ? 0.30 + pant * 0.05 : 0.12, lerpRate);
-      lerpRot(rigTorso, 'z', 0, lerpRate);
+      lerpRot(rigTorso, 'z', isTired ? 0 : weatherTorsoZ, lerpRate);
       lerpRot(rigLeftLeg, 'x', isTired ? 0.88 : 0.78, lerpRate);
       lerpRot(rigRightLeg, 'x', isTired ? 0.88 : 0.78, lerpRate);
       lerpRot(rigLeftShin, 'x', isTired ? -1.45 : -1.32, lerpRate);
@@ -179,7 +188,12 @@ export function animateMicroDuck(elapsed: number, delta: number, lerpRate: numbe
       const breathe = Math.sin(elapsed * 2.4);
       rigHips.position.y = THREE.MathUtils.lerp(rigHips.position.y, 66 + breathe * 1.4, lerpRate);
       lerpRot(rigTorso, 'x', appState.isFileDragHovering ? -0.14 : 0, lerpRate);
-      lerpRot(rigTorso, 'z', appState.state === 'ALERT' ? Math.sin(elapsed * 18) * 0.08 : 0, lerpRate);
+      lerpRot(
+        rigTorso,
+        'z',
+        appState.state === 'ALERT' ? Math.sin(elapsed * 18) * 0.08 : weatherTorsoZ,
+        lerpRate
+      );
       lerpRot(rigLeftLeg, 'x', 0, lerpRate);
       lerpRot(rigRightLeg, 'x', 0, lerpRate);
       lerpRot(rigLeftLeg, 'z', 0, lerpRate);
@@ -289,6 +303,16 @@ export function animateMicroDuck(elapsed: number, delta: number, lerpRate: numbe
     } else if (appState.hunger <= 25) {
       // Đói bụng: vàng nhạt
       ringColor = 0xfbbf24;
+    } else if (appState.weatherMode === 'cold') {
+      ringColor = 0x7dd3fc;
+    } else if (appState.weatherMode === 'wind') {
+      ringColor = 0x38bdf8;
+    } else if (appState.weatherMode === 'rain') {
+      ringColor = 0x0284c7;
+    } else if (appState.weatherMode === 'night') {
+      ringColor = 0xa78bfa;
+    } else if (appState.weatherMode === 'hot') {
+      ringColor = 0xf97316;
     }
     duckNodes.cameraRingMat.color.setHex(ringColor);
   }

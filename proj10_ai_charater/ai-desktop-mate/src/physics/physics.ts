@@ -57,6 +57,8 @@ import { isP2pSessionActive } from '../core/p2pArena';
 import {
   cancelWindowSwing,
   stepWindowSwing,
+  triggerHulkRageMode,
+  triggerWindowPaperCrash,
   triggerWindowSwing,
 } from './windowSwing';
 
@@ -65,6 +67,8 @@ export {
   triggerStopSwimming,
   isWaterPoolActive,
   triggerWindowSwing,
+  triggerWindowPaperCrash,
+  triggerHulkRageMode,
 };
 
 let uiSpeakCallback: ((msg: string) => void) | null = null;

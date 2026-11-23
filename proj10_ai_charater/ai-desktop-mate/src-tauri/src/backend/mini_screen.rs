@@ -16,6 +16,27 @@ pub struct CapturedWindowFrame {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct CapturedWindowBatchItem {
+    pub hwnd: isize,
+    pub frame: Option<CapturedWindowFrame>,
+    pub error: Option<String>,
+}
+
+pub fn sanitize_batch_hwnds(hwnds: &[isize]) -> Vec<isize> {
+    let mut out = Vec::with_capacity(4);
+    for &h in hwnds {
+        if h == 0 || out.contains(&h) {
+            continue;
+        }
+        out.push(h);
+        if out.len() >= 4 {
+            break;
+        }
+    }
+    out
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct MiniWindowEntry {
     pub hwnd: isize,
     pub title: String,
@@ -459,6 +480,188 @@ pub fn mini_screen_restore_all_stealth(state: tauri::State<'_, MiniScreenState>)
     state.restore_all()
 }
 
+#[cfg(windows)]
+fn capture_single_window_gdi(
+    hwnd: isize,
+    cap_max_w: u32,
+    is_stealth_now: bool,
+) -> Result<CapturedWindowFrame, String> {
+    use windows::Win32::Foundation::{HWND, RECT};
+    use windows::Win32::Graphics::Gdi::{
+        CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, GetDC, GetDIBits,
+        ReleaseDC, SelectObject, SetBrushOrgEx, SetStretchBltMode, StretchBlt, BITMAPINFO,
+        BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, HALFTONE, HGDIOBJ, RGBQUAD, SRCCOPY,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetWindowRect, GetWindowTextLengthW, GetWindowTextW, IsIconic, IsWindow,
+    };
+
+    let target = HWND(hwnd as *mut std::ffi::c_void);
+    let max_w = cap_max_w.clamp(160, 1280);
+    unsafe {
+        if !IsWindow(target).as_bool() {
+            return Err("Cửa sổ đã đóng hoặc không còn tồn tại.".to_string());
+        }
+
+        let tlen = GetWindowTextLengthW(target);
+        let title = if tlen > 0 {
+            let mut buf = vec![0u16; (tlen + 1) as usize];
+            let copied = GetWindowTextW(target, &mut buf);
+            String::from_utf16_lossy(&buf[..copied as usize])
+        } else {
+            format!("Window #{hwnd}")
+        };
+        let process_name = crate::core::windows::get_process_name_by_hwnd(target);
+
+        if IsIconic(target).as_bool() {
+            return Ok(CapturedWindowFrame {
+                hwnd,
+                title,
+                process_name,
+                width: 0,
+                height: 0,
+                is_minimized: true,
+                is_stealth: is_stealth_now,
+                bmp_base64: String::new(),
+            });
+        }
+
+        let mut rect = RECT::default();
+        if GetWindowRect(target, &mut rect).is_err() {
+            return Err("Không đọc được kích thước cửa sổ đích.".to_string());
+        }
+        let src_w = rect.right - rect.left;
+        let src_h = rect.bottom - rect.top;
+        if src_w < 32 || src_h < 32 {
+            return Err("Cửa sổ đích đang quá nhỏ để chiếu.".to_string());
+        }
+
+        let dst_w = max_w.min(src_w as u32).max(120);
+        let dst_h = (((dst_w as f64) * (src_h as f64) / (src_w as f64)).round() as u32)
+            .clamp(72, 960);
+
+        let screen_dc = GetDC(HWND::default());
+        if screen_dc.0.is_null() {
+            return Err("Không lấy được Screen DC.".to_string());
+        }
+
+        let src_dc = CreateCompatibleDC(screen_dc);
+        let src_bmp = CreateCompatibleBitmap(screen_dc, src_w, src_h);
+        if src_dc.0.is_null() || src_bmp.0.is_null() {
+            if !src_bmp.0.is_null() {
+                let _ = DeleteObject(HGDIOBJ(src_bmp.0));
+            }
+            if !src_dc.0.is_null() {
+                let _ = DeleteDC(src_dc);
+            }
+            let _ = ReleaseDC(HWND::default(), screen_dc);
+            return Err("Không khởi tạo được buffer capture GDI.".to_string());
+        }
+        let old_src = SelectObject(src_dc, HGDIOBJ(src_bmp.0));
+
+        // PW_RENDERFULLCONTENT = 2 (capture hardware-accelerated Chrome/Edge/Electron tabs even when covered or stealth alpha=1)
+        let mut pw_ok = PrintWindow(target.0, src_dc.0, 2);
+        if pw_ok == 0 {
+            pw_ok = PrintWindow(target.0, src_dc.0, 0);
+        }
+        if pw_ok == 0 {
+            SelectObject(src_dc, old_src);
+            let _ = DeleteObject(HGDIOBJ(src_bmp.0));
+            let _ = DeleteDC(src_dc);
+            let _ = ReleaseDC(HWND::default(), screen_dc);
+            return Err("Cửa sổ từ chối PrintWindow capture (có thể bị bảo vệ DRM hoặc UIPI).".to_string());
+        }
+
+        let dst_dc = CreateCompatibleDC(screen_dc);
+        let dst_bmp = CreateCompatibleBitmap(screen_dc, dst_w as i32, dst_h as i32);
+        if dst_dc.0.is_null() || dst_bmp.0.is_null() {
+            if !dst_bmp.0.is_null() {
+                let _ = DeleteObject(HGDIOBJ(dst_bmp.0));
+            }
+            if !dst_dc.0.is_null() {
+                let _ = DeleteDC(dst_dc);
+            }
+            SelectObject(src_dc, old_src);
+            let _ = DeleteObject(HGDIOBJ(src_bmp.0));
+            let _ = DeleteDC(src_dc);
+            let _ = ReleaseDC(HWND::default(), screen_dc);
+            return Err("Không tạo được bitmap scale đích.".to_string());
+        }
+        let old_dst = SelectObject(dst_dc, HGDIOBJ(dst_bmp.0));
+
+        let _ = SetStretchBltMode(dst_dc, HALFTONE);
+        let _ = SetBrushOrgEx(dst_dc, 0, 0, None);
+        let _ = StretchBlt(
+            dst_dc,
+            0,
+            0,
+            dst_w as i32,
+            dst_h as i32,
+            src_dc,
+            0,
+            0,
+            src_w,
+            src_h,
+            SRCCOPY,
+        );
+
+        let row_stride = ((dst_w * 3) + 3) & !3;
+        let mut pixel_buf = vec![0u8; (row_stride * dst_h) as usize];
+        let mut bmi = BITMAPINFO {
+            bmiHeader: BITMAPINFOHEADER {
+                biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+                biWidth: dst_w as i32,
+                biHeight: dst_h as i32,
+                biPlanes: 1,
+                biBitCount: 24,
+                biCompression: BI_RGB.0,
+                biSizeImage: 0,
+                biXPelsPerMeter: 0,
+                biYPelsPerMeter: 0,
+                biClrUsed: 0,
+                biClrImportant: 0,
+            },
+            bmiColors: [RGBQUAD::default(); 1],
+        };
+
+        SelectObject(dst_dc, old_dst);
+        let scanlines = GetDIBits(
+            dst_dc,
+            dst_bmp,
+            0,
+            dst_h,
+            Some(pixel_buf.as_mut_ptr().cast()),
+            &mut bmi,
+            DIB_RGB_COLORS,
+        );
+
+        SelectObject(src_dc, old_src);
+        let _ = DeleteObject(HGDIOBJ(dst_bmp.0));
+        let _ = DeleteDC(dst_dc);
+        let _ = DeleteObject(HGDIOBJ(src_bmp.0));
+        let _ = DeleteDC(src_dc);
+        let _ = ReleaseDC(HWND::default(), screen_dc);
+
+        if scanlines == 0 {
+            return Err("Không đọc được điểm ảnh GetDIBits.".to_string());
+        }
+
+        let bmp_bytes = build_bgr24_bmp(dst_w, dst_h, &pixel_buf);
+        let bmp_base64 = encode_base64(&bmp_bytes);
+
+        Ok(CapturedWindowFrame {
+            hwnd,
+            title,
+            process_name,
+            width: dst_w,
+            height: dst_h,
+            is_minimized: false,
+            is_stealth: is_stealth_now,
+            bmp_base64,
+        })
+    }
+}
+
 #[tauri::command]
 pub async fn mini_screen_capture_window(
     state: tauri::State<'_, MiniScreenState>,
@@ -485,182 +688,9 @@ pub async fn mini_screen_capture_window(
         }
 
         let is_stealth_now = state.is_stealth(hwnd);
-        let cap_max_w = max_width.unwrap_or(480).clamp(200, 820);
+        let cap_max_w = max_width.unwrap_or(480).clamp(160, 1280);
         tauri::async_runtime::spawn_blocking(move || {
-            use windows::Win32::Foundation::{HWND, RECT};
-            use windows::Win32::Graphics::Gdi::{
-                CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, GetDC,
-                GetDIBits, ReleaseDC, SelectObject, SetBrushOrgEx, SetStretchBltMode, StretchBlt,
-                BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, HALFTONE, HGDIOBJ, RGBQUAD,
-                SRCCOPY,
-            };
-            use windows::Win32::UI::WindowsAndMessaging::{
-                GetWindowRect, GetWindowTextLengthW, GetWindowTextW, IsIconic, IsWindow,
-            };
-
-            let target = HWND(hwnd as *mut std::ffi::c_void);
-            unsafe {
-                if !IsWindow(target).as_bool() {
-                    return Err("Cửa sổ đã đóng hoặc không còn tồn tại.".to_string());
-                }
-
-                let tlen = GetWindowTextLengthW(target);
-                let title = if tlen > 0 {
-                    let mut buf = vec![0u16; (tlen + 1) as usize];
-                    let copied = GetWindowTextW(target, &mut buf);
-                    String::from_utf16_lossy(&buf[..copied as usize])
-                } else {
-                    format!("Window #{hwnd}")
-                };
-                let process_name = crate::core::windows::get_process_name_by_hwnd(target);
-
-                if IsIconic(target).as_bool() {
-                    return Ok(CapturedWindowFrame {
-                        hwnd,
-                        title,
-                        process_name,
-                        width: 0,
-                        height: 0,
-                        is_minimized: true,
-                        is_stealth: is_stealth_now,
-                        bmp_base64: String::new(),
-                    });
-                }
-
-                let mut rect = RECT::default();
-                if GetWindowRect(target, &mut rect).is_err() {
-                    return Err("Không đọc được kích thước cửa sổ đích.".to_string());
-                }
-                let src_w = rect.right - rect.left;
-                let src_h = rect.bottom - rect.top;
-                if src_w < 32 || src_h < 32 {
-                    return Err("Cửa sổ đích đang quá nhỏ để chiếu.".to_string());
-                }
-
-                let dst_w = cap_max_w.min(src_w as u32).max(120);
-                let dst_h = (((dst_w as f64) * (src_h as f64) / (src_w as f64)).round() as u32)
-                    .clamp(72, 640);
-
-                let screen_dc = GetDC(HWND::default());
-                if screen_dc.0.is_null() {
-                    return Err("Không lấy được Screen DC.".to_string());
-                }
-
-                let src_dc = CreateCompatibleDC(screen_dc);
-                let src_bmp = CreateCompatibleBitmap(screen_dc, src_w, src_h);
-                if src_dc.0.is_null() || src_bmp.0.is_null() {
-                    if !src_bmp.0.is_null() {
-                        let _ = DeleteObject(HGDIOBJ(src_bmp.0));
-                    }
-                    if !src_dc.0.is_null() {
-                        let _ = DeleteDC(src_dc);
-                    }
-                    let _ = ReleaseDC(HWND::default(), screen_dc);
-                    return Err("Không khởi tạo được buffer capture GDI.".to_string());
-                }
-                let old_src = SelectObject(src_dc, HGDIOBJ(src_bmp.0));
-
-                // PW_RENDERFULLCONTENT = 2 (capture hardware-accelerated Chrome/Edge/Electron tabs even when covered or stealth alpha=1)
-                let mut pw_ok = PrintWindow(target.0, src_dc.0, 2);
-                if pw_ok == 0 {
-                    pw_ok = PrintWindow(target.0, src_dc.0, 0);
-                }
-                if pw_ok == 0 {
-                    SelectObject(src_dc, old_src);
-                    let _ = DeleteObject(HGDIOBJ(src_bmp.0));
-                    let _ = DeleteDC(src_dc);
-                    let _ = ReleaseDC(HWND::default(), screen_dc);
-                    return Err("Cửa sổ từ chối PrintWindow capture (có thể bị bảo vệ DRM hoặc UIPI).".to_string());
-                }
-
-                let dst_dc = CreateCompatibleDC(screen_dc);
-                let dst_bmp = CreateCompatibleBitmap(screen_dc, dst_w as i32, dst_h as i32);
-                if dst_dc.0.is_null() || dst_bmp.0.is_null() {
-                    if !dst_bmp.0.is_null() {
-                        let _ = DeleteObject(HGDIOBJ(dst_bmp.0));
-                    }
-                    if !dst_dc.0.is_null() {
-                        let _ = DeleteDC(dst_dc);
-                    }
-                    SelectObject(src_dc, old_src);
-                    let _ = DeleteObject(HGDIOBJ(src_bmp.0));
-                    let _ = DeleteDC(src_dc);
-                    let _ = ReleaseDC(HWND::default(), screen_dc);
-                    return Err("Không tạo được bitmap scale đích.".to_string());
-                }
-                let old_dst = SelectObject(dst_dc, HGDIOBJ(dst_bmp.0));
-
-                let _ = SetStretchBltMode(dst_dc, HALFTONE);
-                let _ = SetBrushOrgEx(dst_dc, 0, 0, None);
-                let _ = StretchBlt(
-                    dst_dc,
-                    0,
-                    0,
-                    dst_w as i32,
-                    dst_h as i32,
-                    src_dc,
-                    0,
-                    0,
-                    src_w,
-                    src_h,
-                    SRCCOPY,
-                );
-
-                let row_stride = ((dst_w * 3) + 3) & !3;
-                let mut pixel_buf = vec![0u8; (row_stride * dst_h) as usize];
-                let mut bmi = BITMAPINFO {
-                    bmiHeader: BITMAPINFOHEADER {
-                        biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
-                        biWidth: dst_w as i32,
-                        biHeight: dst_h as i32,
-                        biPlanes: 1,
-                        biBitCount: 24,
-                        biCompression: BI_RGB.0,
-                        biSizeImage: 0,
-                        biXPelsPerMeter: 0,
-                        biYPelsPerMeter: 0,
-                        biClrUsed: 0,
-                        biClrImportant: 0,
-                    },
-                    bmiColors: [RGBQUAD::default(); 1],
-                };
-
-                SelectObject(dst_dc, old_dst);
-                let scanlines = GetDIBits(
-                    dst_dc,
-                    dst_bmp,
-                    0,
-                    dst_h,
-                    Some(pixel_buf.as_mut_ptr().cast()),
-                    &mut bmi,
-                    DIB_RGB_COLORS,
-                );
-
-                SelectObject(src_dc, old_src);
-                let _ = DeleteObject(HGDIOBJ(dst_bmp.0));
-                let _ = DeleteDC(dst_dc);
-                let _ = DeleteObject(HGDIOBJ(src_bmp.0));
-                let _ = DeleteDC(src_dc);
-                let _ = ReleaseDC(HWND::default(), screen_dc);
-
-                if scanlines == 0 {
-                    return Err("Không đọc được điểm ảnh GetDIBits.".to_string());
-                }
-
-                let bmp_bytes = build_bgr24_bmp(dst_w, dst_h, &pixel_buf);
-                let bmp_base64 = encode_base64(&bmp_bytes);
-
-                Ok(CapturedWindowFrame {
-                    hwnd,
-                    title,
-                    process_name,
-                    width: dst_w,
-                    height: dst_h,
-                    is_minimized: false,
-                    is_stealth: is_stealth_now,
-                    bmp_base64,
-                })
-            }
+            capture_single_window_gdi(hwnd, cap_max_w, is_stealth_now)
         })
         .await
         .map_err(|e| format!("Lỗi tác vụ chụp cửa sổ: {e}"))?
@@ -669,6 +699,73 @@ pub async fn mini_screen_capture_window(
     #[cfg(not(windows))]
     {
         let _ = (state, max_width, auto_stealth_minimized);
+        Err("Chỉ hỗ trợ trên Windows".to_string())
+    }
+}
+
+#[tauri::command]
+pub async fn mini_screen_capture_windows_batch(
+    state: tauri::State<'_, MiniScreenState>,
+    hwnds: Vec<isize>,
+    max_width: Option<u32>,
+    auto_stealth_minimized: Option<bool>,
+) -> Result<Vec<CapturedWindowBatchItem>, String> {
+    let clean_hwnds = sanitize_batch_hwnds(&hwnds);
+    if clean_hwnds.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    #[cfg(windows)]
+    {
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::UI::WindowsAndMessaging::{IsIconic, IsWindow};
+
+        let do_auto_stealth = auto_stealth_minimized.unwrap_or(false);
+        if do_auto_stealth {
+            let mut transitioned = false;
+            for &h in &clean_hwnds {
+                let target = HWND(h as *mut std::ffi::c_void);
+                let is_min = unsafe { IsWindow(target).as_bool() && IsIconic(target).as_bool() };
+                if is_min && apply_stealth_hidden_window(&state, h).is_ok() {
+                    transitioned = true;
+                }
+            }
+            if transitioned {
+                std::thread::sleep(std::time::Duration::from_millis(38));
+            }
+        }
+
+        let items_meta: Vec<(isize, bool)> = clean_hwnds
+            .into_iter()
+            .map(|h| (h, state.is_stealth(h)))
+            .collect();
+        let cap_max_w = max_width.unwrap_or(460).clamp(160, 1280);
+
+        tauri::async_runtime::spawn_blocking(move || {
+            let mut out = Vec::with_capacity(items_meta.len());
+            for (h, stealth_now) in items_meta {
+                match capture_single_window_gdi(h, cap_max_w, stealth_now) {
+                    Ok(frame) => out.push(CapturedWindowBatchItem {
+                        hwnd: h,
+                        frame: Some(frame),
+                        error: None,
+                    }),
+                    Err(err) => out.push(CapturedWindowBatchItem {
+                        hwnd: h,
+                        frame: None,
+                        error: Some(err),
+                    }),
+                }
+            }
+            out
+        })
+        .await
+        .map_err(|e| format!("Lỗi tác vụ chụp đa cửa sổ: {e}"))
+    }
+
+    #[cfg(not(windows))]
+    {
+        let _ = (state, max_width, auto_stealth_minimized, clean_hwnds);
         Err("Chỉ hỗ trợ trên Windows".to_string())
     }
 }

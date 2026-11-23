@@ -436,8 +436,10 @@ fn fetch_tarotapi_random_card(entropy: u64) -> FetchedRawCard {
     cmd.args([
         "-s",
         "-L",
+        "--connect-timeout",
+        "3",
         "-m",
-        "7",
+        "4",
         "https://tarotapi.dev/api/v1/cards/random?n=1",
     ]);
     apply_no_window(&mut cmd);
@@ -573,11 +575,14 @@ pub async fn tarot_get_status(
 #[tauri::command]
 pub async fn tarot_draw_card(
     mem_state: State<'_, MemoryState>,
+    force: Option<bool>,
 ) -> Result<TarotStatusResponse, String> {
     let now_ms = now_unix_ms();
-    if let Some(latest) = db_get_latest_tarot(&mem_state) {
-        if now_ms < latest.next_draw_at_ms {
-            return Ok(build_tarot_status(&mem_state, now_ms, true));
+    if !force.unwrap_or(false) {
+        if let Some(latest) = db_get_latest_tarot(&mem_state) {
+            if now_ms < latest.next_draw_at_ms {
+                return Ok(build_tarot_status(&mem_state, now_ms, true));
+            }
         }
     }
 

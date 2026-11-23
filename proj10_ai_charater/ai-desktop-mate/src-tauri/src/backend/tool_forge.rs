@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::ffi::OsString;
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -14,7 +15,7 @@ use crate::backend::memory::{
 };
 use crate::backend::telemetry::apply_no_window;
 
-const MAX_CAPTURE_BYTES: usize = 65_536;
+const MAX_CAPTURE_BYTES: usize = 131_072;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SandboxRunResult {
@@ -143,8 +144,8 @@ pub fn audit_script_safety(language: &str, code: &str) -> Vec<String> {
         issues.push("Mã nguồn script đang trống.".to_string());
         return issues;
     }
-    if code.len() > 32_768 {
-        issues.push("Mã nguồn vượt quá giới hạn an toàn 32 KB.".to_string());
+    if code.len() > 131_072 {
+        issues.push("Mã nguồn vượt quá giới hạn an toàn 128 KB.".to_string());
         return issues;
     }
 
@@ -206,6 +207,111 @@ fn read_pipe_capped<R: Read + Send + 'static>(pipe: Option<R>) -> std::thread::J
         }
         String::from_utf8_lossy(&buf).to_string()
     })
+}
+
+fn is_dir_writable(dir: &Path) -> bool {
+    if !dir.is_dir() {
+        return false;
+    }
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let probe = dir.join(format!(".duck_write_probe_{}_{}", std::process::id(), nanos));
+    match std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&probe)
+    {
+        Ok(f) => {
+            drop(f);
+            let _ = std::fs::remove_file(&probe);
+            true
+        }
+        Err(_) => false,
+    }
+}
+
+pub fn resolve_live_working_dir() -> PathBuf {
+    let home = std::env::var_os("USERPROFILE")
+        .or_else(|| std::env::var_os("HOME"))
+        .map(PathBuf::from);
+    if let Some(h) = home {
+        for sub in ["Desktop", "Documents", "Downloads"] {
+            let candidate = h.join(sub);
+            if is_dir_writable(&candidate) {
+                return candidate;
+            }
+        }
+        if is_dir_writable(&h) {
+            return h;
+        }
+    }
+    if let Ok(cwd) = std::env::current_dir() {
+        if is_dir_writable(&cwd) {
+            return cwd;
+        }
+    }
+    let fallback = std::env::temp_dir().join("duck_skill_outputs");
+    let _ = std::fs::create_dir_all(&fallback);
+    fallback
+}
+
+fn snapshot_dir_mtimes(dir: &Path) -> HashMap<OsString, Option<SystemTime>> {
+    let mut map = HashMap::new();
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return map;
+    };
+    for entry in entries.flatten() {
+        let Ok(ft) = entry.file_type() else {
+            continue;
+        };
+        if !ft.is_file() {
+            continue;
+        }
+        let mtime = entry.metadata().ok().and_then(|m| m.modified().ok());
+        map.insert(entry.file_name(), mtime);
+    }
+    map
+}
+
+fn detect_created_or_updated_files(
+    dir: &Path,
+    before: &HashMap<OsString, Option<SystemTime>>,
+) -> Vec<PathBuf> {
+    let mut changed = Vec::new();
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return changed;
+    };
+    for entry in entries.flatten() {
+        let Ok(ft) = entry.file_type() else {
+            continue;
+        };
+        if !ft.is_file() {
+            continue;
+        }
+        let name = entry.file_name();
+        let name_lossy = name.to_string_lossy();
+        if name_lossy.eq_ignore_ascii_case("desktop.ini") {
+            continue;
+        }
+        let after_mtime = entry.metadata().ok().and_then(|m| m.modified().ok());
+        let is_changed = match before.get(&name) {
+            None => true,
+            Some(prev_mtime) => match (prev_mtime, after_mtime) {
+                (Some(p), Some(a)) => a > *p,
+                (None, Some(_)) => true,
+                _ => false,
+            },
+        };
+        if is_changed {
+            changed.push(dir.join(&name));
+            if changed.len() >= 5 {
+                break;
+            }
+        }
+    }
+    changed
 }
 
 pub fn run_script_isolated(
@@ -279,6 +385,17 @@ pub fn run_script_isolated(
         };
     }
 
+    let work_dir = if sandbox_mode {
+        sandbox_dir.clone()
+    } else {
+        resolve_live_working_dir()
+    };
+    let before_files = if sandbox_mode {
+        None
+    } else {
+        Some(snapshot_dir_mtimes(&work_dir))
+    };
+
     let clean_args = if args_json.trim().is_empty() {
         "{}"
     } else {
@@ -287,10 +404,25 @@ pub fn run_script_isolated(
     let args_path = sandbox_dir.join("args.json");
     let _ = std::fs::write(&args_path, clean_args.as_bytes());
 
-    let mut cmd = if norm_lang == "powershell" {
+    let configure_cmd = |c: &mut Command| {
+        apply_no_window(c);
+        c.current_dir(&work_dir)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .env_remove("GEMINI_API_KEY")
+            .env_remove("VITE_GEMINI_API_KEY")
+            .env("DUCK_SANDBOX_MODE", if sandbox_mode { "1" } else { "0" })
+            .env("DUCK_SANDBOX_DIR", sandbox_dir.to_string_lossy().as_ref())
+            .env("DUCK_OUTPUT_DIR", work_dir.to_string_lossy().as_ref())
+            .env("DUCK_TOOL_ARGS_JSON", clean_args)
+            .env("DUCK_TOOL_ARGS_FILE", args_path.to_string_lossy().as_ref());
+    };
+
+    let spawn_res = if norm_lang == "powershell" {
         let script_path = sandbox_dir.join("script.ps1");
         let ps_body = format!(
-            "\u{FEFF}$OutputEncoding = [System.Text.UTF8Encoding]::new($false)\r\n[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)\r\n$ErrorActionPreference = 'Stop'\r\n{}\r\n",
+            "\u{FEFF}$OutputEncoding = [System.Text.UTF8Encoding]::new($false)\r\n[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)\r\n$ErrorActionPreference = 'Continue'\r\n{}\r\n",
             code.replace("\r\n", "\n").replace('\n', "\r\n")
         );
         if let Err(e) = std::fs::write(&script_path, ps_body.as_bytes()) {
@@ -317,7 +449,8 @@ pub fn run_script_isolated(
             "-File",
         ]);
         c.arg(&script_path);
-        c
+        configure_cmd(&mut c);
+        c.spawn()
     } else {
         let script_path = sandbox_dir.join("script.py");
         if let Err(e) = std::fs::write(&script_path, code.as_bytes()) {
@@ -336,25 +469,26 @@ pub fn run_script_isolated(
             };
         }
         let mut c = Command::new("python");
-        c.arg("-I");
+        c.arg("-u");
         c.arg(&script_path);
         c.env("PYTHONIOENCODING", "utf-8");
-        c
+        c.env("PYTHONUTF8", "1");
+        configure_cmd(&mut c);
+        match c.spawn() {
+            Ok(ch) => Ok(ch),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                let mut py_launcher = Command::new("py");
+                py_launcher.args(["-3", "-u"]);
+                py_launcher.arg(&script_path);
+                py_launcher.env("PYTHONIOENCODING", "utf-8");
+                py_launcher.env("PYTHONUTF8", "1");
+                configure_cmd(&mut py_launcher);
+                py_launcher.spawn()
+            }
+            Err(e) => Err(e),
+        }
     };
 
-    apply_no_window(&mut cmd);
-    cmd.current_dir(&sandbox_dir)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .env_remove("GEMINI_API_KEY")
-        .env_remove("VITE_GEMINI_API_KEY")
-        .env("DUCK_SANDBOX_MODE", if sandbox_mode { "1" } else { "0" })
-        .env("DUCK_SANDBOX_DIR", sandbox_dir.to_string_lossy().as_ref())
-        .env("DUCK_TOOL_ARGS_JSON", clean_args)
-        .env("DUCK_TOOL_ARGS_FILE", args_path.to_string_lossy().as_ref());
-
-    let spawn_res = cmd.spawn();
     let mut child = match spawn_res {
         Ok(ch) => ch,
         Err(e) => {
@@ -377,7 +511,7 @@ pub fn run_script_isolated(
     let out_handle = read_pipe_capped(child.stdout.take());
     let err_handle = read_pipe_capped(child.stderr.take());
 
-    let limit = Duration::from_secs(timeout_secs.clamp(3, 25));
+    let limit = Duration::from_secs(timeout_secs.clamp(3, 60));
     let mut timed_out = false;
     let mut exit_code = -1i32;
 
@@ -402,9 +536,27 @@ pub fn run_script_isolated(
         }
     }
 
-    let stdout = out_handle.join().unwrap_or_default();
+    let mut stdout = out_handle.join().unwrap_or_default();
     let stderr = err_handle.join().unwrap_or_default();
     let _ = std::fs::remove_dir_all(&sandbox_dir);
+
+    if !sandbox_mode && !timed_out && exit_code == 0 {
+        if let Some(before) = before_files {
+            let changed = detect_created_or_updated_files(&work_dir, &before);
+            let stdout_low = stdout.to_ascii_lowercase();
+            for p in changed {
+                let p_str = p.to_string_lossy();
+                let p_fwd = p_str.replace('\\', "/").to_ascii_lowercase();
+                if !stdout_low.contains(&p_str.to_ascii_lowercase()) && !stdout_low.contains(&p_fwd)
+                {
+                    if !stdout.is_empty() && !stdout.ends_with('\n') {
+                        stdout.push('\n');
+                    }
+                    stdout.push_str(&format!("[FILE ĐÃ LƯU] {p_str}"));
+                }
+            }
+        }
+    }
 
     let duration_ms = started.elapsed().as_millis() as i64;
     let mut failure_reason = String::new();
@@ -443,14 +595,7 @@ pub fn run_script_isolated(
     }
 }
 
-pub fn verify_and_record_sandbox(
-    receipts: &Mutex<HashMap<String, SandboxRunResult>>,
-    language: &str,
-    code: &str,
-    test_args_json: &str,
-    expected_keywords: &[String],
-) -> SandboxRunResult {
-    let mut res = run_script_isolated(language, code, test_args_json, true, 15);
+pub fn apply_expected_keywords_check(res: &mut SandboxRunResult, expected_keywords: &[String]) {
     if res.verified && !expected_keywords.is_empty() {
         let lower_out = res.stdout.to_ascii_lowercase();
         let mut missing = Vec::new();
@@ -471,6 +616,17 @@ pub fn verify_and_record_sandbox(
             );
         }
     }
+}
+
+pub fn verify_and_record_sandbox(
+    receipts: &Mutex<HashMap<String, SandboxRunResult>>,
+    language: &str,
+    code: &str,
+    test_args_json: &str,
+    expected_keywords: &[String],
+) -> SandboxRunResult {
+    let mut res = run_script_isolated(language, code, test_args_json, true, 25);
+    apply_expected_keywords_check(&mut res, expected_keywords);
 
     if res.verified {
         if let Ok(mut guard) = receipts.lock() {
@@ -506,7 +662,7 @@ pub fn verify_receipt_for_hash(
     Ok(receipt.clone())
 }
 
-fn write_packaged_skill_files(skills_root: &Path, rec: &CustomSkillRecord) {
+pub fn write_packaged_skill_files(skills_root: &Path, rec: &CustomSkillRecord) {
     let skill_dir = skills_root.join(&rec.id);
     if std::fs::create_dir_all(&skill_dir).is_err() {
         return;
@@ -521,20 +677,77 @@ fn write_packaged_skill_files(skills_root: &Path, rec: &CustomSkillRecord) {
 }
 
 #[tauri::command]
-pub fn tool_forge_run_sandbox(
+pub async fn tool_forge_run_sandbox(
     forge_state: State<'_, ToolForgeState>,
     language: String,
     code: String,
     test_args_json: String,
     expected_keywords: Vec<String>,
-) -> SandboxRunResult {
-    verify_and_record_sandbox(
-        &forge_state.verified_receipts,
-        &language,
-        &code,
-        &test_args_json,
-        &expected_keywords,
-    )
+) -> Result<SandboxRunResult, String> {
+    let lang_clone = language;
+    let code_clone = code;
+    let args_clone = test_args_json;
+    let mut res = tauri::async_runtime::spawn_blocking(move || {
+        run_script_isolated(&lang_clone, &code_clone, &args_clone, true, 25)
+    })
+    .await
+    .map_err(|e| format!("Lỗi chạy tác vụ Sandbox: {e}"))?;
+
+    apply_expected_keywords_check(&mut res, &expected_keywords);
+    if res.verified {
+        if let Ok(mut guard) = forge_state.verified_receipts.lock() {
+            guard.insert(res.code_hash.clone(), res.clone());
+        }
+    }
+    Ok(res)
+}
+
+#[tauri::command]
+pub async fn tool_forge_test_draft_live(
+    language: String,
+    code: String,
+    args_json: String,
+) -> Result<SkillExecResult, String> {
+    let norm_lang = normalize_language(&language)?.to_string();
+    let issues = audit_script_safety(&norm_lang, &code);
+    if !issues.is_empty() {
+        return Err(format!(
+            "Script bị chặn vì an toàn trước khi test thật: {}",
+            issues.join("; ")
+        ));
+    }
+
+    let clean_args = if args_json.trim().is_empty() {
+        "{}".to_string()
+    } else {
+        let _: serde_json::Value = serde_json::from_str(args_json.trim())
+            .map_err(|e| format!("Tham số JSON không hợp lệ: {e}"))?;
+        args_json.trim().to_string()
+    };
+
+    let lang_clone = norm_lang;
+    let code_clone = code;
+    let run = tauri::async_runtime::spawn_blocking(move || {
+        run_script_isolated(&lang_clone, &code_clone, &clean_args, false, 45)
+    })
+    .await
+    .map_err(|e| format!("Lỗi chạy tác vụ Test Thật: {e}"))?;
+
+    let ok = run.static_safe && !run.timed_out && run.exit_code == 0;
+    Ok(SkillExecResult {
+        ok,
+        skill_id: "draft_live_test".to_string(),
+        exit_code: run.exit_code,
+        timed_out: run.timed_out,
+        duration_ms: run.duration_ms,
+        stdout: run.stdout,
+        stderr: run.stderr,
+        error_summary: if ok {
+            String::new()
+        } else {
+            run.failure_reason
+        },
+    })
 }
 
 #[tauri::command]
@@ -660,7 +873,7 @@ pub async fn tool_forge_execute_skill(
     let sid = skill.id.clone();
 
     let run = tauri::async_runtime::spawn_blocking(move || {
-        run_script_isolated(&lang, &code, &args_json, false, 20)
+        run_script_isolated(&lang, &code, &args_json, false, 45)
     })
     .await
     .map_err(|e| format!("Lỗi chạy tác vụ skill: {e}"))?;
@@ -710,7 +923,7 @@ pub async fn tool_forge_apply_healed_skill(
     };
 
     let sandbox_res = tauri::async_runtime::spawn_blocking(move || {
-        run_script_isolated(&lang, &code_clone, &args_to_use, true, 15)
+        run_script_isolated(&lang, &code_clone, &args_to_use, true, 25)
     })
     .await
     .map_err(|e| format!("Lỗi chạy Sandbox khi tự vá skill: {e}"))?;

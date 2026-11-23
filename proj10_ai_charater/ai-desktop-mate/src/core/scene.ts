@@ -10,7 +10,7 @@ export const renderer = new THREE.WebGLRenderer({
   antialias: true,
   stencil: false,
 });
-renderer.setSize(appState.W, appState.H);
+renderer.setSize(512, 512);
 renderer.setPixelRatio(
   appState.ecoMode ? 1 : Math.min(window.devicePixelRatio || 1, 1.5)
 );
@@ -27,9 +27,9 @@ export interface RenderViewport {
 
 let vpLeft = 0;
 let vpTop = 0;
-let vpWidth = Math.max(64, appState.W || window.innerWidth || 1920);
-let vpHeight = Math.max(64, appState.H || window.innerHeight || 1080);
-let vpIsFullScreen = true;
+let vpWidth = 512;
+let vpHeight = 512;
+let vpIsFullScreen = false;
 let vpCameraSynced = false;
 let compactCooldownSec = 0;
 let lastAppliedTransform = '';
@@ -181,7 +181,11 @@ export function initScene(container: HTMLElement) {
   renderer.domElement.style.top = '0px';
   renderer.domElement.style.pointerEvents = 'none';
   renderer.domElement.style.willChange = 'transform';
-  applyViewportLayout(0, 0, Math.max(64, appState.W), Math.max(64, appState.H), true);
+  const initW = Math.max(256, Math.min(appState.W, 512));
+  const initH = Math.max(256, Math.min(appState.H, 512));
+  const initL = Math.max(0, Math.min(appState.W - initW, appState.posX - initW * 0.5));
+  const initT = Math.max(0, Math.min(appState.H - initH, appState.posY - initH * 0.78));
+  applyViewportLayout(initL, initT, initW, initH, false);
 
   container.appendChild(renderer.domElement);
 

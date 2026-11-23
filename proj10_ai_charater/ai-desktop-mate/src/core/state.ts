@@ -155,7 +155,7 @@ export class AppState {
   isChatOpen: boolean = false;
   isChatting: boolean = false;
   isLeftPanelOpen: boolean = false;
-  isRightPanelOpen: boolean = true;
+  isRightPanelOpen: boolean = false;
   isStudioOpen: boolean = false;
   isLongMemoryOpen: boolean = false;
   isNotificationManagerOpen: boolean = false;

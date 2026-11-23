@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { appState } from './state';
+import { WinRect } from './types';
 import { scene } from './scene';
 import {
   showJetpack,
@@ -52,6 +53,19 @@ export interface P2pStatus {
   is_room_host?: boolean;
   mobile_url?: string;
   lan_ips?: string[];
+  host_windows_json?: string;
+}
+
+export interface P2pRemoteFrameSnapshot {
+  has_frame: boolean;
+  frame_b64: string;
+  width: number;
+  height: number;
+  seq: number;
+  cursor_x: number;
+  cursor_y: number;
+  remaining_sec: number;
+  is_sim_mode: boolean;
 }
 
 export interface P2pWirePacket {
@@ -78,6 +92,7 @@ export interface P2pWirePacket {
   y_norm?: number;
   button?: string;
   vk?: number;
+  wheel_delta?: number;
   text?: string;
   duration_sec?: number;
   reason?: string;
@@ -92,6 +107,10 @@ export interface P2pWirePacket {
   peer_energy?: number;
   foods_json?: string;
   food_id?: number;
+  frame_b64?: string;
+  frame_w?: number;
+  frame_h?: number;
+  frame_seq?: number;
 }
 
 export interface HostWindowPlatform {
@@ -266,6 +285,8 @@ let myDashCooldown = 0;
 let remoteHostPlatforms: HostWindowPlatform[] = [];
 let lastSentWindowsJson = '';
 let lastRenderedHostMapKey = '';
+let lastMapForceBroadcastAt = 0;
+let lastWindowFetchAt = 0;
 let hostMapSyncAccum = 0;
 let jetpackFxAccum = 0;
 let slideFxAccum = 0;
@@ -279,6 +300,25 @@ let liveMouseStreamEnabled = false;
 let lastMouseStreamSent = 0;
 let initialized = false;
 let p2pIdleOverlaysCleaned = false;
+
+let remoteViewerOpen = false;
+let remoteViewerExpanded = false;
+let remoteFramePollTimer: number | null = null;
+let remoteFramePollBusy = false;
+let lastRenderedFrameSeq = -1;
+let lastRemoteFrameAt = 0;
+
+function hydrateRemotePlatformsFromJson(rawJson?: string): boolean {
+  if (!rawJson || rawJson === '[]') return false;
+  try {
+    const parsed = JSON.parse(rawJson);
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      remoteHostPlatforms = parsed;
+      return true;
+    }
+  } catch { }
+  return false;
+}
 
 export function getP2pStatusSnapshot(): P2pStatus {
   return currentStatus;
@@ -336,25 +376,73 @@ export function getActiveP2pPlatforms(): HostWindowPlatform[] {
   const floorY = Math.max(180, hScreen - 48);
 
   if (currentStatus.is_room_host !== false) {
-    return appState.openWindows
-      .filter(
-        (w) =>
-          !w.is_maximized &&
-          w.y >= 80 &&
-          w.y < floorY - 35 &&
-          w.width >= 140 &&
-          w.width < wScreen - 40 &&
-          !w.title.includes('Duck ai Manager')
-      )
-      .slice(0, 8)
-      .map((w) => ({
-        x: w.x,
-        y: w.y,
-        w: w.width,
-        h: w.height,
-        title: w.title,
-        hwnd: w.hwnd,
-      }));
+    const filtered = appState.openWindows.filter(
+      (w) =>
+        w.width >= 120 &&
+        w.height >= 60 &&
+        !w.title.includes('Duck ai Manager') &&
+        !w.title.includes('AI Desktop Mate') &&
+        !w.title.includes('Program Manager')
+    );
+
+    const platforms: HostWindowPlatform[] = [];
+    let maxIdx = 0;
+    for (const w of filtered.slice(0, 8)) {
+      const isFullWidthOrMax = Boolean(w.is_maximized) || w.width >= wScreen - 30;
+      if (!isFullWidthOrMax) {
+        const y = Math.max(135, Math.min(floorY - 75, w.y));
+        const x = Math.max(16, Math.min(wScreen - 160, w.x));
+        const width = Math.max(140, Math.min(wScreen - 32, w.width));
+        const height = Math.max(80, Math.min(floorY - y, w.height));
+        platforms.push({
+          x,
+          y,
+          w: width,
+          h: height,
+          title: w.title,
+          hwnd: w.hwnd,
+        });
+      } else {
+        const sw = Math.round(wScreen * 0.34);
+        const sh = Math.round(hScreen * 0.30);
+        const sx = Math.round(wScreen * (0.07 + (maxIdx % 2) * 0.50));
+        const sy = Math.max(140, Math.min(floorY - 85, Math.round(hScreen * (0.34 + (maxIdx % 3) * 0.16))));
+        maxIdx += 1;
+        platforms.push({
+          x: sx,
+          y: sy,
+          w: sw,
+          h: sh,
+          title: w.title,
+          hwnd: w.hwnd,
+        });
+      }
+    }
+
+    if (platforms.length === 0) {
+      platforms.push(
+        {
+          x: Math.round(wScreen * 0.08),
+          y: Math.round(hScreen * 0.56),
+          w: Math.round(wScreen * 0.32),
+          h: Math.round(hScreen * 0.28),
+          title: '[ARENA MAP] Thap Cua So Trai',
+        },
+        {
+          x: Math.round(wScreen * 0.60),
+          y: Math.round(hScreen * 0.44),
+          w: Math.round(wScreen * 0.32),
+          h: Math.round(hScreen * 0.34),
+          title: '[ARENA MAP] Thap Cua So Phai',
+        }
+      );
+    }
+
+    return platforms;
+  }
+
+  if (remoteHostPlatforms.length === 0 && currentStatus.host_windows_json) {
+    hydrateRemotePlatformsFromJson(currentStatus.host_windows_json);
   }
 
   return remoteHostPlatforms.map((p) => ({
@@ -604,6 +692,164 @@ function removePkFoodById(foodId: number, rewardPeer = false) {
   }
 }
 
+function escapeHtmlSimple(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+export function isUltraViewOpen(): boolean {
+  return remoteViewerOpen && currentStatus.phase === 'winner_control';
+}
+
+export function applyRemoteFrameToUi(
+  b64: string,
+  width: number,
+  height: number,
+  seq: number,
+  cx?: number,
+  cy?: number,
+  simMode?: boolean
+) {
+  if (!b64) return;
+  if (seq > 0 && seq === lastRenderedFrameSeq) return;
+  lastRenderedFrameSeq = seq;
+  lastRemoteFrameAt = performance.now();
+
+  const src = `data:image/bmp;base64,${b64}`;
+  const uvImg = document.getElementById('p2p-uv-screen-img') as HTMLImageElement | null;
+  const uvPlaceholder = document.getElementById('p2p-uv-placeholder');
+  const uvFps = document.getElementById('p2p-uv-fps-badge');
+  const uvCursor = document.getElementById('p2p-uv-cursor');
+  const tpImg = document.getElementById('p2p-touchpad-live-img') as HTMLImageElement | null;
+
+  if (uvImg) {
+    uvImg.src = src;
+    uvImg.style.display = 'block';
+  }
+  if (uvPlaceholder) {
+    uvPlaceholder.style.display = 'none';
+  }
+  if (tpImg) {
+    tpImg.src = src;
+    tpImg.style.display = 'block';
+  }
+  if (uvFps) {
+    const modeTag = simMode ? 'SIM LIVE' : 'REMOTE LIVE';
+    uvFps.textContent = `[${modeTag} ${width}x${height} #${seq}]`;
+  }
+  if (uvCursor && typeof cx === 'number' && typeof cy === 'number') {
+    uvCursor.style.left = `${Math.round(Math.max(0, Math.min(1, cx)) * 100)}%`;
+    uvCursor.style.top = `${Math.round(Math.max(0, Math.min(1, cy)) * 100)}%`;
+  }
+}
+
+export function stopRemoteFramePolling() {
+  if (remoteFramePollTimer !== null) {
+    window.clearTimeout(remoteFramePollTimer);
+    remoteFramePollTimer = null;
+  }
+  remoteFramePollBusy = false;
+}
+
+async function stepRemoteFramePoll() {
+  if (currentStatus.phase !== 'winner_control') {
+    stopRemoteFramePolling();
+    return;
+  }
+  const now = performance.now();
+  const recentlyPushedViaEvent = !currentStatus.is_sim_mode && now - lastRemoteFrameAt < 130;
+  if (!remoteFramePollBusy && !recentlyPushedViaEvent) {
+    remoteFramePollBusy = true;
+    try {
+      const snap = await invoke<P2pRemoteFrameSnapshot>('p2p_poll_remote_frame', {
+        maxWidth: remoteViewerExpanded ? 760 : 620,
+      });
+      if (snap.has_frame && snap.frame_b64) {
+        applyRemoteFrameToUi(
+          snap.frame_b64,
+          snap.width,
+          snap.height,
+          snap.seq,
+          snap.cursor_x,
+          snap.cursor_y,
+          snap.is_sim_mode
+        );
+      }
+      if (snap.remaining_sec !== currentStatus.winner_remaining_sec) {
+        currentStatus.winner_remaining_sec = snap.remaining_sec;
+        updateUltraViewHeaderUi();
+        syncUiCb?.();
+      }
+    } catch { }
+    remoteFramePollBusy = false;
+  }
+  if (currentStatus.phase === 'winner_control') {
+    remoteFramePollTimer = window.setTimeout(() => void stepRemoteFramePoll(), 150);
+  }
+}
+
+export function startRemoteFramePolling() {
+  stopRemoteFramePolling();
+  if (currentStatus.phase !== 'winner_control') return;
+  void stepRemoteFramePoll();
+}
+
+function updateUltraViewHeaderUi() {
+  const modal = document.getElementById('p2p-ultraview-modal');
+  const cd = document.getElementById('p2p-uv-countdown');
+  const peer = document.getElementById('p2p-uv-peer-name');
+  const simWrap = document.getElementById('p2p-uv-sim-exec-wrap');
+  const active = remoteViewerOpen && currentStatus.phase === 'winner_control';
+  if (modal) {
+    modal.style.display = active ? 'flex' : 'none';
+    modal.classList.toggle('is-expanded', remoteViewerExpanded);
+  }
+  if (cd) {
+    cd.textContent = `${currentStatus.winner_remaining_sec || 0}s`;
+  }
+  if (peer) {
+    const tag = currentStatus.is_sim_mode
+      ? `${currentStatus.peer_name || 'May B'} [SIM]`
+      : currentStatus.is_web_peer
+        ? `${currentStatus.peer_name || 'Mobile'} [WEB]`
+        : currentStatus.peer_name || 'May Thua';
+    peer.textContent = tag;
+  }
+  if (simWrap) {
+    simWrap.style.display = currentStatus.is_sim_mode ? 'inline-flex' : 'none';
+  }
+}
+
+export function openUltraViewModal(forceOpen?: boolean) {
+  if (currentStatus.phase !== 'winner_control') {
+    remoteViewerOpen = false;
+    stopRemoteFramePolling();
+    updateUltraViewHeaderUi();
+    syncUiCb?.();
+    return;
+  }
+  remoteViewerOpen = forceOpen !== undefined ? forceOpen : !remoteViewerOpen;
+  updateUltraViewHeaderUi();
+  if (remoteViewerOpen) {
+    startRemoteFramePolling();
+    const vp = document.getElementById('p2p-uv-viewport');
+    setTimeout(() => vp?.focus(), 60);
+  }
+  syncUiCb?.();
+}
+
+export function toggleUltraViewExpand() {
+  remoteViewerExpanded = !remoteViewerExpanded;
+  const btn = document.getElementById('btn-p2p-uv-size');
+  if (btn) {
+    btn.textContent = remoteViewerExpanded ? 'Thu Nho Khung' : 'Phong To';
+  }
+  updateUltraViewHeaderUi();
+  syncUiCb?.();
+}
+
 function hideHostMapAndControllerOverlays() {
   lastRenderedHostMapKey = '';
   const hostMap = document.getElementById('p2p-host-map-overlay');
@@ -615,6 +861,9 @@ function hideHostMapAndControllerOverlays() {
   if (crosshair) crosshair.style.display = 'none';
   const ctrl = document.getElementById('p2p-pk-controller');
   if (ctrl) ctrl.style.display = 'none';
+  remoteViewerOpen = false;
+  stopRemoteFramePolling();
+  updateUltraViewHeaderUi();
 }
 
 function updateP2pCombatOverlaysVisibility() {
@@ -669,11 +918,9 @@ function updateP2pCombatOverlaysVisibility() {
 
   const hostMap = document.getElementById('p2p-host-map-overlay');
   if (hostMap) {
-    const showGuestMap =
-      isP2pCombatControlsActive() &&
-      currentStatus.is_room_host === false &&
-      remoteHostPlatforms.length > 0;
-    if (!showGuestMap) {
+    const platforms = isP2pCombatControlsActive() ? getActiveP2pPlatforms() : [];
+    const showSharedMap = isP2pCombatControlsActive() && platforms.length > 0;
+    if (!showSharedMap) {
       if (hostMap.style.display !== 'none') {
         hostMap.style.display = 'none';
       }
@@ -681,23 +928,31 @@ function updateP2pCombatOverlaysVisibility() {
     } else {
       const wScreen = appState.W || window.innerWidth || 1920;
       const hScreen = appState.H || window.innerHeight || 1080;
-      const nextKey = `${wScreen}x${hScreen}:${JSON.stringify(remoteHostPlatforms)}`;
+      const isGuest = currentStatus.is_room_host === false;
+      const nextKey = `${isGuest ? 'G' : 'H'}:${wScreen}x${hScreen}:${platforms
+        .map((p) => `${Math.round(p.x)},${Math.round(p.y)},${Math.round(p.w)},${Math.round(p.h)},${p.title}`)
+        .join('|')}`;
       hostMap.style.display = 'block';
       if (nextKey !== lastRenderedHostMapKey) {
         lastRenderedHostMapKey = nextKey;
-        hostMap.innerHTML = remoteHostPlatforms
-          .map((win) => {
-            const left = Math.round(win.x * wScreen);
-            const top = Math.round(win.y * hScreen);
-            const width = Math.max(80, Math.round(win.w * wScreen));
-            const height = Math.max(40, Math.round(win.h * hScreen));
-            const safeTitle = (win.title || 'Window')
-              .replace(/&/g, '&amp;')
-              .replace(/</g, '&lt;')
-              .replace(/>/g, '&gt;');
-            return `<div class="p2p-host-win-box" style="left:${left}px;top:${top}px;width:${width}px;height:${height}px;"><span class="p2p-host-win-title">[HOST WIN] ${safeTitle.slice(0, 26)}</span></div>`;
+        const hostNameSafe = escapeHtmlSimple(currentStatus.peer_name || 'Chu Phong');
+        const bannerText = isGuest
+          ? `[MAP DONG BO CHUNG: ${platforms.length} CUA SO VAT LY — CHU PHONG: ${hostNameSafe}] (Space: Nhay len noc | B: Ho den an nap)`
+          : `[MAP PHONG CHUNG DANG CHIA SE CHO KHACH: ${platforms.length} CUA SO VAT LY] (Space: Nhay len noc | B: Ho den an nap)`;
+        const boxesHtml = platforms
+          .map((win, idx) => {
+            const left = Math.round(win.x);
+            const top = Math.round(win.y);
+            const width = Math.max(88, Math.round(win.w));
+            const height = Math.max(46, Math.round(win.h));
+            const safeTitle = escapeHtmlSimple((win.title || `Window ${idx + 1}`).slice(0, 34));
+            if (isGuest) {
+              return `<div class="p2p-host-win-box" style="left:${left}px;top:${top}px;width:${width}px;height:${height}px;"><div class="p2p-host-win-ledge"></div><div class="p2p-host-win-header"><span class="p2p-host-win-title">[MAP CHU PHONG] ${safeTitle}</span><span class="p2p-host-win-tag">SAN VAT LY | B: HO DEN</span></div></div>`;
+            }
+            return `<div class="p2p-host-win-box is-host-ledge" style="left:${left}px;top:${top}px;width:${width}px;height:${height}px;"><div class="p2p-host-win-ledge"></div><span class="p2p-host-win-title">[DONG BO MAP] ${safeTitle}</span></div>`;
           })
           .join('');
+        hostMap.innerHTML = `<div class="p2p-shared-map-banner${isGuest ? '' : ' is-host'}">${bannerText}</div>${boxesHtml}`;
       }
     }
   }
@@ -1223,12 +1478,23 @@ function updateReturnAndVictimBanners() {
     victimBanner.style.display = active ? 'flex' : 'none';
     victimCountdown.textContent = `${currentStatus.victim_remaining_sec}s`;
   }
+
+  if (currentStatus.phase !== 'winner_control') {
+    if (remoteViewerOpen || remoteFramePollTimer !== null) {
+      remoteViewerOpen = false;
+      stopRemoteFramePolling();
+    }
+  }
+  updateUltraViewHeaderUi();
 }
 
 export async function refreshP2pStatus(): Promise<P2pStatus> {
   try {
     currentStatus = await invoke<P2pStatus>('p2p_get_status');
   } catch { }
+  if (currentStatus.is_room_host === false && currentStatus.host_windows_json) {
+    hydrateRemotePlatformsFromJson(currentStatus.host_windows_json);
+  }
   updateReturnAndVictimBanners();
   syncUiCb?.();
   return currentStatus;
@@ -1243,6 +1509,9 @@ export async function initP2pArena() {
   await listen<P2pEventPayload>('desktop-mate://p2p-event', (event) => {
     const ev = event.payload;
     currentStatus = ev.status;
+    if (currentStatus.is_room_host === false && currentStatus.host_windows_json) {
+      hydrateRemotePlatformsFromJson(currentStatus.host_windows_json);
+    }
 
     if (ev.event_type === 'incoming_handshake') {
       playAlertBeep(appState.posX);
@@ -1271,12 +1540,21 @@ export async function initP2pArena() {
       appState.setExpression('happy', 3.5);
       spawnParticles(appState.posX, appState.posY - 100, 14, 0x34d399);
       if (currentStatus.is_room_host !== false) {
+        lastSentWindowsJson = '';
         void sendHostWindowMapNow(true);
+      } else {
+        hydrateRemotePlatformsFromJson(currentStatus.host_windows_json);
+        void invoke('p2p_send_packet', { packet: { kind: 'map_request' } }).catch(() => { });
       }
       speak(
         ev.message ||
-        `[P2P HANDSHAKE] Da ket noi an toan voi ${currentStatus.peer_name}! Bay gio 2 ben co the nhay len cua so & PK!`
+        `[P2P HANDSHAKE] Da ket noi an toan voi ${currentStatus.peer_name}! Map cua so vat ly da duoc dong bo de 2 ben nhay & PK!`
       );
+    } else if (ev.event_type === 'map_request') {
+      if (currentStatus.is_room_host !== false) {
+        lastSentWindowsJson = '';
+        void sendHostWindowMapNow(true);
+      }
     } else if (ev.event_type === 'handshake_rejected') {
       playAlertBeep(appState.posX);
       speak(`[P2P] ${ev.message || 'Yêu cầu kết nối đã bị từ chối.'}`);
@@ -1306,13 +1584,22 @@ export async function initP2pArena() {
       speak(`[CROSS-PC] Vịt của đối thủ đã quay trở về máy của họ.`);
     } else if (ev.event_type === 'host_map_sync' && ev.packet) {
       if (currentStatus.is_room_host === false && typeof ev.packet.windows_json === 'string') {
-        try {
-          const parsed = JSON.parse(ev.packet.windows_json);
-          if (Array.isArray(parsed)) {
-            remoteHostPlatforms = parsed;
-            updateP2pCombatOverlaysVisibility();
-          }
-        } catch { }
+        if (hydrateRemotePlatformsFromJson(ev.packet.windows_json)) {
+          updateP2pCombatOverlaysVisibility();
+        }
+      }
+    } else if (ev.event_type === 'remote_frame' && ev.packet) {
+      const fp = ev.packet;
+      if (typeof fp.frame_b64 === 'string' && fp.frame_b64) {
+        applyRemoteFrameToUi(
+          fp.frame_b64,
+          fp.frame_w || 560,
+          fp.frame_h || 315,
+          fp.frame_seq || 0,
+          fp.x_ratio,
+          fp.y_ratio,
+          currentStatus.is_sim_mode
+        );
       }
     } else if (ev.event_type === 'peer_blackhole_hide' && ev.packet) {
       const p = ev.packet;
@@ -1352,12 +1639,7 @@ export async function initP2pArena() {
         peerEnergy = Math.max(0, Math.min(MAX_ENERGY, p.energy));
       }
       if (typeof p.windows_json === 'string' && currentStatus.is_room_host === false) {
-        try {
-          const parsed = JSON.parse(p.windows_json);
-          if (Array.isArray(parsed)) {
-            remoteHostPlatforms = parsed;
-          }
-        } catch { }
+        hydrateRemotePlatformsFromJson(p.windows_json);
       }
       if (peerPresentOnMyScreen) {
         if (typeof p.x_ratio === 'number') {
@@ -1385,6 +1667,9 @@ export async function initP2pArena() {
         }
       }
     } else if (ev.event_type === 'pk_started') {
+      if (ev.packet?.windows_json && currentStatus.is_room_host === false) {
+        hydrateRemotePlatformsFromJson(ev.packet.windows_json);
+      }
       setupLocalPkArena(false);
     } else if (ev.event_type === 'pk_attack' && ev.packet) {
       handleIncomingPkAttack(ev.packet);
@@ -1392,9 +1677,23 @@ export async function initP2pArena() {
       const winnerIsSender = Boolean(ev.packet.winner_is_sender);
       finalizePkOutcome(!winnerIsSender, false);
     } else if (ev.event_type === 'remote_executed') {
-      playAlertBeep(appState.posX);
-      if (ev.message) {
-        speak(`[REMOTE CONTROL] Đối thủ vừa thực thi: ${ev.message}`);
+      const ctype = ev.packet?.cmd_type || '';
+      const isQuietInput =
+        ctype === 'mouse_move' ||
+        ctype === 'mouse_down' ||
+        ctype === 'mouse_up' ||
+        ctype === 'mouse_click' ||
+        ctype === 'mouse_dblclick' ||
+        ctype === 'mouse_wheel' ||
+        ctype === 'key_down' ||
+        ctype === 'key_up' ||
+        ctype === 'key_press' ||
+        ctype === 'hotkey';
+      if (!isQuietInput) {
+        playAlertBeep(appState.posX);
+        if (ev.message) {
+          speak(`[REMOTE CONTROL] Đối thủ vừa thực thi: ${ev.message}`);
+        }
       }
     } else if (ev.event_type === 'peer_disconnected') {
       cleanupAfterDisconnect();
@@ -1409,6 +1708,17 @@ export async function initP2pArena() {
 
 async function sendHostWindowMapNow(force = false) {
   if (currentStatus.is_room_host === false || !isP2pCombatControlsActive()) return;
+  const now = performance.now();
+  if (appState.openWindows.length === 0 && now - lastWindowFetchAt > 1200) {
+    lastWindowFetchAt = now;
+    try {
+      const wins = await invoke<WinRect[]>('get_open_windows');
+      if (Array.isArray(wins) && wins.length > 0) {
+        appState.openWindows = wins;
+      }
+    } catch { }
+  }
+
   const wScreen = Math.max(1, appState.W || window.innerWidth || 1920);
   const hScreen = Math.max(1, appState.H || window.innerHeight || 1080);
   const platforms = getActiveP2pPlatforms().map((win) => ({
@@ -1419,8 +1729,10 @@ async function sendHostWindowMapNow(force = false) {
     title: (win.title || 'Window').slice(0, 32),
   }));
   const jsonStr = JSON.stringify(platforms);
-  if (!force && jsonStr === lastSentWindowsJson) return;
+  const periodicDue = now - lastMapForceBroadcastAt >= 2000;
+  if (!force && !periodicDue && jsonStr === lastSentWindowsJson) return;
   lastSentWindowsJson = jsonStr;
+  lastMapForceBroadcastAt = now;
   await invoke('p2p_send_packet', {
     packet: {
       kind: 'map_windows',
@@ -1448,6 +1760,11 @@ function cleanupAfterDisconnect() {
   appState.duckCrouchRoll = false;
   remoteHostPlatforms = [];
   lastSentWindowsJson = '';
+  lastMapForceBroadcastAt = 0;
+  lastRenderedFrameSeq = -1;
+  lastRemoteFrameAt = 0;
+  remoteViewerOpen = false;
+  stopRemoteFramePolling();
   myEnergy = MAX_ENERGY;
   peerEnergy = MAX_ENERGY;
   clearPkFoods();
@@ -1485,6 +1802,10 @@ export async function respondP2pHandshake(accept: boolean): Promise<void> {
       bodyColor: appState.duckBodyColor || '#f4f4f6',
       accentColor: appState.duckAccentColor || '#f97316',
     });
+    if (accept && currentStatus.is_room_host !== false) {
+      lastSentWindowsJson = '';
+      await sendHostWindowMapNow(true);
+    }
   } catch (err) {
     speak(`[P2P LỖI] ${String(err)}`);
   }
@@ -1663,12 +1984,19 @@ function setupLocalPkArena(sendStartPacket: boolean) {
   playDuckQuackSound(appState.posX);
 
   if (currentStatus.is_room_host !== false) {
+    lastSentWindowsJson = '';
     void sendHostWindowMapNow(true);
+  } else {
+    void invoke('p2p_send_packet', { packet: { kind: 'map_request' } }).catch(() => { });
   }
 
   if (sendStartPacket && !currentStatus.is_sim_mode) {
     void invoke('p2p_send_packet', {
-      packet: { kind: 'pk_start', peer_name: currentStatus.local_name },
+      packet: {
+        kind: 'pk_start',
+        peer_name: currentStatus.local_name,
+        windows_json: currentStatus.is_room_host !== false ? (lastSentWindowsJson || undefined) : undefined,
+      },
     }).catch(() => { });
   }
 
@@ -1726,6 +2054,9 @@ function finalizePkOutcome(localWon: boolean, notifyPeer: boolean) {
     currentStatus.phase = 'winner_control';
     currentStatus.winner_remaining_sec = 60;
     currentStatus.victim_remaining_sec = 0;
+    lastRenderedFrameSeq = -1;
+    lastRemoteFrameAt = 0;
+    remoteViewerOpen = true;
     showWinnerVictoryBanner(appState.posX, appState.posY);
     triggerRandomSpecial3DEffect(appState.posX, appState.posY, 'cyber_fireworks');
     playSuccessChimeSound(appState.posX);
@@ -1740,9 +2071,11 @@ function finalizePkOutcome(localWon: boolean, notifyPeer: boolean) {
     }
 
     speak(
-      '[WINNER 60S] CHÚC MỪNG CHIẾN THẮNG! Bạn được toàn quyền điều khiển chuột & bàn phím máy đối thủ trong 60 giây!'
+      '[WINNER 60S] CHÚC MỪNG CHIẾN THẮNG! Cửa sổ UltraViewer trực tiếp đã mở — bạn có 60 giây điều khiển chuột & bàn phím máy đối thủ!'
     );
   } else {
+    remoteViewerOpen = false;
+    stopRemoteFramePolling();
     currentStatus.phase = 'victim_controlled';
     currentStatus.victim_remaining_sec = 60;
     currentStatus.winner_remaining_sec = 0;
@@ -1758,7 +2091,7 @@ function finalizePkOutcome(localWon: boolean, notifyPeer: boolean) {
     }
 
     speak(
-      '[THUA TRẬN - 60S] Vịt của bạn đã kiệt sức! Máy thắng có 60 giây điều khiển chuột/phím từ xa (Luôn có nút Thoát Khẩn Cấp).'
+      '[THUA TRẬN - 60S] Vịt của bạn đã kiệt sức! Máy thắng có 60 giây xem màn hình & điều khiển chuột/phím từ xa (Bấm Alt+Q để thoát khẩn cấp).'
     );
   }
 
@@ -1767,7 +2100,11 @@ function finalizePkOutcome(localWon: boolean, notifyPeer: boolean) {
   updateP2pCombatOverlaysVisibility();
   hideP2pFloatingHud();
   if (localWon) {
-    setP2pModalOpenCb?.(true);
+    updateUltraViewHeaderUi();
+    startRemoteFramePolling();
+    setP2pModalOpenCb?.(false);
+    const vp = document.getElementById('p2p-uv-viewport');
+    setTimeout(() => vp?.focus(), 80);
   }
   syncUiCb?.();
 }
@@ -1996,17 +2333,31 @@ export async function sendWinnerRemoteCmd(
   opts: {
     xNorm?: number;
     yNorm?: number;
-    button?: 'left' | 'right';
+    button?: 'left' | 'right' | 'middle' | 'sim_preview';
     vk?: number;
+    wheelDelta?: number;
     text?: string;
     durationSec?: number;
+    silent?: boolean;
   } = {}
 ): Promise<string> {
   if (cmdType === 'mouse_move') {
     const now = performance.now();
-    if (now - lastMouseStreamSent < 40) return '';
+    if (now - lastMouseStreamSent < 36) return '';
     lastMouseStreamSent = now;
   }
+  const quietCmd =
+    Boolean(opts.silent) ||
+    cmdType === 'mouse_move' ||
+    cmdType === 'mouse_down' ||
+    cmdType === 'mouse_up' ||
+    cmdType === 'mouse_click' ||
+    cmdType === 'mouse_dblclick' ||
+    cmdType === 'mouse_wheel' ||
+    cmdType === 'key_down' ||
+    cmdType === 'key_up' ||
+    cmdType === 'key_press' ||
+    cmdType === 'hotkey';
   try {
     const res = await invoke<string>('p2p_send_remote_command', {
       cmdType,
@@ -2014,15 +2365,16 @@ export async function sendWinnerRemoteCmd(
       yNorm: opts.yNorm ?? null,
       button: opts.button ?? null,
       vk: opts.vk ?? null,
+      wheelDelta: opts.wheelDelta ?? null,
       text: opts.text ?? null,
       durationSec: opts.durationSec ?? null,
     });
-    if (cmdType !== 'mouse_move' && res) {
+    if (!quietCmd && res) {
       speak(`[REMOTE 60S] ${res}`);
     }
     return res;
   } catch (err) {
-    if (cmdType !== 'mouse_move') {
+    if (!quietCmd) {
       speak(`[REMOTE] ${String(err)}`);
     }
     await refreshP2pStatus();
@@ -2518,6 +2870,7 @@ export function updateP2pArena(delta: number, elapsed: number) {
           is_shielding: heroBulletShieldActive,
           is_jetpack: heroJetpackActive,
           is_sliding: heroSlideTimer > 0,
+          windows_json: currentStatus.is_room_host !== false ? (lastSentWindowsJson || undefined) : undefined,
         },
       }).catch(() => { });
     }

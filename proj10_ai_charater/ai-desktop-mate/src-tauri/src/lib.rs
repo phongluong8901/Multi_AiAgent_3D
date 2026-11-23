@@ -3,15 +3,30 @@ pub mod core;
 
 use tauri::Manager;
 
+use crate::backend::automation_desktop::{
+    auto_chat_app_send_message, auto_com_action, auto_focus_window, auto_launch_app_with_hooks,
+    auto_mouse_click, auto_press_hotkey, auto_scroll, auto_som_snapshot, auto_type_text,
+    auto_uia_invoke, auto_uia_set_value, auto_uia_snapshot, cdp_action, cdp_dom_snapshot,
+    cdp_launch_debug_chrome, cdp_list_tabs,
+};
+use crate::backend::cloud_hub::{
+    cloud_check_hub_health, cloud_delete_community_skill, cloud_get_auth_status, cloud_get_config,
+    cloud_google_login, cloud_google_logout, cloud_install_community_skill,
+    cloud_list_community_skills, cloud_open_web_companion, cloud_publish_skill, cloud_save_config,
+    cloud_sync_chat_pull, cloud_sync_chat_push, cloud_sync_chat_stream_chunk,
+    cloud_toggle_star_skill,
+};
 use crate::backend::desktop_icons::{
     begin_desktop_icon_drag, end_desktop_icon_drag, list_desktop_icons, move_desktop_icon,
     place_desktop_icon,
 };
 use crate::backend::llm::{
-    ask_gemini, ask_gemini_vision, ask_ollama, ask_ollama_stream, embed_ollama,
-    list_ollama_models, save_gemini_api_key_env,
+    ask_colab_cloud_stream, ask_gemini, ask_gemini_vision, ask_ollama, ask_ollama_stream,
+    colab_cloud_save_config, colab_cloud_scan, embed_ollama, list_ollama_models,
+    save_gemini_api_key_env,
 };
 use crate::backend::memory::{
+    auto_rule_delete, auto_rule_list, auto_rule_mark_ran, auto_rule_toggle, auto_rule_upsert,
     clipboard_history_add, clipboard_history_clear, clipboard_history_list,
     get_avatar_studio_config, init_memory_state, long_memory_delete, long_memory_list,
     long_memory_toggle, long_memory_upsert, macro_delete, macro_list, macro_upsert,
@@ -30,8 +45,8 @@ use crate::backend::notification::{
 };
 use crate::backend::p2p::{
     p2p_disconnect, p2p_emergency_release, p2p_get_status, p2p_open_firewall_port,
-    p2p_regenerate_room, p2p_request_handshake, p2p_respond_handshake, p2p_scan_local_peers,
-    p2p_send_packet, p2p_send_remote_command, p2p_start_sim_peer, P2pState,
+    p2p_poll_remote_frame, p2p_regenerate_room, p2p_request_handshake, p2p_respond_handshake,
+    p2p_scan_local_peers, p2p_send_packet, p2p_send_remote_command, p2p_start_sim_peer, P2pState,
 };
 use crate::backend::pc_control::{
     analyze_ingested_file, capture_and_encode_screenshot, check_git_status, control_media,
@@ -42,9 +57,9 @@ use crate::backend::pc_control::{
     trigger_app_hotkey,
 };
 use crate::backend::mini_screen::{
-    mini_screen_capture_window, mini_screen_control_web, mini_screen_focus_window,
-    mini_screen_list_windows, mini_screen_open_web, mini_screen_restore_all_stealth,
-    mini_screen_set_stealth, MiniScreenState,
+    mini_screen_capture_window, mini_screen_capture_windows_batch, mini_screen_control_web,
+    mini_screen_focus_window, mini_screen_list_windows, mini_screen_open_web,
+    mini_screen_restore_all_stealth, mini_screen_set_stealth, MiniScreenState,
 };
 use crate::backend::tarot::{tarot_draw_card, tarot_get_status, tarot_save_ai_reading};
 use crate::backend::telemetry::{
@@ -54,7 +69,7 @@ use crate::backend::telemetry::{
 use crate::backend::tool_forge::{
     tool_forge_apply_healed_skill, tool_forge_delete_skill, tool_forge_execute_skill,
     tool_forge_list_skills, tool_forge_run_sandbox, tool_forge_save_skill,
-    tool_forge_toggle_skill, ToolForgeState,
+    tool_forge_test_draft_live, tool_forge_toggle_skill, ToolForgeState,
 };
 use crate::backend::window_control::{
     arrange_desktop_windows, get_desktop_state, get_open_windows, interact_window,
@@ -108,6 +123,9 @@ pub fn run() {
             fetch_vietnamese_tts_audio,
             ask_ollama,
             ask_ollama_stream,
+            ask_colab_cloud_stream,
+            colab_cloud_scan,
+            colab_cloud_save_config,
             list_ollama_models,
             ask_gemini,
             ask_gemini_vision,
@@ -178,6 +196,7 @@ pub fn run() {
             scan_active_windows_apps,
             p2p_get_status,
             p2p_open_firewall_port,
+            p2p_poll_remote_frame,
             p2p_regenerate_room,
             p2p_scan_local_peers,
             p2p_request_handshake,
@@ -188,6 +207,7 @@ pub fn run() {
             p2p_disconnect,
             p2p_emergency_release,
             tool_forge_run_sandbox,
+            tool_forge_test_draft_live,
             tool_forge_save_skill,
             tool_forge_list_skills,
             tool_forge_delete_skill,
@@ -198,12 +218,49 @@ pub fn run() {
             tarot_draw_card,
             tarot_save_ai_reading,
             mini_screen_capture_window,
+            mini_screen_capture_windows_batch,
             mini_screen_focus_window,
             mini_screen_open_web,
             mini_screen_control_web,
             mini_screen_list_windows,
             mini_screen_set_stealth,
-            mini_screen_restore_all_stealth
+            mini_screen_restore_all_stealth,
+            cloud_get_config,
+            cloud_save_config,
+            cloud_get_auth_status,
+            cloud_check_hub_health,
+            cloud_google_login,
+            cloud_google_logout,
+            cloud_list_community_skills,
+            cloud_publish_skill,
+            cloud_install_community_skill,
+            cloud_delete_community_skill,
+            cloud_toggle_star_skill,
+            cloud_sync_chat_pull,
+            cloud_sync_chat_push,
+            cloud_sync_chat_stream_chunk,
+            cloud_open_web_companion,
+            auto_mouse_click,
+            auto_type_text,
+            auto_press_hotkey,
+            auto_scroll,
+            auto_focus_window,
+            auto_uia_snapshot,
+            auto_uia_invoke,
+            auto_uia_set_value,
+            auto_launch_app_with_hooks,
+            auto_com_action,
+            auto_chat_app_send_message,
+            auto_som_snapshot,
+            cdp_launch_debug_chrome,
+            cdp_list_tabs,
+            cdp_dom_snapshot,
+            cdp_action,
+            auto_rule_list,
+            auto_rule_upsert,
+            auto_rule_toggle,
+            auto_rule_delete,
+            auto_rule_mark_ran
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -308,9 +308,26 @@ export const studioModalHtml = `
         <div class="url-row" style="margin-bottom: 0;">
           <select id="select-llm-route" class="studio-input" style="width: 100%; background: rgba(15, 23, 42, 0.88); color: #f8fafc;">
             <option value="auto">Phân luồng Tự động (Local nhanh + Gemini tri thức)</option>
+            <option value="colab">Ưu tiên Colab GPU Cloud (Cloudflare -> Fallback)</option>
             <option value="gemini">Ưu tiên Gemini API (Model lớn)</option>
             <option value="local">Chỉ dùng Local Ollama (Offline 100%)</option>
           </select>
+        </div>
+      </div>
+
+      <div class="studio-section" style="margin-bottom: 10px;">
+        <div class="studio-section-title" style="display: flex; justify-content: space-between; align-items: center;">
+          <span>Colab GPU Cloud (model_local_cloud / Cloudflare)</span>
+          <span id="studio-colab-status" class="badge" style="font-size: 9px;">[COLAB: CHƯA QUÉT]</span>
+        </div>
+        <div class="url-row" style="margin-bottom: 5px;">
+          <input id="input-colab-url" class="studio-input" type="text" placeholder="https://....trycloudflare.com" />
+          <input id="input-colab-model" class="studio-input" type="text" value="qwen2.5-coder:14b" style="max-width: 145px;" placeholder="qwen2.5-coder:14b" />
+          <button id="btn-scan-colab" class="studio-btn-primary" type="button" style="white-space: nowrap;">Quét GPU Colab</button>
+        </div>
+        <div id="colab-models-chips" class="studio-chip-group" style="margin-bottom: 4px;"></div>
+        <div style="font-size: 10px; color: #94a3b8; line-height: 1.35;">
+          Quét thấy tunnel đang bật thì dùng ngay model GPU L4; nếu tắt Colab app tự bỏ qua dùng Local/Gemini.
         </div>
       </div>
 

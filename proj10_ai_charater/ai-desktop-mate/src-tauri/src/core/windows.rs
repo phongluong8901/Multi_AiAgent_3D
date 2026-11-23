@@ -66,9 +66,16 @@ fn is_ignored_title(title: &str) -> bool {
         || title == "Default IME"
 }
 
+pub fn set_last_active_hwnd(hwnd: isize) {
+    if hwnd != 0 {
+        LAST_ACTIVE_HWND.store(hwnd, Ordering::Relaxed);
+    }
+}
+
 pub fn get_active_external_hwnd() -> isize {
     #[cfg(windows)]
     unsafe {
+        use windows::Win32::Foundation::HWND;
         use windows::Win32::UI::WindowsAndMessaging::{
             GetAncestor, GetForegroundWindow, GetWindowTextLengthW, GetWindowTextW, IsWindow,
             IsWindowVisible, GA_ROOT,
@@ -95,8 +102,20 @@ pub fn get_active_external_hwnd() -> isize {
                 }
             }
         }
+
+        let saved = LAST_ACTIVE_HWND.load(Ordering::Relaxed);
+        if saved != 0 {
+            let saved_hwnd = HWND(saved as *mut _);
+            if IsWindow(saved_hwnd).as_bool() && IsWindowVisible(saved_hwnd).as_bool() {
+                return saved;
+            }
+        }
+        if let Some(first) = scan_open_windows().first() {
+            LAST_ACTIVE_HWND.store(first.hwnd, Ordering::Relaxed);
+            return first.hwnd;
+        }
     }
-    LAST_ACTIVE_HWND.load(Ordering::Relaxed)
+    0
 }
 
 pub fn scan_open_windows() -> Vec<WinRect> {

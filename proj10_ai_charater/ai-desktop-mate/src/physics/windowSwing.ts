@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { invoke } from '@tauri-apps/api/core';
 import { appState } from '../core/state';
 import { scene } from '../core/scene';
 import {
@@ -55,7 +56,34 @@ interface WindowSwingSession {
   dizzyStars: THREE.Group | null;
 }
 
+interface WindowPaperCrashSession {
+  phase: 'dash' | 'stuck_wiggle' | 'pop_out';
+  phaseTimer: number;
+  startX: number;
+  startY: number;
+  holeX: number;
+  holeY: number;
+  targetHwnd: number | null;
+  dir: 1 | -1;
+  title: string;
+  holeGroup: THREE.Group | null;
+  scraps: Array<{ mesh: THREE.Mesh; vx: number; vy: number; vr: number }>;
+  velX: number;
+  velY: number;
+}
+
+interface HulkRageSession {
+  timer: number;
+  duration: number;
+  nextSmashAt: number;
+  smashCount: number;
+  auraGroup: THREE.Group;
+  slammedThisCycle: boolean;
+}
+
 let activeSwing: WindowSwingSession | null = null;
+let activePaperCrash: WindowPaperCrashSession | null = null;
+let activeHulkSession: HulkRageSession | null = null;
 let speakCb: ((msg: string) => void) | null = null;
 
 export function registerWindowSwingSpeakCallback(cb: (msg: string) => void) {
@@ -67,7 +95,30 @@ function speak(msg: string) {
 }
 
 export function isWindowSwingActive(): boolean {
-  return activeSwing !== null;
+  return activeSwing !== null || activePaperCrash !== null || activeHulkSession !== null;
+}
+
+async function shakeRealWindows(hwnds: number[], intensityPx = 16) {
+  if (!appState.windowInteractEnabled || hwnds.length === 0) return;
+  const targets = hwnds.slice(0, 2);
+  const dx = Math.max(6, Math.round(intensityPx));
+  const dy = Math.max(4, Math.round(intensityPx * 0.55));
+  const steps: Array<[number, number]> = [
+    [dx, -dy],
+    [-dx * 2, dy * 2],
+    [dx * 2, -dy],
+    [-dx, 0],
+  ];
+  for (const [stepDx, stepDy] of steps) {
+    await Promise.all(
+      targets.map((hwnd) =>
+        invoke('interact_window', { hwnd, action: 'push', dx: stepDx, dy: stepDy }).catch(
+          () => {}
+        )
+      )
+    );
+    await new Promise((r) => setTimeout(r, 48));
+  }
 }
 
 function disposeGroupMeshes(group: THREE.Object3D | null) {
@@ -227,14 +278,159 @@ function updateArmGeometry(
   arm.hand.rotation.z = clampAngle;
 }
 
+function applyHulkGreenSkinTint(enable: boolean) {
+  if (!appState.avatarGroup) return;
+  appState.avatarGroup.traverse((obj) => {
+    if (!(obj instanceof THREE.Mesh) || !obj.material) return;
+    const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+    for (const mat of mats) {
+      const m = mat as THREE.Material & {
+        color?: THREE.Color;
+        emissive?: THREE.Color;
+      };
+      if (enable) {
+        if (!m.userData.__origHulk) {
+          m.userData.__origHulk = {
+            color: m.color ? m.color.getHex() : null,
+            emissive: m.emissive ? m.emissive.getHex() : null,
+          };
+        }
+        const localY = obj.position?.y ?? 0;
+        if (m.color) {
+          m.color.setHex(localY < 26 ? 0x7e22ce : 0x22c55e);
+        }
+        if (m.emissive) {
+          m.emissive.setHex(localY < 26 ? 0x3b0764 : 0x14532d);
+        }
+      } else if (m.userData.__origHulk) {
+        const orig = m.userData.__origHulk as {
+          color: number | null;
+          emissive: number | null;
+        };
+        if (m.color && orig.color !== null) {
+          m.color.setHex(orig.color);
+        }
+        if (m.emissive && orig.emissive !== null) {
+          m.emissive.setHex(orig.emissive);
+        }
+        delete m.userData.__origHulk;
+      }
+    }
+  });
+}
+
+function createPaperTearHoleGroup(holeX: number, holeY: number, s: number): THREE.Group {
+  const g = new THREE.Group();
+  const voidMat = new THREE.MeshBasicMaterial({
+    color: 0x090d16,
+    side: THREE.DoubleSide,
+  });
+  const holeVoid = new THREE.Mesh(new THREE.CircleGeometry(36 * s, 24), voidMat);
+  g.add(holeVoid);
+
+  const rimMat = new THREE.MeshBasicMaterial({
+    color: 0xf8fafc,
+    side: THREE.DoubleSide,
+  });
+  const shadowRimMat = new THREE.MeshBasicMaterial({
+    color: 0xcbd5e1,
+    side: THREE.DoubleSide,
+  });
+
+  // 14 jagged triangular torn-paper flaps curling outward around the breach
+  for (let i = 0; i < 14; i++) {
+    const ang = (i / 14) * Math.PI * 2;
+    const flap = new THREE.Mesh(
+      new THREE.ConeGeometry((9 + (i % 3) * 2.5) * s, (26 + (i % 2) * 8) * s, 3),
+      i % 2 === 0 ? rimMat.clone() : shadowRimMat.clone()
+    );
+    const radius = 33 * s;
+    flap.position.set(Math.cos(ang) * radius, Math.sin(ang) * radius, 4 * s);
+    flap.rotation.z = ang - Math.PI / 2;
+    flap.rotation.x = 0.55;
+    g.add(flap);
+  }
+
+  // 8 radial paper crack/crease lines
+  for (let i = 0; i < 8; i++) {
+    const ang = (i / 8) * Math.PI * 2 + 0.18;
+    const pts = [
+      new THREE.Vector3(Math.cos(ang) * 34 * s, Math.sin(ang) * 34 * s, 2 * s),
+      new THREE.Vector3(Math.cos(ang + 0.06) * 58 * s, Math.sin(ang + 0.06) * 58 * s, 2 * s),
+      new THREE.Vector3(Math.cos(ang - 0.04) * 78 * s, Math.sin(ang - 0.04) * 78 * s, 2 * s),
+    ];
+    const lineGeo = new THREE.BufferGeometry().setFromPoints(pts);
+    const lineMat = new THREE.LineBasicMaterial({ color: 0x475569 });
+    g.add(new THREE.Line(lineGeo, lineMat));
+  }
+
+  g.position.set(holeX, -holeY, 8 * s);
+  scene.add(g);
+  return g;
+}
+
+function createHulkAuraGroup(s: number): THREE.Group {
+  const g = new THREE.Group();
+  const ringMat = new THREE.MeshBasicMaterial({
+    color: 0x22c55e,
+    side: THREE.DoubleSide,
+    transparent: true,
+    opacity: 0.58,
+  });
+  const outerRing = new THREE.Mesh(new THREE.RingGeometry(48 * s, 68 * s, 28), ringMat);
+  outerRing.rotation.x = Math.PI / 2 - 0.15;
+  g.add(outerRing);
+
+  const shortsBelt = new THREE.Mesh(
+    new THREE.TorusGeometry(28 * s, 8 * s, 8, 22),
+    new THREE.MeshStandardMaterial({
+      color: 0x7e22ce,
+      emissive: 0x4c1d95,
+      roughness: 0.5,
+    })
+  );
+  shortsBelt.rotation.x = Math.PI / 2;
+  shortsBelt.position.y = 48 * s;
+  g.add(shortsBelt);
+
+  const rockMat = new THREE.MeshStandardMaterial({
+    color: 0x4ade80,
+    emissive: 0x16a34a,
+    roughness: 0.4,
+  });
+  for (let i = 0; i < 8; i++) {
+    const chunk = new THREE.Mesh(new THREE.DodecahedronGeometry((7 + (i % 3) * 2) * s, 0), rockMat);
+    const a = (i / 8) * Math.PI * 2;
+    chunk.position.set(Math.cos(a) * 66 * s, (24 + (i % 4) * 22) * s, Math.sin(a) * 42 * s);
+    g.add(chunk);
+  }
+
+  scene.add(g);
+  return g;
+}
+
 export function cancelWindowSwing() {
-  if (!activeSwing) return;
-  disposeGroupMeshes(activeSwing.leftArm.group);
-  disposeGroupMeshes(activeSwing.rightArm.group);
-  disposeGroupMeshes(activeSwing.fallbackRail);
-  disposeGroupMeshes(activeSwing.dizzyStars);
-  activeSwing = null;
+  if (activeSwing) {
+    disposeGroupMeshes(activeSwing.leftArm.group);
+    disposeGroupMeshes(activeSwing.rightArm.group);
+    disposeGroupMeshes(activeSwing.fallbackRail);
+    disposeGroupMeshes(activeSwing.dizzyStars);
+    activeSwing = null;
+  }
+  if (activePaperCrash) {
+    disposeGroupMeshes(activePaperCrash.holeGroup);
+    for (const sc of activePaperCrash.scraps) {
+      disposeGroupMeshes(sc.mesh);
+    }
+    activePaperCrash = null;
+  }
+  if (activeHulkSession) {
+    applyHulkGreenSkinTint(false);
+    disposeGroupMeshes(activeHulkSession.auraGroup);
+    activeHulkSession = null;
+  }
   appState.swingTiltAngle = 0;
+  appState.posZ = 0;
 }
 
 export function triggerWindowSwing(explicitHwnd?: number): string {
@@ -364,12 +560,285 @@ export function triggerWindowSwing(explicitHwnd?: number): string {
   return msg;
 }
 
-export function stepWindowSwing(delta: number): boolean {
-  if (!activeSwing) return false;
-  if (appState.state === 'DRAGGING' || isP2pSessionActive()) {
+export function triggerWindowPaperCrash(explicitHwnd?: number): string {
+  if (isP2pSessionActive()) {
+    return '[P2P] Dang trong che do P2P, tam tat hieu ung dam thung cua so.';
+  }
+  cancelWindowSwing();
+  if (isWaterPoolActive()) {
+    triggerStopSwimming(false);
+  }
+  clearLadder();
+  showParachute(false);
+  showJetpack(false);
+  appState.activeWindowTask = null;
+  appState.attachedWindowHwnd = null;
+
+  const s = appState.modelScale || 1.0;
+  const floorY = Math.max(220, (appState.H || 1080) - 48);
+  const wScreen = appState.W || 1920;
+
+  const candidates = appState.openWindows.filter(
+    (w) => !w.is_maximized && w.width >= 220 && w.height >= 140 && !w.title.includes('Duck ai Manager')
+  );
+  let targetWin = explicitHwnd ? candidates.find((w) => w.hwnd === explicitHwnd) : undefined;
+  if (!targetWin && appState.activeWindowHwnd) {
+    targetWin = candidates.find((w) => w.hwnd === appState.activeWindowHwnd);
+  }
+  if (!targetWin && candidates.length > 0) {
+    targetWin = candidates.reduce((best, cur) => (cur.width > best.width ? cur : best), candidates[0]);
+  }
+
+  const holeX = targetWin
+    ? Math.max(110, Math.min(wScreen - 110, targetWin.x + targetWin.width * 0.5))
+    : Math.max(160, Math.min(wScreen - 160, wScreen * 0.5));
+  const holeY = targetWin
+    ? Math.max(120, Math.min(floorY - 120, targetWin.y + targetWin.height * 0.42))
+    : Math.max(140, floorY - 260 * s);
+  const title = targetWin ? targetWin.title.slice(0, 24) : 'Trang Giay Man Hinh';
+  const dir: 1 | -1 = holeX >= appState.posX ? 1 : -1;
+
+  activePaperCrash = {
+    phase: 'dash',
+    phaseTimer: 0,
+    startX: appState.posX,
+    startY: appState.posY,
+    holeX,
+    holeY,
+    targetHwnd: targetWin?.hwnd ?? null,
+    dir,
+    title,
+    holeGroup: null,
+    scraps: [],
+    velX: 0,
+    velY: 0,
+  };
+
+  appState.walkDir = dir;
+  appState.velX = 0;
+  appState.velY = 0;
+  appState.setState('SWINGING_WINDOW');
+  appState.setExpression('surprised', 3.5);
+  playWhooshSound(appState.posX);
+
+  const msg = `[THUNG CUA SO] Vit lao toi dam xuyen thung "${title}" nhu rach trang giay!`;
+  speak(msg);
+  return msg;
+}
+
+export function triggerHulkRageMode(): string {
+  if (isP2pSessionActive()) {
+    return '[P2P] Dang trong che do P2P, tam tat che do Hoa HULK.';
+  }
+  cancelWindowSwing();
+  if (isWaterPoolActive()) {
+    triggerStopSwimming(false);
+  }
+  clearLadder();
+  showParachute(false);
+  showJetpack(false);
+  appState.activeWindowTask = null;
+  appState.attachedWindowHwnd = null;
+
+  const s = appState.modelScale || 1.0;
+  const floorY = Math.max(220, (appState.H || 1080) - 48);
+  if (appState.posY > floorY) appState.posY = floorY;
+
+  applyHulkGreenSkinTint(true);
+  const auraGroup = createHulkAuraGroup(s);
+  activeHulkSession = {
+    timer: 0,
+    duration: 7.2,
+    nextSmashAt: 0.35,
+    smashCount: 0,
+    auraGroup,
+    slammedThisCycle: false,
+  };
+
+  appState.setState('JUMPING');
+  appState.setExpression('surprised', 7.2);
+  spawnShockwave(appState.posX, appState.posY, 0x22c55e);
+  spawnParticles(appState.posX, appState.posY - 50 * s, 26, 0x4ade80);
+  playAlertBeep();
+
+  const msg = '[HULK RAGE] Hoa HULK xanh gian du khong lo! HULK SMASH!!';
+  speak(msg);
+  return msg;
+}
+
+function stepWindowPaperCrash(delta: number): boolean {
+  const pc = activePaperCrash;
+  if (!pc) return false;
+  const s = appState.modelScale || 1.0;
+  const floorY = Math.max(200, (appState.H || 1080) - 48);
+  const wScreen = appState.W || 1920;
+
+  for (const sc of pc.scraps) {
+    sc.vy += 420 * delta;
+    sc.mesh.position.x += sc.vx * delta;
+    sc.mesh.position.y -= sc.vy * delta;
+    sc.mesh.rotation.z += sc.vr * delta;
+    sc.mesh.rotation.x += sc.vr * 0.7 * delta;
+  }
+
+  pc.phaseTimer += delta;
+
+  if (pc.phase === 'dash') {
+    const t = Math.min(1, pc.phaseTimer / 0.44);
+    const ease = t * t;
+    appState.posX = THREE.MathUtils.lerp(pc.startX, pc.holeX, ease);
+    appState.posY = THREE.MathUtils.lerp(pc.startY, pc.holeY + 26 * s, ease) - Math.sin(t * Math.PI) * 38 * s;
+    appState.swingTiltAngle = pc.dir * 1.28;
+    appState.squashX = 1.32;
+    appState.squashY = 0.76;
+    if (Math.random() < 0.65) {
+      spawnParticles(appState.posX, appState.posY - 40 * s, 1, 0xf8fafc);
+    }
+
+    if (t >= 1) {
+      pc.holeGroup = createPaperTearHoleGroup(pc.holeX, pc.holeY, s);
+      const scrapMat = new THREE.MeshBasicMaterial({ color: 0xf8fafc, side: THREE.DoubleSide });
+      for (let i = 0; i < 18; i++) {
+        const scrap = new THREE.Mesh(
+          new THREE.PlaneGeometry((10 + Math.random() * 10) * s, (7 + Math.random() * 8) * s),
+          scrapMat.clone()
+        );
+        scrap.position.set(pc.holeX, -pc.holeY, 12 * s);
+        scene.add(scrap);
+        const ang = Math.random() * Math.PI * 2;
+        const spd = 95 + Math.random() * 210;
+        pc.scraps.push({
+          mesh: scrap,
+          vx: Math.cos(ang) * spd,
+          vy: Math.sin(ang) * spd - 90,
+          vr: (Math.random() - 0.5) * 14,
+        });
+      }
+      spawnShockwave(pc.holeX, pc.holeY, 0xffffff);
+      spawnParticles(pc.holeX, pc.holeY, 22, 0xe2e8f0);
+      playLandSound(pc.holeX);
+      playDuckQuackSound(pc.holeX);
+      if (pc.targetHwnd) {
+        void shakeRealWindows([pc.targetHwnd], 18);
+      }
+      pc.phase = 'stuck_wiggle';
+      pc.phaseTimer = 0;
+    }
+    return true;
+  }
+
+  if (pc.phase === 'stuck_wiggle') {
+    appState.posX = pc.holeX;
+    appState.posY = pc.holeY + 28 * s;
+    appState.posZ = -14 * s;
+    appState.swingTiltAngle = Math.sin(pc.phaseTimer * 26) * 0.42;
+    appState.squashX = 1.22 + Math.sin(pc.phaseTimer * 18) * 0.14;
+    appState.squashY = 0.78;
+    appState.setExpression('sad', 0.5);
+
+    if (pc.phaseTimer >= 2.05) {
+      pc.phase = 'pop_out';
+      pc.phaseTimer = 0;
+      pc.velX = -pc.dir * 3.8;
+      pc.velY = -7.5;
+      appState.posZ = 0;
+      playJumpSound(pc.holeX);
+      spawnShockwave(pc.holeX, pc.holeY, 0x38bdf8);
+    }
+    return true;
+  }
+
+  // Phase: pop_out
+  const dtF = delta * 60;
+  pc.velY += appState.gravity * dtF;
+  appState.posX = Math.max(55, Math.min(wScreen - 55, appState.posX + pc.velX * dtF));
+  appState.posY += pc.velY * dtF;
+  appState.swingTiltAngle = pc.phaseTimer * 9.5 * -pc.dir;
+  if (pc.holeGroup) {
+    const shrink = Math.max(0.02, 1 - pc.phaseTimer / 0.85);
+    pc.holeGroup.scale.setScalar(shrink);
+  }
+  if (appState.posY >= floorY || pc.phaseTimer >= 1.2) {
+    appState.posY = floorY;
+    spawnShockwave(appState.posX, floorY, 0x38bdf8);
+    spawnParticles(appState.posX, floorY - 16 * s, 12, 0xf8fafc);
+    playLandSound(appState.posX);
     cancelWindowSwing();
+    appState.setState('IDLE');
     return false;
   }
+  return true;
+}
+
+function stepHulkRage(delta: number): boolean {
+  const hk = activeHulkSession;
+  if (!hk) return false;
+  const s = appState.modelScale || 1.0;
+  const floorY = Math.max(200, (appState.H || 1080) - 48);
+
+  hk.timer += delta;
+  appState.setExpression('surprised', 0.4);
+  appState.squashX = 2.08 + Math.sin(hk.timer * 13) * 0.12;
+  appState.squashY = 1.78 + Math.cos(hk.timer * 13) * 0.08;
+
+  // Periodic HULK SMASH jump and slam every 1.45s
+  if (hk.timer >= hk.nextSmashAt) {
+    const localT = hk.timer - hk.nextSmashAt;
+    if (localT < 0.48) {
+      const arc = Math.sin((localT / 0.48) * Math.PI);
+      appState.posY = floorY - arc * 86 * s;
+      appState.swingTiltAngle = Math.sin(localT * 20) * 0.18;
+    } else {
+      appState.posY = floorY;
+      appState.swingTiltAngle = 0;
+      hk.nextSmashAt = hk.timer + 1.05;
+      hk.smashCount++;
+      spawnShockwave(appState.posX, floorY, 0x22c55e);
+      spawnParticles(appState.posX, floorY - 24 * s, 24, 0x4ade80);
+      spawnDriftSmoke(appState.posX - 24 * s, floorY, -1);
+      spawnDriftSmoke(appState.posX + 24 * s, floorY, 1);
+      playLandSound(appState.posX);
+      playDuckQuackSound(appState.posX);
+      const shakeTargets = appState.openWindows
+        .filter((w) => !w.is_maximized && !w.title.includes('Duck ai Manager'))
+        .slice(0, 2)
+        .map((w) => w.hwnd);
+      if (shakeTargets.length > 0) {
+        void shakeRealWindows(shakeTargets, 22);
+      }
+    }
+  } else {
+    appState.posY = floorY;
+    appState.swingTiltAngle = Math.sin(hk.timer * 16) * 0.07;
+    if (Math.random() < delta * 9) {
+      spawnParticles(appState.posX + (Math.random() - 0.5) * 60 * s, floorY - 60 * s, 1, 0x22c55e);
+    }
+  }
+
+  hk.auraGroup.position.set(appState.posX, -appState.posY, 10 * s);
+  hk.auraGroup.rotation.y += delta * 4.5;
+
+  if (hk.timer >= hk.duration) {
+    cancelWindowSwing();
+    appState.squashX = 1.0;
+    appState.squashY = 1.0;
+    appState.setState('IDLE');
+    appState.setExpression('neutral', 1.0);
+    spawnParticles(appState.posX, floorY - 40 * s, 12, 0x22c55e);
+    speak('[HULK] Ha nhiet roi, quay lai dang goc nhe!');
+    return false;
+  }
+  return true;
+}
+
+export function stepWindowSwing(delta: number): boolean {
+  if (appState.state === 'DRAGGING' || isP2pSessionActive()) {
+    if (isWindowSwingActive()) cancelWindowSwing();
+    return false;
+  }
+  if (activePaperCrash) return stepWindowPaperCrash(delta);
+  if (activeHulkSession) return stepHulkRage(delta);
+  if (!activeSwing) return false;
 
   const sw = activeSwing;
   const s = appState.modelScale || 1.0;

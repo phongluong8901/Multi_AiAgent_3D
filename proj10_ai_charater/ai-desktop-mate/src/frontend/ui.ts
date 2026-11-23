@@ -2,16 +2,16 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { appState, PRESET_ALICIA_URL, PRESET_VRM1_URL } from '../core/state';
 import { applyRendererEcoQuality } from '../core/scene';
+import { fireAnimationTrigger } from '../core/animationBinder';
 import {
   AUTO_BEHAVIOR_CATALOG,
   AutoBehaviorKey,
-  CapturedWindowFrame,
   ChatEntry,
+  CloudAuthStatus,
+  CommunitySkillDoc,
   createDefaultAutoBehaviors,
   CustomSkillRecord,
   IngestedFileAnalysis,
-  MiniWebStatus,
-  MiniWindowEntry,
   OcrRegionResult,
   ScheduledNoteEntry,
   TarotReadingRecord,
@@ -49,6 +49,8 @@ import {
   triggerStartSwimming,
   triggerStopSwimming,
   triggerWindowSwing,
+  triggerWindowPaperCrash,
+  triggerHulkRageMode,
   isWaterPoolActive,
 } from '../physics/physics';
 import {
@@ -92,6 +94,7 @@ import {
   isP2pDuelActive,
   LanPeerInfo,
   migrateDuckOutToPeer,
+  openUltraViewModal,
   performP2pSkill,
   recallDuckFromPeer,
   refreshP2pStatus,
@@ -104,6 +107,7 @@ import {
   setP2pBulletShield,
   startP2pPkMatch,
   startSimPeerTest,
+  toggleUltraViewExpand,
   triggerP2pBlackHoleHide,
   triggerP2pMove,
 } from '../core/p2pArena';
@@ -147,11 +151,15 @@ import {
   runSmartDbSupportBriefing,
   summarizeLastIngestedFile,
   syncLiveWeather3D,
+  translateCurrentEnglishLesson,
   translateTextWithAi,
   triggerRandomFeatureOrEffect,
   triggerScheduledContentNow,
   saveLongMemoryEntry,
+  saveColabCloudConfig,
+  scanColabCloudModels,
   setAutoCheckEnabled,
+  setColabCloudModel,
   setCpuAlertPct,
   setGeminiApiKey,
   setGeminiModel,
@@ -159,6 +167,7 @@ import {
   setOllamaModel,
   setRamAlertGb,
   updateStudioWeatherPreviewUi,
+  colabCloudModel,
   LlmRouteMode,
 } from '../backend/assistant';
 import {
@@ -175,19 +184,71 @@ import {
 } from '../physics/desktopIconInteract';
 import { mountUi } from './components/mountUi';
 import { renderDataExpertDashboardCharts } from './components/dataChartEngine';
+import { makeDialogDraggable } from './dialogs/dragHelper';
 import {
+  initProactiveErrorWatcher,
+  initVoicePushToTalk,
+} from './features/voiceAndErrorWatcher';
+import {
+  initAutomationRulesUi,
+  refreshAutomationRulesUi,
+} from './features/automationRulesUi';
+import { initPinnedChatFilesUi } from './features/pinnedChatFiles';
+import {
+  isDuckVoiceMuted,
+  setDuckVoiceMuted,
+  speakVietnameseTts,
+  stopDuckVoiceTts,
+} from './features/voiceTts';
+import {
+  handleIncomingNotificationForReply,
+  initNotificationAutoReplyUi,
+} from './features/notificationAutoReplyUi';
+import { initWebRemoteSyncLoop } from './features/webRemoteSyncUi';
+import {
+  initMiniScreenUi,
+  refreshMiniMirrorWindowsIfOpen,
+  toggleMiniScreenPanel,
+} from './features/miniScreenUi';
+import {
+  AgentWorkflowTrace,
+  buildToolForgePromptFromTrace,
+} from '../backend/agentLoop';
+import {
+  buildVerifiedDraftFromAgentTrace,
+  checkCloudHubHealth,
   confirmAndSaveToolDraft,
+  createBlankToolDraft,
+  deleteCommunitySkill,
   executeSavedSkillWithSelfHeal,
   forgeNewToolFromRequest,
   getCachedCustomSkills,
+  getCloudAuthStatus,
+  getCloudHubConfig,
   getLatestToolForgeDraft,
+  installCommunitySkillFromCloud,
+  listCommunitySkills,
+  loginWithGoogleOAuth,
+  logoutGoogleOAuth,
+  openWebChatCompanion,
   parseExpectedKeywords,
   parseTriggers,
+  publishLocalSkillToCloud,
   refreshCustomSkills,
   runDraftInSandbox,
+  runDraftLiveTest,
+  saveCloudHubConfig,
   selfHealDraftWithGemini,
   setLatestToolForgeDraft,
+  toggleStarCommunitySkill,
 } from '../backend/toolForge';
+
+export {
+  isDuckVoiceMuted,
+  speakVietnameseTts,
+  stopDuckVoiceTts,
+  toggleMiniScreenPanel,
+};
 
 export let leftTelemetryPanel!: HTMLElement;
 export let rightActionPanel!: HTMLElement;
@@ -367,9 +428,11 @@ let notifReactToggle!: HTMLInputElement;
 let tabBtnWinNotif!: HTMLButtonElement;
 let tabBtnWebNotif!: HTMLButtonElement;
 let tabBtnHistNotif!: HTMLButtonElement;
+let tabBtnAutoreplyNotif!: HTMLButtonElement;
 let tabContentWinNotif!: HTMLDivElement;
 let tabContentWebNotif!: HTMLDivElement;
 let tabContentHistNotif!: HTMLDivElement;
+let tabContentAutoreplyNotif!: HTMLDivElement;
 let btnScanWinApps!: HTMLButtonElement;
 let btnTestWinNotif!: HTMLButtonElement;
 let inputNewWinApp!: HTMLInputElement;
@@ -598,9 +661,11 @@ function bindDomRefs() {
   tabBtnWinNotif = document.getElementById('tab-btn-win-notif') as HTMLButtonElement;
   tabBtnWebNotif = document.getElementById('tab-btn-web-notif') as HTMLButtonElement;
   tabBtnHistNotif = document.getElementById('tab-btn-hist-notif') as HTMLButtonElement;
+  tabBtnAutoreplyNotif = document.getElementById('tab-btn-autoreply-notif') as HTMLButtonElement;
   tabContentWinNotif = document.getElementById('tab-content-win-notif') as HTMLDivElement;
   tabContentWebNotif = document.getElementById('tab-content-web-notif') as HTMLDivElement;
   tabContentHistNotif = document.getElementById('tab-content-hist-notif') as HTMLDivElement;
+  tabContentAutoreplyNotif = document.getElementById('tab-content-autoreply-notif') as HTMLDivElement;
   btnScanWinApps = document.getElementById('btn-scan-win-apps') as HTMLButtonElement;
   btnTestWinNotif = document.getElementById('btn-test-win-notif') as HTMLButtonElement;
   inputNewWinApp = document.getElementById('input-new-win-app') as HTMLInputElement;
@@ -651,33 +716,9 @@ let typewriterTarget = '';
 let typewriterIndex = 0;
 let typewriterAcc = 0;
 
-let duckVoiceMuted = localStorage.getItem('mate_duck_voice_muted') === 'true';
-let duckVoiceSessionId = 0;
-let activeDuckTtsAudio: HTMLAudioElement | null = null;
-
-export function isDuckVoiceMuted(): boolean {
-  return duckVoiceMuted;
-}
-
-export function stopDuckVoiceTts() {
-  duckVoiceSessionId++;
-  if (activeDuckTtsAudio) {
-    try {
-      activeDuckTtsAudio.pause();
-      activeDuckTtsAudio.src = '';
-    } catch { }
-    activeDuckTtsAudio = null;
-  }
-  if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-    try {
-      window.speechSynthesis.cancel();
-    } catch { }
-  }
-}
-
 export function syncDockVoiceUi() {
   if (chkCfgVoiceTts) {
-    chkCfgVoiceTts.checked = !duckVoiceMuted;
+    chkCfgVoiceTts.checked = !isDuckVoiceMuted();
   }
 }
 
@@ -694,126 +735,22 @@ function syncChatDockSideUi() {
   }
 }
 
-function splitVietnameseTtsChunks(text: string): string[] {
-  const cleaned = text
-    .replace(/\[TOOL:[^\]]*\]/gi, ' ')
-    .replace(/^(\[[^\]]+\]\s*)+/g, '')
-    .replace(/https?:\/\/\S+/gi, ' liên kết web ')
-    .replace(/[`*_#>~|]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  if (!cleaned) return [];
-
-  const sentences = cleaned
-    .split(/(?<=[.!?;:\n])\s+/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-
-  const chunks: string[] = [];
-  for (const s of sentences) {
-    if (s.length <= 175) {
-      chunks.push(s);
-    } else {
-      const words = s.split(' ');
-      let buf = '';
-      for (const w of words) {
-        if ((buf + ' ' + w).trim().length > 175) {
-          if (buf.trim()) chunks.push(buf.trim());
-          buf = w;
-        } else {
-          buf = (buf + ' ' + w).trim();
-        }
-      }
-      if (buf.trim()) chunks.push(buf.trim());
-    }
-  }
-  return chunks.slice(0, 14);
-}
-
-function speakBrowserFallbackVi(text: string, sessionId: number): Promise<void> {
-  return new Promise((resolve) => {
-    if (
-      duckVoiceMuted ||
-      sessionId !== duckVoiceSessionId ||
-      typeof window === 'undefined' ||
-      !('speechSynthesis' in window)
-    ) {
-      resolve();
-      return;
-    }
-    try {
-      const utter = new SpeechSynthesisUtterance(text);
-      utter.lang = 'vi-VN';
-      utter.rate = 1.02;
-      const voices = window.speechSynthesis.getVoices();
-      const viVoice = voices.find((v) => v.lang.toLowerCase().startsWith('vi'));
-      if (viVoice) utter.voice = viVoice;
-      const vol = getSoundVolume();
-      utter.volume = vol > 0 ? Math.max(0.45, vol) : 0.85;
-      appState.speechLipSyncTimer = Math.max(appState.speechLipSyncTimer, Math.min(3.5, text.length * 0.06));
-      utter.onend = () => resolve();
-      utter.onerror = () => resolve();
-      window.speechSynthesis.speak(utter);
-    } catch {
-      resolve();
-    }
-  });
-}
-
-export async function speakVietnameseTts(rawText: string) {
-  if (duckVoiceMuted) return;
-  const chunks = splitVietnameseTtsChunks(rawText);
-  if (chunks.length === 0) return;
-
-  stopDuckVoiceTts();
-  const mySession = duckVoiceSessionId;
-
-  for (const chunk of chunks) {
-    if (duckVoiceMuted || mySession !== duckVoiceSessionId) return;
-    try {
-      const dataUri = await invoke<string>('fetch_vietnamese_tts_audio', { text: chunk });
-      if (duckVoiceMuted || mySession !== duckVoiceSessionId) return;
-      await new Promise<void>((resolve) => {
-        const audio = new Audio(dataUri);
-        const vol = getSoundVolume();
-        audio.volume = vol > 0 ? Math.max(0.45, vol) : 0.88;
-        activeDuckTtsAudio = audio;
-        appState.speechLipSyncTimer = Math.max(appState.speechLipSyncTimer, Math.min(4.0, chunk.length * 0.075));
-        const cleanup = () => {
-          if (activeDuckTtsAudio === audio) {
-            activeDuckTtsAudio = null;
-          }
-          resolve();
-        };
-        audio.onended = cleanup;
-        audio.onerror = cleanup;
-        void audio.play().catch(async () => {
-          cleanup();
-          await speakBrowserFallbackVi(chunk, mySession);
-        });
-      });
-    } catch {
-      if (duckVoiceMuted || mySession !== duckVoiceSessionId) return;
-      await speakBrowserFallbackVi(chunk, mySession);
-    }
-  }
-}
-
 export function speakMessage(msg: string) {
   typewriterTarget = msg;
   typewriterIndex = 0;
   typewriterAcc = 0;
   if (bubbleContent) bubbleContent.textContent = '';
   appState.speechLipSyncTimer = Math.min(2.6, Math.max(0.9, msg.length * 0.032));
+  updateUiPosition();
 
-  if (!duckVoiceMuted && appState.isBubbleVisible) {
+  if (!isDuckVoiceMuted() && appState.isBubbleVisible) {
     if (
       msg.startsWith('[HỌC TIẾNG ANH') ||
       msg.startsWith('[ĐỐ VUI') ||
       msg.startsWith('[ÔN TẬP')
     ) {
       window.setTimeout(() => {
-        if (typewriterTarget === msg && !duckVoiceMuted) {
+        if (typewriterTarget === msg && !isDuckVoiceMuted()) {
           void speakVietnameseTts(msg);
         }
       }, 1350);
@@ -838,6 +775,7 @@ export function setStreamSpeechText(text: string) {
     bubbleContent.textContent = typewriterTarget.slice(0, typewriterIndex);
   }
   appState.speechLipSyncTimer = Math.min(2.8, Math.max(0.8, text.length * 0.02));
+  updateUiPosition();
 }
 
 export function clearSpeechMessage() {
@@ -845,6 +783,11 @@ export function clearSpeechMessage() {
   typewriterIndex = 0;
   typewriterAcc = 0;
   if (bubbleContent) bubbleContent.textContent = '';
+  updateUiPosition();
+}
+
+export function isTypewriterActive(): boolean {
+  return typewriterIndex < typewriterTarget.length;
 }
 
 export function updateTypewriter(delta: number) {
@@ -855,6 +798,9 @@ export function updateTypewriter(delta: number) {
       typewriterIndex = nextIdx;
       bubbleContent.textContent = typewriterTarget.slice(0, typewriterIndex);
       bubbleContent.scrollTop = bubbleContent.scrollHeight;
+      if (speechBubble && speechBubble.offsetHeight !== lastBubbleLayoutH) {
+        updateUiPosition();
+      }
     }
   }
 }
@@ -1525,6 +1471,7 @@ export function showSuggestionButtons(
   if (btnSugAccept) btnSugAccept.textContent = acceptLabel;
   if (btnSugDismiss) btnSugDismiss.textContent = dismissLabel;
   if (suggestionActions) suggestionActions.style.display = 'flex';
+  updateUiPosition();
   syncHitboxToRust(true);
 }
 
@@ -1534,6 +1481,8 @@ export function hideSuggestionButtons() {
   if (btnSugAccept) btnSugAccept.textContent = 'Đồng ý';
   if (btnSugDismiss) btnSugDismiss.textContent = 'Để sau';
   if (suggestionActions) suggestionActions.style.display = 'none';
+  updateUiPosition();
+  syncHitboxToRust(true);
 }
 
 let activeDashboardAnalysis: IngestedFileAnalysis | null = null;
@@ -1867,7 +1816,7 @@ export async function saveStudioConfigToSqlite(
     weather_custom_humidity_pct: appState.weatherCustomHumidityPct,
     weather_custom_location: appState.weatherCustomLocation,
     weather_custom_desc: appState.weatherCustomDesc,
-    voice_tts_enabled: !duckVoiceMuted,
+    voice_tts_enabled: !isDuckVoiceMuted(),
     chat_dock_side: appState.chatDockSide,
     auto_action_interval_sec: appState.getAutoActionDelay(),
     auto_behaviors_json: JSON.stringify(appState.autoBehaviors),
@@ -1950,8 +1899,7 @@ async function loadStudioConfigFromSqlite() {
     if (valSoundVolume) valSoundVolume.textContent = `${Math.round(currentVol * 100)}%`;
 
     if (cfg.voice_tts_enabled !== undefined) {
-      duckVoiceMuted = !cfg.voice_tts_enabled;
-      localStorage.setItem('mate_duck_voice_muted', String(duckVoiceMuted));
+      setDuckVoiceMuted(!cfg.voice_tts_enabled);
     }
     syncDockVoiceUi();
 
@@ -2134,6 +2082,9 @@ export function toggleBubbleVisibility(forceState?: boolean) {
   if (speechBubble) {
     speechBubble.style.display = appState.isBubbleVisible ? 'flex' : 'none';
   }
+  if (appState.isBubbleVisible) {
+    updateUiPosition();
+  }
   syncHitboxToRust(true);
 }
 
@@ -2245,8 +2196,11 @@ export async function refreshDesktopIconsSelect() {
 }
 
 function closeOtherPopupModals(
-  except?: 'studio' | 'memory' | 'notif' | 'p2p' | 'pc' | 'ocr' | 'toolforge' | 'tarot'
+  except?: 'studio' | 'memory' | 'notif' | 'p2p' | 'pc' | 'ocr' | 'toolforge' | 'tarot' | 'anim'
 ) {
+  if (except !== 'anim') {
+    window.dispatchEvent(new CustomEvent('duck-close-anim-manager'));
+  }
   if (except !== 'studio') {
     appState.isStudioOpen = false;
     if (studioPanel) studioPanel.style.display = 'none';
@@ -2363,15 +2317,23 @@ export function toggleOcrTranslateModal(forceState?: boolean) {
   syncHitboxToRust(true);
 }
 
-function setToolForgeTab(tab: 'forge' | 'skills') {
+function setToolForgeTab(tab: 'forge' | 'skills' | 'cloud' | 'auto') {
   const btnForge = document.getElementById('tab-btn-tf-forge');
   const btnSkills = document.getElementById('tab-btn-tf-skills');
+  const btnCloud = document.getElementById('tab-btn-tf-cloud');
+  const btnAuto = document.getElementById('tab-btn-tf-auto');
   const paneForge = document.getElementById('tf-pane-forge');
   const paneSkills = document.getElementById('tf-pane-skills');
+  const paneCloud = document.getElementById('tf-pane-cloud');
+  const paneAuto = document.getElementById('tf-pane-auto');
   if (btnForge) btnForge.classList.toggle('active', tab === 'forge');
   if (btnSkills) btnSkills.classList.toggle('active', tab === 'skills');
+  if (btnCloud) btnCloud.classList.toggle('active', tab === 'cloud');
+  if (btnAuto) btnAuto.classList.toggle('active', tab === 'auto');
   if (paneForge) paneForge.style.display = tab === 'forge' ? 'block' : 'none';
   if (paneSkills) paneSkills.style.display = tab === 'skills' ? 'block' : 'none';
+  if (paneCloud) paneCloud.style.display = tab === 'cloud' ? 'block' : 'none';
+  if (paneAuto) paneAuto.style.display = tab === 'auto' ? 'block' : 'none';
 }
 
 function setToolForgePipelineLog(text: string) {
@@ -2390,6 +2352,8 @@ function appendToolForgePipelineLog(line: string) {
   }
 }
 
+const lastSkillRunOutputs = new Map<string, string>();
+
 function renderToolForgeDraft(draft: ToolForgeDraft | null) {
   const sec = document.getElementById('tf-draft-section');
   const nameInp = document.getElementById('tf-draft-name') as HTMLInputElement | null;
@@ -2397,10 +2361,13 @@ function renderToolForgeDraft(draft: ToolForgeDraft | null) {
   const trigInp = document.getElementById('tf-draft-triggers') as HTMLInputElement | null;
   const kwInp = document.getElementById('tf-draft-keywords') as HTMLInputElement | null;
   const argsInp = document.getElementById('tf-draft-test-args') as HTMLInputElement | null;
+  const liveArgsInp = document.getElementById('tf-live-test-args') as HTMLInputElement | null;
   const langTag = document.getElementById('tf-draft-lang-tag');
   const codeEd = document.getElementById('tf-code-editor') as HTMLTextAreaElement | null;
   const badge = document.getElementById('tf-verify-badge');
+  const liveBadge = document.getElementById('tf-live-test-badge');
   const reportBox = document.getElementById('tf-sandbox-report');
+  const liveReportBox = document.getElementById('tf-live-test-report');
   const saveBtn = document.getElementById('btn-tf-confirm-save') as HTMLButtonElement | null;
 
   if (!draft) {
@@ -2418,7 +2385,14 @@ function renderToolForgeDraft(draft: ToolForgeDraft | null) {
   if (trigInp) trigInp.value = draft.triggers.join(', ');
   if (kwInp) kwInp.value = draft.expectedKeywords.join(', ');
   if (argsInp) argsInp.value = draft.testArgsJson || '{}';
+  if (liveArgsInp && document.activeElement !== liveArgsInp) {
+    liveArgsInp.value = draft.liveTestArgsJson ?? draft.testArgsJson ?? '{}';
+  }
   if (langTag) langTag.textContent = `[${draft.language.toUpperCase()}]`;
+  const langSelEl = document.getElementById('select-tf-lang') as HTMLSelectElement | null;
+  if (langSelEl && (langSelEl.value === 'powershell' || langSelEl.value === 'python')) {
+    langSelEl.value = draft.language;
+  }
   if (codeEd && codeEd.value !== draft.code) codeEd.value = draft.code;
 
   const sb = draft.sandbox;
@@ -2462,6 +2436,50 @@ function renderToolForgeDraft(draft: ToolForgeDraft | null) {
         parts.push(`--- STDERR ---\n${sb.stderr}`);
       }
       reportBox.textContent = parts.join('\n');
+    }
+  }
+
+  const lt = draft.liveTest ?? null;
+  if (liveBadge) {
+    if (!lt) {
+      liveBadge.className = 'badge tf-badge-warn';
+      liveBadge.textContent = '[CHƯA TEST THẬT]';
+    } else if (lt.ok) {
+      liveBadge.className = 'badge tf-badge-pass';
+      liveBadge.textContent = `[USER TEST PASS - ${lt.duration_ms}ms]`;
+    } else if (lt.timed_out) {
+      liveBadge.className = 'badge tf-badge-fail';
+      liveBadge.textContent = '[USER TEST TIMEOUT]';
+    } else {
+      liveBadge.className = 'badge tf-badge-fail';
+      liveBadge.textContent = `[USER TEST FAIL - Exit ${lt.exit_code}]`;
+    }
+  }
+
+  if (liveReportBox) {
+    if (!lt) {
+      liveReportBox.textContent =
+        '[USER TEST] Chưa chạy kiểm nghiệm thực tế. Hãy kiểm tra tham số JSON ở trên và bấm "Test Chạy Thật" để xem kết quả & hành động thật trên máy trước khi đóng gói.';
+    } else {
+      const liveParts: string[] = [
+        `Trạng thái chạy thật (DUCK_SANDBOX_MODE=0): ${lt.ok ? 'PASS (Exit=0)' : 'FAIL'} | Exit=${lt.exit_code}${lt.timed_out ? ' (TIMEOUT)' : ''} | ${lt.duration_ms}ms`,
+        `Tham số đã chạy: ${draft.liveTestArgsJson ?? draft.testArgsJson ?? '{}'}`,
+      ];
+      if (lt.error_summary) {
+        liveParts.push(`Lỗi: ${lt.error_summary}`);
+      }
+      if (lt.stdout) {
+        liveParts.push(`--- STDOUT (KẾT QUẢ THẬT) ---\n${lt.stdout}`);
+      }
+      if (lt.stderr) {
+        liveParts.push(`--- STDERR ---\n${lt.stderr}`);
+      }
+      liveParts.push(
+        lt.ok
+          ? '[XÁC NHẬN] Hãy đối chiếu kết quả và hành động thực tế trên máy xem đã đúng ý chưa trước khi bấm "Xác Nhận & Đóng Gói Skill".'
+          : '[GỢI Ý] Nếu kết quả hoặc hành động chạy thật chưa đúng, hãy bấm "Tự Vá (Gemini)" để AI sửa theo log chạy thật.'
+      );
+      liveReportBox.textContent = liveParts.join('\n');
     }
   }
 
@@ -2568,29 +2586,43 @@ function renderToolForgeSkillsList() {
 
     const outPre = document.createElement('div');
     outPre.className = 'tf-report-box';
-    outPre.style.display = 'none';
+    const prevOut = lastSkillRunOutputs.get(sk.id);
+    if (prevOut) {
+      outPre.style.display = 'block';
+      outPre.textContent = prevOut;
+    } else {
+      outPre.style.display = 'none';
+    }
 
     btnRun.addEventListener('click', async () => {
       let parsedArgs: Record<string, unknown> = {};
       try {
         parsedArgs = JSON.parse(argsInput.value.trim() || '{}') as Record<string, unknown>;
       } catch {
+        const errTxt = '[ERR] Tham số JSON không hợp lệ.';
+        lastSkillRunOutputs.set(sk.id, errTxt);
         outPre.style.display = 'block';
-        outPre.textContent = '[ERR] Tham số JSON không hợp lệ.';
+        outPre.textContent = errTxt;
         return;
       }
       btnRun.disabled = true;
       btnRun.textContent = 'Đang chạy...';
+      const initMsg = '[RUN] Đang thực thi skill (hỗ trợ tự vá Self-Healing nếu lỗi)...';
+      lastSkillRunOutputs.set(sk.id, initMsg);
       outPre.style.display = 'block';
-      outPre.textContent = '[RUN] Đang thực thi skill (hỗ trợ tự vá Self-Healing nếu lỗi)...';
+      outPre.textContent = initMsg;
       try {
         const resText = await executeSavedSkillWithSelfHeal(sk.id, parsedArgs, (msg) => {
+          lastSkillRunOutputs.set(sk.id, msg);
           outPre.textContent = msg;
         });
+        lastSkillRunOutputs.set(sk.id, resText);
         outPre.textContent = resText;
         speakMessage(resText);
       } catch (err) {
-        outPre.textContent = `[ERR] ${String(err)}`;
+        const errMsg = `[ERR] ${String(err)}`;
+        lastSkillRunOutputs.set(sk.id, errMsg);
+        outPre.textContent = errMsg;
       } finally {
         btnRun.disabled = false;
         btnRun.textContent = 'Chạy Ngay';
@@ -2618,6 +2650,8 @@ function renderToolForgeSkillsList() {
         testArgsJson: sk.test_args_json || '{}',
         expectedKeywords: kws,
         sandbox: null,
+        liveTest: null,
+        liveTestArgsJson: sk.test_args_json || '{}',
         healLogs: [`[EDIT] Nạp lại "${sk.name}" v${sk.version} vào Sandbox để kiểm tra/cải tiến.`],
         originalRequest: sk.description,
       };
@@ -2632,10 +2666,294 @@ function renderToolForgeSkillsList() {
         .catch(() => { });
     });
 
-    runRow.append(argsInput, btnRun, btnLoadDraft, btnDel);
+    const btnPublish = document.createElement('button');
+    btnPublish.type = 'button';
+    btnPublish.className = 'action-btn';
+    btnPublish.style.cssText = 'padding:4px 8px;font-size:10.5px;border-color:rgba(16,185,129,0.5);color:#6ee7b7;';
+    btnPublish.textContent = 'Đẩy Lên Cloud';
+    btnPublish.title = 'Đăng Skill đã kiểm chứng lên MongoDB để chia sẻ';
+    btnPublish.addEventListener('click', async () => {
+      if (!cachedCloudAuth?.logged_in) {
+        setToolForgeTab('cloud');
+        void refreshCloudHubUi();
+        setCloudStatusLog('[AUTH] Bạn cần đăng nhập Google trước khi đẩy Skill lên MongoDB.');
+        return;
+      }
+      btnPublish.disabled = true;
+      btnPublish.textContent = 'Đang đẩy...';
+      outPre.style.display = 'block';
+      outPre.textContent = '[CLOUD] Đang đẩy Skill lên MongoDB...';
+      try {
+        const doc = await publishLocalSkillToCloud(sk.id);
+        const okMsg = `[CLOUD PUBLISHED] Đã đẩy "${doc.name}" (key=${doc.skill_key}) lên MongoDB!`;
+        lastSkillRunOutputs.set(sk.id, okMsg);
+        outPre.textContent = okMsg;
+        speakMessage(okMsg);
+      } catch (err) {
+        const errMsg = `[CLOUD ERR] ${String(err)}`;
+        lastSkillRunOutputs.set(sk.id, errMsg);
+        outPre.textContent = errMsg;
+      } finally {
+        btnPublish.disabled = false;
+        btnPublish.textContent = 'Đẩy Lên Cloud';
+      }
+    });
+
+    runRow.append(argsInput, btnRun, btnLoadDraft, btnPublish, btnDel);
     card.append(head, descEl, runRow, outPre);
     container.appendChild(card);
   });
+}
+
+let cachedCloudAuth: CloudAuthStatus | null = null;
+let cachedCloudSkills: CommunitySkillDoc[] = [];
+
+function setCloudStatusLog(text: string) {
+  const el = document.getElementById('tf-cloud-status-log');
+  if (el) {
+    el.textContent = text;
+  }
+}
+
+function renderCloudAuthUi(auth: CloudAuthStatus) {
+  cachedCloudAuth = auth;
+  window.dispatchEvent(new CustomEvent('duck-cloud-auth-changed', { detail: auth }));
+  const headerBadge = document.getElementById('tf-auth-header-badge');
+  const authInfo = document.getElementById('tf-cloud-auth-info');
+  const btnLogin = document.getElementById('btn-tf-google-login') as HTMLButtonElement | null;
+  const btnLogout = document.getElementById('btn-tf-google-logout') as HTMLButtonElement | null;
+
+  if (auth.logged_in) {
+    if (headerBadge) {
+      headerBadge.className = 'badge tf-badge-pass';
+      headerBadge.textContent = `[GOOGLE: ${auth.email}]`;
+    }
+    if (authInfo) {
+      authInfo.textContent = `[ONLINE] Đang đăng nhập: ${auth.name} (${auth.email})`;
+      authInfo.style.color = '#6ee7b7';
+    }
+    if (btnLogin) btnLogin.style.display = 'none';
+    if (btnLogout) btnLogout.style.display = 'inline-flex';
+  } else {
+    if (headerBadge) {
+      headerBadge.className = 'badge tf-badge-warn';
+      headerBadge.textContent = '[OFFLINE / GUEST]';
+    }
+    if (authInfo) {
+      authInfo.textContent =
+        '[GUEST] App chạy bình thường không cần đăng nhập. Đăng nhập Google để đẩy lên / kéo xuống Skill từ MongoDB.';
+      authInfo.style.color = '#cbd5e1';
+    }
+    if (btnLogin) btnLogin.style.display = 'inline-flex';
+    if (btnLogout) btnLogout.style.display = 'none';
+  }
+}
+
+function renderCloudSkillsList(items: CommunitySkillDoc[]) {
+  cachedCloudSkills = items;
+  const container = document.getElementById('tf-cloud-skills-list');
+  if (!container) return;
+
+  if (items.length === 0) {
+    container.innerHTML =
+      '<div class="dash-sub">Không tìm thấy Skill cộng đồng nào khớp bộ lọc trên MongoDB.</div>';
+    return;
+  }
+
+  container.innerHTML = '';
+  items.forEach((doc) => {
+    const card = document.createElement('div');
+    card.className = 'tf-skill-card';
+
+    const head = document.createElement('div');
+    head.className = 'tf-skill-card-head';
+
+    const titleWrap = document.createElement('div');
+    titleWrap.style.cssText = 'display:flex;align-items:center;gap:6px;flex-wrap:wrap;';
+
+    const nameEl = document.createElement('span');
+    nameEl.style.cssText = 'font-size:12px;font-weight:700;color:#f8fafc;';
+    nameEl.textContent = doc.name;
+
+    const langBadge = document.createElement('span');
+    langBadge.className = 'badge tf-badge-pass';
+    langBadge.style.fontSize = '9px';
+    langBadge.textContent = `[v${doc.version || 1} | ${String(doc.language).toUpperCase()}]`;
+
+    const dlBadge = document.createElement('span');
+    dlBadge.className = 'badge';
+    dlBadge.style.cssText = 'font-size:9px;text-transform:none;';
+    dlBadge.textContent = `Tải: ${doc.downloads || 0}`;
+
+    titleWrap.append(nameEl, langBadge, dlBadge);
+
+    const authorEl = document.createElement('span');
+    authorEl.style.cssText = 'font-size:10px;color:#94a3b8;';
+    authorEl.textContent = doc.author_name || doc.author_email || 'Community';
+
+    head.append(titleWrap, authorEl);
+
+    const descEl = document.createElement('div');
+    descEl.style.cssText = 'font-size:10.5px;color:#cbd5e1;';
+    descEl.textContent = doc.description || doc.id;
+
+    const btnRow = document.createElement('div');
+    btnRow.style.cssText = 'display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:2px;';
+
+    const btnPull = document.createElement('button');
+    btnPull.type = 'button';
+    btnPull.className = 'studio-btn-primary';
+    btnPull.style.cssText = 'padding:4px 10px;font-size:10.5px;';
+    btnPull.textContent = 'Kéo Về & Test Sandbox';
+    btnPull.addEventListener('click', async () => {
+      btnPull.disabled = true;
+      btnPull.textContent = 'Đang kéo & test...';
+      setCloudStatusLog(`[PULL] Đang tải "${doc.name}" từ MongoDB và kiểm nghiệm Sandbox trên máy...`);
+      try {
+        const res = await installCommunitySkillFromCloud(doc.skill_key);
+        setCloudStatusLog(
+          `[INSTALLED] Đã cài "${res.skill.name}" (Sandbox PASS ${res.sandbox.duration_ms}ms) vào Kho Skill Đã Lưu!`
+        );
+        speakMessage(`[CLOUD HUB] Đã tải & kiểm chứng thành công skill "${res.skill.name}"!`);
+        renderToolForgeSkillsList();
+      } catch (err) {
+        setCloudStatusLog(`[PULL ERR] ${String(err)}`);
+      } finally {
+        btnPull.disabled = false;
+        btnPull.textContent = 'Kéo Về & Test Sandbox';
+      }
+    });
+
+    const btnInspect = document.createElement('button');
+    btnInspect.type = 'button';
+    btnInspect.className = 'action-btn';
+    btnInspect.style.cssText = 'padding:4px 9px;font-size:10.5px;';
+    btnInspect.textContent = 'Nạp Vào Editor';
+    btnInspect.addEventListener('click', () => {
+      const kws = parseExpectedKeywords(doc.expected_keywords_json);
+      const trigs = parseTriggers(doc.triggers_json);
+      let schema = [];
+      try {
+        schema = JSON.parse(doc.params_schema_json || '[]');
+      } catch {
+        schema = [];
+      }
+      const loadedDraft: ToolForgeDraft = {
+        id: doc.id,
+        name: doc.name,
+        description: doc.description,
+        language: doc.language === 'python' ? 'python' : 'powershell',
+        triggers: trigs,
+        paramsSchema: schema,
+        code: doc.code,
+        testArgsJson: doc.test_args_json || '{}',
+        expectedKeywords: kws,
+        sandbox: null,
+        liveTest: null,
+        liveTestArgsJson: doc.test_args_json || '{}',
+        healLogs: [`[CLOUD] Nạp mã nguồn "${doc.name}" từ ${doc.author_email || 'cộng đồng'}. Hãy kiểm tra và bấm "Chạy Sandbox" trước khi lưu.`],
+        originalRequest: doc.description,
+      };
+      setLatestToolForgeDraft(loadedDraft);
+      setToolForgeTab('forge');
+      renderToolForgeDraft(loadedDraft);
+    });
+
+    btnRow.append(btnPull, btnInspect);
+
+    const btnStar = document.createElement('button');
+    btnStar.type = 'button';
+    btnStar.className = 'action-btn';
+    btnStar.style.cssText = 'padding:4px 9px;font-size:10.5px;border-color:rgba(250,204,21,0.45);color:#fde68a;';
+    btnStar.textContent = `Star (${doc.stars || 0})`;
+    btnStar.addEventListener('click', async () => {
+      btnStar.disabled = true;
+      try {
+        const res = await toggleStarCommunitySkill(doc.skill_key);
+        doc.stars = res.stars;
+        btnStar.textContent = `Star (${res.stars})`;
+      } catch (err) {
+        setCloudStatusLog(`[STAR ERR] ${String(err)}`);
+      } finally {
+        btnStar.disabled = false;
+      }
+    });
+    btnRow.appendChild(btnStar);
+
+    const isOwner = Boolean(
+      cachedCloudAuth?.logged_in &&
+        ((doc.author_sub && cachedCloudAuth.sub && doc.author_sub === cachedCloudAuth.sub) ||
+          (doc.author_email &&
+            cachedCloudAuth.email &&
+            doc.author_email.toLowerCase() === cachedCloudAuth.email.toLowerCase()))
+    );
+    if (isOwner) {
+      const btnDeleteCloud = document.createElement('button');
+      btnDeleteCloud.type = 'button';
+      btnDeleteCloud.className = 'action-btn';
+      btnDeleteCloud.style.cssText = 'padding:4px 9px;font-size:10.5px;border-color:rgba(248,113,113,0.45);color:#fca5a5;';
+      btnDeleteCloud.textContent = 'Xóa (Của Tôi)';
+      btnDeleteCloud.addEventListener('click', async () => {
+        btnDeleteCloud.disabled = true;
+        btnDeleteCloud.textContent = 'Đang xóa...';
+        try {
+          await deleteCommunitySkill(doc.skill_key);
+          setCloudStatusLog(`[CLOUD DELETED] Đã xóa "${doc.name}" khỏi MongoDB.`);
+          renderCloudSkillsList(cachedCloudSkills.filter((x) => x.skill_key !== doc.skill_key));
+        } catch (err) {
+          setCloudStatusLog(`[DELETE ERR] ${String(err)}`);
+          btnDeleteCloud.disabled = false;
+          btnDeleteCloud.textContent = 'Xóa (Của Tôi)';
+        }
+      });
+      btnRow.appendChild(btnDeleteCloud);
+    }
+
+    card.append(head, descEl, btnRow);
+    container.appendChild(card);
+  });
+}
+
+async function refreshCloudHubUi() {
+  const healthBadge = document.getElementById('tf-hub-health-badge');
+  try {
+    const [auth, cfg] = await Promise.all([getCloudAuthStatus(), getCloudHubConfig()]);
+    renderCloudAuthUi(auth);
+    const clientInp = document.getElementById('tf-cfg-google-client-id') as HTMLInputElement | null;
+    const hubUrlInp = document.getElementById('tf-cfg-hub-url') as HTMLInputElement | null;
+    const secretInp = document.getElementById('tf-cfg-google-secret') as HTMLInputElement | null;
+
+    if (clientInp && document.activeElement !== clientInp) clientInp.value = cfg.google_client_id;
+    if (hubUrlInp && document.activeElement !== hubUrlInp) hubUrlInp.value = cfg.cloud_hub_api_url;
+    if (secretInp && cfg.has_google_client_secret) {
+      secretInp.placeholder = 'Đã lưu Client Secret (nhập mới nếu muốn thay)';
+    }
+
+    if (healthBadge) {
+      try {
+        const h = await checkCloudHubHealth();
+        if (h.ok && h.mongo_connected) {
+          healthBadge.className = 'badge tf-badge-pass';
+          healthBadge.textContent = '[HUB: ONLINE | MONGODB OK]';
+        } else if (h.ok) {
+          healthBadge.className = 'badge tf-badge-warn';
+          healthBadge.textContent = '[HUB: ONLINE | NO DB]';
+        } else {
+          healthBadge.className = 'badge tf-badge-fail';
+          healthBadge.textContent = '[HUB: ERROR]';
+        }
+      } catch {
+        healthBadge.className = 'badge tf-badge-fail';
+        healthBadge.textContent = '[HUB: OFFLINE]';
+      }
+    }
+  } catch (err) {
+    setCloudStatusLog(`[CLOUD ERR] ${String(err)}`);
+    if (healthBadge) {
+      healthBadge.className = 'badge tf-badge-fail';
+      healthBadge.textContent = '[HUB: OFFLINE]';
+    }
+  }
 }
 
 export function toggleToolForgeModal(forceState?: boolean) {
@@ -2644,6 +2962,7 @@ export function toggleToolForgeModal(forceState?: boolean) {
   if (appState.isToolForgeOpen) {
     closeOtherPopupModals('toolforge');
     void refreshCustomSkills().then(() => renderToolForgeSkillsList());
+    void refreshCloudHubUi();
     renderToolForgeDraft(getLatestToolForgeDraft());
   }
   if (toolForgeModal) {
@@ -2654,6 +2973,8 @@ export function toggleToolForgeModal(forceState?: boolean) {
 
 let cachedTarotStatus: TarotStatusResponse | null = null;
 let tarotDrawingInFlight = false;
+let tarotFlipTimer: number | null = null;
+let lastTarotReadyState: boolean | null = null;
 
 function formatTarotCountdown(ms: number): string {
   const totalSec = Math.max(0, Math.ceil(ms / 1000));
@@ -2702,6 +3023,15 @@ function renderTarotHistoryList(history: TarotReadingRecord[]) {
       <div style="font-size:10.5px;color:#94a3b8;">${timeStr} | ${rec.is_reversed ? 'Ngược Chiều' : 'Thuận Chiều'} | ${rec.can_chi_day}</div>
       <div style="font-size:11px;color:#cbd5e1;line-height:1.4;">${rec.summary_vi}</div>
     `;
+    card.title = 'Nhấn để xem lại chi tiết quẻ này';
+    card.addEventListener('click', () => {
+      if (cachedTarotStatus) {
+        cachedTarotStatus.current_reading = rec;
+      }
+      applyTarotReadingToModal(rec, true);
+      setTarotTab('today');
+      syncHitboxToRust(true);
+    });
     listEl.appendChild(card);
   }
 }
@@ -2774,11 +3104,17 @@ function applyTarotReadingToModal(rec: TarotReadingRecord | null, animateFlip: b
   }
 
   if (cardInner) {
+    if (tarotFlipTimer !== null) {
+      window.clearTimeout(tarotFlipTimer);
+      tarotFlipTimer = null;
+    }
     if (animateFlip) {
       cardInner.classList.remove('is-flipped');
-      window.setTimeout(() => {
+      void cardInner.offsetWidth;
+      tarotFlipTimer = window.setTimeout(() => {
+        tarotFlipTimer = null;
         cardInner.classList.add('is-flipped');
-      }, 220);
+      }, 160);
     } else {
       cardInner.classList.add('is-flipped');
     }
@@ -2786,8 +3122,6 @@ function applyTarotReadingToModal(rec: TarotReadingRecord | null, animateFlip: b
 }
 
 function updateTarotCooldownCountdown() {
-  const cdBadge = document.getElementById('tarot-cooldown-badge');
-  const spreadPicker = document.getElementById('tarot-spread-picker');
   const cur = cachedTarotStatus?.current_reading || null;
   const now = Date.now();
   const remMs = cur && cur.next_draw_at_ms > now ? cur.next_draw_at_ms - now : 0;
@@ -2798,15 +3132,24 @@ function updateTarotCooldownCountdown() {
     cachedTarotStatus.remaining_ms = remMs;
   }
 
-  if (dockTarotReadyDot) {
-    dockTarotReadyDot.style.display = ready ? 'block' : 'none';
-  }
-  if (dockBtnTarot) {
-    dockBtnTarot.title = ready
-      ? 'Bốc Thẻ Tarot & Tử Vi Vận Mệnh (Sẵn sàng quẻ mới!)'
-      : `Tarot & Tử Vi (Quẻ tiếp theo sau ${formatTarotCountdown(remMs)})`;
+  if (ready !== lastTarotReadyState || appState.isTarotModalOpen) {
+    lastTarotReadyState = ready;
+    if (dockTarotReadyDot) {
+      dockTarotReadyDot.style.display = ready ? 'block' : 'none';
+    }
+    if (dockBtnTarot) {
+      dockBtnTarot.title = ready
+        ? 'Bốc Thẻ Tarot & Tử Vi Vận Mệnh (Sẵn sàng quẻ mới!)'
+        : `Tarot & Tử Vi (Quẻ tiếp theo sau ${formatTarotCountdown(remMs)})`;
+    }
   }
 
+  if (!appState.isTarotModalOpen) {
+    return;
+  }
+
+  const cdBadge = document.getElementById('tarot-cooldown-badge');
+  const spreadPicker = document.getElementById('tarot-spread-picker');
   if (cdBadge) {
     if (ready) {
       cdBadge.className = 'badge tarot-cd-ready';
@@ -2869,27 +3212,35 @@ function triggerDuckReactionForTarot(rec: TarotReadingRecord) {
   }
 }
 
-async function performTarotDrawAndFlip() {
+async function performTarotDrawAndFlip(force = false) {
   if (tarotDrawingInFlight) return;
   tarotDrawingInFlight = true;
+  fireAnimationTrigger('tool', 'tarot', 'start');
+  let tarotOk = false;
   const drawBtn = document.getElementById('btn-tarot-draw-now') as HTMLButtonElement | null;
+  const forceBtn = document.getElementById('btn-tarot-force-draw') as HTMLButtonElement | null;
   if (drawBtn) {
     drawBtn.disabled = true;
     drawBtn.textContent = 'Đang kết nối Tarot API & Lật Thẻ 3D...';
   }
+  if (forceBtn) {
+    forceBtn.disabled = true;
+    forceBtn.textContent = 'Đang bốc quẻ...';
+  }
   try {
-    const res = await invoke<TarotStatusResponse>('tarot_draw_card');
+    const res = await invoke<TarotStatusResponse>('tarot_draw_card', { force });
     cachedTarotStatus = res;
     renderTarotHistoryList(res.history || []);
     const rec = res.current_reading;
     if (rec) {
+      tarotOk = true;
       applyTarotReadingToModal(rec, true);
       updateTarotCooldownCountdown();
       triggerDuckReactionForTarot(rec);
       const orientText = rec.is_reversed ? 'Ngược Chiều' : 'Thuận Chiều';
       if (res.already_drawn_in_window) {
         speakMessage(
-          `[TAROT 6H - ${rec.fortune_label}] Bạn vừa xem quẻ "${rec.card_name_vi}" (${orientText}, ${rec.luck_score}/100) trong chu kỳ 6 giờ này rồi! Chờ hết đồng hồ để bốc lá mới nhé.`
+          `[TAROT 6H - ${rec.fortune_label}] Bạn vừa xem quẻ "${rec.card_name_vi}" (${orientText}, ${rec.luck_score}/100) trong chu kỳ 6 giờ này rồi! Bấm "Bốc Quẻ Mới Ngay" nếu muốn rút tiếp nhé.`
         );
       } else {
         speakMessage(
@@ -2901,10 +3252,15 @@ async function performTarotDrawAndFlip() {
   } catch (err) {
     speakMessage(`[TAROT LỖI] Không thể bốc thẻ lúc này: ${String(err)}`);
   } finally {
+    fireAnimationTrigger('tool', 'tarot', tarotOk ? 'success' : 'error');
     tarotDrawingInFlight = false;
     if (drawBtn) {
       drawBtn.disabled = false;
       drawBtn.textContent = 'Bốc & Lật Quẻ Tarot Ngay';
+    }
+    if (forceBtn) {
+      forceBtn.disabled = false;
+      forceBtn.textContent = 'Bốc Quẻ Mới Ngay';
     }
   }
 }
@@ -2922,351 +3278,6 @@ export function toggleTarotModal(forceState?: boolean) {
   }
   if (dockBtnTarot) {
     dockBtnTarot.classList.toggle('active', appState.isTarotModalOpen);
-  }
-  syncHitboxToRust(true);
-}
-
-let miniScreenTab: 'web' | 'mirror' = 'web';
-let miniMirrorActive = false;
-let miniMirrorBusy = false;
-let miniMirrorTimer: number | null = null;
-let miniDisplayStream: MediaStream | null = null;
-let miniPanelCollapsed = false;
-let miniWebIsOpen = false;
-let miniMirrorWindows: MiniWindowEntry[] = [];
-let lastMiniWinFetchAt = 0;
-
-function updateMiniResourceStatus() {
-  const el = document.getElementById('mini-resource-status');
-  if (!el) return;
-  const webPart = miniWebIsOpen
-    ? 'WebView Mini: ĐANG CHẠY'
-    : 'WebView Mini: ĐÃ TẮT (0 MB RAM)';
-  const mirrorPart = miniDisplayStream
-    ? 'Chiếu App: WEBRTC 60FPS'
-    : miniMirrorActive
-    ? 'Chiếu App: ĐANG CHẠY'
-    : 'Chiếu App: TẮT (0% CPU)';
-  el.textContent = `${webPart} | ${mirrorPart}`;
-}
-
-function syncStealthButtonsUi() {
-  const sel = document.getElementById('mini-mirror-win-select') as HTMLSelectElement | null;
-  const hwnd = Number(sel?.value || '0') || 0;
-  const entry = miniMirrorWindows.find((w) => w.hwnd === hwnd);
-  const stealthBtn = document.getElementById('btn-mini-stealth-toggle');
-  if (stealthBtn) {
-    stealthBtn.textContent = entry?.is_stealth
-      ? 'Hiện Lại App Đang Ẩn'
-      : 'Ẩn App (Vẫn Chiếu)';
-  }
-  const anyStealth = miniMirrorWindows.some((w) => w.is_stealth);
-  const restoreBtn = document.getElementById('btn-mini-restore-all');
-  if (restoreBtn) {
-    restoreBtn.style.display = anyStealth ? 'block' : 'none';
-  }
-}
-
-async function refreshMiniMirrorWindowSelect(force = false) {
-  const sel = document.getElementById('mini-mirror-win-select') as HTMLSelectElement | null;
-  if (!sel) return;
-  const now = performance.now();
-  if (!force && now - lastMiniWinFetchAt < 3500) return;
-  lastMiniWinFetchAt = now;
-
-  try {
-    const windows = await invoke<MiniWindowEntry[]>('mini_screen_list_windows');
-    miniMirrorWindows = Array.isArray(windows) ? windows : [];
-  } catch {
-    return;
-  }
-
-  const key = miniMirrorWindows
-    .map((w) => `${w.hwnd}:${w.is_minimized ? 1 : 0}:${w.is_stealth ? 1 : 0}:${w.title.slice(0, 16)}`)
-    .join('|');
-  if (!force && sel.dataset.key === key) {
-    syncStealthButtonsUi();
-    return;
-  }
-  sel.dataset.key = key;
-
-  const prevVal = sel.value;
-  const preferredHwnd =
-    prevVal && prevVal !== '0' && miniMirrorWindows.some((w) => String(w.hwnd) === prevVal)
-      ? Number(prevVal)
-      : appState.activeWindowHwnd || findTargetWindow()?.hwnd || 0;
-
-  sel.innerHTML = [
-    '<option value="0">Chọn app hoặc tab trình duyệt cần chiếu...</option>',
-    ...miniMirrorWindows.map((w) => {
-      const procTag = w.process_name ? `[${w.process_name}] ` : '';
-      const stateTag = w.is_stealth ? '[Đang ẩn] ' : w.is_minimized ? '[Thu nhỏ] ' : '';
-      const selectedAttr = w.hwnd === preferredHwnd ? 'selected' : '';
-      return `<option value="${w.hwnd}" ${selectedAttr}>${stateTag}${procTag}${w.title.slice(0, 36)}</option>`;
-    }),
-  ].join('');
-  syncStealthButtonsUi();
-}
-
-function setMiniScreenModeBadge(label: string) {
-  const b = document.getElementById('mini-screen-mode-badge');
-  if (b) b.textContent = label;
-}
-
-function stopMiniDisplayMedia() {
-  if (miniDisplayStream) {
-    miniDisplayStream.getTracks().forEach((t) => {
-      try {
-        t.stop();
-      } catch {}
-    });
-    miniDisplayStream = null;
-  }
-  const vid = document.getElementById('mini-display-video') as HTMLVideoElement | null;
-  if (vid) {
-    vid.srcObject = null;
-    vid.style.display = 'none';
-  }
-  const btn = document.getElementById('btn-mini-display-media');
-  if (btn) btn.textContent = 'Bắt Tab / Màn 60 FPS';
-  updateMiniResourceStatus();
-}
-
-function stopMiniWindowMirror() {
-  miniMirrorActive = false;
-  if (miniMirrorTimer !== null) {
-    window.clearTimeout(miniMirrorTimer);
-    miniMirrorTimer = null;
-  }
-  const img = document.getElementById('mini-mirror-img') as HTMLImageElement | null;
-  if (img) {
-    img.src = '';
-    img.style.display = 'none';
-  }
-  const placeholder = document.getElementById('mini-viewport-placeholder');
-  if (placeholder && !miniDisplayStream) {
-    placeholder.style.display = 'block';
-  }
-  const toggleBtn = document.getElementById('btn-mini-mirror-toggle');
-  if (toggleBtn) toggleBtn.textContent = 'Bắt Đầu Chiếu App';
-  if (!miniDisplayStream) {
-    setMiniScreenModeBadge(miniWebIsOpen ? '[WEB MINI ON]' : '[LIVE]');
-  }
-  updateMiniResourceStatus();
-}
-
-async function stepMiniMirrorFrame() {
-  if (!miniMirrorActive) return;
-  if (!appState.isMiniScreenOpen || miniPanelCollapsed || miniScreenTab !== 'mirror') {
-    stopMiniWindowMirror();
-    return;
-  }
-  if (miniMirrorBusy) {
-    miniMirrorTimer = window.setTimeout(() => void stepMiniMirrorFrame(), 120);
-    return;
-  }
-
-  const sel = document.getElementById('mini-mirror-win-select') as HTMLSelectElement | null;
-  const img = document.getElementById('mini-mirror-img') as HTMLImageElement | null;
-  const placeholder = document.getElementById('mini-viewport-placeholder');
-  const fpsSel = document.getElementById('select-mini-mirror-fps') as HTMLSelectElement | null;
-  const chkStealth = document.getElementById('chk-mini-auto-stealth') as HTMLInputElement | null;
-  const fps = Math.max(2, Math.min(10, Number(fpsSel?.value || '6') || 6));
-  const hwnd = Number(sel?.value || '0') || appState.activeWindowHwnd || findTargetWindow()?.hwnd || 0;
-
-  if (!hwnd) {
-    if (placeholder) {
-      placeholder.style.display = 'block';
-      placeholder.textContent = 'Hãy chọn một ứng dụng / trình duyệt ở danh sách phía trên để chiếu.';
-    }
-    miniMirrorTimer = window.setTimeout(() => void stepMiniMirrorFrame(), 650);
-    return;
-  }
-
-  miniMirrorBusy = true;
-  try {
-    const panelW = miniScreenPanel?.offsetWidth || 430;
-    const frame = await invoke<CapturedWindowFrame>('mini_screen_capture_window', {
-      hwnd,
-      maxWidth: Math.min(680, Math.max(300, Math.round(panelW * 1.1))),
-      autoStealthMinimized: chkStealth?.checked ?? true,
-    });
-    if (!miniMirrorActive) return;
-    if (frame.is_minimized || !frame.bmp_base64) {
-      if (img) img.style.display = 'none';
-      if (placeholder) {
-        placeholder.style.display = 'block';
-        placeholder.textContent = `"${frame.title}" đang thu nhỏ. Bật "Tự ẩn & chiếu cả app đang thu nhỏ" hoặc bấm "Đưa App Lên" để xem.`;
-      }
-      setMiniScreenModeBadge('[MINIMIZED]');
-    } else {
-      if (img) {
-        img.src = `data:image/bmp;base64,${frame.bmp_base64}`;
-        img.style.display = 'block';
-      }
-      if (placeholder) placeholder.style.display = 'none';
-      setMiniScreenModeBadge(frame.is_stealth ? `[XEM ẨN ${fps}FPS]` : `[APP ${fps}FPS]`);
-      const targetEntry = miniMirrorWindows.find((w) => w.hwnd === hwnd);
-      if (targetEntry && Boolean(frame.is_stealth) !== targetEntry.is_stealth) {
-        void refreshMiniMirrorWindowSelect(true);
-      }
-    }
-  } catch (err) {
-    if (placeholder) {
-      placeholder.style.display = 'block';
-      placeholder.textContent = String(err);
-    }
-    setMiniScreenModeBadge('[WAIT]');
-  } finally {
-    miniMirrorBusy = false;
-    if (miniMirrorActive) {
-      miniMirrorTimer = window.setTimeout(() => void stepMiniMirrorFrame(), Math.round(1000 / fps));
-    }
-  }
-}
-
-function startMiniWindowMirror() {
-  stopMiniDisplayMedia();
-  stopMiniWindowMirror();
-  miniMirrorActive = true;
-  const toggleBtn = document.getElementById('btn-mini-mirror-toggle');
-  if (toggleBtn) toggleBtn.textContent = 'Dừng Chiếu App';
-  updateMiniResourceStatus();
-  void refreshMiniMirrorWindowSelect(true).then(() => {
-    if (miniMirrorActive) void stepMiniMirrorFrame();
-  });
-}
-
-async function startMiniDisplayMedia() {
-  if (!navigator.mediaDevices?.getDisplayMedia) {
-    speakMessage('[MINI SCREEN] WebView hiện tại không hỗ trợ getDisplayMedia. Hãy dùng nút "Bắt Đầu Chiếu App" hoặc tab "YouTube & Web Mini" nhé!');
-    return;
-  }
-  stopMiniWindowMirror();
-  stopMiniDisplayMedia();
-  try {
-    const stream = await navigator.mediaDevices.getDisplayMedia({
-      video: { frameRate: 30 },
-      audio: false,
-    });
-    miniDisplayStream = stream;
-    const vid = document.getElementById('mini-display-video') as HTMLVideoElement | null;
-    const img = document.getElementById('mini-mirror-img') as HTMLImageElement | null;
-    const placeholder = document.getElementById('mini-viewport-placeholder');
-    const btn = document.getElementById('btn-mini-display-media');
-    if (img) {
-      img.src = '';
-      img.style.display = 'none';
-    }
-    if (placeholder) placeholder.style.display = 'none';
-    if (vid) {
-      vid.srcObject = stream;
-      vid.style.display = 'block';
-    }
-    if (btn) btn.textContent = 'Đang Bắt 60 FPS (Click Để Tắt)';
-    setMiniScreenModeBadge('[WEBRTC 60FPS]');
-    updateMiniResourceStatus();
-    stream.getVideoTracks().forEach((track) => {
-      track.addEventListener('ended', () => {
-        stopMiniDisplayMedia();
-        if (placeholder) {
-          placeholder.style.display = 'block';
-          placeholder.textContent = 'Phiên bắt Tab / Màn hình đã kết thúc.';
-        }
-        setMiniScreenModeBadge('[LIVE]');
-      });
-    });
-  } catch (err) {
-    speakMessage(`[MINI SCREEN] Bạn đã hủy hoặc WebView chặn chọn nguồn chia sẻ: ${String(err)}`);
-  }
-}
-
-function setMiniScreenTab(tab: 'web' | 'mirror') {
-  miniScreenTab = tab;
-  const btnWeb = document.getElementById('tab-btn-mini-web');
-  const btnMirror = document.getElementById('tab-btn-mini-mirror');
-  const paneWeb = document.getElementById('mini-pane-web');
-  const paneMirror = document.getElementById('mini-pane-mirror');
-  if (btnWeb) btnWeb.classList.toggle('active', tab === 'web');
-  if (btnMirror) btnMirror.classList.toggle('active', tab === 'mirror');
-  if (paneWeb) paneWeb.style.display = tab === 'web' ? 'block' : 'none';
-  if (paneMirror) paneMirror.style.display = tab === 'mirror' ? 'block' : 'none';
-  if (tab === 'mirror') {
-    void refreshMiniMirrorWindowSelect(true);
-  } else {
-    // Tiết kiệm CPU/RAM khi chuyển về Tab Web
-    stopMiniWindowMirror();
-    stopMiniDisplayMedia();
-  }
-  syncHitboxToRust(true);
-}
-
-function updateMiniWebStatusUi(st: MiniWebStatus) {
-  miniWebIsOpen = Boolean(st.is_open);
-  const statusEl = document.getElementById('mini-web-status-text');
-  const pinChk = document.getElementById('chk-mini-web-pin') as HTMLInputElement | null;
-  if (pinChk) pinChk.checked = st.always_on_top;
-  if (statusEl) {
-    statusEl.textContent = st.is_open
-      ? `Đang mở: ${st.title} (${st.width}x${st.height} | ${st.url})`
-      : 'WebView Mini chưa khởi chạy (không tốn RAM/CPU nền). Nhấn YouTube hoặc dán link khi cần dùng.';
-  }
-  if (!miniMirrorActive && !miniDisplayStream) {
-    setMiniScreenModeBadge(st.is_open ? '[WEB MINI ON]' : '[LIVE]');
-  }
-  updateMiniResourceStatus();
-}
-
-async function openMiniWebTarget(rawTarget: string) {
-  const pinChk = document.getElementById('chk-mini-web-pin') as HTMLInputElement | null;
-  const target = rawTarget.trim() || 'youtube';
-  const inp = document.getElementById('mini-web-url-input') as HTMLInputElement | null;
-  if (inp && rawTarget.trim()) inp.value = target;
-  try {
-    const st = await invoke<MiniWebStatus>('mini_screen_open_web', {
-      target,
-      alwaysOnTop: pinChk?.checked ?? true,
-    });
-    updateMiniWebStatusUi(st);
-    speakMessage(`[MINI SCREEN] Đã mở "${st.title}" ở chế độ cửa sổ Mini ghim nổi!`);
-  } catch (err) {
-    speakMessage(`[MINI SCREEN LỖI] ${String(err)}`);
-  }
-}
-
-export function toggleMiniScreenPanel(
-  forceState?: boolean,
-  defaultTab?: 'web' | 'mirror'
-) {
-  appState.isMiniScreenOpen =
-    forceState !== undefined ? forceState : !appState.isMiniScreenOpen;
-  if (appState.isMiniScreenOpen) {
-    if (defaultTab) {
-      setMiniScreenTab(defaultTab);
-    } else {
-      void refreshMiniMirrorWindowSelect(true);
-    }
-    void invoke<MiniWebStatus>('mini_screen_control_web', { action: 'status' })
-      .then((st) => updateMiniWebStatusUi(st))
-      .catch(() => updateMiniResourceStatus());
-  } else {
-    stopMiniWindowMirror();
-    stopMiniDisplayMedia();
-    void invoke('mini_screen_restore_all_stealth').catch(() => {});
-    const autoCloseWeb =
-      (document.getElementById('chk-mini-web-autoclose') as HTMLInputElement | null)?.checked ??
-      true;
-    if (autoCloseWeb && miniWebIsOpen) {
-      void invoke<MiniWebStatus>('mini_screen_control_web', { action: 'close' })
-        .then((st) => updateMiniWebStatusUi(st))
-        .catch(() => {});
-    }
-  }
-  if (miniScreenPanel) {
-    miniScreenPanel.style.display = appState.isMiniScreenOpen ? 'block' : 'none';
-  }
-  if (dockBtnMiniScreen) {
-    dockBtnMiniScreen.classList.toggle('active', appState.isMiniScreenOpen);
   }
   syncHitboxToRust(true);
 }
@@ -3742,6 +3753,10 @@ export function syncHitboxToRust(force = false) {
   if (p2pVictimBanner && p2pVictimBanner.style.display !== 'none') {
     pushRect(p2pVictimBanner, true);
   }
+  const p2pUltraViewModal = document.getElementById('p2p-ultraview-modal');
+  if (p2pUltraViewModal && p2pUltraViewModal.style.display !== 'none') {
+    pushRect(p2pUltraViewModal, true);
+  }
   const fileDashModal = document.getElementById('file-dashboard-modal');
   if (fileDashModal && fileDashModal.style.display !== 'none') {
     pushRect(fileDashModal, true);
@@ -3752,6 +3767,10 @@ export function syncHitboxToRust(force = false) {
   }
   if (stickyNotesWidget && stickyNotesWidget.style.display !== 'none') {
     pushRect(stickyNotesWidget, true);
+  }
+  const animManagerEl = document.getElementById('anim-manager-modal');
+  if (animManagerEl && animManagerEl.style.display !== 'none') {
+    pushRect(animManagerEl, true);
   }
 
   const sig = `${cx}|${cy}|${rad}|${isDragging ? 1 : 0}|${uiRects
@@ -3775,6 +3794,7 @@ export function handleSendMessage() {
   const text = bubbleInput.value.trim();
   if (!text) return;
   bubbleInput.value = '';
+  fireAnimationTrigger('event', 'chat_send', 'enter');
 
   const lower = text.toLowerCase();
   if (lower === 'đổi avatar' || lower === 'mở studio' || lower === 'vrm') {
@@ -3789,6 +3809,14 @@ export function handleSendMessage() {
   } else if (lower === 'p2p' || lower === 'mở p2p' || lower === 'pk p2p' || lower === 'đấu p2p') {
     toggleP2pArenaModal(true);
     speakMessage('[P2P ARENA] Đã mở Đấu trường P2P PK & Điều khiển chéo giữa 2 máy!');
+  } else if (
+    lower === 'quản lý hoạt ảnh' ||
+    lower === 'hoạt ảnh' ||
+    lower === 'animation manager' ||
+    lower === 'anim manager'
+  ) {
+    window.dispatchEvent(new CustomEvent('duck-open-anim-manager'));
+    speakMessage('[ANIM MANAGER] Đã mở Quản lý Hoạt Ảnh & Gắn kết Tool / Trạng thái!');
   } else {
     void chatWithLocalLlm(text);
   }
@@ -3796,11 +3824,18 @@ export function handleSendMessage() {
 
 let uiFollowX = appState.posX;
 let uiFollowY = appState.posY;
+let lastBubbleLayoutW = 0;
+let lastBubbleLayoutH = 0;
 
 export function initUi() {
   mountUi();
   bindDomRefs();
   ensureStickyNotesWidget();
+
+  window.addEventListener('duck-close-other-modals', () => {
+    closeOtherPopupModals('anim');
+    syncHitboxToRust(true);
+  });
 
   typewriterTarget = bubbleContent.textContent?.trim() || '';
   typewriterIndex = typewriterTarget.length;
@@ -3912,12 +3947,11 @@ export function initUi() {
   }
 
   chkCfgVoiceTts?.addEventListener('change', () => {
-    duckVoiceMuted = !chkCfgVoiceTts.checked;
-    localStorage.setItem('mate_duck_voice_muted', String(duckVoiceMuted));
+    const muteNow = !chkCfgVoiceTts.checked;
+    setDuckVoiceMuted(muteNow);
     syncDockVoiceUi();
     void saveStudioConfigToSqlite();
-    if (duckVoiceMuted) {
-      stopDuckVoiceTts();
+    if (muteNow) {
       typewriterTarget = '[ÂM THANH] Đã tắt giọng đọc của Vịt (chỉ hiển thị chữ).';
       typewriterIndex = typewriterTarget.length;
       typewriterAcc = typewriterTarget.length;
@@ -4225,6 +4259,12 @@ export function initUi() {
   btnActSwing?.addEventListener('click', () => {
     triggerWindowSwing();
   });
+  document.getElementById('btn-act-paper-crash')?.addEventListener('click', () => {
+    triggerWindowPaperCrash();
+  });
+  document.getElementById('btn-act-hulk')?.addEventListener('click', () => {
+    triggerHulkRageMode();
+  });
   const selWeatherFx = document.getElementById('select-weather-fx') as HTMLSelectElement | null;
   const weatherCycle: Array<WeatherEffectMode | 'auto'> = ['hot', 'rain', 'cold', 'wind', 'night', 'clear', 'auto'];
   let weatherCycleIdx = -1;
@@ -4395,6 +4435,9 @@ export function initUi() {
     localStorage.setItem('mate_english_topic', t);
     void loadNextEnglishLesson(t, true);
   });
+  document.getElementById('btn-eng-translate')?.addEventListener('click', () => {
+    void translateCurrentEnglishLesson();
+  });
   btnEngAudio?.addEventListener('click', () => {
     playEnglishVocabAudio();
   });
@@ -4544,9 +4587,11 @@ export function initUi() {
     const hRatio = Math.max(0.01, Math.min(1 - yRatio, h / screenH));
 
     await new Promise((r) => setTimeout(r, 90));
+    fireAnimationTrigger('tool', 'ocr', 'start');
     appState.setState('SCANNING');
     spawnScanEffect(appState.posX, appState.posY);
     speakMessage('[OCR VÙNG] Đang quét chữ từ vùng vừa cắt và dịch...');
+    let ocrOk = false;
 
     try {
       const res = await invoke<OcrRegionResult>('ocr_screen_region', {
@@ -4555,6 +4600,7 @@ export function initUi() {
         wRatio,
         hRatio,
       });
+      ocrOk = true;
       const imgEl = document.getElementById('ocr-preview-img') as HTMLImageElement | null;
       const metaEl = document.getElementById('ocr-meta-info');
       const srcEl = document.getElementById('ocr-source-text') as HTMLTextAreaElement | null;
@@ -4585,6 +4631,13 @@ export function initUi() {
       }
     } catch (err) {
       speakMessage(`[LỖI OCR VÙNG] ${String(err)}`);
+    } finally {
+      fireAnimationTrigger('tool', 'ocr', ocrOk ? 'success' : 'error');
+      window.setTimeout(() => {
+        if (appState.state === 'SCANNING') {
+          appState.setState(appState.attachedWindowHwnd !== null ? 'SITTING_WINDOW' : 'IDLE');
+        }
+      }, 600);
     }
   });
 
@@ -4668,6 +4721,54 @@ export function initUi() {
     }
   });
 
+  // Gợi ý đóng gói quy trình Agent vừa hoàn thành thành Tool/Skill dùng lại
+  let pendingAgentTrace: AgentWorkflowTrace | null = null;
+  const suggestBar = document.getElementById('agent-suggest-tool-bar');
+  const suggestText = document.getElementById('agent-suggest-tool-text');
+  const btnSaveAsTool = document.getElementById('btn-agent-save-as-tool');
+  const btnDismissTool = document.getElementById('btn-agent-dismiss-tool');
+
+  window.addEventListener('duck-agent-suggest-tool', (ev: Event) => {
+    const trace = (ev as CustomEvent).detail as AgentWorkflowTrace | undefined;
+    if (!trace || !suggestBar) return;
+    pendingAgentTrace = trace;
+    if (suggestText) {
+      const shortGoal = trace.goal.length > 42 ? `${trace.goal.slice(0, 42)}...` : trace.goal;
+      suggestText.textContent = `[GỢI Ý TOOL] Lưu "${shortGoal}" thành Tool?`;
+    }
+    suggestBar.style.display = 'flex';
+  });
+
+  btnDismissTool?.addEventListener('click', () => {
+    if (suggestBar) suggestBar.style.display = 'none';
+    pendingAgentTrace = null;
+  });
+
+  btnSaveAsTool?.addEventListener('click', async () => {
+    if (!pendingAgentTrace) return;
+    const trace = pendingAgentTrace;
+    const reqText = buildToolForgePromptFromTrace(trace);
+    if (suggestBar) suggestBar.style.display = 'none';
+    pendingAgentTrace = null;
+
+    const instantDraft = await buildVerifiedDraftFromAgentTrace(trace);
+    if (instantDraft) {
+      window.dispatchEvent(
+        new CustomEvent('duck-open-tool-forge', {
+          detail: { draft: instantDraft, requestText: reqText },
+        })
+      );
+      return;
+    }
+
+    window.dispatchEvent(
+      new CustomEvent('duck-open-tool-forge', { detail: { requestText: reqText } })
+    );
+    setTimeout(() => {
+      document.getElementById('btn-tf-generate')?.click();
+    }, 150);
+  });
+
   btnPcToolForge?.addEventListener('click', () => {
     toggleToolForgeModal(true);
   });
@@ -4678,260 +4779,30 @@ export function initUi() {
     toggleMiniScreenPanel();
   });
 
-  // Mini Screen PiP (Kéo thả, Đổi cỡ S/M/L, Trong suốt, YouTube/Web Mini & Live Mirror)
-  if (miniScreenPanel) {
-    const savedWidth = Number(localStorage.getItem('mate_mini_width') || '430');
-    if (Number.isFinite(savedWidth) && savedWidth >= 300 && savedWidth <= 720) {
-      miniScreenPanel.style.width = `${savedWidth}px`;
-      document.querySelectorAll('.mini-size-chip').forEach((ch) => {
-        ch.classList.toggle('active', Number(ch.getAttribute('data-size')) === savedWidth);
-      });
-    }
-    const savedOpacity = Number(localStorage.getItem('mate_mini_opacity') || '0.96');
-    const opacityInp = document.getElementById('mini-screen-opacity') as HTMLInputElement | null;
-    if (Number.isFinite(savedOpacity) && savedOpacity >= 0.45 && savedOpacity <= 1) {
-      miniScreenPanel.style.opacity = String(savedOpacity);
-      if (opacityInp) opacityInp.value = String(savedOpacity);
-    }
-    try {
-      const savedPos = JSON.parse(localStorage.getItem('mate_mini_pos') || 'null') as {
-        left: number;
-        top: number;
-      } | null;
-      if (savedPos && Number.isFinite(savedPos.left) && Number.isFinite(savedPos.top)) {
-        const clampedL = Math.max(8, Math.min(appState.W - 220, savedPos.left));
-        const clampedT = Math.max(8, Math.min(appState.H - 120, savedPos.top));
-        miniScreenPanel.style.left = `${clampedL}px`;
-        miniScreenPanel.style.top = `${clampedT}px`;
-        miniScreenPanel.style.right = 'auto';
-      }
-    } catch {
-      // keep default top-right
-    }
-
-    const dragHandle = document.getElementById('mini-screen-drag-handle');
-    let miniDragging = false;
-    let dragOffX = 0;
-    let dragOffY = 0;
-    dragHandle?.addEventListener('pointerdown', (e) => {
-      if ((e.target as Element | null)?.closest('button, input')) return;
-      miniDragging = true;
-      const r = miniScreenPanel.getBoundingClientRect();
-      dragOffX = e.clientX - r.left;
-      dragOffY = e.clientY - r.top;
-      dragHandle.setPointerCapture(e.pointerId);
-    });
-    dragHandle?.addEventListener('pointermove', (e) => {
-      if (!miniDragging) return;
-      const panelW = miniScreenPanel.offsetWidth || 420;
-      const nx = Math.max(6, Math.min(appState.W - panelW - 6, e.clientX - dragOffX));
-      const ny = Math.max(6, Math.min(appState.H - 60, e.clientY - dragOffY));
-      miniScreenPanel.style.left = `${Math.round(nx)}px`;
-      miniScreenPanel.style.top = `${Math.round(ny)}px`;
-      miniScreenPanel.style.right = 'auto';
-      syncHitboxToRust(false);
-    });
-    const finishMiniDrag = () => {
-      if (!miniDragging) return;
-      miniDragging = false;
-      const r = miniScreenPanel.getBoundingClientRect();
-      localStorage.setItem(
-        'mate_mini_pos',
-        JSON.stringify({ left: Math.round(r.left), top: Math.round(r.top) })
-      );
-      syncHitboxToRust(true);
-    };
-    dragHandle?.addEventListener('pointerup', finishMiniDrag);
-    dragHandle?.addEventListener('pointercancel', finishMiniDrag);
-  }
-
-  document.getElementById('btn-close-mini-screen')?.addEventListener('click', () => {
-    toggleMiniScreenPanel(false);
-  });
-  document.getElementById('btn-mini-collapse')?.addEventListener('click', () => {
-    miniPanelCollapsed = !miniPanelCollapsed;
-    const bodyEl = document.getElementById('mini-screen-body');
-    if (bodyEl) bodyEl.style.display = miniPanelCollapsed ? 'none' : 'block';
-    if (miniPanelCollapsed) {
-      stopMiniWindowMirror();
-      stopMiniDisplayMedia();
-    }
-    syncHitboxToRust(true);
-  });
-  document.querySelectorAll('.mini-size-chip').forEach((chip) => {
-    chip.addEventListener('click', () => {
-      const sz = Number(chip.getAttribute('data-size') || '430');
-      if (miniScreenPanel && sz >= 300) {
-        miniScreenPanel.style.width = `${sz}px`;
-        localStorage.setItem('mate_mini_width', String(sz));
-        document.querySelectorAll('.mini-size-chip').forEach((c) => {
-          c.classList.toggle('active', c === chip);
-        });
-        syncHitboxToRust(true);
-      }
-    });
-  });
-  document.getElementById('mini-screen-opacity')?.addEventListener('input', (e) => {
-    const val = (e.target as HTMLInputElement).value;
-    if (miniScreenPanel) {
-      miniScreenPanel.style.opacity = val;
-      localStorage.setItem('mate_mini_opacity', val);
-    }
-  });
-  document.getElementById('tab-btn-mini-web')?.addEventListener('click', () => {
-    setMiniScreenTab('web');
-  });
-  document.getElementById('tab-btn-mini-mirror')?.addEventListener('click', () => {
-    setMiniScreenTab('mirror');
+  initMiniScreenUi({
+    getMiniScreenPanel: () => miniScreenPanel,
+    getDockBtnMiniScreen: () => dockBtnMiniScreen,
+    syncHitboxToRust,
+    speakMessage,
+    runPcMedia,
+    findTargetWindow,
   });
 
-  document.getElementById('btn-mini-web-open')?.addEventListener('click', () => {
-    const val =
-      (document.getElementById('mini-web-url-input') as HTMLInputElement | null)?.value ||
-      'youtube';
-    void openMiniWebTarget(val);
-  });
-  document.getElementById('mini-web-url-input')?.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      const val = (e.target as HTMLInputElement).value || 'youtube';
-      void openMiniWebTarget(val);
-    }
-  });
-  document.querySelectorAll('.mini-web-preset').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const target = btn.getAttribute('data-target') || 'youtube';
-      void openMiniWebTarget(target);
-    });
-  });
-  document.getElementById('btn-mini-web-paste')?.addEventListener('click', async () => {
-    try {
-      const clip = await invoke<string>('get_clipboard_text');
-      const inp = document.getElementById('mini-web-url-input') as HTMLInputElement | null;
-      if (inp && clip.trim()) {
-        inp.value = clip.trim();
-        void openMiniWebTarget(clip.trim());
-      } else {
-        speakMessage('[MINI SCREEN] Clipboard hiện đang trống.');
-      }
-    } catch (err) {
-      speakMessage(`[MINI SCREEN] Không đọc được clipboard: ${String(err)}`);
-    }
-  });
-  document.querySelectorAll('.mini-web-size-btn').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const w = Number(btn.getAttribute('data-w') || '480');
-      const h = Number(btn.getAttribute('data-h') || '300');
-      void invoke<MiniWebStatus>('mini_screen_control_web', {
-        action: 'resize',
-        width: w,
-        height: h,
-      })
-        .then((st) => updateMiniWebStatusUi(st))
-        .catch(() => {});
-    });
-  });
-  document.getElementById('chk-mini-web-pin')?.addEventListener('change', (e) => {
-    const checked = (e.target as HTMLInputElement).checked;
-    void invoke<MiniWebStatus>('mini_screen_control_web', {
-      action: 'pin',
-      alwaysOnTop: checked,
-    })
-      .then((st) => updateMiniWebStatusUi(st))
-      .catch(() => {});
-  });
-  document.getElementById('btn-mini-web-focus')?.addEventListener('click', () => {
-    void invoke<MiniWebStatus>('mini_screen_control_web', { action: 'focus' })
-      .then((st) => updateMiniWebStatusUi(st))
-      .catch(() => {});
-  });
-  document.getElementById('btn-mini-web-close')?.addEventListener('click', () => {
-    void invoke<MiniWebStatus>('mini_screen_control_web', { action: 'close' })
-      .then((st) => updateMiniWebStatusUi(st))
-      .catch(() => {});
-  });
+  const bindDialogDrag = (el: HTMLElement | null, handleSelector = '.panel-header') =>
+    makeDialogDraggable(el, handleSelector, syncHitboxToRust);
 
-  document.getElementById('btn-mini-mirror-refresh')?.addEventListener('click', () => {
-    void refreshMiniMirrorWindowSelect(true);
-  });
-  document.getElementById('mini-mirror-win-select')?.addEventListener('change', () => {
-    syncStealthButtonsUi();
-    if (miniMirrorActive) {
-      void stepMiniMirrorFrame();
-    }
-  });
-  document.getElementById('btn-mini-mirror-toggle')?.addEventListener('click', () => {
-    if (miniMirrorActive) {
-      stopMiniWindowMirror();
-    } else {
-      startMiniWindowMirror();
-    }
-  });
-  document.getElementById('btn-mini-stealth-toggle')?.addEventListener('click', async () => {
-    const sel = document.getElementById('mini-mirror-win-select') as HTMLSelectElement | null;
-    const hwnd = Number(sel?.value || '0') || 0;
-    if (!hwnd) {
-      speakMessage('[MINI SCREEN] Hãy chọn app/cửa sổ trước khi bật chế độ Xem Ẩn.');
-      return;
-    }
-    const existing = miniMirrorWindows.find((w) => w.hwnd === hwnd);
-    const nextStealth = !(existing?.is_stealth ?? false);
-    try {
-      const msg = await invoke<string>('mini_screen_set_stealth', {
-        hwnd,
-        enabled: nextStealth,
-      });
-      await refreshMiniMirrorWindowSelect(true);
-      speakMessage(`[MINI SCREEN] ${msg}`);
-      if (nextStealth && !miniMirrorActive) {
-        startMiniWindowMirror();
-      }
-    } catch (err) {
-      speakMessage(`[MINI SCREEN LỖI] ${String(err)}`);
-    }
-  });
-  document.getElementById('btn-mini-restore-all')?.addEventListener('click', async () => {
-    try {
-      const count = await invoke<number>('mini_screen_restore_all_stealth');
-      await refreshMiniMirrorWindowSelect(true);
-      speakMessage(`[MINI SCREEN] Đã hiện lại ${count} cửa sổ đang ẩn.`);
-    } catch {
-      // ignore
-    }
-  });
-  void listen('duck-mini-web-closed', () => {
-    updateMiniWebStatusUi({
-      is_open: false,
-      url: '',
-      title: '',
-      always_on_top: true,
-      width: 480,
-      height: 300,
-    });
-  });
-  document.getElementById('btn-mini-display-media')?.addEventListener('click', () => {
-    if (miniDisplayStream) {
-      stopMiniDisplayMedia();
-      setMiniScreenModeBadge('[LIVE]');
-    } else {
-      void startMiniDisplayMedia();
-    }
-  });
-  document.getElementById('btn-mini-focus-app')?.addEventListener('click', () => {
-    const sel = document.getElementById('mini-mirror-win-select') as HTMLSelectElement | null;
-    const hwnd = Number(sel?.value || '0') || appState.activeWindowHwnd || findTargetWindow()?.hwnd || 0;
-    if (!hwnd) {
-      speakMessage('[MINI SCREEN] Chưa chọn ứng dụng nào để đưa lên.');
-      return;
-    }
-    void invoke<string>('mini_screen_focus_window', { hwnd })
-      .then((m) => speakMessage(`[MINI SCREEN] ${m}`))
-      .catch((e) => speakMessage(`[MINI SCREEN] ${String(e)}`));
-  });
-  document.getElementById('btn-mini-media-prev')?.addEventListener('click', () => void runPcMedia('prev'));
-  document.getElementById('btn-mini-media-play')?.addEventListener('click', () => void runPcMedia('play_pause'));
-  document.getElementById('btn-mini-media-next')?.addEventListener('click', () => void runPcMedia('next'));
-  document.getElementById('btn-mini-vol-down')?.addEventListener('click', () => void runPcMedia('vol_down'));
-  document.getElementById('btn-mini-vol-up')?.addEventListener('click', () => void runPcMedia('vol_up'));
+  bindDialogDrag(studioPanel);
+  bindDialogDrag(longMemoryPanel);
+  bindDialogDrag(notificationPanel);
+  bindDialogDrag(p2pArenaPanel);
+  bindDialogDrag(pcControlModal);
+  bindDialogDrag(ocrTranslateModal);
+  bindDialogDrag(toolForgeModal);
+  bindDialogDrag(tarotModal);
+  bindDialogDrag(document.getElementById('anim-manager-modal'));
+  bindDialogDrag(document.getElementById('file-dashboard-modal'), '.fd-header');
+  bindDialogDrag(document.getElementById('p2p-ultraview-modal'), '.p2p-uv-topbar');
+
   document.getElementById('btn-close-tool-forge')?.addEventListener('click', () => {
     toggleToolForgeModal(false);
   });
@@ -4942,9 +4813,167 @@ export function initUi() {
     setToolForgeTab('skills');
     void refreshCustomSkills().then(() => renderToolForgeSkillsList());
   });
+  document.getElementById('tab-btn-tf-cloud')?.addEventListener('click', () => {
+    setToolForgeTab('cloud');
+    void refreshCloudHubUi();
+  });
+  const autoDeps = {
+    speakMessage,
+    runQuickBuiltinAction: async (actionId: string) => {
+      if (actionId === 'builtin:clean_ram') return invoke<string>('hardware_action', { action: 'clean_ram' });
+      if (actionId === 'builtin:check_git') return invoke<string>('check_git_status', { path: null });
+      if (actionId === 'builtin:check_ports') return invoke<string>('manage_ports', { action: 'list', port: null });
+      if (actionId === 'builtin:top_proc') return invoke<string>('manage_processes', { action: 'top_ram', target: null });
+      if (actionId === 'builtin:weather_3d') return syncLiveWeather3D('auto', false);
+      return 'Đã chạy.';
+    },
+  };
+  document.getElementById('tab-btn-tf-auto')?.addEventListener('click', () => {
+    setToolForgeTab('auto');
+    void refreshAutomationRulesUi(autoDeps);
+  });
+  initAutomationRulesUi(autoDeps);
+  document.getElementById('tf-auth-header-badge')?.addEventListener('click', () => {
+    setToolForgeTab('cloud');
+    void refreshCloudHubUi();
+  });
   document.getElementById('btn-tf-refresh-skills')?.addEventListener('click', () => {
     void refreshCustomSkills().then(() => renderToolForgeSkillsList());
   });
+  document.getElementById('btn-tf-toggle-cloud-cfg')?.addEventListener('click', () => {
+    const box = document.getElementById('tf-cloud-config-box');
+    if (box) {
+      box.style.display = box.style.display === 'none' ? 'block' : 'none';
+      syncHitboxToRust(true);
+    }
+  });
+  document.getElementById('btn-tf-save-cloud-cfg')?.addEventListener('click', async () => {
+    const clientId = (document.getElementById('tf-cfg-google-client-id') as HTMLInputElement | null)?.value.trim() || '';
+    const clientSecret = (document.getElementById('tf-cfg-google-secret') as HTMLInputElement | null)?.value.trim() || '';
+    const hubUrl = (document.getElementById('tf-cfg-hub-url') as HTMLInputElement | null)?.value.trim() || 'http://127.0.0.1:8787';
+    try {
+      await saveCloudHubConfig({
+        google_client_id: clientId,
+        google_client_secret: clientSecret || undefined,
+        cloud_hub_api_url: hubUrl,
+      });
+      await refreshCloudHubUi();
+      setCloudStatusLog('[CONFIG] Đã lưu cấu hình Google OAuth & Cloud Hub URL vào SQLite.');
+    } catch (err) {
+      setCloudStatusLog(`[CONFIG ERR] ${String(err)}`);
+    }
+  });
+  const fetchCloudSkillsNow = async () => {
+    const btn = document.getElementById('btn-tf-cloud-fetch') as HTMLButtonElement | null;
+    const q = (document.getElementById('tf-cloud-search') as HTMLInputElement | null)?.value.trim() || '';
+    const lang = (document.getElementById('tf-cloud-lang-filter') as HTMLSelectElement | null)?.value || 'all';
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Đang tải...';
+    }
+    setCloudStatusLog('[CLOUD] Đang kết nối MongoDB Atlas Data API...');
+    try {
+      const items = await listCommunitySkills(q || undefined, lang);
+      renderCloudSkillsList(items);
+      setCloudStatusLog(`[CLOUD OK] Đã tải ${items.length} Skill từ MongoDB.`);
+    } catch (err) {
+      const msg = String(err);
+      setCloudStatusLog(`[CLOUD ERR] ${msg}`);
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = 'Tải Danh Sách';
+      }
+    }
+  };
+  document.getElementById('btn-tf-google-login')?.addEventListener('click', async () => {
+    const btn = document.getElementById('btn-tf-google-login') as HTMLButtonElement | null;
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Đang chờ trình duyệt...';
+    }
+    setCloudStatusLog('[OAUTH] Đang mở trình duyệt Google để đăng nhập (callback loopback kiểu VS Code)...');
+    try {
+      const auth = await loginWithGoogleOAuth();
+      renderCloudAuthUi(auth);
+      setCloudStatusLog(`[OAUTH PASS] Đăng nhập thành công: ${auth.email}`);
+      speakMessage(`[GOOGLE OAUTH] Xin chào ${auth.name}! Bạn đã sẵn sàng đồng bộ Skill với MongoDB.`);
+      if (cachedCloudSkills.length === 0) {
+        void fetchCloudSkillsNow();
+      }
+    } catch (err) {
+      setCloudStatusLog(`[OAUTH ERR] ${String(err)}`);
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = 'Đăng Nhập Google';
+      }
+    }
+  });
+  document.getElementById('btn-tf-google-logout')?.addEventListener('click', async () => {
+    try {
+      const auth = await logoutGoogleOAuth();
+      renderCloudAuthUi(auth);
+      cachedCloudSkills = [];
+      const listEl = document.getElementById('tf-cloud-skills-list');
+      if (listEl) {
+        listEl.innerHTML =
+          '<div class="dash-sub">Đã đăng xuất. App vẫn hoạt động offline bình thường; đăng nhập Google lại để kéo/đẩy Skill từ MongoDB.</div>';
+      }
+      setCloudStatusLog('[OAUTH] Đã đăng xuất khỏi tài khoản Google.');
+    } catch (err) {
+      setCloudStatusLog(`[OAUTH ERR] ${String(err)}`);
+    }
+  });
+  document.getElementById('btn-tf-cloud-fetch')?.addEventListener('click', () => {
+    void fetchCloudSkillsNow();
+  });
+  document.getElementById('tf-cloud-search')?.addEventListener('keydown', (e) => {
+    if ((e as KeyboardEvent).key === 'Enter') {
+      e.preventDefault();
+      void fetchCloudSkillsNow();
+    }
+  });
+
+  const handleOpenWebChat = async () => {
+    try {
+      const base = await openWebChatCompanion();
+      setCloudStatusLog(`[WEB CHAT] Đã mở giao diện Web Chat Sync tại ${base}`);
+    } catch (err) {
+      speakMessage(`[WEB CHAT ERR] ${String(err)}`);
+    }
+  };
+  document.getElementById('btn-tf-open-web-chat')?.addEventListener('click', () => {
+    void handleOpenWebChat();
+  });
+  document.getElementById('btn-open-web-chat-bubble')?.addEventListener('click', () => {
+    void handleOpenWebChat();
+  });
+
+  const voiceAndWatcherCb = {
+    bubbleInput,
+    btnSendMsg,
+    speakMessage,
+    toggleBubbleVisibility,
+    showSuggestionButtons,
+  };
+  initVoicePushToTalk(voiceAndWatcherCb);
+  initProactiveErrorWatcher(voiceAndWatcherCb);
+
+  // Web <-> Desktop Chat & Remote Agent/Rule Sync (chỉ chạy khi đã đăng nhập Google)
+  initWebRemoteSyncLoop({
+    getBubbleInput: () => bubbleInput,
+    getBtnSendMsg: () => btnSendMsg,
+    toggleBubbleVisibility,
+    appendChatMessage,
+    speakMessage,
+    autoDeps,
+  });
+  void getCloudAuthStatus()
+    .then((auth) => {
+      renderCloudAuthUi(auth);
+    })
+    .catch(() => { });
 
   const syncDraftInputsToObj = (): ToolForgeDraft => {
     const existing = getLatestToolForgeDraft();
@@ -4953,10 +4982,15 @@ export function initUi() {
     const trigRaw = (document.getElementById('tf-draft-triggers') as HTMLInputElement | null)?.value || '';
     const kwRaw = (document.getElementById('tf-draft-keywords') as HTMLInputElement | null)?.value || '';
     const argsVal = (document.getElementById('tf-draft-test-args') as HTMLInputElement | null)?.value.trim() || '{}';
+    const liveArgsRaw = (document.getElementById('tf-live-test-args') as HTMLInputElement | null)?.value.trim();
+    const liveArgsVal = liveArgsRaw && liveArgsRaw.length > 0 ? liveArgsRaw : argsVal;
     const codeVal = (document.getElementById('tf-code-editor') as HTMLTextAreaElement | null)?.value || '';
     const langSel = (document.getElementById('select-tf-lang') as HTMLSelectElement | null)?.value;
     const lang: 'powershell' | 'python' =
-      existing?.language || (langSel === 'python' ? 'python' : 'powershell');
+      langSel === 'python' || langSel === 'powershell'
+        ? langSel
+        : existing?.language || 'powershell';
+    const langChanged = Boolean(existing && existing.language !== lang);
 
     const updated: ToolForgeDraft = {
       id: idVal,
@@ -4968,7 +5002,9 @@ export function initUi() {
       code: codeVal,
       testArgsJson: argsVal,
       expectedKeywords: kwRaw.split(',').map((s) => s.trim()).filter(Boolean),
-      sandbox: existing?.sandbox || null,
+      sandbox: langChanged ? null : existing?.sandbox || null,
+      liveTest: langChanged ? null : existing?.liveTest ?? null,
+      liveTestArgsJson: liveArgsVal,
       healLogs: existing?.healLogs || [],
       originalRequest: existing?.originalRequest || '',
     };
@@ -4976,13 +5012,70 @@ export function initUi() {
     return updated;
   };
 
-  document.getElementById('tf-code-editor')?.addEventListener('input', () => {
-    const d = syncDraftInputsToObj();
-    if (d.sandbox) {
-      d.sandbox = null;
-      setLatestToolForgeDraft(d);
-      renderToolForgeDraft(d);
+  const invalidateDraftSandboxOnly = (d: ToolForgeDraft) => {
+    d.sandbox = null;
+    d.liveTest = null;
+    setLatestToolForgeDraft(d);
+    const badge = document.getElementById('tf-verify-badge');
+    const liveBadge = document.getElementById('tf-live-test-badge');
+    const saveBtn = document.getElementById('btn-tf-confirm-save') as HTMLButtonElement | null;
+    const reportBox = document.getElementById('tf-sandbox-report');
+    const liveReportBox = document.getElementById('tf-live-test-report');
+    const langTag = document.getElementById('tf-draft-lang-tag');
+    if (langTag) langTag.textContent = `[${d.language.toUpperCase()}]`;
+    if (badge) {
+      badge.className = 'badge tf-badge-fail';
+      badge.textContent = '[CHƯA KIỂM CHỨNG]';
     }
+    if (liveBadge) {
+      liveBadge.className = 'badge tf-badge-warn';
+      liveBadge.textContent = '[CHƯA TEST THẬT]';
+    }
+    if (saveBtn) {
+      saveBtn.disabled = true;
+      saveBtn.style.opacity = '0.45';
+    }
+    if (reportBox) {
+      reportBox.textContent =
+        '[SANDBOX] Mã nguồn hoặc tham số vừa thay đổi. Bấm "Chạy Sandbox" để kiểm chứng lại trước khi đóng gói.';
+    }
+    if (liveReportBox) {
+      liveReportBox.textContent =
+        '[USER TEST] Mã nguồn vừa thay đổi. Bấm "Test Chạy Thật" để kiểm nghiệm lại kết quả thực tế.';
+    }
+  };
+
+  document.getElementById('tf-code-editor')?.addEventListener('input', () => {
+    invalidateDraftSandboxOnly(syncDraftInputsToObj());
+  });
+  document.getElementById('tf-draft-test-args')?.addEventListener('input', () => {
+    invalidateDraftSandboxOnly(syncDraftInputsToObj());
+  });
+  document.getElementById('tf-draft-keywords')?.addEventListener('input', () => {
+    invalidateDraftSandboxOnly(syncDraftInputsToObj());
+  });
+  document.getElementById('select-tf-lang')?.addEventListener('change', () => {
+    if (getLatestToolForgeDraft()) {
+      invalidateDraftSandboxOnly(syncDraftInputsToObj());
+    }
+  });
+  document.getElementById('tf-live-test-args')?.addEventListener('input', () => {
+    const existing = getLatestToolForgeDraft();
+    if (!existing) return;
+    const val = (document.getElementById('tf-live-test-args') as HTMLInputElement | null)?.value ?? '';
+    setLatestToolForgeDraft({
+      ...existing,
+      liveTestArgsJson: val,
+    });
+  });
+
+  document.getElementById('btn-tf-new-manual')?.addEventListener('click', () => {
+    const langSel = (document.getElementById('select-tf-lang') as HTMLSelectElement | null)?.value;
+    const lang: 'powershell' | 'python' = langSel === 'python' ? 'python' : 'powershell';
+    const blank = createBlankToolDraft(lang);
+    setLatestToolForgeDraft(blank);
+    renderToolForgeDraft(blank);
+    syncHitboxToRust(true);
   });
 
   document.getElementById('btn-tf-generate')?.addEventListener('click', async () => {
@@ -5039,6 +5132,47 @@ export function initUi() {
       if (btn) {
         btn.disabled = false;
         btn.textContent = 'Chạy Sandbox';
+      }
+    }
+  });
+
+  document.getElementById('btn-tf-run-live-test')?.addEventListener('click', async () => {
+    const btn = document.getElementById('btn-tf-run-live-test') as HTMLButtonElement | null;
+    const liveArgsInp = document.getElementById('tf-live-test-args') as HTMLInputElement | null;
+    const liveReportBox = document.getElementById('tf-live-test-report');
+    const draft = syncDraftInputsToObj();
+    const liveArgsRaw = (liveArgsInp?.value ?? draft.liveTestArgsJson ?? draft.testArgsJson ?? '{}').trim() || '{}';
+    try {
+      JSON.parse(liveArgsRaw);
+    } catch {
+      const errMsg = '[USER TEST ERR] Tham số JSON không hợp lệ.';
+      if (liveReportBox) liveReportBox.textContent = errMsg;
+      appendToolForgePipelineLog(errMsg);
+      return;
+    }
+
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Đang chạy thật...';
+    }
+    appendToolForgePipelineLog('[USER TEST] Đang chạy trực tiếp trên máy (DUCK_SANDBOX_MODE=0)...');
+    try {
+      const tested = await runDraftLiveTest(draft, liveArgsRaw);
+      renderToolForgeDraft(tested);
+      appendToolForgePipelineLog(
+        tested.liveTest?.ok
+          ? `[USER TEST PASS] Chạy thật hoàn tất (${tested.liveTest.duration_ms}ms, Exit=0).`
+          : `[USER TEST FAIL] Exit=${tested.liveTest?.exit_code ?? -1} | ${tested.liveTest?.error_summary || 'Chưa đạt.'}`
+      );
+      syncHitboxToRust(true);
+    } catch (err) {
+      const errMsg = `[USER TEST ERR] ${String(err)}`;
+      if (liveReportBox) liveReportBox.textContent = errMsg;
+      appendToolForgePipelineLog(errMsg);
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = 'Test Chạy Thật';
       }
     }
   });
@@ -5412,6 +5546,91 @@ export function initUi() {
     void refreshStudioLlmUi();
   });
 
+  const renderColabScanUi = (res: {
+    online: boolean;
+    tunnel_url: string;
+    default_model: string;
+    models: string[];
+    error: string;
+  }) => {
+    const colabStatusBadge = document.getElementById('studio-colab-status');
+    const colabUrlInp = document.getElementById('input-colab-url') as HTMLInputElement | null;
+    const colabModelInp = document.getElementById('input-colab-model') as HTMLInputElement | null;
+    const chipsBox = document.getElementById('colab-models-chips');
+
+    if (colabUrlInp && document.activeElement !== colabUrlInp && res.tunnel_url) {
+      colabUrlInp.value = res.tunnel_url;
+    }
+    if (colabModelInp && document.activeElement !== colabModelInp) {
+      colabModelInp.value = colabCloudModel || res.default_model;
+    }
+    if (colabStatusBadge) {
+      if (res.online) {
+        colabStatusBadge.className = 'badge tf-badge-pass';
+        colabStatusBadge.textContent = `[COLAB: ONLINE (${res.models.length})]`;
+      } else {
+        colabStatusBadge.className = 'badge tf-badge-warn';
+        colabStatusBadge.textContent = '[COLAB: OFFLINE]';
+      }
+    }
+    if (chipsBox) {
+      chipsBox.innerHTML = '';
+      if (res.online && res.models.length > 0) {
+        res.models.forEach((m) => {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = `chat-chip${m === colabCloudModel ? ' active' : ''}`;
+          btn.textContent = m;
+          btn.addEventListener('click', () => {
+            setColabCloudModel(m);
+            if (colabModelInp) colabModelInp.value = m;
+            void saveColabCloudConfig(colabUrlInp?.value || res.tunnel_url, m, true);
+            renderColabScanUi(res);
+          });
+          chipsBox.appendChild(btn);
+        });
+      } else if (res.error) {
+        const note = document.createElement('span');
+        note.style.cssText = 'font-size:10px;color:#94a3b8;';
+        note.textContent = res.error;
+        chipsBox.appendChild(note);
+      }
+    }
+  };
+
+  document.getElementById('btn-scan-colab')?.addEventListener('click', async () => {
+    const btn = document.getElementById('btn-scan-colab') as HTMLButtonElement | null;
+    const colabUrlInp = document.getElementById('input-colab-url') as HTMLInputElement | null;
+    const colabModelInp = document.getElementById('input-colab-model') as HTMLInputElement | null;
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Đang quét...';
+    }
+    try {
+      const urlVal = colabUrlInp?.value.trim() || '';
+      const modVal = colabModelInp?.value.trim() || colabCloudModel;
+      const res = urlVal
+        ? await saveColabCloudConfig(urlVal, modVal, true)
+        : await scanColabCloudModels();
+      renderColabScanUi(res);
+      if (res.online) {
+        speakMessage(`[COLAB GPU] Đã quét thấy ${res.models.length} model trên Colab (${res.models[0]}).`);
+      }
+    } catch {
+      // silent when offline
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = 'Quét GPU Colab';
+      }
+    }
+  });
+
+  // Quét ngầm Colab GPU khi khởi động: có thì dùng, không bật Colab thì bỏ qua êm
+  void scanColabCloudModels()
+    .then((res) => renderColabScanUi(res))
+    .catch(() => { });
+
   btnToggleGeminiKey?.addEventListener('click', () => {
     if (!inputGeminiKey) return;
     const isPass = inputGeminiKey.type === 'password';
@@ -5485,13 +5704,15 @@ export function initUi() {
     btnCloseNotif.addEventListener('click', () => toggleNotificationModal(false));
   }
 
-  const switchNotifTab = (activeTab: 'win' | 'web' | 'hist') => {
+  const switchNotifTab = (activeTab: 'win' | 'web' | 'hist' | 'autoreply') => {
     if (tabBtnWinNotif) tabBtnWinNotif.classList.toggle('active', activeTab === 'win');
     if (tabBtnWebNotif) tabBtnWebNotif.classList.toggle('active', activeTab === 'web');
     if (tabBtnHistNotif) tabBtnHistNotif.classList.toggle('active', activeTab === 'hist');
+    if (tabBtnAutoreplyNotif) tabBtnAutoreplyNotif.classList.toggle('active', activeTab === 'autoreply');
     if (tabContentWinNotif) tabContentWinNotif.style.display = activeTab === 'win' ? 'block' : 'none';
     if (tabContentWebNotif) tabContentWebNotif.style.display = activeTab === 'web' ? 'block' : 'none';
     if (tabContentHistNotif) tabContentHistNotif.style.display = activeTab === 'hist' ? 'block' : 'none';
+    if (tabContentAutoreplyNotif) tabContentAutoreplyNotif.style.display = activeTab === 'autoreply' ? 'flex' : 'none';
     if (activeTab === 'hist') {
       void renderNotificationHistoryList();
     }
@@ -5500,6 +5721,7 @@ export function initUi() {
   if (tabBtnWinNotif) tabBtnWinNotif.addEventListener('click', () => switchNotifTab('win'));
   if (tabBtnWebNotif) tabBtnWebNotif.addEventListener('click', () => switchNotifTab('web'));
   if (tabBtnHistNotif) tabBtnHistNotif.addEventListener('click', () => switchNotifTab('hist'));
+  if (tabBtnAutoreplyNotif) tabBtnAutoreplyNotif.addEventListener('click', () => switchNotifTab('autoreply'));
 
   if (notifMasterToggle) {
     notifMasterToggle.addEventListener('change', () => {
@@ -5673,7 +5895,10 @@ export function initUi() {
     });
   });
   document.getElementById('btn-tarot-draw-now')?.addEventListener('click', () => {
-    void performTarotDrawAndFlip();
+    void performTarotDrawAndFlip(false);
+  });
+  document.getElementById('btn-tarot-force-draw')?.addEventListener('click', () => {
+    void performTarotDrawAndFlip(true);
   });
   document.getElementById('btn-tarot-replay-3d')?.addEventListener('click', () => {
     const rec = cachedTarotStatus?.current_reading;
@@ -5722,6 +5947,8 @@ Hãy đưa ra: (1) Tổng vận 6 giờ tới, (2) Việc nên làm ngay, (3) Đ
       const cleaned = aiReply.trim();
       if (cleaned) {
         rec.ai_deep_reading = cleaned;
+        const histMatch = cachedTarotStatus?.history?.find((h) => h.id === rec.id);
+        if (histMatch) histMatch.ai_deep_reading = cleaned;
         await invoke('tarot_save_ai_reading', { id: rec.id, aiReading: cleaned }).catch(() => { });
         if (aiBox) {
           aiBox.style.display = 'block';
@@ -5937,6 +6164,167 @@ Hãy đưa ra: (1) Tổng vận 6 giờ tới, (2) Việc nên làm ngay, (3) Đ
     void sendWinnerRemoteCmd('block_input', { durationSec: 8 });
   });
 
+  // Cửa sổ UltraViewer P2P trực tiếp 60s
+  document.getElementById('btn-p2p-open-ultraview')?.addEventListener('click', () => {
+    toggleP2pArenaModal(false);
+    openUltraViewModal(true);
+  });
+  document.getElementById('btn-p2p-uv-size')?.addEventListener('click', () => {
+    toggleUltraViewExpand();
+  });
+  document.getElementById('btn-p2p-uv-close')?.addEventListener('click', () => {
+    openUltraViewModal(false);
+    toggleP2pArenaModal(true);
+  });
+
+  const uvViewport = document.getElementById('p2p-uv-viewport');
+  const uvCursor = document.getElementById('p2p-uv-cursor');
+  const uvChkMouse = document.getElementById('p2p-uv-chk-mouse') as HTMLInputElement | null;
+  const uvChkKbd = document.getElementById('p2p-uv-chk-kbd') as HTMLInputElement | null;
+  const uvChkSimExec = document.getElementById('p2p-uv-chk-sim-exec') as HTMLInputElement | null;
+
+  const calcUvNormCoords = (ev: MouseEvent | PointerEvent | WheelEvent) => {
+    if (!uvViewport) return { xn: 0.5, yn: 0.5 };
+    const r = uvViewport.getBoundingClientRect();
+    const xn = Math.max(0, Math.min(1, (ev.clientX - r.left) / Math.max(1, r.width)));
+    const yn = Math.max(0, Math.min(1, (ev.clientY - r.top) / Math.max(1, r.height)));
+    if (uvCursor) {
+      uvCursor.style.left = `${Math.round(xn * 100)}%`;
+      uvCursor.style.top = `${Math.round(yn * 100)}%`;
+    }
+    return { xn, yn };
+  };
+
+  const resolveUvMouseButton = (
+    ev: MouseEvent | PointerEvent
+  ): 'left' | 'right' | 'middle' | 'sim_preview' => {
+    if (getP2pStatusSnapshot().is_sim_mode && !uvChkSimExec?.checked) {
+      return 'sim_preview';
+    }
+    if (ev.button === 2) return 'right';
+    if (ev.button === 1) return 'middle';
+    return 'left';
+  };
+
+  uvViewport?.addEventListener('pointermove', (ev) => {
+    const { xn, yn } = calcUvNormCoords(ev);
+    if (uvChkMouse?.checked) {
+      void sendWinnerRemoteCmd('mouse_move', { xNorm: xn, yNorm: yn, silent: true });
+    }
+  });
+  uvViewport?.addEventListener('pointerdown', (ev) => {
+    ev.preventDefault();
+    uvViewport.focus();
+    const { xn, yn } = calcUvNormCoords(ev);
+    if (uvChkMouse?.checked) {
+      void sendWinnerRemoteCmd('mouse_down', {
+        xNorm: xn,
+        yNorm: yn,
+        button: resolveUvMouseButton(ev),
+        silent: true,
+      });
+    }
+  });
+  uvViewport?.addEventListener('pointerup', (ev) => {
+    ev.preventDefault();
+    const { xn, yn } = calcUvNormCoords(ev);
+    if (uvChkMouse?.checked) {
+      void sendWinnerRemoteCmd('mouse_up', {
+        xNorm: xn,
+        yNorm: yn,
+        button: resolveUvMouseButton(ev),
+        silent: true,
+      });
+    }
+  });
+  uvViewport?.addEventListener('dblclick', (ev) => {
+    ev.preventDefault();
+    const { xn, yn } = calcUvNormCoords(ev);
+    if (uvChkMouse?.checked) {
+      void sendWinnerRemoteCmd('mouse_dblclick', {
+        xNorm: xn,
+        yNorm: yn,
+        button: resolveUvMouseButton(ev),
+        silent: true,
+      });
+    }
+  });
+  uvViewport?.addEventListener('contextmenu', (ev) => {
+    ev.preventDefault();
+  });
+  uvViewport?.addEventListener(
+    'wheel',
+    (ev) => {
+      ev.preventDefault();
+      const { xn, yn } = calcUvNormCoords(ev);
+      if (uvChkMouse?.checked) {
+        const delta = Math.max(-360, Math.min(360, Math.round(-ev.deltaY)));
+        void sendWinnerRemoteCmd('mouse_wheel', {
+          xNorm: xn,
+          yNorm: yn,
+          button: resolveUvMouseButton(ev),
+          wheelDelta: delta,
+          silent: true,
+        });
+      }
+    },
+    { passive: false }
+  );
+
+  uvViewport?.addEventListener('keydown', (ev) => {
+    if (!uvChkKbd?.checked) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    const vk = ev.keyCode || 0;
+    if (vk >= 8 && vk <= 254) {
+      void sendWinnerRemoteCmd('key_down', { vk, silent: true });
+    }
+  });
+  uvViewport?.addEventListener('keyup', (ev) => {
+    if (!uvChkKbd?.checked) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    const vk = ev.keyCode || 0;
+    if (vk >= 8 && vk <= 254) {
+      void sendWinnerRemoteCmd('key_up', { vk, silent: true });
+    }
+  });
+
+  document.querySelectorAll('[data-uv-hotkey]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const hk = btn.getAttribute('data-uv-hotkey') || '';
+      if (hk) {
+        void sendWinnerRemoteCmd('hotkey', { text: hk });
+      }
+    });
+  });
+
+  const sendUvInputText = () => {
+    const inp = document.getElementById('p2p-uv-text-input') as HTMLInputElement | null;
+    const text = inp?.value || '';
+    if (!text.trim()) return;
+    if (inp) inp.value = '';
+    void sendWinnerRemoteCmd('type_text', { text, silent: true });
+  };
+  document.getElementById('btn-p2p-uv-send-text')?.addEventListener('click', sendUvInputText);
+  document.getElementById('p2p-uv-text-input')?.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter') {
+      ev.preventDefault();
+      sendUvInputText();
+    }
+  });
+  document.getElementById('btn-p2p-uv-notepad')?.addEventListener('click', () => {
+    void sendWinnerRemoteCmd('open_notepad_taunt', {
+      text: 'QUAC QUAC! Ban da thua tran P2P va dang bi dieu khien qua UltraViewer 60 giay!',
+    });
+  });
+  document.getElementById('btn-p2p-uv-jitter')?.addEventListener('click', () => {
+    void sendWinnerRemoteCmd('jitter_mouse');
+  });
+  document.getElementById('btn-p2p-uv-block')?.addEventListener('click', () => {
+    void sendWinnerRemoteCmd('block_input', { durationSec: 8 });
+  });
+
   registerP2pCallbacks(speakMessage, showSuggestionButtons, renderP2pArenaUi, (open) => {
     toggleP2pArenaModal(open);
   });
@@ -6069,11 +6457,15 @@ Hãy đưa ra: (1) Tổng vận 6 giờ tới, (2) Việc nên làm ngay, (3) Đ
     }
   });
   anyFileInput?.addEventListener('change', (e) => {
-    const f = (e.target as HTMLInputElement).files?.[0];
+    const files = Array.from((e.target as HTMLInputElement).files || []).slice(0, 5);
     setFileDragHoverMode(false);
-    if (f) {
-      void handleDroppedAnyFile(f);
+    if (files.length > 0) {
       anyFileInput.value = '';
+      void (async () => {
+        for (const f of files) {
+          await handleDroppedAnyFile(f);
+        }
+      })();
     }
   });
 
@@ -6099,6 +6491,48 @@ Hãy đưa ra: (1) Tổng vận 6 giờ tới, (2) Việc nên làm ngay, (3) Đ
   });
   void loadStudioConfigFromSqlite();
 
+  initNotificationAutoReplyUi({
+    speakMessage,
+    appendChatMessage,
+    toggleBubbleVisibility,
+  });
+
+  initPinnedChatFilesUi({
+    openDashboard: (analysis) => openFileAnalyticsDashboard(analysis),
+    summarizeFile: (analysis) => {
+      void summarizeLastIngestedFile(analysis);
+    },
+    syncHitbox: () => {
+      updateUiPosition();
+      syncHitboxToRust(true);
+    },
+    updatePlaceholder: (text) => {
+      if (bubbleInput) bubbleInput.placeholder = text;
+    },
+    speakMessage,
+  });
+
+  if (typeof ResizeObserver !== 'undefined' && speechBubble) {
+    const bubbleResizeObserver = new ResizeObserver(() => {
+      if (!appState.isBubbleVisible) return;
+      updateUiPosition();
+      syncHitboxToRust(true);
+    });
+    bubbleResizeObserver.observe(speechBubble);
+  }
+
+  window.addEventListener('duck-focus-chat-input', () => {
+    if (!appState.isBubbleVisible) {
+      toggleBubbleVisibility(true);
+    }
+    appState.isChatting = true;
+    updateUiPosition();
+    syncHitboxToRust(true);
+    setTimeout(() => {
+      bubbleInput?.focus();
+    }, 60);
+  });
+
   // Khởi động lắng nghe app notifications từ Rust backend
   void listenToDesktopNotifications((item, speechAlert) => {
     if (appState.isNotificationManagerOpen) {
@@ -6107,6 +6541,7 @@ Hãy đưa ra: (1) Tổng vận 6 giờ tới, (2) Việc nên làm ngay, (3) Đ
     if (item.app_or_origin === 'Lịch hẹn Duck AI') {
       return;
     }
+    void handleIncomingNotificationForReply(item);
     if (currentNotifSettings?.character_alert_enabled ?? true) {
       appState.setState('ALERT');
       spawnParticles(appState.posX, appState.posY - 90, 10, 0x38bdf8);
@@ -6203,9 +6638,7 @@ export function updateUiPosition(fromAnimLoop = false, delta = 1 / 60) {
         selectActiveWin.value = String(currentHwnd);
       }
     }
-    if (appState.isMiniScreenOpen && miniScreenTab === 'mirror') {
-      void refreshMiniMirrorWindowSelect(false);
-    }
+    refreshMiniMirrorWindowsIfOpen();
 
     // Đồng bộ nhãn nút Hồ bơi theo trạng thái thực tế
     if (btnActSwim) {
@@ -6220,11 +6653,17 @@ export function updateUiPosition(fromAnimLoop = false, delta = 1 / 60) {
     }
   }
 
+  const curBubbleW = appState.isBubbleVisible && speechBubble ? speechBubble.offsetWidth : 0;
+  const curBubbleH = appState.isBubbleVisible && speechBubble ? speechBubble.offsetHeight : 0;
+  const bubbleSizeChanged =
+    curBubbleW !== lastBubbleLayoutW || curBubbleH !== lastBubbleLayoutH;
+
   const needsMove =
     !fromAnimLoop ||
     Math.abs(appState.posX - uiFollowX) > 0.15 ||
     Math.abs(appState.posY - uiFollowY) > 0.15 ||
-    appState.isFileDragHovering;
+    appState.isFileDragHovering ||
+    bubbleSizeChanged;
   if (!needsMove) {
     return;
   }
@@ -6239,15 +6678,17 @@ export function updateUiPosition(fromAnimLoop = false, delta = 1 / 60) {
 
   const s = appState.modelScale || 1.0;
   const gap = Math.round(66 * s);
+  const viewportW = Math.min(appState.W || window.innerWidth, window.innerWidth || appState.W);
+  const viewportH = Math.min(appState.H || window.innerHeight, window.innerHeight || appState.H);
 
   // 1. Cụm Thoại Duck + Cửa sổ Chat luôn đi theo bên Trái hoặc bên Phải nhân vật (không đè lên đầu/thân vịt)
   let bubbleDockX = 0;
   let bubbleDockW = 0;
   let actualBubbleSide: 'left' | 'right' = appState.chatDockSide;
   if (appState.isBubbleVisible && speechBubble) {
-    const bubbleW = speechBubble.offsetWidth || 320;
-    const bubbleH = speechBubble.offsetHeight || 155;
-    const maxBubbleTop = Math.max(12, appState.H - bubbleH - 58);
+    const bubbleW = curBubbleW || speechBubble.offsetWidth || 320;
+    const bubbleH = curBubbleH || speechBubble.offsetHeight || 155;
+    const maxBubbleTop = Math.max(12, viewportH - bubbleH - 58);
     const charSideGap = Math.round(62 * s);
     const leftCandidate = uiFollowX - charSideGap - bubbleW;
     const rightCandidate = uiFollowX + charSideGap;
@@ -6257,22 +6698,22 @@ export function updateUiPosition(fromAnimLoop = false, delta = 1 / 60) {
       if (leftCandidate >= 12) {
         bubbleLeft = leftCandidate;
         actualBubbleSide = 'left';
-      } else if (rightCandidate + bubbleW <= appState.W - 12) {
+      } else if (rightCandidate + bubbleW <= viewportW - 12) {
         bubbleLeft = rightCandidate;
         actualBubbleSide = 'right';
       } else {
-        bubbleLeft = Math.max(12, Math.min(appState.W - bubbleW - 12, leftCandidate));
+        bubbleLeft = Math.max(12, Math.min(viewportW - bubbleW - 12, leftCandidate));
         actualBubbleSide = 'left';
       }
     } else {
-      if (rightCandidate + bubbleW <= appState.W - 12) {
+      if (rightCandidate + bubbleW <= viewportW - 12) {
         bubbleLeft = rightCandidate;
         actualBubbleSide = 'right';
       } else if (leftCandidate >= 12) {
         bubbleLeft = leftCandidate;
         actualBubbleSide = 'left';
       } else {
-        bubbleLeft = Math.max(12, Math.min(appState.W - bubbleW - 12, rightCandidate));
+        bubbleLeft = Math.max(12, Math.min(viewportW - bubbleW - 12, rightCandidate));
         actualBubbleSide = 'right';
       }
     }
@@ -6285,6 +6726,15 @@ export function updateUiPosition(fromAnimLoop = false, delta = 1 / 60) {
     setPosIfChanged(speechBubble, bubbleLeft, bubbleTop);
     bubbleDockX = bubbleLeft;
     bubbleDockW = bubbleW;
+    lastBubbleLayoutW = curBubbleW;
+    lastBubbleLayoutH = curBubbleH;
+  } else {
+    lastBubbleLayoutW = 0;
+    lastBubbleLayoutH = 0;
+  }
+
+  if (bubbleSizeChanged) {
+    syncHitboxToRust(true);
   }
 
   const ingestHud = document.getElementById('file-ingest-mouth-hud');

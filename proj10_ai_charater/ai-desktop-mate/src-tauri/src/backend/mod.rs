@@ -1,3 +1,5 @@
+pub mod automation_desktop;
+pub mod cloud_hub;
 pub mod desktop_icons;
 pub mod llm;
 pub mod memory;

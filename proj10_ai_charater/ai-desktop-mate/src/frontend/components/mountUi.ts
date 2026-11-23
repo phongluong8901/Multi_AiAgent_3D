@@ -1,6 +1,7 @@
 import '../styles/base.css';
 import '../styles/panels.css';
 import '../styles/bubble-studio.css';
+import '../styles/animations.css';
 
 import { leftTelemetryPanelHtml } from './leftTelemetryPanel';
 import { rightActionPanelHtml } from './rightActionPanel';
@@ -14,6 +15,7 @@ import { ocrTranslateModalHtml } from './ocrTranslateModal';
 import { toolForgeModalHtml } from './toolForgeModal';
 import { tarotModalHtml } from './tarotModal';
 import { miniScreenPanelHtml } from './miniScreenPanel';
+import { animationManagerModalHtml } from './animationManagerModal';
 
 let mounted = false;
 
@@ -34,6 +36,7 @@ export function mountUi() {
     toolForgeModalHtml,
     tarotModalHtml,
     miniScreenPanelHtml,
+    animationManagerModalHtml,
   ].join('\n');
   mounted = true;
 }

@@ -110,6 +110,25 @@ export function initInput() {
   });
 
   let domDragDepth = 0;
+  const recentTauriDropKeys = new Map<string, number>();
+
+  const markTauriDropped = (fileName: string) => {
+    const key = fileName.trim().toLowerCase();
+    if (key) {
+      recentTauriDropKeys.set(key, performance.now());
+    }
+  };
+
+  const wasRecentlyTauriDropped = (fileName: string): boolean => {
+    const key = fileName.trim().toLowerCase();
+    const ts = recentTauriDropKeys.get(key);
+    if (!ts) return false;
+    if (performance.now() - ts < 1500) {
+      return true;
+    }
+    recentTauriDropKeys.delete(key);
+    return false;
+  };
 
   window.addEventListener('dragenter', (e) => {
     e.preventDefault();
@@ -139,13 +158,28 @@ export function initInput() {
     e.preventDefault();
     domDragDepth = 0;
     setFileDragHoverMode(false);
-    const file = e.dataTransfer?.files?.[0];
-    if (!file) return;
-    const lower = file.name.toLowerCase();
-    if (lower.endsWith('.vrm') || lower.endsWith('.glb')) {
-      void handleFileSelect(file);
-    } else {
-      void handleDroppedAnyFile(file);
+    const files = Array.from(e.dataTransfer?.files || []).slice(0, 5);
+    if (files.length === 0) return;
+
+    const docFiles: File[] = [];
+    for (const file of files) {
+      const lower = file.name.toLowerCase();
+      if (lower.endsWith('.vrm') || lower.endsWith('.glb')) {
+        void handleFileSelect(file);
+      } else {
+        docFiles.push(file);
+      }
+    }
+
+    if (docFiles.length > 0) {
+      window.setTimeout(() => {
+        void (async () => {
+          for (const docFile of docFiles) {
+            if (wasRecentlyTauriDropped(docFile.name)) continue;
+            await handleDroppedAnyFile(docFile);
+          }
+        })();
+      }, 80);
     }
   });
 
@@ -154,9 +188,12 @@ export function initInput() {
     .onDragDropEvent((event) => {
       const payload = event.payload;
       if (payload.type === 'enter') {
-        const firstPath = payload.paths?.[0] || '';
+        const paths = payload.paths || [];
+        const firstPath = paths[0] || '';
         const baseName = firstPath.split(/[\\/]/).pop() || '';
-        setFileDragHoverMode(true, baseName);
+        const hint =
+          paths.length > 1 ? `${baseName} (+${paths.length - 1} file)` : baseName;
+        setFileDragHoverMode(true, hint);
       } else if (payload.type === 'over') {
         if (!appState.isFileDragHovering) {
           setFileDragHoverMode(true);
@@ -165,9 +202,19 @@ export function initInput() {
         setFileDragHoverMode(false);
       } else if (payload.type === 'drop') {
         setFileDragHoverMode(false);
-        const droppedPath = payload.paths?.[0];
-        if (droppedPath) {
-          void handleDroppedAnyFile(droppedPath);
+        const paths = (payload.paths || []).filter(Boolean).slice(0, 5);
+        if (paths.length > 0) {
+          void (async () => {
+            for (const droppedPath of paths) {
+              const baseName = droppedPath.split(/[\\/]/).pop() || '';
+              const lower = baseName.toLowerCase();
+              if (lower.endsWith('.vrm') || lower.endsWith('.glb')) {
+                continue;
+              }
+              markTauriDropped(baseName);
+              await handleDroppedAnyFile(droppedPath);
+            }
+          })();
         }
       }
     })
