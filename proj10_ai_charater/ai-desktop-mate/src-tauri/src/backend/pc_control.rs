@@ -2399,4 +2399,599 @@ if ($joined.Length -gt 3200) {{ $joined = $joined.Substring(0, 3200) }}
     .map_err(|e| format!("Lỗi phân tích file nạp vào: {e}"))?
 }
 
+#[derive(Serialize, Clone, Debug)]
+pub struct DropzoneActionResult {
+    pub ok: bool,
+    pub action: String,
+    pub message: String,
+    pub output_path: String,
+    pub extra_text: String,
+}
+
+#[tauri::command]
+pub async fn execute_dropzone_action(
+    paths: Vec<String>,
+    action: String,
+    option_param: Option<String>,
+) -> Result<DropzoneActionResult, String> {
+    let clean_paths: Vec<String> = paths
+        .into_iter()
+        .map(|p| p.trim().trim_matches('"').to_string())
+        .filter(|p| !p.is_empty())
+        .collect();
+    if clean_paths.is_empty() {
+        return Err("Chưa có đường dẫn tệp hợp lệ để thực thi.".to_string());
+    }
+    let act = action.trim().to_lowercase();
+    let opt = option_param.unwrap_or_default().trim().to_string();
+
+    tauri::async_runtime::spawn_blocking(move || {
+        #[cfg(windows)]
+        {
+            let first = PathBuf::from(&clean_paths[0]);
+            if !first.exists() {
+                return Err(format!("Tệp không tồn tại: {}", first.display()));
+            }
+            let parent_dir = first
+                .parent()
+                .map(|p| p.to_path_buf())
+                .unwrap_or_else(std::env::temp_dir);
+            let stem = first
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("dropped")
+                .to_string();
+
+            match act.as_str() {
+                "reveal_explorer" => {
+                    let mut cmd = Command::new("explorer.exe");
+                    cmd.arg(format!("/select,{}", first.display()));
+                    let _ = cmd.spawn();
+                    Ok(DropzoneActionResult {
+                        ok: true,
+                        action: act,
+                        message: format!("Đã mở File Explorer tại '{}'.", first.display()),
+                        output_path: first.to_string_lossy().to_string(),
+                        extra_text: String::new(),
+                    })
+                }
+                "zip_bundle" => {
+                    let ts = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs() % 100_000)
+                        .unwrap_or(1);
+                    let out_zip = if clean_paths.len() == 1 {
+                        parent_dir.join(format!("{stem}_{ts}.zip"))
+                    } else {
+                        parent_dir.join(format!("{stem}_bundle_{}files_{ts}.zip", clean_paths.len()))
+                    };
+                    let joined_paths = clean_paths.join("|");
+                    let ps = r#"
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+Add-Type -AssemblyName System.IO.Compression
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$outZip = $env:DUCK_OUT_ZIP
+$items = $env:DUCK_ZIP_PATHS -split '\|'
+if (Test-Path $outZip) { Remove-Item $outZip -Force }
+if ($items.Count -eq 1 -and (Test-Path $items[0] -PathType Container)) {
+  [System.IO.Compression.ZipFile]::CreateFromDirectory($items[0], $outZip)
+} else {
+  $zip = [System.IO.Compression.ZipFile]::Open($outZip, [System.IO.Compression.ZipArchiveMode]::Create)
+  try {
+    foreach ($p in $items) {
+      if (Test-Path $p -PathType Leaf) {
+        $name = [System.IO.Path]::GetFileName($p)
+        [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $p, $name, [System.IO.Compression.CompressionLevel]::Optimal) | Out-Null
+      } elseif (Test-Path $p -PathType Container) {
+        $rootName = [System.IO.Path]::GetFileName($p.TrimEnd('\','/'))
+        Get-ChildItem -Path $p -Recurse -File | ForEach-Object {
+          $rel = $rootName + '/' + $_.FullName.Substring($p.Length).TrimStart('\','/').Replace('\','/')
+          [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $_.FullName, $rel, [System.IO.Compression.CompressionLevel]::Optimal) | Out-Null
+        }
+      }
+    }
+  } finally {
+    $zip.Dispose()
+  }
+}
+$kb = [Math]::Round(((Get-Item $outZip).Length / 1024), 1)
+Write-Output "$kb"
+"#;
+                    let mut cmd = Command::new("powershell.exe");
+                    cmd.env("DUCK_OUT_ZIP", out_zip.to_string_lossy().to_string());
+                    cmd.env("DUCK_ZIP_PATHS", joined_paths);
+                    cmd.args(["-NoProfile", "-NonInteractive", "-Command", ps]);
+                    apply_no_window(&mut cmd);
+                    let out = cmd.output().map_err(|e| format!("Lỗi nén ZIP: {e}"))?;
+                    if !out.status.success() {
+                        return Err(format!(
+                            "Không thể đóng gói ZIP: {}",
+                            String::from_utf8_lossy(&out.stderr).trim()
+                        ));
+                    }
+                    let kb_str = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                    Ok(DropzoneActionResult {
+                        ok: true,
+                        action: act,
+                        message: format!(
+                            "Đã đóng gói {} mục thành '{}' ({} KB).",
+                            clean_paths.len(),
+                            out_zip.file_name().and_then(|s| s.to_str()).unwrap_or("bundle.zip"),
+                            kb_str
+                        ),
+                        output_path: out_zip.to_string_lossy().to_string(),
+                        extra_text: String::new(),
+                    })
+                }
+                "img_convert" => {
+                    let fmt = match opt.to_lowercase().as_str() {
+                        "jpg" | "jpeg" => "jpg",
+                        "bmp" => "bmp",
+                        "ico" => "ico",
+                        _ => "png",
+                    };
+                    let out_img = parent_dir.join(format!("{stem}_converted.{fmt}"));
+                    let ps = r#"
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+Add-Type -AssemblyName System.Drawing
+$src = $env:DUCK_IMG_SRC
+$dst = $env:DUCK_IMG_DST
+$fmt = $env:DUCK_IMG_FMT
+$img = [System.Drawing.Image]::FromFile($src)
+try {
+  if ($fmt -eq 'jpg') {
+    $bmp = New-Object System.Drawing.Bitmap $img.Width, $img.Height
+    $g = [System.Drawing.Graphics]::FromImage($bmp)
+    $g.Clear([System.Drawing.Color]::White)
+    $g.DrawImage($img, 0, 0, $img.Width, $img.Height)
+    $g.Dispose()
+    $bmp.Save($dst, [System.Drawing.Imaging.ImageFormat]::Jpeg)
+    $bmp.Dispose()
+  } elseif ($fmt -eq 'bmp') {
+    $img.Save($dst, [System.Drawing.Imaging.ImageFormat]::Bmp)
+  } elseif ($fmt -eq 'ico') {
+    $sz = 128
+    $bmp = New-Object System.Drawing.Bitmap $sz, $sz
+    $g = [System.Drawing.Graphics]::FromImage($bmp)
+    $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+    $g.DrawImage($img, 0, 0, $sz, $sz)
+    $g.Dispose()
+    $ms = New-Object System.IO.MemoryStream
+    $bmp.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
+    $pngBytes = $ms.ToArray()
+    $ms.Dispose()
+    $bmp.Dispose()
+    $fs = [System.IO.File]::Create($dst)
+    $bw = New-Object System.IO.BinaryWriter($fs)
+    $bw.Write([UInt16]0); $bw.Write([UInt16]1); $bw.Write([UInt16]1)
+    $bw.Write([Byte]128); $bw.Write([Byte]128); $bw.Write([Byte]0); $bw.Write([Byte]0)
+    $bw.Write([UInt16]1); $bw.Write([UInt16]32)
+    $bw.Write([UInt32]$pngBytes.Length); $bw.Write([UInt32]22)
+    $bw.Write($pngBytes)
+    $bw.Dispose(); $fs.Dispose()
+  } else {
+    $img.Save($dst, [System.Drawing.Imaging.ImageFormat]::Png)
+  }
+} finally {
+  $img.Dispose()
+}
+$kb = [Math]::Round(((Get-Item $dst).Length / 1024), 1)
+Write-Output "$kb"
+"#;
+                    let mut cmd = Command::new("powershell.exe");
+                    cmd.env("DUCK_IMG_SRC", first.to_string_lossy().to_string());
+                    cmd.env("DUCK_IMG_DST", out_img.to_string_lossy().to_string());
+                    cmd.env("DUCK_IMG_FMT", fmt);
+                    cmd.args(["-NoProfile", "-NonInteractive", "-Command", ps]);
+                    apply_no_window(&mut cmd);
+                    let out = cmd.output().map_err(|e| format!("Lỗi đổi định dạng ảnh: {e}"))?;
+                    if !out.status.success() {
+                        return Err(format!(
+                            "Đổi định dạng ảnh thất bại (chỉ hỗ trợ PNG/JPG/BMP/GIF đầu vào): {}",
+                            String::from_utf8_lossy(&out.stderr).trim()
+                        ));
+                    }
+                    let kb_str = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                    Ok(DropzoneActionResult {
+                        ok: true,
+                        action: act,
+                        message: format!(
+                            "Đã chuyển sang .{} -> '{}' ({} KB).",
+                            fmt.to_uppercase(),
+                            out_img.file_name().and_then(|s| s.to_str()).unwrap_or(""),
+                            kb_str
+                        ),
+                        output_path: out_img.to_string_lossy().to_string(),
+                        extra_text: String::new(),
+                    })
+                }
+                "img_compress" => {
+                    let out_img = parent_dir.join(format!("{stem}_optimized.jpg"));
+                    let ps = r#"
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+Add-Type -AssemblyName System.Drawing
+$src = $env:DUCK_IMG_SRC
+$dst = $env:DUCK_IMG_DST
+$origKb = [Math]::Round(((Get-Item $src).Length / 1024), 1)
+$img = [System.Drawing.Image]::FromFile($src)
+try {
+  $maxDim = 1440
+  $w = $img.Width; $h = $img.Height
+  if ($w -gt $maxDim -or $h -gt $maxDim) {
+    $ratio = [Math]::Min($maxDim / $w, $maxDim / $h)
+    $w = [Math]::Max(1, [int][Math]::Round($w * $ratio))
+    $h = [Math]::Max(1, [int][Math]::Round($h * $ratio))
+  }
+  $bmp = New-Object System.Drawing.Bitmap $w, $h
+  $g = [System.Drawing.Graphics]::FromImage($bmp)
+  $g.Clear([System.Drawing.Color]::White)
+  $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+  $g.DrawImage($img, 0, 0, $w, $h)
+  $g.Dispose()
+  $codec = [System.Drawing.Imaging.ImageCodecInfo]::GetImageEncoders() | Where-Object { $_.MimeType -eq 'image/jpeg' } | Select-Object -First 1
+  $ep = New-Object System.Drawing.Imaging.EncoderParameters(1)
+  $ep.Param[0] = New-Object System.Drawing.Imaging.EncoderParameter([System.Drawing.Imaging.Encoder]::Quality, 80L)
+  $bmp.Save($dst, $codec, $ep)
+  $bmp.Dispose()
+} finally {
+  $img.Dispose()
+}
+$newKb = [Math]::Round(((Get-Item $dst).Length / 1024), 1)
+Write-Output "$origKb|$newKb|$w|$h"
+"#;
+                    let mut cmd = Command::new("powershell.exe");
+                    cmd.env("DUCK_IMG_SRC", first.to_string_lossy().to_string());
+                    cmd.env("DUCK_IMG_DST", out_img.to_string_lossy().to_string());
+                    cmd.args(["-NoProfile", "-NonInteractive", "-Command", ps]);
+                    apply_no_window(&mut cmd);
+                    let out = cmd.output().map_err(|e| format!("Lỗi nén ảnh: {e}"))?;
+                    if !out.status.success() {
+                        return Err(format!(
+                            "Không thể nén ảnh: {}",
+                            String::from_utf8_lossy(&out.stderr).trim()
+                        ));
+                    }
+                    let info = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                    let parts: Vec<&str> = info.split('|').collect();
+                    let msg = if parts.len() >= 4 {
+                        format!(
+                            "Đã tối ưu ảnh ({}x{}): {} KB -> {} KB tại '{}'.",
+                            parts[2],
+                            parts[3],
+                            parts[0],
+                            parts[1],
+                            out_img.file_name().and_then(|s| s.to_str()).unwrap_or("")
+                        )
+                    } else {
+                        format!("Đã lưu ảnh nén tại '{}'.", out_img.display())
+                    };
+                    Ok(DropzoneActionResult {
+                        ok: true,
+                        action: act,
+                        message: msg,
+                        output_path: out_img.to_string_lossy().to_string(),
+                        extra_text: String::new(),
+                    })
+                }
+                "img_ocr" => {
+                    let ps = r#"
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+Add-Type -AssemblyName System.Runtime.WindowsRuntime
+$asTaskGeneric = ([System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object { $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1' })[0]
+Function Await($WinRtTask, $ResultType) {
+  $asTask = $asTaskGeneric.MakeGenericMethod($ResultType)
+  $netTask = $asTask.Invoke($null, @($WinRtTask))
+  $netTask.Wait(-1) | Out-Null
+  $netTask.Result
+}
+$null = [Windows.Graphics.Imaging.BitmapDecoder, Windows.Graphics, ContentType = WindowsRuntime]
+$null = [Windows.Media.Ocr.OcrEngine, Windows.Foundation, ContentType = WindowsRuntime]
+$fs = [System.IO.File]::OpenRead($env:DUCK_OCR_PATH)
+$stream = [System.IO.WindowsRuntimeStreamExtensions]::AsRandomAccessStream($fs)
+$decoder = Await ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream)) ([Windows.Graphics.Imaging.BitmapDecoder])
+$bitmap = Await ($decoder.GetSoftwareBitmapAsync()) ([Windows.Graphics.Imaging.SoftwareBitmap])
+$eng = [Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages()
+if (-not $eng) {
+  $firstLang = [Windows.Media.Ocr.OcrEngine]::AvailableRecognizerLanguages | Select-Object -First 1
+  if ($firstLang) { $eng = [Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage($firstLang) }
+}
+$txt = ''
+if ($eng) {
+  $res = Await ($eng.RecognizeAsync($bitmap)) ([Windows.Media.Ocr.OcrResult])
+  if ($res.Lines -and $res.Lines.Count -gt 0) {
+    $txt = (($res.Lines | ForEach-Object { $_.Text }) -join "`n").Trim()
+  } else {
+    $txt = ($res.Text | Out-String).Trim()
+  }
+}
+$stream.Dispose(); $fs.Dispose()
+Write-Output $txt
+"#;
+                    let mut cmd = Command::new("powershell.exe");
+                    cmd.env("DUCK_OCR_PATH", first.to_string_lossy().to_string());
+                    cmd.args(["-NoProfile", "-NonInteractive", "-Command", ps]);
+                    apply_no_window(&mut cmd);
+                    let out = cmd.output().map_err(|e| format!("Lỗi OCR ảnh: {e}"))?;
+                    let ocr_text = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                    if ocr_text.is_empty() {
+                        return Err("Không nhận diện được chữ nào trong ảnh này.".to_string());
+                    }
+                    Ok(DropzoneActionResult {
+                        ok: true,
+                        action: act,
+                        message: format!("Đã trích xuất {} ký tự OCR từ ảnh.", ocr_text.chars().count()),
+                        output_path: first.to_string_lossy().to_string(),
+                        extra_text: ocr_text,
+                    })
+                }
+                "sha256_info" => {
+                    let ps = r#"
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$items = $env:DUCK_HASH_PATHS -split '\|'
+$lines = @()
+foreach ($p in $items) {
+  if (Test-Path $p -PathType Leaf) {
+    $it = Get-Item $p
+    $h = (Get-FileHash -Path $p -Algorithm SHA256).Hash.ToLower()
+    $kb = [Math]::Round(($it.Length / 1024), 2)
+    $lines += ("File: " + $it.Name + " (" + $kb + " KB)`nSHA-256: " + $h + "`nPath: " + $it.FullName)
+  }
+}
+$report = ($lines -join "`n---`n")
+Set-Clipboard -Value $report
+Write-Output $report
+"#;
+                    let mut cmd = Command::new("powershell.exe");
+                    cmd.env("DUCK_HASH_PATHS", clean_paths.join("|"));
+                    cmd.args(["-NoProfile", "-NonInteractive", "-Command", ps]);
+                    apply_no_window(&mut cmd);
+                    let out = cmd.output().map_err(|e| format!("Lỗi băm SHA-256: {e}"))?;
+                    let report = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                    Ok(DropzoneActionResult {
+                        ok: true,
+                        action: act,
+                        message: "Đã tính mã băm SHA-256 và sao chép vào Clipboard!".to_string(),
+                        output_path: first.to_string_lossy().to_string(),
+                        extra_text: report,
+                    })
+                }
+                "batch_rename" => {
+                    let prefix = if opt.is_empty() { "duck_file".to_string() } else { opt };
+                    let mut renamed_count = 0usize;
+                    for (idx, raw_p) in clean_paths.iter().enumerate() {
+                        let pb = PathBuf::from(raw_p);
+                        if !pb.is_file() {
+                            continue;
+                        }
+                        let ext = pb.extension().and_then(|e| e.to_str()).unwrap_or("");
+                        let dir = pb.parent().unwrap_or(&parent_dir);
+                        let new_name = if ext.is_empty() {
+                            format!("{prefix}_{:02}", idx + 1)
+                        } else {
+                            format!("{prefix}_{:02}.{ext}", idx + 1)
+                        };
+                        let target = dir.join(new_name);
+                        if target != pb && !target.exists() && std::fs::rename(&pb, &target).is_ok() {
+                            renamed_count += 1;
+                        }
+                    }
+                    Ok(DropzoneActionResult {
+                        ok: true,
+                        action: act,
+                        message: format!("Đã đổi tên hàng loạt {renamed_count} tệp với tiền tố '{prefix}_XX'."),
+                        output_path: parent_dir.to_string_lossy().to_string(),
+                        extra_text: String::new(),
+                    })
+                }
+                _ => Err(format!("Hành động Dropzone không hợp lệ: {act}")),
+            }
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = (opt, act);
+            Err("Chỉ hỗ trợ trên Windows".to_string())
+        }
+    })
+    .await
+    .map_err(|e| format!("Lỗi thực thi Dropzone: {e}"))?
+}
+
+pub fn deck_capture_jpeg_b64_sync() -> Result<String, String> {
+    #[cfg(windows)]
+    {
+        let ps = r#"
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+$bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+$full = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
+$g1 = [System.Drawing.Graphics]::FromImage($full)
+$g1.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
+$g1.Dispose()
+$targetW = 960
+$targetH = [Math]::Max(360, [int][Math]::Round($bounds.Height * ($targetW / $bounds.Width)))
+$scaled = New-Object System.Drawing.Bitmap $targetW, $targetH
+$g2 = [System.Drawing.Graphics]::FromImage($scaled)
+$g2.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBilinear
+$g2.DrawImage($full, 0, 0, $targetW, $targetH)
+$g2.Dispose(); $full.Dispose()
+$codec = [System.Drawing.Imaging.ImageCodecInfo]::GetImageEncoders() | Where-Object { $_.MimeType -eq 'image/jpeg' } | Select-Object -First 1
+$ep = New-Object System.Drawing.Imaging.EncoderParameters(1)
+$ep.Param[0] = New-Object System.Drawing.Imaging.EncoderParameter([System.Drawing.Imaging.Encoder]::Quality, 68L)
+$ms = New-Object System.IO.MemoryStream
+$scaled.Save($ms, $codec, $ep)
+$scaled.Dispose()
+$b64 = [Convert]::ToBase64String($ms.ToArray())
+$ms.Dispose()
+Write-Output $b64
+"#;
+        let mut cmd = Command::new("powershell.exe");
+        cmd.args(["-NoProfile", "-NonInteractive", "-Command", ps]);
+        apply_no_window(&mut cmd);
+        let out = cmd.output().map_err(|e| format!("Lỗi chụp màn hình từ xa: {e}"))?;
+        if !out.status.success() {
+            return Err("Không chụp được màn hình máy tính".to_string());
+        }
+        Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+    }
+    #[cfg(not(windows))]
+    {
+        Err("Chỉ hỗ trợ trên Windows".to_string())
+    }
+}
+
+pub fn deck_get_clipboard_sync() -> Result<String, String> {
+    #[cfg(windows)]
+    {
+        let mut cmd = Command::new("powershell.exe");
+        cmd.args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Get-Clipboard -Raw",
+        ]);
+        apply_no_window(&mut cmd);
+        let out = cmd.output().map_err(|e| format!("Lỗi đọc clipboard: {e}"))?;
+        Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+    }
+    #[cfg(not(windows))]
+    {
+        Err("Chỉ hỗ trợ trên Windows".to_string())
+    }
+}
+
+pub fn deck_set_clipboard_sync(text: &str) -> Result<String, String> {
+    #[cfg(windows)]
+    {
+        let mut cmd = Command::new("powershell.exe");
+        cmd.env("DUCK_CLIP_TEXT", text);
+        cmd.args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Set-Clipboard -Value $env:DUCK_CLIP_TEXT",
+        ]);
+        apply_no_window(&mut cmd);
+        let out = cmd.output().map_err(|e| format!("Lỗi ghi clipboard: {e}"))?;
+        if !out.status.success() {
+            return Err("Không ghi được clipboard máy tính".to_string());
+        }
+        Ok("Đã sao chép nội dung từ điện thoại vào Clipboard máy tính.".to_string())
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = text;
+        Err("Chỉ hỗ trợ trên Windows".to_string())
+    }
+}
+
+pub fn deck_system_action_sync(action: &str) -> Result<String, String> {
+    match action {
+        "vol_up" | "vol_down" | "mute" | "play_pause" | "next" | "prev" => {
+            control_media(action.to_string())
+        }
+        "lock_pc" => {
+            #[cfg(windows)]
+            {
+                let mut cmd = Command::new("rundll32.exe");
+                cmd.args(["user32.dll,LockWorkStation"]);
+                apply_no_window(&mut cmd);
+                let _ = cmd.spawn();
+                return Ok("Đã khóa màn hình máy tính.".to_string());
+            }
+            #[cfg(not(windows))]
+            Err("Chỉ hỗ trợ trên Windows".to_string())
+        }
+        "show_desktop" => {
+            #[cfg(windows)]
+            {
+                let mut cmd = Command::new("powershell.exe");
+                cmd.args([
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-Command",
+                    "(New-Object -ComObject Shell.Application).ToggleDesktop()",
+                ]);
+                apply_no_window(&mut cmd);
+                let _ = cmd.spawn();
+                return Ok("Đã thu nhỏ / hiện màn hình Desktop.".to_string());
+            }
+            #[cfg(not(windows))]
+            Err("Chỉ hỗ trợ trên Windows".to_string())
+        }
+        "brightness_up" | "brightness_down" => {
+            #[cfg(windows)]
+            {
+                let delta = if action == "brightness_up" { 12 } else { -12 };
+                let ps = format!(
+                    r#"$m = Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightness -ErrorAction SilentlyContinue | Select-Object -First 1; if ($m) {{ $next = [Math]::Max(10, [Math]::Min(100, [int]$m.CurrentBrightness + ({delta}))); (Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightnessMethods).WmiSetBrightness(1, $next) | Out-Null; Write-Output $next }}"#
+                );
+                let mut cmd = Command::new("powershell.exe");
+                cmd.args(["-NoProfile", "-NonInteractive", "-Command", &ps]);
+                apply_no_window(&mut cmd);
+                let out = cmd.output().map_err(|e| e.to_string())?;
+                let val = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                if val.is_empty() {
+                    return Ok("Màn hình rời không hỗ trợ chỉnh WMI Brightness.".to_string());
+                }
+                return Ok(format!("Độ sáng màn hình: {val}%"));
+            }
+            #[cfg(not(windows))]
+            Err("Chỉ hỗ trợ trên Windows".to_string())
+        }
+        "clean_ram" => {
+            #[cfg(windows)]
+            {
+                let mut cmd = Command::new("powershell.exe");
+                cmd.args([
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-Command",
+                    "[System.GC]::Collect(); Write-Output 'OK'",
+                ]);
+                apply_no_window(&mut cmd);
+                let _ = cmd.output();
+                return Ok("Đã kích hoạt giải phóng bộ nhớ đệm.".to_string());
+            }
+            #[cfg(not(windows))]
+            Err("Chỉ hỗ trợ trên Windows".to_string())
+        }
+        "shutdown_15m" | "shutdown_30m" | "shutdown_60m" => {
+            #[cfg(windows)]
+            {
+                let secs = match action {
+                    "shutdown_15m" => "900",
+                    "shutdown_30m" => "1800",
+                    _ => "3600",
+                };
+                let mins = match action {
+                    "shutdown_15m" => "15",
+                    "shutdown_30m" => "30",
+                    _ => "60",
+                };
+                let mut cmd = Command::new("shutdown.exe");
+                cmd.args(["/s", "/t", secs]);
+                apply_no_window(&mut cmd);
+                let _ = cmd.output();
+                return Ok(format!("Đã hẹn giờ tắt máy tính sau {mins} phút."));
+            }
+            #[cfg(not(windows))]
+            Err("Chỉ hỗ trợ trên Windows".to_string())
+        }
+        "cancel_shutdown" => {
+            #[cfg(windows)]
+            {
+                let mut cmd = Command::new("shutdown.exe");
+                cmd.args(["/a"]);
+                apply_no_window(&mut cmd);
+                let _ = cmd.output();
+                return Ok("Đã hủy lịch hẹn giờ tắt máy tính.".to_string());
+            }
+            #[cfg(not(windows))]
+            Err("Chỉ hỗ trợ trên Windows".to_string())
+        }
+        _ => Err(format!("Lệnh điều khiển từ xa chưa hỗ trợ: {action}")),
+    }
+}
+
+
 

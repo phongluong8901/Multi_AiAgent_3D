@@ -85,6 +85,13 @@ export interface PoseOffset {
   shinRX?: number;
   armLZ?: number;
   armRZ?: number;
+  wingLZ?: number;
+  wingRZ?: number;
+  wingLX?: number;
+  wingRX?: number;
+  tailY?: number;
+  tailX?: number;
+  earZ?: number;
 }
 
 export type ClipGroup = 'emotion' | 'lifelike' | 'motion' | 'work' | 'special';
@@ -1136,6 +1143,517 @@ export const CLIP_CATALOG: AnimClipDef[] = [
       };
     },
   },
+
+  /* ===== 8 HOẠT ẢNH THẾ HỆ MỚI (CÁNH CYBER, ĐUÔI BIỂU CẢM & PHẢN ỨNG NGỮ CẢNH AI) ===== */
+  {
+    id: 'ai_thinking_orbit',
+    label: 'Suy Luận AI Đa Luồng',
+    group: 'work',
+    defaultDuration: 3.2,
+    featured: true,
+    recommendedLoop: true,
+    defaultFx: 'prop_hologram',
+    description: 'Nghiêng đầu nhịp nhàng, gõ mỏ suy luận, nhấp cánh cyber & đổi đèn tím-cyan khi AI đang suy nghĩ',
+    phaseNote: 'Tự kích khi LLM bắt đầu suy nghĩ | Đèn tím-cyan luân phiên',
+    soundCues: [{ atSec: 0.75, sound: 'beak_tap' }],
+    ledColor: (t) => (Math.sin(t * 4.5) > 0 ? 0xa855f7 : 0x06b6d4),
+    pose: (t) => {
+      const sway = Math.sin((t * TAU) / 3.2);
+      const pulse = Math.sin((t * TAU) / 1.6);
+      const tap = t % 1.6 < 0.32 ? Math.max(0, Math.sin(((t % 1.6) / 0.32) * Math.PI * 2)) * 0.14 : 0;
+      return {
+        hipsY: pulse * 1.8,
+        torsoX: 0.08,
+        torsoZ: sway * 0.07,
+        neckX: 0.14 + pulse * 0.04,
+        headX: -0.12 + tap * 0.25,
+        headY: sway * 0.26,
+        headZ: sway * 0.22,
+        wingLZ: -0.18 - Math.abs(pulse) * 0.14,
+        wingRZ: 0.18 + Math.abs(pulse) * 0.14,
+        tailY: sway * 0.22,
+        earZ: pulse * 0.10,
+        beak: tap,
+      };
+    },
+  },
+  {
+    id: 'chat_explain',
+    label: 'Giảng Giải Nhiệt Tình',
+    group: 'emotion',
+    defaultDuration: 2.6,
+    featured: true,
+    description: 'Dang nhẹ cánh cyber diễn đạt theo nhịp nói, gật đầu thân thiện và vẫy đuôi vui vẻ khi trả lời xong',
+    phaseNote: 'Tự kích khi AI hoàn tất câu trả lời | Đèn ngọc lục bảo',
+    soundCues: [{ atSec: 0.22, sound: 'chirp' }],
+    ledColor: () => 0x10b981,
+    pose: (t, p) => {
+      const env = bell(Math.min(1, p * 1.15));
+      const gesture = Math.sin(t * 7.2);
+      const nod = Math.max(0, Math.sin(t * 6.4));
+      return {
+        hipsY: nod * 2.6 * env,
+        torsoX: (-0.08 + nod * 0.06) * env,
+        torsoZ: gesture * 0.06 * env,
+        neckX: -0.12 * env,
+        headX: (-0.08 + nod * 0.16) * env,
+        headY: gesture * 0.18 * env,
+        wingLZ: (-0.48 - Math.max(0, gesture) * 0.35) * env,
+        wingRZ: (0.48 + Math.max(0, -gesture) * 0.35) * env,
+        wingLX: gesture * 0.22 * env,
+        wingRX: -gesture * 0.22 * env,
+        tailY: Math.sin(t * 12) * 0.32 * env,
+        beak: Math.abs(Math.sin(t * 11)) * 0.18 * env,
+      };
+    },
+  },
+  {
+    id: 'wing_flutter_joy',
+    label: 'Vỗ Cánh Phấn Khích',
+    group: 'emotion',
+    defaultDuration: 2.2,
+    featured: true,
+    defaultFx: 'sparkle',
+    description: 'Nhón chân vỗ hai cánh cyber liên hồi, vẫy đuôi tít mù và líu ríu hân hoan',
+    phaseNote: 'Phản hồi khi chạy xong công cụ | Líu ríu vui nhộn',
+    soundCues: [
+      { atSec: 0.15, sound: 'chirp' },
+      { atSec: 1.05, sound: 'chirp' },
+    ],
+    ledColor: () => 0x34d399,
+    pose: (t, p) => {
+      const e = bell(p);
+      const flap = Math.sin(t * 22);
+      const hop = Math.abs(Math.sin(t * 7.5));
+      return {
+        rootY: hop * 14 * e,
+        hipsY: hop * 4 * e,
+        torsoX: -0.14 * e,
+        neckX: -0.20 * e,
+        headX: -0.16 * e,
+        wingLZ: (-0.82 - flap * 0.42) * e,
+        wingRZ: (0.82 + flap * 0.42) * e,
+        tailY: Math.sin(t * 20) * 0.44 * e,
+        tailX: 0.16 * e,
+        earZ: 0.16 * e,
+        beakUpper: -0.14 * hop * e,
+        beak: 0.26 * hop * e,
+      };
+    },
+  },
+  {
+    id: 'poke_giggle',
+    label: 'Khúc Khích Khi Chọc',
+    group: 'emotion',
+    defaultDuration: 1.7,
+    featured: true,
+    defaultFx: 'prop_hearts',
+    description: 'Rụt cổ nhột nhạt, lắc thân khúc khích và xoè hai cánh đáng yêu khi được click vào người',
+    phaseNote: 'Tự kích khi click chọc vào Vịt | Đèn hồng vui vẻ',
+    soundCues: [{ atSec: 0.08, sound: 'chirp' }],
+    ledColor: () => 0xf472b6,
+    pose: (t, p) => {
+      const e = bell(p);
+      const wiggle = Math.sin(t * 20);
+      return {
+        hipsY: -9 * e,
+        legLX: 0.28 * e,
+        legRX: 0.28 * e,
+        shinLX: -0.52 * e,
+        shinRX: -0.52 * e,
+        torsoZ: wiggle * 0.14 * e,
+        neckX: 0.22 * e,
+        headZ: -wiggle * 0.20 * e,
+        wingLZ: (-0.65 - Math.abs(wiggle) * 0.28) * e,
+        wingRZ: (0.65 + Math.abs(wiggle) * 0.28) * e,
+        tailY: wiggle * 0.38 * e,
+        scaleX: 0.06 * e,
+        scaleY: -0.05 * e,
+        beak: 0.22 * Math.abs(wiggle) * e,
+      };
+    },
+  },
+  {
+    id: 'cyber_salute',
+    label: 'Chào Quân Đội Cyber',
+    group: 'work',
+    defaultDuration: 2.0,
+    featured: true,
+    defaultFx: 'prop_crown_aura',
+    description: 'Đứng nghiêm ưỡn ngực, giơ cánh phải lên chào chuẩn tác phong chiến thuật rồi hạ xuống gọn',
+    phaseNote: 'Chuẩn bị nhận nhiệm vụ | Tiếng bíp xác nhận',
+    soundCues: [{ atSec: 0.28, sound: 'chime' }],
+    ledColor: () => 0x38bdf8,
+    pose: (t) => {
+      const hold = t < 0.35 ? seg(t, 0, 0.35) : t < 1.5 ? 1 : 1 - seg(t, 1.5, 2.0);
+      return {
+        hipsY: 2.5 * hold,
+        torsoX: -0.14 * hold,
+        neckX: -0.18 * hold,
+        headX: -0.08 * hold,
+        wingRZ: 1.32 * hold,
+        wingRX: -0.45 * hold,
+        wingLZ: -0.06 * hold,
+        tailX: 0.14 * hold,
+        earZ: 0.12 * hold,
+      };
+    },
+  },
+  {
+    id: 'dizzy_spin',
+    label: 'Chóng Mặt Loạng Choạng',
+    group: 'motion',
+    defaultDuration: 2.5,
+    featured: true,
+    defaultFx: 'stars',
+    description: 'Lắc lư xoay vòng nghiêng ngả sau cú va chạm mạnh rồi lắc đầu lấy lại thăng bằng',
+    phaseNote: 'Tự kích khi tiếp đất mạnh | Sao bay trên đầu',
+    soundCues: [{ atSec: 0.12, sound: 'squawk' }],
+    ledColor: (t) => (Math.sin(t * 16) > 0 ? 0xfacc15 : 0xf97316),
+    pose: (t) => {
+      if (t < 1.7) {
+        const u = 1 - t / 1.7;
+        const wobX = Math.sin(t * 9.5) * u;
+        const wobZ = Math.cos(t * 9.5) * u;
+        return {
+          hipsY: -8 * u,
+          torsoX: wobX * 0.24,
+          torsoZ: wobZ * 0.24,
+          headX: -wobX * 0.28,
+          headZ: wobZ * 0.32,
+          wingLZ: -0.55 * u - Math.abs(wobZ) * 0.2,
+          wingRZ: 0.55 * u + Math.abs(wobZ) * 0.2,
+          beak: 0.24 * u,
+        };
+      }
+      const shake = bell((t - 1.7) / 0.8);
+      return {
+        headY: Math.sin((t - 1.7) * 24) * 0.42 * shake,
+        wingLZ: -0.25 * shake,
+        wingRZ: 0.25 * shake,
+      };
+    },
+  },
+  {
+    id: 'celebrate_backhop',
+    label: 'Bật Nhảy Ăn Mừng',
+    group: 'special',
+    defaultDuration: 2.1,
+    featured: true,
+    defaultFx: 'confetti',
+    description: 'Nhún sâu lấy đà, bật tung lên xoè rộng hai cánh đón pháo giấy chiến thắng rực rỡ',
+    phaseNote: 'Pháo giấy nhiều màu | Chuông chiến thắng',
+    soundCues: [
+      { atSec: 0.32, sound: 'jump' },
+      { atSec: 0.65, sound: 'chime' },
+    ],
+    ledColor: () => 0xfacc15,
+    pose: (t) => {
+      if (t < 0.32) {
+        const k = seg(t, 0, 0.3);
+        return {
+          hipsY: -14 * k,
+          legLX: 0.44 * k,
+          legRX: 0.44 * k,
+          shinLX: -0.82 * k,
+          shinRX: -0.82 * k,
+          scaleY: -0.10 * k,
+          scaleX: 0.08 * k,
+        };
+      }
+      if (t < 1.35) {
+        const u = (t - 0.32) / 1.03;
+        const arc = Math.sin(u * Math.PI);
+        return {
+          rootY: arc * 56,
+          rootRotY: easeInOut(u) * TAU,
+          wingLZ: -1.15 * arc,
+          wingRZ: 1.15 * arc,
+          neckX: -0.24 * arc,
+          headX: -0.22 * arc,
+          beak: 0.34 * arc,
+          beakUpper: -0.16 * arc,
+          scaleY: 0.08 * arc,
+        };
+      }
+      const settle = bell((t - 1.35) / 0.75);
+      return {
+        hipsY: -6 * settle,
+        scaleY: -0.08 * settle,
+        scaleX: 0.06 * settle,
+        tailY: Math.sin(t * 18) * 0.35 * settle,
+      };
+    },
+  },
+  {
+    id: 'focus_guard',
+    label: 'Canh Gác Tập Trung',
+    group: 'work',
+    defaultDuration: 4.8,
+    featured: true,
+    recommendedLoop: true,
+    ambientLowFps: true,
+    description: 'Đứng thế tấn vững chãi, tai và camera đảo nhẹ canh gác không gian làm việc cho chủ nhân',
+    phaseNote: 'Chế độ tuần tra êm ái | Đèn xanh ngọc',
+    ledColor: () => 0x0ea5e9,
+    pose: (t) => {
+      const sweep = Math.sin((t * TAU) / 4.8);
+      return {
+        hipsY: -3.5,
+        legLX: 0.14,
+        legRX: 0.14,
+        shinLX: -0.26,
+        shinRX: -0.26,
+        legLZ: -0.06,
+        legRZ: 0.06,
+        torsoX: -0.08,
+        neckX: -0.10,
+        headY: sweep * 0.42,
+        wingLZ: -0.16,
+        wingRZ: 0.16,
+        earZ: Math.abs(sweep) * 0.12,
+      };
+    },
+  },
+
+  /* ===== 6 HOẠT ẢNH ĐẠO CỤ 3D NÂNG CAO (GỒM ĐẠO CỤ THỰC THỂ 3D MỚI) ===== */
+  {
+    id: 'gym_pump',
+    label: 'Tập Tạ Thể Lực 3D',
+    group: 'motion',
+    defaultDuration: 2.8,
+    featured: true,
+    defaultFx: 'prop_dumbbell',
+    description: 'Nhún squat theo nhịp và nâng tạ đôi 3D hai bên cánh tăng sức mạnh cyber',
+    phaseNote: 'Kèm tạ đôi 3D nâng nhịp nhàng | Đèn cam-xanh thể thao',
+    soundCues: [
+      { atSec: 0.35, sound: 'jump' },
+      { atSec: 1.65, sound: 'jump' },
+    ],
+    ledColor: (t) => (Math.sin(t * 7.5) > 0 ? 0xf97316 : 0x34d399),
+    pose: (t, p) => {
+      const e = bell(Math.min(1, p * 1.15));
+      const rep = Math.max(0, Math.sin(t * 7.5));
+      return {
+        hipsY: -10 * (1 - rep) * e,
+        legLX: 0.32 * (1 - rep) * e,
+        legRX: 0.32 * (1 - rep) * e,
+        shinLX: -0.58 * (1 - rep) * e,
+        shinRX: -0.58 * (1 - rep) * e,
+        torsoX: (0.14 - rep * 0.18) * e,
+        neckX: (-0.08 - rep * 0.10) * e,
+        wingLZ: (-0.42 - rep * 0.72) * e,
+        wingRZ: (0.42 + rep * 0.72) * e,
+        scaleX: (1 - rep) * 0.04 * e,
+        scaleY: rep * 0.06 * e,
+      };
+    },
+  },
+  {
+    id: 'super_saiyan_charge',
+    label: 'Tụ Khí Siêu Năng Lượng 3D',
+    group: 'special',
+    defaultDuration: 3.0,
+    featured: true,
+    defaultFx: 'prop_lightning_aura',
+    description: 'Rùng mình tụ lực dưới đất rồi bùng nổ hào quang sấm sét 3D bung rộng hai cánh',
+    phaseNote: 'Vòng năng lượng & tia sét 3D | Tiếng gió + chuông bùng nổ',
+    soundCues: [
+      { atSec: 0.2, sound: 'purr' },
+      { atSec: 1.15, sound: 'whoosh' },
+      { atSec: 1.35, sound: 'chime' },
+    ],
+    ledColor: (t) => (t < 1.1 ? 0x38bdf8 : Math.sin(t * 24) > 0 ? 0xfacc15 : 0x38bdf8),
+    pose: (t) => {
+      if (t < 1.1) {
+        const k = seg(t, 0, 1.0);
+        const vib = Math.sin(t * 48) * 0.05 * k;
+        return {
+          hipsY: -13 * k,
+          legLX: 0.42 * k,
+          legRX: 0.42 * k,
+          shinLX: -0.78 * k,
+          shinRX: -0.78 * k,
+          torsoX: 0.22 * k,
+          neckX: 0.18 * k,
+          rootX: Math.sin(t * 54) * 2.2 * k,
+          rootRotZ: vib,
+          wingLZ: -0.25 * k,
+          wingRZ: 0.25 * k,
+          scaleY: -0.06 * k,
+          scaleX: 0.05 * k,
+        };
+      }
+      const burst = bell((t - 1.1) / 1.9);
+      return {
+        rootY: 22 * burst,
+        hipsY: 4 * burst,
+        torsoX: -0.22 * burst,
+        neckX: -0.32 * burst,
+        headX: -0.24 * burst,
+        wingLZ: -1.35 * burst,
+        wingRZ: 1.35 * burst,
+        beakUpper: -0.22 * burst,
+        beak: 0.42 * burst,
+        earZ: 0.22 * burst,
+        scaleY: 0.10 * burst,
+        scaleX: -0.04 * burst,
+      };
+    },
+  },
+  {
+    id: 'paparazzi_pose',
+    label: 'Tạo Dáng Chụp Ảnh Flash 3D',
+    group: 'emotion',
+    defaultDuration: 3.0,
+    featured: true,
+    defaultFx: 'prop_camera_flash',
+    description: 'Tạo 3 dáng idol siêu ngầu khớp nhịp đèn flash máy ảnh 3D chớp sáng xung quanh',
+    phaseNote: 'Máy ảnh & vòng sáng Flash 3D | Líu ríu tạo dáng',
+    soundCues: [
+      { atSec: 0.35, sound: 'chirp' },
+      { atSec: 1.35, sound: 'chirp' },
+      { atSec: 2.25, sound: 'chime' },
+    ],
+    ledColor: (t) => ((t * 1.25) % 1 < 0.26 ? 0xfef08a : 0xf472b6),
+    pose: (t) => {
+      if (t < 1.0) {
+        const k = bell(t / 1.0);
+        return {
+          headZ: 0.32 * k,
+          headY: -0.24 * k,
+          torsoZ: -0.10 * k,
+          wingRZ: 1.05 * k,
+          wingLZ: -0.25 * k,
+          beak: 0.14 * k,
+        };
+      }
+      if (t < 2.0) {
+        const k = bell((t - 1.0) / 1.0);
+        return {
+          hipsY: -6 * k,
+          headZ: -0.28 * k,
+          headY: 0.26 * k,
+          torsoZ: 0.12 * k,
+          wingLZ: -1.15 * k,
+          wingRZ: 0.28 * k,
+          beak: 0.18 * k,
+        };
+      }
+      const k = bell((t - 2.0) / 1.0);
+      return {
+        rootY: 16 * k,
+        torsoX: -0.14 * k,
+        neckX: -0.16 * k,
+        wingLZ: -0.95 * k,
+        wingRZ: 0.95 * k,
+        tailY: Math.sin(t * 18) * 0.32 * k,
+      };
+    },
+  },
+  {
+    id: 'hologram_code',
+    label: 'Thao Tác Hologram 3D',
+    group: 'work',
+    defaultDuration: 3.4,
+    featured: true,
+    defaultFx: 'prop_hologram',
+    description: 'Chiếu màn hình Hologram 3D lơ lửng trước mặt, vẫy cánh thao tác dữ liệu như Iron Man',
+    phaseNote: 'Màn hình Hologram 3D tương tác | Đèn cyan công nghệ',
+    soundCues: [
+      { atSec: 0.4, sound: 'beak_tap' },
+      { atSec: 1.8, sound: 'chime' },
+    ],
+    ledColor: () => 0x22d3ee,
+    pose: (t, p) => {
+      const e = bell(Math.min(1, p * 1.15));
+      const swipe = Math.sin(t * 5.2);
+      return {
+        hipsY: -4 * e,
+        torsoX: 0.10 * e,
+        neckX: 0.16 * e,
+        headX: -0.06 * e,
+        headY: swipe * 0.28 * e,
+        wingLZ: (-0.52 - Math.max(0, swipe) * 0.48) * e,
+        wingRZ: (0.52 + Math.max(0, -swipe) * 0.48) * e,
+        wingLX: swipe * 0.35 * e,
+        wingRX: -swipe * 0.35 * e,
+        beak: Math.abs(Math.sin(t * 8)) * 0.10 * e,
+      };
+    },
+  },
+  {
+    id: 'royal_parade',
+    label: 'Diễu Hành Hoàng Gia 3D',
+    group: 'special',
+    defaultDuration: 3.2,
+    featured: true,
+    defaultFx: 'prop_crown_aura',
+    description: 'Bật hào quang vương miện & ngọc quý 3D, bước diễu hành oai vệ rồi cúi chào quý tộc',
+    phaseNote: 'Vương miện & kim cương xoay 3D | Đèn vàng kim',
+    soundCues: [{ atSec: 0.3, sound: 'chime' }],
+    ledColor: () => 0xfacc15,
+    pose: (t) => {
+      if (t < 2.2) {
+        const u = bell(t / 2.2);
+        const march = Math.sin(t * 6.8);
+        return {
+          hipsY: Math.abs(march) * 4 * u,
+          torsoX: -0.18 * u,
+          torsoZ: march * 0.09 * u,
+          neckX: -0.22 * u,
+          headX: -0.10 * u,
+          legLX: march * 0.34 * u,
+          legRX: -march * 0.34 * u,
+          shinLX: -Math.max(0, march) * 0.38 * u,
+          shinRX: -Math.max(0, -march) * 0.38 * u,
+          wingLZ: -0.45 * u,
+          wingRZ: 0.45 * u,
+          tailX: 0.22 * u,
+        };
+      }
+      const bow = bell((t - 2.2) / 1.0);
+      return {
+        torsoX: 0.22 * bow,
+        neckX: 0.34 * bow,
+        headX: 0.24 * bow,
+        wingLZ: -0.82 * bow,
+        wingRZ: 0.82 * bow,
+      };
+    },
+  },
+  {
+    id: 'love_serenade',
+    label: 'Bắn Tim Yêu Thương 3D',
+    group: 'emotion',
+    defaultDuration: 2.8,
+    featured: true,
+    defaultFx: 'prop_hearts',
+    description: 'Nhún nhảy đung đưa thả mưa trái tim 3D bay xoắn ốc, vẫy đuôi rối rít bày tỏ tình cảm',
+    phaseNote: 'Trái tim 3D bay lên | Líu ríu ngọt ngào',
+    soundCues: [
+      { atSec: 0.2, sound: 'chirp' },
+      { atSec: 1.4, sound: 'chirp' },
+    ],
+    ledColor: () => 0xf43f5e,
+    pose: (t, p) => {
+      const e = bell(p);
+      const sway = Math.sin(t * 5.6);
+      const hop = Math.abs(Math.sin(t * 5.6));
+      return {
+        hipsY: hop * 5 * e,
+        torsoZ: sway * 0.14 * e,
+        headZ: -sway * 0.22 * e,
+        neckX: -0.12 * e,
+        wingLZ: (-0.62 - hop * 0.42) * e,
+        wingRZ: (0.62 + hop * 0.42) * e,
+        tailY: Math.sin(t * 18) * 0.42 * e,
+        earZ: 0.18 * e,
+        beakUpper: -0.08 * hop * e,
+        beak: 0.20 * hop * e,
+      };
+    },
+  },
 ];
 
 const CLIP_MAP = new Map(CLIP_CATALOG.map((c) => [c.id, c]));
@@ -1186,6 +1704,11 @@ export const TOOL_TRIGGER_CATALOG: Array<{ key: string; label: string }> = [
   { key: 'edge_peek', label: 'Nấp mép Focus Mode' },
   { key: 'custom_skill', label: 'Chạy Custom Skill (chung)' },
   { key: 'forge_tool', label: 'Rèn Tool mới (Tool Forge)' },
+  { key: 'cloud_hub', label: 'Đồng bộ & Tải Skill Cloud Hub' },
+  { key: 'p2p_arena', label: 'Đấu trường PK P2P' },
+  { key: 'long_memory', label: 'Ghi nhớ dài hạn SQLite' },
+  { key: 'file_cleanup', label: 'Dọn rác & Phân tích File' },
+  { key: 'window_layout', label: 'Sắp xếp bố cục Cửa sổ' },
 ];
 
 const TOOL_KEY_ALIASES: Record<string, string> = {
@@ -1243,6 +1766,22 @@ export const STATE_TRIGGER_CATALOG: CharacterState[] = [
 export const EVENT_TRIGGER_CATALOG: Array<{ key: string; label: string }> = [
   { key: 'app_start', label: 'Khởi động ứng dụng' },
   { key: 'chat_send', label: 'Người dùng gửi tin nhắn' },
+  { key: 'ai_thinking', label: 'AI bắt đầu suy nghĩ / gọi LLM' },
+  { key: 'chat_reply', label: 'AI trả lời xong tin nhắn' },
+  { key: 'duck_poke', label: 'Click / chọc vui vào Vịt' },
+  { key: 'duck_drag_end', label: 'Thả rơi Vịt sau khi kéo' },
+  { key: 'duck_land_heavy', label: 'Vịt tiếp đất mạnh' },
+  { key: 'duck_wake', label: 'Vịt thức dậy / hồi phục năng lượng' },
+  { key: 'food_spawn', label: 'Đồ ăn xuất hiện trên màn hình' },
+  { key: 'food_eat', label: 'Vịt ăn no nê' },
+  { key: 'schedule_alarm', label: 'Chuông nhắc lịch hẹn / Ghi chú' },
+  { key: 'notif_incoming', label: 'Có thông báo mới từ App / Web' },
+  { key: 'hw_high_alert', label: 'Cảnh báo quá tải CPU / RAM' },
+  { key: 'p2p_victory', label: 'Chiến thắng trận PK P2P' },
+  { key: 'p2p_defeat', label: 'Thua trận PK P2P' },
+  { key: 'tarot_good', label: 'Bốc quẻ Tarot Đại Cát / Tiểu Cát' },
+  { key: 'tarot_bad', label: 'Bốc quẻ Tarot Tiểu Hung / Đại Hung' },
+  { key: 'cloud_login', label: 'Đăng nhập Google Cloud Hub' },
   { key: 'file_drop', label: 'Thả file vào Vịt' },
   { key: 'weather:clear', label: 'Thời tiết: Trời Quang' },
   { key: 'weather:rain', label: 'Thời tiết: Mưa & Dông' },
@@ -1261,6 +1800,10 @@ export const EVENT_TRIGGER_CATALOG: Array<{ key: string; label: string }> = [
   { key: 'panel:ocr-translate-modal', label: 'Mở trang OCR Dịch' },
   { key: 'panel:right-action-panel', label: 'Mở bảng Hành động' },
   { key: 'panel:left-telemetry-panel', label: 'Mở bảng Telemetry' },
+  { key: 'panel:file-dashboard-modal', label: 'Mở bảng Phân tích File' },
+  { key: 'panel:anim-manager-modal', label: 'Mở bảng Quản lý Hoạt ảnh' },
+  { key: 'panel:sticky-notes-widget', label: 'Mở bảng Ghi chú & Lịch hẹn' },
+  { key: 'panel:english-coach-modal', label: 'Mở trang Học Tiếng Anh' },
 ];
 
 export const FX_CATALOG: Array<{ id: AnimFxId; label: string }> = [
@@ -1275,6 +1818,12 @@ export const FX_CATALOG: Array<{ id: AnimFxId; label: string }> = [
   { id: 'prop_magnifier', label: 'Kính Lúp Thám Tử 3D' },
   { id: 'prop_music', label: 'Nốt Nhạc 3D Bay' },
   { id: 'prop_trophy', label: 'Cúp Vàng Chiến Thắng 3D' },
+  { id: 'prop_hearts', label: 'Trái Tim Hồng 3D Bay' },
+  { id: 'prop_hologram', label: 'Màn Hình Hologram Sci-Fi 3D' },
+  { id: 'prop_dumbbell', label: 'Tạ Đôi Tập Gym 3D' },
+  { id: 'prop_camera_flash', label: 'Máy Ảnh & Chớp Flash 3D' },
+  { id: 'prop_crown_aura', label: 'Hào Quang Vương Miện & Kim Cương 3D' },
+  { id: 'prop_lightning_aura', label: 'Siêu Năng Lượng Sấm Sét 3D' },
   { id: 'sparkle', label: 'Lấp lánh xanh' },
   { id: 'confetti', label: 'Pháo giấy nhiều màu' },
   { id: 'hearts', label: 'Bụi hồng trái tim' },
@@ -1322,7 +1871,7 @@ export const EXPRESSION_CATALOG: Array<{ id: FaceExpression | 'none'; label: str
 const STORAGE_KEY = 'mate_anim_bindings_v1';
 const MASTER_KEY = 'mate_anim_binder_enabled';
 const SCHEMA_KEY = 'mate_anim_bindings_schema';
-const SCHEMA_VERSION = '2';
+const SCHEMA_VERSION = '5';
 
 let bindings: AnimBinding[] = [];
 let masterEnabled = localStorage.getItem(MASTER_KEY) !== 'false';
@@ -1363,37 +1912,129 @@ function mk(
 
 export function createDefaultBindings(): AnimBinding[] {
   return [
+    // Vòng đời ứng dụng, AI Chat & Phản xạ tương tác
     mk('event', 'app_start', 'enter', 'polite_bow', 'none', 'happy', 'none'),
+    mk('event', 'cloud_login', 'enter', 'polite_bow', 'prop_crown_aura', 'happy', 'chime'),
     mk('event', 'chat_send', 'enter', 'curious_inspect', 'prop_question', 'none', 'none'),
+    mk('event', 'ai_thinking', 'enter', 'ai_thinking_orbit', 'prop_hologram', 'none', 'none', { loop: true, cooldownSec: 1.0 }),
+    mk('event', 'ai_thinking', 'enter', 'think', 'prop_pipe', 'none', 'none', { loop: true, cooldownSec: 1.0 }),
+    mk('event', 'chat_reply', 'enter', 'chat_explain', 'sparkle', 'happy', 'none', { cooldownSec: 1.2 }),
+    mk('event', 'chat_reply', 'enter', 'eureka_idea', 'prop_lightbulb', 'happy', 'clip', { cooldownSec: 1.2 }),
+    mk('event', 'chat_reply', 'enter', 'nod', 'none', 'happy', 'none', { cooldownSec: 1.2 }),
+    mk('event', 'duck_poke', 'enter', 'poke_giggle', 'prop_hearts', 'happy', 'none', { cooldownSec: 0.7 }),
+    mk('event', 'duck_poke', 'enter', 'love_serenade', 'prop_hearts', 'happy', 'clip', { cooldownSec: 0.7 }),
+    mk('event', 'duck_poke', 'enter', 'jelly', 'sparkle', 'happy', 'none', { cooldownSec: 0.7 }),
+    mk('event', 'duck_poke', 'enter', 'heartbeat', 'hearts', 'happy', 'none', { cooldownSec: 0.7 }),
+    mk('event', 'duck_poke', 'enter', 'sneeze', 'smoke', 'surprised', 'none', { cooldownSec: 0.7 }),
+    mk('event', 'duck_drag_end', 'enter', 'jelly', 'none', 'none', 'none', { cooldownSec: 1.2 }),
+    mk('event', 'duck_land_heavy', 'enter', 'dizzy_spin', 'stars', 'surprised', 'none', { cooldownSec: 2.2 }),
+    mk('event', 'duck_wake', 'enter', 'wake_stretch', 'sparkle', 'happy', 'clip', { cooldownSec: 2.0 }),
+    mk('event', 'food_spawn', 'enter', 'stalking_crouch', 'none', 'none', 'clip', { cooldownSec: 1.5 }),
+    mk('event', 'food_eat', 'enter', 'chomp', 'confetti', 'happy', 'none', { cooldownSec: 1.5 }),
+    mk('event', 'schedule_alarm', 'enter', 'startled_hop', 'prop_exclamation', 'surprised', 'clip', { cooldownSec: 1.5 }),
+    mk('event', 'notif_incoming', 'enter', 'surprise', 'prop_exclamation', 'surprised', 'none', { cooldownSec: 2.0 }),
+    mk('event', 'hw_high_alert', 'enter', 'shiver', 'alert', 'surprised', 'none', { cooldownSec: 3.0 }),
+    mk('event', 'p2p_victory', 'enter', 'celebrate_backhop', 'prop_trophy', 'happy', 'clip', { cooldownSec: 2.0 }),
+    mk('event', 'p2p_defeat', 'enter', 'dramatic_flop', 'smoke', 'sad', 'clip', { cooldownSec: 2.0 }),
+    mk('event', 'tarot_good', 'enter', 'royal_parade', 'prop_crown_aura', 'happy', 'clip', { cooldownSec: 1.5 }),
+    mk('event', 'tarot_bad', 'enter', 'facepalm', 'alert', 'sad', 'none', { cooldownSec: 1.5 }),
     mk('event', 'file_drop', 'enter', 'reading_study', 'prop_books', 'surprised', 'none'),
+
+    // Thời tiết 3D
+    mk('event', 'weather:clear', 'enter', 'weather_sunbathe', 'none', 'happy', 'none'),
     mk('event', 'weather:rain', 'enter', 'shy_sit', 'none', 'none', 'clip'),
     mk('event', 'weather:hot', 'enter', 'weather_sunbathe', 'none', 'happy', 'clip'),
     mk('event', 'weather:cold', 'enter', 'weather_shiver', 'none', 'none', 'clip'),
     mk('event', 'weather:wind', 'enter', 'weather_breeze', 'none', 'none', 'clip'),
     mk('event', 'weather:night', 'enter', 'sleepy_doze', 'prop_zzz', 'none', 'none'),
+
+    // Mở các Trang / Dialog ứng dụng
+    mk('event', 'panel:studio-panel', 'enter', 'bow', 'sparkle', 'happy', 'none'),
     mk('event', 'panel:tarot-modal', 'enter', 'levitate', 'stars', 'none', 'none'),
     mk('event', 'panel:tool-forge-modal', 'enter', 'pipe_ponder', 'prop_pipe', 'none', 'none'),
+    mk('event', 'panel:mini-screen-panel', 'enter', 'paparazzi_pose', 'prop_camera_flash', 'happy', 'none'),
+    mk('event', 'panel:notification-panel', 'enter', 'peek', 'none', 'none', 'none'),
+    mk('event', 'panel:p2p-arena-panel', 'enter', 'cyber_salute', 'prop_crown_aura', 'happy', 'none'),
+    mk('event', 'panel:pc-control-modal', 'enter', 'hologram_code', 'prop_hologram', 'none', 'none'),
+    mk('event', 'panel:long-memory-panel', 'enter', 'reading_study', 'prop_books', 'none', 'none'),
+    mk('event', 'panel:ocr-translate-modal', 'enter', 'detective_scan', 'prop_magnifier', 'none', 'none'),
+    mk('event', 'panel:right-action-panel', 'enter', 'stretch', 'none', 'happy', 'none'),
+    mk('event', 'panel:left-telemetry-panel', 'enter', 'gym_pump', 'prop_dumbbell', 'none', 'none'),
+    mk('event', 'panel:file-dashboard-modal', 'enter', 'detective_scan', 'prop_magnifier', 'none', 'none'),
+    mk('event', 'panel:anim-manager-modal', 'enter', 'hologram_code', 'prop_hologram', 'none', 'none'),
+    mk('event', 'panel:sticky-notes-widget', 'enter', 'coffee_sip', 'prop_coffee', 'happy', 'none'),
+    mk('event', 'panel:english-coach-modal', 'enter', 'reading_study', 'prop_books', 'happy', 'none'),
+
+    // AI Tools & Tác vụ cụ thể
     mk('tool', 'web_search', 'start', 'curious_inspect', 'prop_question', 'none', 'none'),
+    mk('tool', 'web_search', 'success', 'eureka_idea', 'prop_lightbulb', 'happy', 'clip'),
     mk('tool', 'open_app', 'start', 'happy_wiggle', 'prop_music', 'happy', 'clip'),
-    mk('tool', 'screenshot', 'start', 'detective_scan', 'prop_magnifier', 'none', 'none'),
+    mk('tool', 'open_file', 'start', 'hop', 'sparkle', 'happy', 'none'),
+    mk('tool', 'open_folder', 'start', 'hop', 'sparkle', 'happy', 'none'),
+    mk('tool', 'screenshot', 'start', 'paparazzi_pose', 'prop_camera_flash', 'happy', 'clip'),
     mk('tool', 'ocr', 'start', 'detective_scan', 'prop_magnifier', 'none', 'none'),
     mk('tool', 'ocr', 'success', 'reading_study', 'prop_books', 'happy', 'clip'),
     mk('tool', 'vision', 'start', 'scan_look', 'prop_magnifier', 'none', 'none'),
     mk('tool', 'weather_3d', 'start', 'curious_inspect', 'prop_question', 'none', 'none'),
     mk('tool', 'tarot', 'start', 'levitate', 'stars', 'none', 'none'),
     mk('tool', 'telemetry', 'start', 'pipe_ponder', 'prop_pipe', 'none', 'none'),
+    mk('tool', 'hardware', 'start', 'gym_pump', 'prop_dumbbell', 'none', 'clip'),
+    mk('tool', 'media', 'start', 'groove', 'prop_music', 'happy', 'none'),
+    mk('tool', 'media', 'success', 'cheer', 'prop_music', 'happy', 'none'),
+    mk('tool', 'timer', 'start', 'surprise', 'prop_exclamation', 'surprised', 'none'),
     mk('tool', 'news', 'start', 'coffee_sip', 'prop_coffee', 'none', 'none'),
     mk('tool', 'english', 'start', 'reading_study', 'prop_books', 'none', 'none'),
+    mk('tool', 'english', 'success', 'cheer', 'confetti', 'happy', 'none'),
     mk('tool', 'git_status', 'start', 'typing', 'none', 'none', 'none'),
     mk('tool', 'port_manager', 'start', 'typing', 'none', 'none', 'none'),
-    mk('tool', '*', 'error', 'dramatic_flop', 'prop_exclamation', 'sad', 'clip'),
+    mk('tool', 'process_manager', 'start', 'typing', 'none', 'none', 'none'),
+    mk('tool', 'clipboard', 'start', 'typing', 'none', 'none', 'none'),
+    mk('tool', 'clipboard', 'success', 'nod', 'sparkle', 'happy', 'none'),
+    mk('tool', 'clipboard_history', 'start', 'typing', 'none', 'none', 'none'),
+    mk('tool', 'sticky_note', 'start', 'hop', 'sparkle', 'happy', 'none'),
+    mk('tool', 'sticky_note', 'success', 'nod', 'sparkle', 'happy', 'none'),
+    mk('tool', 'system_control', 'start', 'cyber_salute', 'prop_crown_aura', 'none', 'clip'),
+    mk('tool', 'control_window', 'start', 'focus_guard', 'none', 'none', 'none'),
+    mk('tool', 'window_layout', 'start', 'stretch', 'none', 'happy', 'none'),
+    mk('tool', 'macro', 'start', 'super_saiyan_charge', 'prop_lightning_aura', 'none', 'clip'),
+    mk('tool', 'workspace', 'start', 'reading_study', 'prop_books', 'none', 'none'),
+    mk('tool', 'workspace', 'success', 'proud_carry', 'prop_trophy', 'happy', 'none'),
+    mk('tool', 'forge_tool', 'start', 'hologram_code', 'prop_hologram', 'none', 'clip'),
+    mk('tool', 'forge_tool', 'success', 'super_saiyan_charge', 'prop_lightning_aura', 'happy', 'clip'),
+    mk('tool', 'cloud_hub', 'start', 'hologram_code', 'prop_hologram', 'none', 'none'),
+    mk('tool', 'cloud_hub', 'success', 'royal_parade', 'prop_crown_aura', 'happy', 'clip'),
+    mk('tool', 'p2p_arena', 'start', 'cyber_salute', 'prop_crown_aura', 'none', 'clip'),
+    mk('tool', 'long_memory', 'start', 'focus_guard', 'none', 'none', 'none'),
+    mk('tool', 'file_cleanup', 'start', 'scan_look', 'scan', 'none', 'none'),
+    mk('tool', 'desktop_icon', 'start', 'scan_look', 'none', 'none', 'none'),
+    mk('tool', 'accessory', 'start', 'twirl', 'sparkle', 'happy', 'none'),
+    mk('tool', 'swim', 'start', 'twirl', 'sparkle', 'happy', 'none'),
+    mk('tool', 'goose_mode', 'start', 'front_flip', 'shockwave', 'happy', 'none'),
+    mk('tool', 'beat_dance', 'start', 'groove', 'prop_music', 'happy', 'none'),
+    mk('tool', 'random_fx', 'start', 'front_flip', 'shockwave', 'happy', 'none'),
+    mk('tool', 'edge_peek', 'start', 'peek', 'none', 'none', 'none'),
+    mk('tool', 'edge_peek', 'success', 'focus_guard', 'none', 'none', 'none', { loop: true, cooldownSec: 3.0 }),
+    mk('tool', '*', 'success', 'wing_flutter_joy', 'sparkle', 'happy', 'none', { cooldownSec: 1.8 }),
+    mk('tool', '*', 'success', 'celebrate_backhop', 'confetti', 'happy', 'clip', { cooldownSec: 1.8 }),
+    mk('tool', '*', 'success', 'victory', 'prop_trophy', 'happy', 'none', { cooldownSec: 1.8 }),
+    mk('tool', '*', 'error', 'dramatic_flop', 'prop_exclamation', 'sad', 'clip', { cooldownSec: 2.0 }),
+    mk('tool', '*', 'error', 'facepalm', 'prop_exclamation', 'sad', 'none', { cooldownSec: 2.0 }),
+    mk('tool', '*', 'error', 'head_shake', 'none', 'sad', 'none', { cooldownSec: 2.0 }),
+
+    // Custom Skills & Trạng thái nhân vật
     mk('skill', '*', 'start', 'typing', 'none', 'none', 'none'),
     mk('skill', '*', 'success', 'proud_carry', 'prop_trophy', 'happy', 'clip'),
+    mk('skill', '*', 'success', 'victory', 'prop_trophy', 'happy', 'chime'),
     mk('skill', '*', 'error', 'shy_sit', 'prop_exclamation', 'sad', 'clip'),
-    mk('state', 'HEADPAT', 'enter', 'happy_wiggle', 'hearts', 'happy', 'clip'),
+    mk('skill', '*', 'error', 'sad', 'prop_exclamation', 'sad', 'none'),
+    mk('skill', '*', 'error', 'head_shake', 'none', 'sad', 'none'),
+    mk('state', 'HEADPAT', 'enter', 'happy_wiggle', 'hearts', 'happy', 'clip', { cooldownSec: 1.2 }),
+    mk('state', 'HEADPAT', 'enter', 'love_serenade', 'prop_hearts', 'happy', 'clip', { cooldownSec: 1.2 }),
     mk('state', 'ALERT', 'enter', 'startled_hop', 'prop_exclamation', 'surprised', 'clip'),
+    mk('state', 'EATING', 'enter', 'chomp', 'none', 'happy', 'none', { cooldownSec: 1.8 }),
     mk('state', 'TIRED', 'enter', 'sleepy_doze', 'prop_zzz', 'sad', 'clip'),
-    mk('state', 'IDLE', 'enter', 'idle_alive', 'none', 'none', 'none', { loop: true, cooldownSec: 12 }),
+    mk('state', 'IDLE', 'enter', 'idle_alive', 'none', 'none', 'none', { loop: true, cooldownSec: 10 }),
+    mk('state', 'SITTING_WINDOW', 'enter', 'idle_alive', 'none', 'none', 'none', { loop: true, cooldownSec: 12 }),
   ];
 }
 
@@ -1449,14 +2090,15 @@ function migrateLegacyBindings() {
     }
   }
 
-  // Bổ sung không phá hủy các quy tắc mới nếu chưa tồn tại trong bộ rule cũ
+  // Bổ sung không phá hủy các quy tắc mới theo cả trigger + clipId
   const defaults = createDefaultBindings();
   for (const def of defaults) {
     const exists = bindings.some(
       (b) =>
         b.triggerType === def.triggerType &&
         b.triggerKey.toLowerCase() === def.triggerKey.toLowerCase() &&
-        b.phase === def.phase
+        b.phase === def.phase &&
+        b.clipId === def.clipId
     );
     if (!exists) {
       bindings.push(def);
@@ -1586,7 +2228,7 @@ interface ActivePlayer {
   firedCues: Set<number>;
 }
 
-const MAX_PLAYERS = 2;
+const MAX_PLAYERS = 3;
 const players: ActivePlayer[] = [];
 const lastFireAt = new Map<string, number>();
 
@@ -1637,6 +2279,13 @@ export function playClip(clipId: string, durationOrOpts?: number | PlayClipOptio
     existing.firedCues.clear();
     return true;
   }
+  // Làm mờ mượt (crossfade 0.18s) các hoạt ảnh cũ thay vì cắt cụt đột ngột gây giật khung xương
+  for (const old of players) {
+    if (old.clip.id !== clip.id && (old.loop || old.duration - old.t > 0.22)) {
+      old.loop = false;
+      old.duration = Math.min(old.duration, old.t + 0.18);
+    }
+  }
   if (players.length >= MAX_PLAYERS) players.shift();
   players.push({
     clip,
@@ -1650,8 +2299,25 @@ export function playClip(clipId: string, durationOrOpts?: number | PlayClipOptio
   return true;
 }
 
+export function stopLoopingClipById(clipId: string) {
+  for (const pl of players) {
+    if (pl.clip.id === clipId) {
+      pl.loop = false;
+      pl.duration = Math.min(pl.duration, pl.t + 0.20);
+    }
+  }
+}
+
+export function stopAllThinkingClips() {
+  stopLoopingClipById('ai_thinking_orbit');
+  stopLoopingClipById('think');
+}
+
 export function stopAllClips() {
-  players.length = 0;
+  for (const pl of players) {
+    pl.loop = false;
+    pl.duration = Math.min(pl.duration, pl.t + 0.16);
+  }
   stopAllActionProps3D();
 }
 
@@ -1780,6 +2446,63 @@ export function runBinding(b: AnimBinding, force = false): boolean {
   return true;
 }
 
+const randomClipDeck: string[] = [];
+let lastRandomClipId: string = '';
+
+function refillRandomClipDeck() {
+  randomClipDeck.length = 0;
+  for (const clip of CLIP_CATALOG) {
+    randomClipDeck.push(clip.id);
+  }
+  for (let i = randomClipDeck.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const tmp = randomClipDeck[i];
+    randomClipDeck[i] = randomClipDeck[j];
+    randomClipDeck[j] = tmp;
+  }
+  if (randomClipDeck.length > 1 && randomClipDeck[randomClipDeck.length - 1] === lastRandomClipId) {
+    const swapIdx = Math.floor(Math.random() * (randomClipDeck.length - 1));
+    const top = randomClipDeck[randomClipDeck.length - 1];
+    randomClipDeck[randomClipDeck.length - 1] = randomClipDeck[swapIdx];
+    randomClipDeck[swapIdx] = top;
+  }
+}
+
+export function playRandomClipFromDeck(filterFn?: (c: AnimClipDef) => boolean): AnimClipDef {
+  let chosen: AnimClipDef | undefined;
+  for (let pass = 0; pass < 2 && !chosen; pass++) {
+    if (randomClipDeck.length === 0) refillRandomClipDeck();
+    for (let i = randomClipDeck.length - 1; i >= 0; i--) {
+      const candidate = getClipById(randomClipDeck[i]);
+      if (!candidate) {
+        randomClipDeck.splice(i, 1);
+        continue;
+      }
+      if (!filterFn || filterFn(candidate)) {
+        randomClipDeck.splice(i, 1);
+        chosen = candidate;
+        break;
+      }
+    }
+    if (!chosen) refillRandomClipDeck();
+  }
+  const picked = chosen || CLIP_CATALOG[0];
+  lastRandomClipId = picked.id;
+  previewClip(picked.id);
+  if (!picked.defaultFx || picked.defaultFx === 'none') {
+    const accentFx: AnimFxId =
+      picked.group === 'emotion'
+        ? 'hearts'
+        : picked.group === 'special'
+        ? 'confetti'
+        : picked.group === 'motion'
+        ? 'stars'
+        : 'sparkle';
+    spawnFx(accentFx, picked.defaultDuration);
+  }
+  return picked;
+}
+
 export function previewClip(clipId: string) {
   const clip = getClipById(clipId);
   if (!clip) return;
@@ -1795,9 +2518,13 @@ function keyMatches(bindingKey: string, key: string): boolean {
   return bindingKey.toLowerCase() === key.toLowerCase();
 }
 
+const triggerCursorMap = new Map<string, number>();
+const lastTriggerGroupFireAt = new Map<string, number>();
+
 /**
  * Điểm vào duy nhất để phát trigger từ khắp ứng dụng.
- * Ưu tiên binding khớp chính xác key; nếu không có mới dùng wildcard '*'.
+ * Ưu tiên binding khớp chính xác key; nếu nhiều quy tắc cùng gắn vào 1 trigger,
+ * luân phiên xoay vòng từng hoạt ảnh để tận dụng đều toàn bộ thư viện.
  */
 export function fireAnimationTrigger(
   type: AnimTriggerType,
@@ -1812,7 +2539,20 @@ export function fireAnimationTrigger(
   );
   if (candidates.length === 0) return false;
   const exact = candidates.filter((b) => b.triggerKey !== '*');
-  const pick = (exact.length > 0 ? exact : candidates)[0];
+  const pool = exact.length > 0 ? exact : candidates;
+  const now = performance.now();
+  const groupKey = `${type}:${resolvedKey.toLowerCase()}:${phase}`;
+  const minGroupCdMs = Math.min(...pool.map((b) => b.cooldownSec)) * 1000;
+  const lastGroupAt = lastTriggerGroupFireAt.get(groupKey) ?? 0;
+  if (pool.length > 1 && now - lastGroupAt < minGroupCdMs) {
+    return false;
+  }
+  const ready = pool.filter((b) => now - (lastFireAt.get(b.id) ?? 0) >= b.cooldownSec * 1000);
+  if (ready.length === 0) return false;
+  const cur = triggerCursorMap.get(groupKey) ?? 0;
+  const pick = ready[cur % ready.length];
+  triggerCursorMap.set(groupKey, cur + 1);
+  lastTriggerGroupFireAt.set(groupKey, now);
   return runBinding(pick);
 }
 
@@ -1865,6 +2605,13 @@ const accum: Required<PoseOffset> = {
   shinRX: 0,
   armLZ: 0,
   armRZ: 0,
+  wingLZ: 0,
+  wingRZ: 0,
+  wingLX: 0,
+  wingRX: 0,
+  tailY: 0,
+  tailX: 0,
+  earZ: 0,
 };
 
 /** Gọi CUỐI mỗi frame (sau diễn hoạt gốc, trước render). */
@@ -1995,6 +2742,17 @@ export function applyAnimationOverlayFrame(delta: number) {
       pushClamped(duckNodes.neck, 'rot', 'x', accum.neckX, -0.65, 0.72);
       pushClamped(duckNodes.beakUpper, 'rot', 'x', accum.beakUpper, -0.75, 0.25);
       pushClamped(duckNodes.beakLower, 'rot', 'x', accum.beak, -0.15, 1.15);
+
+      const totalWingLZ = accum.wingLZ - Math.abs(accum.armLZ) * 0.65;
+      const totalWingRZ = accum.wingRZ + Math.abs(accum.armRZ) * 0.65;
+      pushClamped(rigLeftArm, 'rot', 'z', totalWingLZ, -1.55, 0.25);
+      pushClamped(rigRightArm, 'rot', 'z', totalWingRZ, -0.25, 1.55);
+      pushClamped(rigLeftArm, 'rot', 'x', accum.wingLX, -0.85, 0.85);
+      pushClamped(rigRightArm, 'rot', 'x', accum.wingRX, -0.85, 0.85);
+      pushClamped(duckNodes.tail, 'rot', 'y', accum.tailY, -0.65, 0.65);
+      pushClamped(duckNodes.tail, 'rot', 'x', accum.tailX, -0.45, 0.55);
+      pushClamped(duckNodes.earLeft, 'rot', 'z', -accum.earZ, -0.45, 0.45);
+      pushClamped(duckNodes.earRight, 'rot', 'z', accum.earZ, -0.45, 0.45);
 
       // Giữ bàn chân chạm phẳng sàn theo đúng delta khớp gối/đùi thực tế đã áp dụng
       if (

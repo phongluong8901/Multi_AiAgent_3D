@@ -26,3 +26,16 @@ Truy cập https://<ten-service-render>.onrender.com/api/health kiểm tra thấ
 Bước 3: Nối Deploy Hook cho GitHub Actions & trỏ .exe sang Render
 Trong Render -> Settings, copy Deploy Hook URL -> vào GitHub Repo -> Settings -> Secrets and variables -> Actions tạo secret RENDER_DEPLOY_HOOK_URL (có thể thêm RENDER_SERVICE_URL là link https://...onrender.com để workflow tự kiểm tra health sau khi deploy).
 Trong file .env đặt cạnh Duck ai Manager.exe (hoặc mục cấu hình Cloud Hub trong app), đổi CLOUD_HUB_API_URL=http://127.0.0.1:8787 thành CLOUD_HUB_API_URL=https://<ten-service-render>.onrender.com để mang .exe về bất kỳ máy nào cũng GET/POST tool trực tiếp lên MongoDB Atlas
+
+# ---
+Đúng rồi! Miễn là bạn đã cấu hình xong 1 trong 2 cách ở trên (RENDER_DEPLOY_HOOK_URL trên GitHub Secrets hoặc bật Auto-Deploy = On Commit trong Render Settings), thì từ sau mỗi lần sửa code trong cloud-hub-backend bạn chỉ cần:
+
+powershell
+git add proj10_ai_charater/cloud-hub-backend
+git commit -m "mo ta thay doi"
+git push origin p11_advanced_proj
+
+Là hệ thống sẽ tự động chạy test, build và deploy lại lên https://duck-ai-3p5a.onrender.com (lưu ý phải git push lên GitHub; nếu mới chỉ git commit ở máy local thì GitHub/Render chưa nhận được).
+
+# ---
+https://dashboard.render.com/web/srv-dc33u5e8bjmc73efsp50/logs?t=app&r=1h

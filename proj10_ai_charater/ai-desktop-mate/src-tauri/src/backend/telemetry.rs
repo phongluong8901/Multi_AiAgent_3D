@@ -3,6 +3,10 @@ use std::net::{SocketAddr, TcpStream};
 use std::process::Command;
 use std::time::{Duration, Instant};
 
+use crate::backend::cloud_hub::{curl_get_public_json, resolve_cloud_hub_base_url};
+use crate::backend::english_offline_deck::OFFLINE_ENGLISH_DECK;
+use crate::backend::memory::MemoryState;
+
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
@@ -670,18 +674,42 @@ pub struct NewsArticleItem {
     pub summary: String,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct EnglishVocabItem {
+    #[serde(default)]
     pub word: String,
+    #[serde(default)]
     pub phonetic: String,
+    #[serde(default)]
     pub part_of_speech: String,
+    #[serde(default)]
     pub definition_en: String,
+    #[serde(default)]
     pub meaning_vi: String,
+    #[serde(default)]
     pub example_en: String,
+    #[serde(default)]
     pub example_vi: String,
+    #[serde(default)]
     pub audio_url: String,
+    #[serde(default)]
     pub topic: String,
+    #[serde(default)]
     pub synonyms: Vec<String>,
+    #[serde(default)]
+    pub level: String,
+    #[serde(default)]
+    pub mastery_level: i64,
+    #[serde(default)]
+    pub next_review_at: i64,
+    #[serde(default)]
+    pub correct_count: i64,
+    #[serde(default)]
+    pub wrong_count: i64,
+    #[serde(default)]
+    pub is_starred: bool,
+    #[serde(default)]
+    pub learned_at: i64,
 }
 
 fn fetch_url_utf8(url: &str, timeout_secs: u32) -> Result<String, String> {
@@ -1328,17 +1356,217 @@ fn translate_en_to_vi_live(text: &str, is_single_word: bool) -> Option<String> {
     None
 }
 
+fn normalize_vocab_topic_filter(raw: Option<String>) -> String {
+    let trimmed = raw.unwrap_or_default().trim().to_lowercase();
+    if trimmed.is_empty() {
+        "random".to_string()
+    } else {
+        trimmed
+    }
+}
+
+fn normalize_vocab_level_filter(raw: Option<String>) -> String {
+    let up = raw.unwrap_or_default().trim().to_uppercase();
+    if ["A1", "A2", "B1", "B2", "C1", "C2"].contains(&up.as_str()) {
+        up
+    } else {
+        "all".to_string()
+    }
+}
+
+fn build_vocab_item_from_dictionary_api(
+    cand_word: &str,
+    cand_dm_def: &str,
+    chosen_topic: &str,
+) -> Option<EnglishVocabItem> {
+    let dict_url = format!(
+        "https://api.dictionaryapi.dev/api/v2/entries/en/{}",
+        url_encode_component(cand_word)
+    );
+    let dict_body = fetch_url_utf8(&dict_url, 6).ok()?;
+    let entries = serde_json::from_str::<Vec<serde_json::Value>>(dict_body.trim()).ok()?;
+    let entry = entries.first()?;
+
+    let picked_word = entry["word"]
+        .as_str()
+        .unwrap_or(cand_word)
+        .trim()
+        .to_string();
+    let mut phonetic = entry["phonetic"].as_str().unwrap_or("").trim().to_string();
+    let mut part_of_speech = String::new();
+    let mut definition_en = String::new();
+    let mut example_en = String::new();
+    let mut audio_url = String::new();
+    let mut synonyms: Vec<String> = Vec::new();
+
+    if let Some(ph_arr) = entry["phonetics"].as_array() {
+        for ph in ph_arr {
+            if phonetic.is_empty() {
+                if let Some(t) = ph["text"].as_str() {
+                    if !t.trim().is_empty() {
+                        phonetic = t.trim().to_string();
+                    }
+                }
+            }
+            if audio_url.is_empty() {
+                if let Some(au) = ph["audio"].as_str() {
+                    let tau = au.trim();
+                    if !tau.is_empty() {
+                        audio_url = if tau.starts_with("//") {
+                            format!("https:{tau}")
+                        } else {
+                            tau.to_string()
+                        };
+                    }
+                }
+            }
+        }
+    }
+
+    if let Some(meanings) = entry["meanings"].as_array() {
+        'meaning_loop: for m in meanings {
+            let pos = m["partOfSpeech"].as_str().unwrap_or("noun").to_string();
+            if let Some(syns) = m["synonyms"].as_array() {
+                for s in syns.iter().take(4) {
+                    if let Some(st) = s.as_str() {
+                        if !synonyms.iter().any(|x| x.eq_ignore_ascii_case(st)) {
+                            synonyms.push(st.to_string());
+                        }
+                    }
+                }
+            }
+            if let Some(defs) = m["definitions"].as_array() {
+                for d in defs {
+                    let def_text = d["definition"].as_str().unwrap_or("").trim();
+                    if def_text.is_empty() {
+                        continue;
+                    }
+                    let ex_text = d["example"].as_str().unwrap_or("").trim();
+                    if definition_en.is_empty() || !ex_text.is_empty() {
+                        part_of_speech = pos.clone();
+                        definition_en = def_text.to_string();
+                        if !ex_text.is_empty() {
+                            example_en = ex_text.to_string();
+                            break 'meaning_loop;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if definition_en.is_empty() && !cand_dm_def.is_empty() {
+        definition_en = cand_dm_def
+            .split('\t')
+            .nth(1)
+            .unwrap_or(cand_dm_def)
+            .trim()
+            .to_string();
+    }
+    if picked_word.is_empty() || definition_en.is_empty() {
+        return None;
+    }
+
+    if phonetic.is_empty() {
+        phonetic = format!("/{}/", picked_word);
+    }
+    if part_of_speech.is_empty() {
+        part_of_speech = "noun".to_string();
+    }
+    if example_en.is_empty() {
+        example_en = format!(
+            "Understanding '{}' helps you communicate effectively about {}.",
+            picked_word, chosen_topic
+        );
+    }
+
+    let word_vi = translate_en_to_vi_live(&picked_word, true);
+    let def_vi = translate_en_to_vi_live(&definition_en, false);
+    let meaning_vi = format_english_meaning_vi(&picked_word, word_vi, def_vi);
+    let example_vi = translate_en_to_vi_live(&example_en, false).unwrap_or_default();
+
+    Some(EnglishVocabItem {
+        word: picked_word,
+        phonetic,
+        part_of_speech,
+        definition_en,
+        meaning_vi,
+        example_en,
+        example_vi,
+        audio_url,
+        topic: chosen_topic.to_string(),
+        synonyms,
+        level: "B1".to_string(),
+        mastery_level: 0,
+        next_review_at: 0,
+        correct_count: 0,
+        wrong_count: 0,
+        is_starred: false,
+        learned_at: 0,
+    })
+}
+
+fn fill_missing_item_defaults(mut item: EnglishVocabItem, fallback_topic: &str) -> EnglishVocabItem {
+    if item.topic.trim().is_empty() {
+        item.topic = fallback_topic.to_string();
+    }
+    if item.level.trim().is_empty() {
+        item.level = "B1".to_string();
+    }
+    if item.phonetic.trim().is_empty() && !item.word.is_empty() {
+        item.phonetic = format!("/{}/", item.word);
+    }
+    if item.example_vi.trim().is_empty() && !item.example_en.trim().is_empty() {
+        if let Some(tr) = translate_en_to_vi_live(&item.example_en, false) {
+            item.example_vi = tr;
+        }
+    }
+    item
+}
+
 #[tauri::command]
 pub async fn fetch_real_english_lesson(
+    mem_state: tauri::State<'_, MemoryState>,
     topic: Option<String>,
+    level: Option<String>,
     exclude_words: Vec<String>,
 ) -> Result<EnglishVocabItem, String> {
+    let hub_base = resolve_cloud_hub_base_url(&mem_state);
     tauri::async_runtime::spawn_blocking(move || {
         let excluded: Vec<String> = exclude_words
             .into_iter()
             .map(|w| w.trim().to_lowercase())
+            .filter(|w| !w.is_empty())
             .collect();
+        let topic_filter = normalize_vocab_topic_filter(topic);
+        let level_filter = normalize_vocab_level_filter(level);
 
+        // 1. Uu tien lay tu kho 30.000+ tu vung tren MongoDB Cloud Hub
+        if !hub_base.is_empty() {
+            let excl_csv: String = excluded.iter().take(120).cloned().collect::<Vec<_>>().join(",");
+            let url = format!(
+                "{}/api/vocab/random?topic={}&level={}&limit=1&exclude={}",
+                hub_base,
+                url_encode_component(&topic_filter),
+                url_encode_component(&level_filter),
+                url_encode_component(&excl_csv)
+            );
+            if let Ok(raw) = curl_get_public_json(&url, 5) {
+                if let Ok(val) = serde_json::from_str::<serde_json::Value>(&raw) {
+                    if val.get("ok").and_then(|v| v.as_bool()) == Some(true) {
+                        if let Some(item_val) = val.get("item").filter(|v| !v.is_null()) {
+                            if let Ok(parsed) = serde_json::from_value::<EnglishVocabItem>(item_val.clone()) {
+                                if !parsed.word.trim().is_empty() && !parsed.meaning_vi.trim().is_empty() {
+                                    return Ok(fill_missing_item_defaults(parsed, &topic_filter));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. Fallback Datamuse + Dictionary API (khi backend online chua redeploy /api/vocab)
         let dynamic_seeds = [
             "technology",
             "innovation",
@@ -1383,9 +1611,8 @@ pub async fn fetch_real_english_lesson(
             .map(|d| d.as_nanos() as usize)
             .unwrap_or(17);
 
-        let raw_topic = topic.unwrap_or_default().trim().to_string();
-        let lower_topic = raw_topic.to_lowercase();
-        let chosen_topic = if raw_topic.is_empty() || lower_topic == "random" {
+        let lower_topic = topic_filter.as_str();
+        let chosen_topic = if lower_topic == "random" || lower_topic == "all" {
             dynamic_seeds[nanos % dynamic_seeds.len()].to_string()
         } else if lower_topic == "ielts" {
             let ielts_pool = ["academic", "resilience", "sustainability", "diplomacy", "analytics"];
@@ -1394,7 +1621,7 @@ pub async fn fetch_real_english_lesson(
             let daily_pool = ["conversation", "lifestyle", "travel", "food", "habit"];
             daily_pool[nanos % daily_pool.len()].to_string()
         } else {
-            raw_topic
+            topic_filter.clone()
         };
 
         let encoded_topic = url_encode_component(&chosen_topic);
@@ -1407,10 +1634,7 @@ pub async fn fetch_real_english_lesson(
             if let Ok(arr) = serde_json::from_str::<Vec<serde_json::Value>>(dm_body.trim()) {
                 for item in arr {
                     let w = item["word"].as_str().unwrap_or("").trim();
-                    if w.len() < 4
-                        || w.len() > 18
-                        || !w.chars().all(|c| c.is_ascii_alphabetic())
-                    {
+                    if w.len() < 4 || w.len() > 18 || !w.chars().all(|c| c.is_ascii_alphabetic()) {
                         continue;
                     }
                     let lw = w.to_lowercase();
@@ -1428,7 +1652,6 @@ pub async fn fetch_real_english_lesson(
             }
         }
 
-        // Bổ sung nguồn từ ngẫu nhiên vô tận thứ 2 nếu Datamuse ít kết quả
         if candidates.is_empty() {
             if let Ok(rw_body) =
                 fetch_url_utf8("https://random-word-api.herokuapp.com/word?number=16", 6)
@@ -1447,171 +1670,252 @@ pub async fn fetch_real_english_lesson(
             }
         }
 
-        if candidates.is_empty() {
-            return Err(
-                "Không thể kết nối API từ vựng trực tuyến (Datamuse / Random Word). Vui lòng kiểm tra kết nối Internet."
-                    .to_string(),
+        if !candidates.is_empty() {
+            let total = candidates.len();
+            let start_idx = nanos % total;
+            for step in 0..total.min(5) {
+                let idx = (start_idx + (step * 7) + step) % total;
+                let (cand_word, cand_dm_def) = &candidates[idx];
+                if let Some(built) =
+                    build_vocab_item_from_dictionary_api(cand_word, cand_dm_def, &chosen_topic)
+                {
+                    return Ok(built);
+                }
+            }
+
+            let (cw, dm_def) = &candidates[start_idx];
+            let (part_of_speech, definition_en) = if let Some((pos, def)) = dm_def.split_once('\t') {
+                let mapped_pos = match pos {
+                    "n" => "noun",
+                    "v" => "verb",
+                    "adj" => "adjective",
+                    "adv" => "adverb",
+                    _ => pos,
+                };
+                (mapped_pos.to_string(), def.to_string())
+            } else {
+                (
+                    "vocab".to_string(),
+                    format!("English term related to {chosen_topic}."),
+                )
+            };
+            let phonetic = format!("/{cw}/");
+            let example_en = format!(
+                "Understanding '{cw}' helps you communicate effectively about {chosen_topic}."
             );
+            let word_vi = translate_en_to_vi_live(cw, true);
+            let def_vi = translate_en_to_vi_live(&definition_en, false);
+            let meaning_vi = format_english_meaning_vi(cw, word_vi, def_vi);
+            let example_vi = translate_en_to_vi_live(&example_en, false).unwrap_or_default();
+            return Ok(EnglishVocabItem {
+                word: cw.clone(),
+                phonetic,
+                part_of_speech,
+                definition_en,
+                meaning_vi,
+                example_en,
+                example_vi,
+                audio_url: String::new(),
+                topic: chosen_topic,
+                synonyms: Vec::new(),
+                level: if level_filter == "all" {
+                    "B1".to_string()
+                } else {
+                    level_filter
+                },
+                mastery_level: 0,
+                next_review_at: 0,
+                correct_count: 0,
+                wrong_count: 0,
+                is_starred: false,
+                learned_at: 0,
+            });
         }
 
-        // Chọn ngẫu nhiên nhưng thử tối đa 5 ứng viên để đảm bảo lấy được bản ghi Dictionary API đầy đủ
-        let total = candidates.len();
-        let start_idx = nanos % total;
+        // 3. Fallback kho tu vung Offline co san (luon hoat dong khi mat mang)
+        let matching_offline: Vec<_> = OFFLINE_ENGLISH_DECK
+            .iter()
+            .filter(|s| {
+                let not_excl = !excluded.iter().any(|e| e.eq_ignore_ascii_case(s.word));
+                let topic_ok = topic_filter == "random"
+                    || topic_filter == "all"
+                    || s.topic.eq_ignore_ascii_case(&topic_filter);
+                let level_ok =
+                    level_filter == "all" || s.level.eq_ignore_ascii_case(&level_filter);
+                not_excl && topic_ok && level_ok
+            })
+            .collect();
+        if let Some(pick) = matching_offline.get(nanos % matching_offline.len().max(1)) {
+            return Ok(pick.to_item());
+        }
 
-        let mut picked_word = String::new();
-        let mut phonetic = String::new();
-        let mut part_of_speech = String::new();
-        let mut definition_en = String::new();
-        let mut example_en = String::new();
-        let mut audio_url = String::new();
-        let mut synonyms: Vec<String> = Vec::new();
+        let unlearned_any: Vec<_> = OFFLINE_ENGLISH_DECK
+            .iter()
+            .filter(|s| !excluded.iter().any(|e| e.eq_ignore_ascii_case(s.word)))
+            .collect();
+        let pool = if unlearned_any.is_empty() {
+            OFFLINE_ENGLISH_DECK.iter().collect::<Vec<_>>()
+        } else {
+            unlearned_any
+        };
+        Ok(pool[nanos % pool.len()].to_item())
+    })
+    .await
+    .map_err(|e| format!("Lỗi tác vụ học Tiếng Anh: {e}"))?
+}
 
-        for step in 0..total.min(6) {
-            let idx = (start_idx + (step * 7) + step) % total;
-            let (cand_word, cand_dm_def) = &candidates[idx];
-            let dict_url = format!(
-                "https://api.dictionaryapi.dev/api/v2/entries/en/{}",
-                url_encode_component(cand_word)
+#[tauri::command]
+pub async fn search_english_vocab(
+    mem_state: tauri::State<'_, MemoryState>,
+    query: String,
+    topic: Option<String>,
+    level: Option<String>,
+    limit: Option<usize>,
+) -> Result<Vec<EnglishVocabItem>, String> {
+    let hub_base = resolve_cloud_hub_base_url(&mem_state);
+    tauri::async_runtime::spawn_blocking(move || {
+        let q = query.trim().to_string();
+        let topic_filter = normalize_vocab_topic_filter(topic);
+        let level_filter = normalize_vocab_level_filter(level);
+        let lim = limit.unwrap_or(20).clamp(1, 40);
+        let mut results: Vec<EnglishVocabItem> = Vec::new();
+
+        if !hub_base.is_empty() {
+            let url = format!(
+                "{}/api/vocab/search?q={}&topic={}&level={}&limit={}",
+                hub_base,
+                url_encode_component(&q),
+                url_encode_component(&topic_filter),
+                url_encode_component(&level_filter),
+                lim
             );
-            if let Ok(dict_body) = fetch_url_utf8(&dict_url, 6) {
-                if let Ok(entries) = serde_json::from_str::<Vec<serde_json::Value>>(dict_body.trim()) {
-                    if let Some(entry) = entries.first() {
-                        picked_word = entry["word"]
-                            .as_str()
-                            .unwrap_or(cand_word)
-                            .trim()
-                            .to_string();
-
-                        phonetic = entry["phonetic"]
-                            .as_str()
-                            .unwrap_or("")
-                            .trim()
-                            .to_string();
-
-                        if let Some(ph_arr) = entry["phonetics"].as_array() {
-                            for ph in ph_arr {
-                                if phonetic.is_empty() {
-                                    if let Some(t) = ph["text"].as_str() {
-                                        if !t.trim().is_empty() {
-                                            phonetic = t.trim().to_string();
-                                        }
-                                    }
-                                }
-                                if audio_url.is_empty() {
-                                    if let Some(au) = ph["audio"].as_str() {
-                                        let tau = au.trim();
-                                        if !tau.is_empty() {
-                                            audio_url = if tau.starts_with("//") {
-                                                format!("https:{tau}")
-                                            } else {
-                                                tau.to_string()
-                                            };
-                                        }
+            if let Ok(raw) = curl_get_public_json(&url, 5) {
+                if let Ok(val) = serde_json::from_str::<serde_json::Value>(&raw) {
+                    if val.get("ok").and_then(|v| v.as_bool()) == Some(true) {
+                        if let Some(arr) = val.get("items").and_then(|v| v.as_array()) {
+                            for el in arr {
+                                if let Ok(item) = serde_json::from_value::<EnglishVocabItem>(el.clone()) {
+                                    if !item.word.trim().is_empty() {
+                                        results.push(fill_missing_item_defaults(item, &topic_filter));
                                     }
                                 }
                             }
-                        }
-
-                        if let Some(meanings) = entry["meanings"].as_array() {
-                            'meaning_loop: for m in meanings {
-                                let pos = m["partOfSpeech"].as_str().unwrap_or("noun").to_string();
-                                if let Some(syns) = m["synonyms"].as_array() {
-                                    for s in syns.iter().take(4) {
-                                        if let Some(st) = s.as_str() {
-                                            synonyms.push(st.to_string());
-                                        }
-                                    }
-                                }
-                                if let Some(defs) = m["definitions"].as_array() {
-                                    for d in defs {
-                                        let def_text = d["definition"].as_str().unwrap_or("").trim();
-                                        if def_text.is_empty() {
-                                            continue;
-                                        }
-                                        let ex_text = d["example"].as_str().unwrap_or("").trim();
-                                        if definition_en.is_empty() || !ex_text.is_empty() {
-                                            part_of_speech = pos.clone();
-                                            definition_en = def_text.to_string();
-                                            if !ex_text.is_empty() {
-                                                example_en = ex_text.to_string();
-                                                break 'meaning_loop;
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        if definition_en.is_empty() && !cand_dm_def.is_empty() {
-                            definition_en = cand_dm_def
-                                .split('\t')
-                                .nth(1)
-                                .unwrap_or(cand_dm_def)
-                                .trim()
-                                .to_string();
-                        }
-
-                        if !picked_word.is_empty() && !definition_en.is_empty() {
-                            break;
                         }
                     }
                 }
             }
         }
 
-        // Nếu Dictionary API không khớp trong top 6, lấy ứng viên Datamuse đầu tiên có định nghĩa
-        if picked_word.is_empty() {
-            let (cw, dm_def) = &candidates[start_idx];
-            picked_word = cw.clone();
-            if let Some((pos, def)) = dm_def.split_once('\t') {
-                part_of_speech = match pos {
-                    "n" => "noun",
-                    "v" => "verb",
-                    "adj" => "adjective",
-                    "adv" => "adverb",
-                    _ => pos,
-                }
-                .to_string();
-                definition_en = def.to_string();
-            } else {
-                part_of_speech = "vocab".to_string();
-                definition_en = format!("English term related to {chosen_topic}.");
+        // Neu chua co hoac dang offline: tra tu kho offline + Dictionary API truc tiep cho tu don
+        let q_lower = q.to_lowercase();
+        let has_exact = !q_lower.is_empty()
+            && results
+                .iter()
+                .any(|r| r.word.eq_ignore_ascii_case(&q_lower));
+        if !has_exact
+            && !q_lower.is_empty()
+            && q_lower.len() <= 32
+            && q_lower.chars().all(|c| c.is_ascii_alphabetic() || c == '-' || c == ' ')
+        {
+            if let Some(dict_item) = build_vocab_item_from_dictionary_api(&q_lower, "", "lookup") {
+                results.insert(0, dict_item);
             }
         }
 
-        if phonetic.is_empty() {
-            phonetic = format!("/{}/", picked_word);
-        }
-        if part_of_speech.is_empty() {
-            part_of_speech = "noun".to_string();
-        }
-        if example_en.is_empty() {
-            example_en = format!(
-                "Understanding '{}' helps you communicate effectively about {}.",
-                picked_word, chosen_topic
-            );
+        for seed in OFFLINE_ENGLISH_DECK {
+            if results.len() >= lim {
+                break;
+            }
+            let topic_ok = topic_filter == "random"
+                || topic_filter == "all"
+                || seed.topic.eq_ignore_ascii_case(&topic_filter);
+            let level_ok = level_filter == "all" || seed.level.eq_ignore_ascii_case(&level_filter);
+            let query_ok = q_lower.is_empty()
+                || seed.word.to_lowercase().contains(&q_lower)
+                || seed.meaning_vi.to_lowercase().contains(&q_lower);
+            if topic_ok
+                && level_ok
+                && query_ok
+                && !results.iter().any(|r| r.word.eq_ignore_ascii_case(seed.word))
+            {
+                results.push(seed.to_item());
+            }
         }
 
-        let word_vi = translate_en_to_vi_live(&picked_word, true);
-        let def_vi = translate_en_to_vi_live(&definition_en, false);
-        let meaning_vi = format_english_meaning_vi(&picked_word, word_vi, def_vi);
-        let example_vi = translate_en_to_vi_live(&example_en, false).unwrap_or_default();
-
-        Ok(EnglishVocabItem {
-            word: picked_word,
-            phonetic,
-            part_of_speech,
-            definition_en,
-            meaning_vi,
-            example_en,
-            example_vi,
-            audio_url,
-            topic: chosen_topic,
-            synonyms,
-        })
+        Ok(results)
     })
     .await
-    .map_err(|e| format!("Lỗi tác vụ học Tiếng Anh: {e}"))?
+    .map_err(|e| format!("Lỗi tra cứu từ vựng: {e}"))?
+}
+
+#[tauri::command]
+pub async fn fetch_english_vocab_cloud_stats(
+    mem_state: tauri::State<'_, MemoryState>,
+) -> Result<serde_json::Value, String> {
+    let hub_base = resolve_cloud_hub_base_url(&mem_state);
+    tauri::async_runtime::spawn_blocking(move || {
+        if !hub_base.is_empty() {
+            let url = format!("{hub_base}/api/vocab/stats");
+            if let Ok(raw) = curl_get_public_json(&url, 4) {
+                if let Ok(val) = serde_json::from_str::<serde_json::Value>(&raw) {
+                    if val.get("ok").and_then(|v| v.as_bool()) == Some(true) {
+                        return Ok(val);
+                    }
+                }
+            }
+        }
+        Ok(serde_json::json!({
+            "ok": false,
+            "total_words": OFFLINE_ENGLISH_DECK.len(),
+            "offline_fallback": true
+        }))
+    })
+    .await
+    .map_err(|e| format!("Lỗi lấy thống kê từ vựng: {e}"))?
+}
+
+#[tauri::command]
+pub async fn fetch_english_tts_audio(
+    text: String,
+    slow: Option<bool>,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let trimmed: String = text.trim().chars().take(200).collect();
+        if trimmed.is_empty() {
+            return Err("Nội dung đọc tiếng Anh trống".to_string());
+        }
+        let encoded = url_encode_component(&trimmed);
+        let speed = if slow.unwrap_or(false) { "0.3" } else { "1" };
+        let url = format!(
+            "https://translate.googleapis.com/translate_tts?ie=UTF-8&client=tw-ob&tl=en&ttsspeed={speed}&q={encoded}"
+        );
+        let mut cmd = Command::new("curl.exe");
+        cmd.args([
+            "-s",
+            "-L",
+            "-m",
+            "6",
+            "-A",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+            "-H",
+            "Referer: https://translate.google.com/",
+            &url,
+        ]);
+        apply_no_window(&mut cmd);
+        let out = cmd.output().map_err(|e| format!("Không chạy được curl TTS: {e}"))?;
+        if !out.status.success() || out.stdout.len() < 128 {
+            return Err("Không tải được luồng âm thanh TTS Tiếng Anh".to_string());
+        }
+        if out.stdout.starts_with(b"<!")
+            || out.stdout.starts_with(b"<html")
+            || out.stdout.starts_with(b"<HTML")
+        {
+            return Err("Endpoint TTS trả về trang HTML thay vì MP3".to_string());
+        }
+        Ok(format!("data:audio/mpeg;base64,{}", bytes_to_base64(&out.stdout)))
+    })
+    .await
+    .map_err(|e| format!("Lỗi TTS Tiếng Anh: {e}"))?
 }
 
 fn bytes_to_base64(input: &[u8]) -> String {

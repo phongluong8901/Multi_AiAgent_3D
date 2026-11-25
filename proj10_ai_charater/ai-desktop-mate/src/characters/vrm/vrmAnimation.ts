@@ -293,12 +293,20 @@ export function animateVrmCharacter(vrm: VRM, elapsed: number, delta: number) {
     lerpAngle(rLowerLeg, 'x', 0);
   }
 
+  const beatGroove =
+    appState.isSystemMusicPlaying &&
+    appState.audioVisualizer3dEnabled &&
+    (appState.state === 'IDLE' || appState.state === 'SITTING_WINDOW' || appState.state === 'DANCING')
+      ? Math.sin(elapsed * ((Math.max(72, appState.systemAudioBpm || 120) / 60) * Math.PI * 2)) *
+          Math.min(1, appState.systemAudioPeak * 1.2 + appState.audioBeatPulse * 0.4)
+      : 0;
+
   if (appState.state !== 'HEADPAT') {
-    lerpAngle(head, 'z', 0);
+    lerpAngle(head, 'z', beatGroove * 0.08);
   }
   lerpAngle(neck, 'y', lookYaw * 0.45);
   lerpAngle(head, 'y', lookYaw * 0.55);
-  lerpAngle(head, 'x', lookPitch * 0.7);
+  lerpAngle(head, 'x', lookPitch * 0.7 + beatGroove * 0.11);
 
   const exp = vrm.expressionManager;
   if (exp) {
@@ -336,7 +344,12 @@ export function animateVrmCharacter(vrm: VRM, elapsed: number, delta: number) {
     exp.setValue('sad', isSad ? 0.8 : 0.0);
     exp.setValue('relaxed', isRelaxed && !isHappy && !isSad ? 0.55 : 0.0);
 
-    if (appState.speechLipSyncTimer > 0) {
+    if (appState.isRealAudioLipSync) {
+      const lvl = appState.speechAudioLevel;
+      const sharp = appState.speechFormantSharpness;
+      exp.setValue('aa', Math.min(1, lvl * (1 - sharp * 0.35)));
+      exp.setValue('ih', Math.min(0.85, lvl * sharp * 0.78));
+    } else if (appState.speechLipSyncTimer > 0) {
       const talkOsc = Math.abs(Math.sin(elapsed * 16));
       exp.setValue('aa', talkOsc * 0.7);
       exp.setValue('ih', (1 - talkOsc) * 0.35);

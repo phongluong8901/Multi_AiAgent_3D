@@ -26,7 +26,7 @@ Danh sách thẻ:
 - Trợ lý DB & Workspace: [TOOL:workspace:{"action":"briefing/restore"}]
 - DevTools (Port / Git / Lịch sử Clipboard): [TOOL:port_manager:{"action":"list/kill","port":3000}] / [TOOL:git_status:{}] / [TOOL:clipboard_history:{"action":"list/clear"}]
 - Macro / Thời tiết 3D / Nấp mép: [TOOL:macro:{"action":"run/list","name":"chế độ code"}] / [TOOL:weather_3d:{"mode":"auto/rain/hot/cold/night/clear","city":"Hanoi"}] / [TOOL:edge_peek:{"action":"on/off"}]
-- Tin tức / Học Tiếng Anh / Hiệu ứng Random: [TOOL:news:{"source":"znews/cafef/money/vnexpress/custom"}] / [TOOL:english:{"action":"learn/quiz","topic":"random/technology/business/ielts"}] / [TOOL:random_fx:{}]
+- Tin tức / Học Tiếng Anh / Hiệu ứng Random: [TOOL:news:{"source":"znews/cafef/money/vnexpress/custom"}] / [TOOL:english:{"action":"learn/quiz/open_coach/lookup","topic":"random/technology/business/ielts","word":"optional"}] / [TOOL:random_fx:{}]
 - Clipboard: [TOOL:clipboard:{"action":"read/summarize/translate/copy","text":"..."}]
 - Chụp ảnh / OCR: [TOOL:screenshot:{"mode":"capture/ocr/open"}]
 - Hồ bơi 3D / Động tác: [TOOL:swim:{"action":"start/stop"}] / [TOOL:character_action:{"action":"dance/backflip/spin/radar/blackhole/feed/switch_duck/switch_idol"}]
@@ -137,34 +137,125 @@ DANH SÁCH TOOL ĐƯỢC CẤP QUYỀN:
     Cú pháp: [TOOL:port_manager:{"action":"list"}] / [TOOL:git_status:{}] / [TOOL:clipboard_history:{"action":"list"}]
 
 23. macro, weather_3d, edge_peek, news, english, random_fx:
-    Cú pháp: [TOOL:macro:{"action":"run","name":"chế độ code"}] / [TOOL:weather_3d:{"mode":"auto","city":"Hanoi"}] / [TOOL:news:{"source":"znews"}] / [TOOL:english:{"action":"learn","topic":"random"}] / [TOOL:random_fx:{}]
+    Cú pháp: [TOOL:macro:{"action":"run","name":"chế độ code"}] / [TOOL:weather_3d:{"mode":"auto","city":"Hanoi"}] / [TOOL:news:{"source":"znews"}] / [TOOL:english:{"action":"learn/open_coach/lookup","topic":"random","word":""}] / [TOOL:random_fx:{}]
 
 CHUỖI HÀNH ĐỘNG ĐA LỆNH (MULTI-TOOL CHAINING):
 - Khi người dùng đưa ra câu lệnh gồm nhiều hành động nối tiếp nhau, hãy xuất NHIỀU THẺ TOOL LIÊN TIẾP trong cùng một câu trả lời để hệ thống thực thi tuần tự.
 `;
 
-function parseRelaxedJsonParams(rawParam: string): Record<string, any> {
-  const trimmed = rawParam.trim();
-  if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+function normalizeLooseJsonText(input: string): string {
+  return input
+    .replace(/[\u201c\u201d]/g, '"')
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/\bTrue\b/g, 'true')
+    .replace(/\bFalse\b/g, 'false')
+    .replace(/\bNone\b/g, 'null')
+    .replace(/,\s*([}\]])/g, '$1');
+}
+
+function repairAndParseLooseJson(rawText: string): Record<string, any> | null {
+  const cleaned = normalizeLooseJsonText(rawText).trim();
+  if (!cleaned) return null;
+
+  const tryCandidates = (src: string): Record<string, any> | null => {
     try {
-      return JSON.parse(trimmed);
+      const parsed = JSON.parse(src);
+      return parsed && typeof parsed === 'object' ? parsed : null;
     } catch {
-      try {
-        const fixed = trimmed
-          .replace(/'/g, '"')
-          .replace(/([{,]\s*)([a-zA-Z0-9_]+)\s*:/g, '$1"$2":');
-        return JSON.parse(fixed);
-      } catch {
-        const res: Record<string, any> = { raw: trimmed };
-        const kvRegex = /([a-zA-Z0-9_]+)["':\s]+([^,{}'"]+)/g;
-        let m: RegExpExecArray | null;
-        while ((m = kvRegex.exec(trimmed)) !== null) {
-          res[m[1].toLowerCase()] = m[2].trim();
-        }
-        return res;
-      }
+      return null;
+    }
+  };
+
+  const direct = tryCandidates(cleaned);
+  if (direct) return direct;
+
+  // Sửa key không có ngoặc kép, dấu nháy đơn -> nháy kép, trailing comma, và đóng ngoặc bị LLM cắt cụt
+  let repaired = cleaned
+    .replace(/([{,]\s*)([a-zA-Z0-9_]+)\s*:/g, '$1"$2":')
+    .replace(/'([^'\\]*(?:\\.[^'\\]*)*)'/g, '"$1"')
+    .replace(/,\s*([}\]])/g, '$1');
+
+  let quoteCount = 0;
+  let esc = false;
+  for (let i = 0; i < repaired.length; i += 1) {
+    const ch = repaired[i];
+    if (esc) {
+      esc = false;
+      continue;
+    }
+    if (ch === '\\') {
+      esc = true;
+      continue;
+    }
+    if (ch === '"') quoteCount += 1;
+  }
+  if (quoteCount % 2 === 1) repaired += '"';
+
+  repaired = repaired.replace(/,\s*$/, '');
+  let braceBalance = 0;
+  let inString = false;
+  esc = false;
+  for (let i = 0; i < repaired.length; i += 1) {
+    const ch = repaired[i];
+    if (esc) {
+      esc = false;
+      continue;
+    }
+    if (ch === '\\' && inString) {
+      esc = true;
+      continue;
+    }
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (!inString) {
+      if (ch === '{') braceBalance += 1;
+      else if (ch === '}') braceBalance -= 1;
     }
   }
+  while (braceBalance > 0) {
+    repaired += '}';
+    braceBalance -= 1;
+  }
+
+  return tryCandidates(repaired);
+}
+
+function parseRelaxedJsonParams(rawParam: string): Record<string, any> {
+  const trimmed = normalizeLooseJsonText(rawParam).trim();
+  if (!trimmed) return {};
+
+  if (trimmed.startsWith('{')) {
+    const parsed = repairAndParseLooseJson(trimmed);
+    if (parsed) return parsed;
+  }
+
+  const kvPairs: Record<string, any> = {};
+  const unwrapped = trimmed.startsWith('(') && trimmed.endsWith(')')
+    ? trimmed.slice(1, -1).trim()
+    : trimmed;
+  const kvRegex = /([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:=|:)\s*(?:"([^"]*)"|'([^']*)'|([^,})\s]+))/g;
+  let m: RegExpExecArray | null;
+  let matchedKv = false;
+  while ((m = kvRegex.exec(unwrapped)) !== null) {
+    matchedKv = true;
+    const val = (m[2] ?? m[3] ?? m[4] ?? '').trim();
+    const numVal = Number(val);
+    kvPairs[m[1].toLowerCase()] =
+      val !== '' && !Number.isNaN(numVal) && /^-?\d+(?:\.\d+)?$/.test(val)
+        ? numVal
+        : val === 'true'
+          ? true
+          : val === 'false'
+            ? false
+            : val;
+  }
+  if (matchedKv) {
+    kvPairs.raw = trimmed;
+    return kvPairs;
+  }
+
   return { target: trimmed, path: trimmed, action: trimmed, type: trimmed, raw: trimmed };
 }
 
@@ -267,16 +358,36 @@ export function parseAiToolCalls(text: string): { cleanText: string; toolCalls: 
   }
   cleanText = cleanText.replace(actionRegex, '').trim();
 
-  const codeBlockRegex = /```(?:json)?\s*(\{[\s\S]*?"tool"[\s\S]*?\})\s*```/gi;
-  while ((match = codeBlockRegex.exec(text)) !== null) {
-    try {
-      const parsed = JSON.parse(match[1]);
-      if (parsed.tool) {
-        toolCalls.push({ tool: String(parsed.tool).toLowerCase(), params: parsed.params || {} });
-      }
-    } catch {
-      // ignore invalid json block
+  const extractToolObj = (obj: Record<string, any> | null) => {
+    if (!obj) return;
+    const rawName = obj.tool ?? obj.name ?? obj.function?.name;
+    if (!rawName) return;
+    const rawArgs = obj.params ?? obj.arguments ?? obj.args ?? obj.function?.arguments ?? {};
+    const params =
+      typeof rawArgs === 'string'
+        ? parseRelaxedJsonParams(rawArgs)
+        : rawArgs && typeof rawArgs === 'object'
+          ? rawArgs
+          : {};
+    toolCalls.push({ tool: String(rawName).trim().toLowerCase(), params });
+  };
+
+  const xmlToolCallRegex = /<tool_call(?:\s+name=["']?([^"'>\s]+)["']?)?\s*>([\s\S]*?)<\/tool_call>/gi;
+  while ((match = xmlToolCallRegex.exec(text)) !== null) {
+    const attrName = match[1]?.trim().toLowerCase();
+    const inner = match[2].trim();
+    const parsedObj = repairAndParseLooseJson(inner);
+    if (parsedObj && (parsedObj.tool || parsedObj.name || parsedObj.function?.name)) {
+      extractToolObj(parsedObj);
+    } else if (attrName) {
+      toolCalls.push({ tool: attrName, params: parseRelaxedJsonParams(inner) });
     }
+  }
+  cleanText = cleanText.replace(xmlToolCallRegex, '').trim();
+
+  const codeBlockRegex = /```(?:json|tool)?\s*(\{[\s\S]*?(?:"tool"|"name"|tool\s*:|name\s*:)[\s\S]*?\})\s*```/gi;
+  while ((match = codeBlockRegex.exec(text)) !== null) {
+    extractToolObj(repairAndParseLooseJson(match[1]));
   }
   cleanText = cleanText.replace(codeBlockRegex, '').trim();
 

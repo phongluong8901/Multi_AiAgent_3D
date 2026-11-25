@@ -39,6 +39,37 @@ export function initWebRemoteSyncLoop(deps: WebRemoteSyncDeps) {
     const trimmed = content.trim();
     if (!trimmed.startsWith('/')) return false;
 
+    if (trimmed.toLowerCase().startsWith('/pc_deck ')) {
+      const rest = trimmed.slice(9).trim();
+      if (rest.startsWith('clip:')) {
+        const clipTxt = rest.slice(5).trim();
+        await invoke('set_clipboard_text', { text: clipTxt }).catch(() => {});
+        await pushAssistantToWeb(`[REMOTE DECK] Đã chép vào Clipboard PC: "${clipTxt.slice(0, 60)}"`);
+        return true;
+      }
+      if (rest.startsWith('open:')) {
+        const target = rest.slice(5).trim();
+        const out = await invoke<string>('open_web_or_app', { target }).catch((e) => String(e));
+        await pushAssistantToWeb(`[REMOTE DECK] ${out}`);
+        return true;
+      }
+      if (['vol_up', 'vol_down', 'mute', 'play_pause', 'next', 'prev'].includes(rest)) {
+        const out = await invoke<string>('control_media', { action: rest }).catch((e) => String(e));
+        await pushAssistantToWeb(`[REMOTE DECK] ${out}`);
+        return true;
+      }
+      if (rest === 'lock_pc') {
+        await invoke('lock_pc_screen').catch(() => {});
+        await pushAssistantToWeb('[REMOTE DECK] Đã khóa màn hình máy tính.');
+        return true;
+      }
+      if (rest === 'clean_ram') {
+        const out = await invoke<string>('hardware_action', { action: 'clean_ram' }).catch((e) => String(e));
+        await pushAssistantToWeb(`[REMOTE DECK] ${out}`);
+        return true;
+      }
+    }
+
     if (trimmed.toLowerCase().startsWith('/agent ')) {
       const goal = trimmed.slice(7).trim();
       if (!goal) {

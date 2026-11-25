@@ -63,6 +63,13 @@ export const studioModalHtml = `
             <span>Âm thanh hiệu ứng vật lý (Spatial Sound FX)</span>
             <input id="chk-sound-fx" type="checkbox" checked />
           </label>
+          <label class="toggle-row">
+            <span style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+              <span>Cảm ứng nhạc hệ thống &amp; Sóng Nhạc 3D (WASAPI Beat Sync)</span>
+              <span id="studio-audio-live-badge" class="badge" style="font-size: 9px; padding: 1px 6px;">[AUDIO: NGHỈ]</span>
+            </span>
+            <input id="chk-cfg-audio-beat-3d" type="checkbox" checked />
+          </label>
           <div class="slider-row" id="row-sound-volume" style="margin-top: 4px; margin-bottom: 0;">
             <div class="slider-label">
               <span>Âm lượng Sound FX</span>
@@ -259,8 +266,8 @@ export const studioModalHtml = `
 
           <div class="auto-behavior-toolbar">
             <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
-              <span class="studio-subcard-title" style="margin-bottom: 0;">Tương Tác Nhân Vật Tự Động</span>
-              <span id="auto-behavior-count-badge" class="badge" style="font-size: 9.5px; text-transform: none;">20/21 đang bật</span>
+              <span class="studio-subcard-title" style="margin-bottom: 0;">Tương Tác &amp; Hoạt Ảnh 3D Tự Động</span>
+              <span id="auto-behavior-count-badge" class="badge" style="font-size: 9.5px; text-transform: none;">76/77 đang bật</span>
             </div>
             <div class="auto-behavior-actions">
               <button id="btn-auto-beh-all" class="chat-chip" type="button">Bật tất cả</button>

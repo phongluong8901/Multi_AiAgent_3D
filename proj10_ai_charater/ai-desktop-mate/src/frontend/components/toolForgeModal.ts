@@ -177,7 +177,7 @@ export const toolForgeModalHtml = `
           <div style="display: grid; grid-template-columns: 1fr auto; gap: 6px; align-items: end;">
             <div>
               <div class="slider-label" style="margin-bottom: 2px;"><span>Cloud Hub Backend URL (cloud-hub-backend)</span></div>
-              <input id="tf-cfg-hub-url" class="studio-input" type="text" placeholder="http://127.0.0.1:8787" />
+              <input id="tf-cfg-hub-url" class="studio-input" type="text" placeholder="https://duck-ai-3p5a.onrender.com" />
             </div>
             <button id="btn-tf-save-cloud-cfg" class="studio-btn-primary" type="button" style="padding: 6px 12px; font-size: 11px;">
               Lưu Cấu Hình

@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { appState } from '../core/state';
 import { WinRect } from '../core/types';
 import { spawnFrameHighlight, spawnParticles } from '../core/particles';
+import { fireAnimationTrigger } from '../core/animationBinder';
 
 let speakCb: ((msg: string) => void) | null = null;
 
@@ -306,6 +307,8 @@ export async function performWindowAction(
     return false;
   }
 
+  fireAnimationTrigger('tool', 'control_window', 'start');
+
   if (appState.attachedWindowHwnd === target.hwnd && action === 'minimize') {
     appState.attachedWindowHwnd = null;
     appState.setState('FALLING');
@@ -375,6 +378,7 @@ export async function arrangeDesktopWindows(
     appState.changeEnergy(-4);
     appState.changeMood(5);
     spawnParticles(appState.posX, appState.posY - 90, 16, 0x38bdf8);
+    fireAnimationTrigger('tool', 'window_layout', 'start');
 
     const layoutNames: Record<typeof layout, string> = {
       split_2: 'Chia Đôi 2 App (50/50)',

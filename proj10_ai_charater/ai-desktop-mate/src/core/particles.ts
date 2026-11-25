@@ -1417,13 +1417,55 @@ export function spawnFrameHighlight(x: number, y: number, w: number, h: number) 
   spawnParticles(x + w * 0.5, y + h * 0.5, 8, 0x38bdf8);
 }
 
-const SPECIAL_EFFECT_TYPES = [
+export const SPECIAL_EFFECT_TYPES = [
   'meteor_shower',
   'aurora_ring',
   'cyber_fireworks',
   'starlight_fountain',
   'matrix_pulse',
+  'plasma_nova',
+  'sakura_vortex',
+  'cyber_dna_helix',
+  'golden_jackpot',
 ] as const;
+
+export type Special3DEffectType = (typeof SPECIAL_EFFECT_TYPES)[number];
+
+export const SPECIAL_3D_EFFECT_CATALOG: Array<{ id: Special3DEffectType; label: string }> = [
+  { id: 'meteor_shower', label: 'Mưa Sao Băng 3D' },
+  { id: 'aurora_ring', label: 'Vòng Cực Quang Đa Sắc' },
+  { id: 'cyber_fireworks', label: 'Pháo Hoa 3D Cyber' },
+  { id: 'starlight_fountain', label: 'Đài Phun Ánh Sao' },
+  { id: 'matrix_pulse', label: 'Sóng Dữ Liệu Matrix' },
+  { id: 'plasma_nova', label: 'Vụ Nổ Plasma Nova 3D' },
+  { id: 'sakura_vortex', label: 'Lốc Xoáy Hoa Anh Đào' },
+  { id: 'cyber_dna_helix', label: 'Chuỗi Xoắn Kép Cyber DNA' },
+  { id: 'golden_jackpot', label: 'Suối Vàng Thần Tài' },
+];
+
+const specialFxDeck: Special3DEffectType[] = [];
+let lastSpecialFx: string = '';
+
+function drawSpecialFxFromDeck(): Special3DEffectType {
+  if (specialFxDeck.length === 0) {
+    specialFxDeck.push(...SPECIAL_EFFECT_TYPES);
+    for (let i = specialFxDeck.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const tmp = specialFxDeck[i];
+      specialFxDeck[i] = specialFxDeck[j];
+      specialFxDeck[j] = tmp;
+    }
+    if (specialFxDeck.length > 1 && specialFxDeck[specialFxDeck.length - 1] === lastSpecialFx) {
+      const swapIdx = Math.floor(Math.random() * (specialFxDeck.length - 1));
+      const top = specialFxDeck[specialFxDeck.length - 1];
+      specialFxDeck[specialFxDeck.length - 1] = specialFxDeck[swapIdx];
+      specialFxDeck[swapIdx] = top;
+    }
+  }
+  const picked = specialFxDeck.pop()!;
+  lastSpecialFx = picked;
+  return picked;
+}
 
 export function triggerRandomSpecial3DEffect(
   x: number,
@@ -1434,7 +1476,7 @@ export function triggerRandomSpecial3DEffect(
   const chosen =
     forcedType && SPECIAL_EFFECT_TYPES.includes(forcedType as (typeof SPECIAL_EFFECT_TYPES)[number])
       ? forcedType
-      : SPECIAL_EFFECT_TYPES[Math.floor(Math.random() * SPECIAL_EFFECT_TYPES.length)];
+      : drawSpecialFxFromDeck();
 
   const addParticle = (
     px: number,
@@ -1519,14 +1561,87 @@ export function triggerRandomSpecial3DEffect(
       const col = i % 3 === 0 ? 0xfef08a : i % 3 === 1 ? 0x38bdf8 : 0x34d399;
       addParticle(x, y - 20 * s, spreadX, upY, (Math.random() - 0.5) * 1.4, col, 0.8, 0.88);
     }
-  } else {
-    // matrix_pulse
+  } else if (chosen === 'matrix_pulse') {
     spawnShockwave(x, y - 35 * s, 0x22c55e);
     spawnShockwave(x, y - 85 * s, 0x06b6d4);
     for (let i = 0; i < 24; i++) {
       const colX = x + (-95 + (i % 8) * 26) * s;
       const col = i % 2 === 0 ? 0x22c55e : 0x06b6d4;
       addParticle(colX, y - (30 + (i % 3) * 35) * s, 0, 2.2 + Math.random() * 1.8, 0, col, 0.72, 0.9);
+    }
+  } else if (chosen === 'plasma_nova') {
+    spawnShockwave(x, y - 65 * s, 0xec4899);
+    spawnShockwave(x, y - 72 * s, 0x22d3ee);
+    spawnShockwave(x, y - 80 * s, 0xfacc15);
+    const novaCols = [0xec4899, 0x22d3ee, 0xfacc15, 0xa855f7];
+    for (let i = 0; i < 30; i++) {
+      const a = (i / 30) * Math.PI * 2;
+      const elev = ((i % 5) - 2) * 0.42;
+      const spd = 2.8 + Math.random() * 2.2;
+      addParticle(
+        x,
+        y - 72 * s,
+        Math.cos(a) * spd,
+        Math.sin(a) * spd * 0.7 + elev * 2.2,
+        Math.sin(a * 2) * 1.8,
+        novaCols[i % novaCols.length],
+        0.92,
+        0.85
+      );
+    }
+  } else if (chosen === 'sakura_vortex') {
+    spawnShockwave(x, y - 20 * s, 0xf472b6);
+    const sakuraCols = [0xf472b6, 0xfb7185, 0xfdf2f8];
+    for (let i = 0; i < 28; i++) {
+      const a = (i / 28) * Math.PI * 4;
+      const r = (24 + (i % 6) * 8) * s;
+      addParticle(
+        x + Math.cos(a) * r,
+        y - (15 + i * 5) * s,
+        -Math.sin(a) * 1.6,
+        1.9 + Math.random() * 1.4,
+        Math.cos(a) * 1.4,
+        sakuraCols[i % sakuraCols.length],
+        0.82,
+        1.05
+      );
+    }
+  } else if (chosen === 'cyber_dna_helix') {
+    spawnShockwave(x, y - 35 * s, 0x06b6d4);
+    spawnShockwave(x, y - 105 * s, 0xa855f7);
+    for (let i = 0; i < 28; i++) {
+      const strand = i % 2;
+      const a = (i / 14) * Math.PI * 2 + (strand === 1 ? Math.PI : 0);
+      const col = strand === 0 ? 0x06b6d4 : 0xa855f7;
+      addParticle(
+        x + Math.cos(a) * 44 * s,
+        y - (18 + Math.floor(i / 2) * 11) * s,
+        Math.cos(a) * 0.45,
+        2.1,
+        Math.sin(a) * 0.85,
+        col,
+        0.85,
+        0.95
+      );
+    }
+  } else {
+    // golden_jackpot
+    spawnShockwave(x, y - 18 * s, 0xfacc15);
+    spawnShockwave(x, y - 48 * s, 0xfde047);
+    spawnShockwave(x, y - 78 * s, 0x34d399);
+    const goldCols = [0xfacc15, 0xfde047, 0x34d399, 0xf59e0b];
+    for (let i = 0; i < 30; i++) {
+      const ang = (i / 30) * Math.PI * 2;
+      addParticle(
+        x + Math.cos(ang) * 14 * s,
+        y - 45 * s,
+        Math.cos(ang) * (1.8 + Math.random() * 1.6),
+        3.0 + Math.random() * 2.5,
+        Math.sin(ang) * 1.4,
+        goldCols[i % goldCols.length],
+        0.92,
+        0.9
+      );
     }
   }
 

@@ -4,6 +4,7 @@ import { listen } from '@tauri-apps/api/event';
 import { appState } from './state';
 import { WinRect } from './types';
 import { scene } from './scene';
+import { fireAnimationTrigger } from './animationBinder';
 import {
   showJetpack,
   spawnBlackHole,
@@ -2019,6 +2020,7 @@ export function startP2pPkMatch() {
     speak('[PK ARENA] Bạn cần kết nối Handshake với máy đối thủ (hoặc bật Giả Lập Máy B) trước khi PK!');
     return;
   }
+  fireAnimationTrigger('tool', 'p2p_arena', 'start');
   setupLocalPkArena(true);
 }
 
@@ -2062,6 +2064,7 @@ function finalizePkOutcome(localWon: boolean, notifyPeer: boolean) {
     playSuccessChimeSound(appState.posX);
     appState.setState('DANCING');
     appState.setExpression('happy', 4.5);
+    fireAnimationTrigger('event', 'p2p_victory', 'enter');
     removePeerDuckMesh();
 
     if (notifyPeer && !currentStatus.is_sim_mode) {
@@ -2083,6 +2086,7 @@ function finalizePkOutcome(localWon: boolean, notifyPeer: boolean) {
     appState.setState('TIRED');
     appState.setExpression('sad', 5.0);
     spawnParticles(appState.posX, appState.posY - 80, 18, 0xef4444);
+    fireAnimationTrigger('event', 'p2p_defeat', 'enter');
 
     if (notifyPeer && !currentStatus.is_sim_mode) {
       void invoke('p2p_send_packet', {

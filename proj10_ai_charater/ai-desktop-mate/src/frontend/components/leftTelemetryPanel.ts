@@ -16,9 +16,12 @@ export const leftTelemetryPanelHtml = `
     </div>
 
     <div id="card-group-app-metrics">
-      <div class="dash-card" style="border-color: rgba(56, 189, 248, 0.4); background: rgba(14, 165, 233, 0.08);">
+      <div class="dash-card" style="border-color: rgba(56, 189, 248, 0.42); background: linear-gradient(160deg, rgba(14, 165, 233, 0.14), rgba(15, 23, 42, 0.86));">
         <div class="dash-row-top">
-          <span class="dash-label" style="color: #38bdf8; font-weight: 700;">Hiệu Năng App Này</span>
+          <span class="dash-label" style="color: #38bdf8; font-weight: 700;">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3"/></svg>
+            <span>Hiệu Năng App Này</span>
+          </span>
           <span id="dash-app-pid" class="dash-value" style="font-size: 10px; color: #7dd3fc; background: rgba(56, 189, 248, 0.2); padding: 1px 6px; border-radius: 4px;">PID: --</span>
         </div>
         
@@ -197,11 +200,12 @@ export const leftTelemetryPanelHtml = `
         <div id="eng-example-en" style="font-size: 10px; color: #cbd5e1; line-height: 1.35; border-left: 2px solid #8b5cf6; padding-left: 5px; margin-bottom: 3px;"></div>
         <div id="eng-example-vi" style="font-size: 10px; color: #86efac; line-height: 1.35; border-left: 2px solid #22c55e; padding-left: 5px;"></div>
       </div>
-      <div style="display: flex; gap: 4px; margin-bottom: 5px;">
+      <div style="display: flex; gap: 4px; margin-bottom: 5px; flex-wrap: wrap;">
         <button id="btn-eng-next" class="btn-mini-action" type="button" style="color: #ddd6fe; border-color: rgba(167, 139, 250, 0.4);">Từ Mới</button>
         <button id="btn-eng-translate" class="btn-mini-action" type="button" style="color: #86efac; border-color: rgba(52, 211, 153, 0.45);" title="Dịch lại từ vựng, giải nghĩa và câu ví dụ sang tiếng Việt">Dịch TV</button>
         <button id="btn-eng-audio" class="btn-mini-action" type="button">Phát Âm</button>
         <button id="btn-eng-quiz" class="btn-mini-action" type="button">Đố Vui</button>
+        <button id="btn-open-english-coach" class="btn-mini-action" type="button" style="color: #7dd3fc; border-color: rgba(56, 189, 248, 0.45);" title="Mở Duck English Coach 4 Tab (Flashcard Cloud, SRS, Quiz, Luyện Nói)">Studio TA</button>
       </div>
       <div id="eng-history-list" class="dash-scroll-list" style="max-height: 76px;"></div>
     </div>

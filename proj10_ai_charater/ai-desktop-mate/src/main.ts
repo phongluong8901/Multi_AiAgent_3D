@@ -47,8 +47,8 @@ import {
   onAnimationFired,
   trackCharacterStateTransition,
 } from './core/animationBinder';
-import { initAnimationManagerUi } from './frontend/components/animationManagerModal';
 import { initUiMotion } from './frontend/uiMotion';
+import { sampleActiveVoiceLipSync } from './frontend/features/voiceTts';
 
 const container = document.getElementById('canvas-container') as HTMLElement;
 initScene(container);
@@ -101,8 +101,10 @@ try {
 
 try {
   initAnimationBinder();
-  initAnimationManagerUi();
   initUiMotion();
+  void import('./frontend/components/animationManagerModal')
+    .then(({ initAnimationManagerUi }) => initAnimationManagerUi())
+    .catch((err) => console.error('[AnimManager] Lazy init error:', err));
 } catch (err) {
   console.error('[INIT ERROR] initAnimationBinder failed:', err);
 }
@@ -243,8 +245,10 @@ function animate() {
     Math.abs(appState.posX - lastRenderedPosX) > 0.25 ||
     Math.abs(appState.posY - lastRenderedPosY) > 0.25 ||
     Math.abs(appState.facingAngle - lastRenderedFacing) > 0.008 ||
-    Math.abs(appState.squashX - 1.0) > 0.008 ||
-    Math.abs(appState.squashY - 1.0) > 0.008;
+    Math.abs(appState.squashX - 1.0) > 0.004 ||
+    Math.abs(appState.squashY - 1.0) > 0.004 ||
+    Math.abs(appState.squashVelX) > 0.02 ||
+    Math.abs(appState.squashVelY) > 0.02;
 
   const isActiveMotion =
     ACTIVE_MOTION_STATES.has(appState.state) ||
@@ -256,6 +260,8 @@ function animate() {
     appState.isFileDragHovering ||
     appState.expressionTimer > 0 ||
     appState.speechLipSyncTimer > 0 ||
+    appState.isRealAudioLipSync ||
+    appState.isSystemMusicPlaying ||
     isAnimationOverlayActive() ||
     isTypewriterActive();
 
@@ -309,9 +315,22 @@ function animate() {
   appState.avatarGroup.position.set(appState.posX, -appState.posY, appState.posZ || 0);
   appState.avatarGroup.rotation.y = appState.facingAngle;
 
-  // Co giãn đàn hồi (Squash & Stretch) khi nhảy/tiếp đất & phối cảnh độ sâu Z khi bơi
-  appState.squashX = THREE.MathUtils.lerp(appState.squashX, 1.0, Math.min(1, delta * 12));
-  appState.squashY = THREE.MathUtils.lerp(appState.squashY, 1.0, Math.min(1, delta * 12));
+  // Lò xo đàn hồi (Spring Squash & Stretch) cho các cú bật nhảy, chọc vui & tiếp đất
+  const springDt = Math.min(0.025, delta);
+  const kSpring = 210;
+  const cDamp = 17.5;
+  appState.squashVelX += ((1.0 - appState.squashX) * kSpring - appState.squashVelX * cDamp) * springDt;
+  appState.squashVelY += ((1.0 - appState.squashY) * kSpring - appState.squashVelY * cDamp) * springDt;
+  appState.squashX = THREE.MathUtils.clamp(appState.squashX + appState.squashVelX * springDt, 0.68, 1.38);
+  appState.squashY = THREE.MathUtils.clamp(appState.squashY + appState.squashVelY * springDt, 0.68, 1.38);
+  if (Math.abs(appState.squashX - 1.0) < 0.0015 && Math.abs(appState.squashVelX) < 0.015) {
+    appState.squashX = 1.0;
+    appState.squashVelX = 0;
+  }
+  if (Math.abs(appState.squashY - 1.0) < 0.0015 && Math.abs(appState.squashVelY) < 0.015) {
+    appState.squashY = 1.0;
+    appState.squashVelY = 0;
+  }
   const depthScale = appState.swimDepthScale || 1.0;
   appState.avatarGroup.scale.set(
     appState.squashX * depthScale,
@@ -344,6 +363,8 @@ function animate() {
       Math.min(1, delta * 10)
     );
   }
+
+  sampleActiveVoiceLipSync(delta);
 
   if (appState.currentVrm) {
     animateVrmCharacter(appState.currentVrm, elapsed, delta);

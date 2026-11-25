@@ -49,6 +49,159 @@ let typingReactionCooldown = 0;
 let musicReactionCooldown = 0;
 let manualBeatTimer = 0;
 let rhythmSparkTimer = 0;
+let smoothedAudioPeak = 0;
+let smoothedAudioLeft = 0;
+let smoothedAudioRight = 0;
+let silenceHoldTimer = 1.0;
+let studioBadgeTick = 0;
+
+interface AudioEqStage {
+  group: THREE.Group;
+  bars: THREE.Mesh[];
+  barMats: THREE.MeshBasicMaterial[];
+  bassRing: THREE.Mesh;
+  bassRingMat: THREE.MeshBasicMaterial;
+}
+
+let audioEqStage: AudioEqStage | null = null;
+const EQ_BAR_COUNT = 16;
+const EQ_PALETTE = [0x38bdf8, 0x818cf8, 0xc084fc, 0xf472b6, 0x34d399, 0x22d3ee];
+
+function ensureAudioEqStage(): AudioEqStage {
+  if (audioEqStage) return audioEqStage;
+  const group = new THREE.Group();
+  group.visible = false;
+
+  const ringGeo = new THREE.RingGeometry(28, 33, 40);
+  const bassRingMat = new THREE.MeshBasicMaterial({
+    color: 0x38bdf8,
+    transparent: true,
+    opacity: 0.55,
+    side: THREE.DoubleSide,
+  });
+  const bassRing = new THREE.Mesh(ringGeo, bassRingMat);
+  bassRing.scale.set(1.35, 0.42, 1);
+  group.add(bassRing);
+
+  const bars: THREE.Mesh[] = [];
+  const barMats: THREE.MeshBasicMaterial[] = [];
+  const barGeo = new THREE.BoxGeometry(4.2, 1, 2.8);
+  barGeo.translate(0, 0.5, 0);
+
+  for (let i = 0; i < EQ_BAR_COUNT; i++) {
+    const mat = new THREE.MeshBasicMaterial({
+      color: EQ_PALETTE[i % EQ_PALETTE.length],
+      transparent: true,
+      opacity: 0.86,
+    });
+    const bar = new THREE.Mesh(barGeo, mat);
+    const angle = (i / EQ_BAR_COUNT) * Math.PI * 2;
+    const rx = 44;
+    const ry = 15;
+    bar.position.set(Math.cos(angle) * rx, Math.sin(angle) * ry, Math.sin(angle) > 0 ? -4 : 5);
+    bars.push(bar);
+    barMats.push(mat);
+    group.add(bar);
+  }
+
+  scene.add(group);
+  audioEqStage = { group, bars, barMats, bassRing, bassRingMat };
+  return audioEqStage;
+}
+
+function stepAudioEqualizer3D(delta: number, elapsed: number) {
+  const rawPeak = appState.audioVisualizer3dEnabled ? appState.systemAudioPeak : 0;
+  const rawL = appState.audioVisualizer3dEnabled ? appState.systemAudioLeft : 0;
+  const rawR = appState.audioVisualizer3dEnabled ? appState.systemAudioRight : 0;
+  const manualActive = manualBeatTimer > 0;
+
+  const targetPeak = manualActive
+    ? Math.max(rawPeak, 0.48 + Math.abs(Math.sin(elapsed * 8.4)) * 0.34)
+    : rawPeak;
+  const targetL = manualActive
+    ? Math.max(rawL, 0.42 + Math.abs(Math.sin(elapsed * 7.8)) * 0.4)
+    : rawL;
+  const targetR = manualActive
+    ? Math.max(rawR, 0.42 + Math.abs(Math.cos(elapsed * 8.6)) * 0.4)
+    : rawR;
+
+  const attack = Math.min(1, delta * 20);
+  const release = Math.min(1, delta * 6.5);
+  smoothedAudioPeak += (targetPeak - smoothedAudioPeak) * (targetPeak > smoothedAudioPeak ? attack : release);
+  smoothedAudioLeft += (targetL - smoothedAudioLeft) * (targetL > smoothedAudioLeft ? attack : release);
+  smoothedAudioRight += (targetR - smoothedAudioRight) * (targetR > smoothedAudioRight ? attack : release);
+
+  if (manualActive && appState.audioBeatPulse <= 0.08 && Math.sin(elapsed * 12.5) > 0.92) {
+    appState.audioBeatPulse = 0.88;
+  }
+  appState.audioBeatPulse = Math.max(0, appState.audioBeatPulse - delta * 3.4);
+
+  if (smoothedAudioPeak > 0.024 || manualActive) {
+    silenceHoldTimer = 0;
+    appState.isSystemMusicPlaying = true;
+  } else {
+    silenceHoldTimer += delta;
+    if (silenceHoldTimer > 0.55) {
+      appState.isSystemMusicPlaying = false;
+    }
+  }
+
+  if (appState.isStudioOpen) {
+    studioBadgeTick += delta;
+    if (studioBadgeTick >= 0.35) {
+      studioBadgeTick = 0;
+      const badge = document.getElementById('studio-audio-live-badge');
+      if (badge) {
+        if (!appState.audioVisualizer3dEnabled) {
+          badge.textContent = '[AUDIO: TẮT]';
+        } else if (appState.isSystemMusicPlaying) {
+          const bpmTxt = appState.systemAudioBpm > 0 ? `${appState.systemAudioBpm} BPM` : 'LIVE';
+          badge.textContent = `[AUDIO: ${bpmTxt} | ${Math.round(smoothedAudioPeak * 100)}%]`;
+        } else {
+          badge.textContent = '[AUDIO: NGHỈ]';
+        }
+      }
+    }
+  }
+
+  if (!appState.isSystemMusicPlaying || appState.state === 'SLEEP' || appState.isEdgePeekMode) {
+    if (audioEqStage) audioEqStage.group.visible = false;
+    return;
+  }
+
+  const stage = ensureAudioEqStage();
+  stage.group.visible = true;
+  const s = appState.modelScale;
+  stage.group.position.set(appState.posX, -appState.posY + 6 * s, -3);
+  stage.group.scale.setScalar(s);
+
+  const pulse = appState.audioBeatPulse;
+  const ringScale = 1.32 + smoothedAudioPeak * 0.32 + pulse * 0.24;
+  stage.bassRing.scale.set(ringScale, ringScale * 0.33, 1);
+  stage.bassRingMat.opacity = Math.min(0.85, 0.22 + smoothedAudioPeak * 0.48 + pulse * 0.28);
+  stage.bassRingMat.color.setHex(pulse > 0.45 ? 0xf472b6 : 0x38bdf8);
+
+  const bpmHz = Math.max(1.4, (appState.systemAudioBpm || 120) / 60);
+  for (let i = 0; i < EQ_BAR_COUNT; i++) {
+    const angle = (i / EQ_BAR_COUNT) * Math.PI * 2;
+    const isLeftSide = Math.cos(angle) < 0;
+    const chAmp = isLeftSide ? smoothedAudioLeft : smoothedAudioRight;
+    const wave =
+      0.55 +
+      0.45 * Math.abs(Math.sin(elapsed * bpmHz * Math.PI * 2 + i * 0.65)) +
+      0.25 * Math.abs(Math.cos(elapsed * 13.5 - i * 0.9));
+    const heightPx = Math.max(2.5, (5 + chAmp * 34 * wave + pulse * 11));
+    const bar = stage.bars[i];
+    bar.scale.y = heightPx;
+    const mat = stage.barMats[i];
+    mat.opacity = Math.min(0.95, 0.35 + chAmp * 0.6 + pulse * 0.2);
+    if (pulse > 0.55 && i % 2 === 0) {
+      mat.color.setHex(0xfde047);
+    } else {
+      mat.color.setHex(EQ_PALETTE[(i + Math.floor(elapsed * 3)) % EQ_PALETTE.length]);
+    }
+  }
+}
 
 let ambientRoamHatElapsed = 0;
 let temporaryHatTimer = 0;
@@ -870,15 +1023,19 @@ export function hasRhythmGooseVisuals(): boolean {
     territoryState !== null ||
     footprints.length > 0 ||
     laserBolts.length > 0 ||
-    intruderDuckGroup !== null
+    intruderDuckGroup !== null ||
+    Boolean(audioEqStage?.group.visible)
   );
 }
 
 export function updateRhythmAndGoose(delta: number, elapsed: number) {
   if (isP2pSessionActive()) {
     appState.rhythmIntensity = 0;
+    appState.isSystemMusicPlaying = false;
+    if (audioEqStage) audioEqStage.group.visible = false;
     return;
   }
+  stepAudioEqualizer3D(delta, elapsed);
   // 1. Tính tốc độ gõ phím thực tế theo từng frame
   if (lastKeyPressTotal < 0) {
     lastKeyPressTotal = appState.keyPressTotal;

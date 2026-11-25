@@ -104,7 +104,7 @@ export const miniScreenPanelHtml = `
             WebView Mini chưa khởi chạy (không tốn RAM/CPU nền). Nhấn YouTube hoặc dán link khi cần dùng.
           </div>
           <label style="display: flex; align-items: center; gap: 6px; font-size: 10.5px; color: #cbd5e1; margin-bottom: 6px; cursor: pointer;">
-            <input id="chk-mini-web-autoclose" type="checkbox" checked style="accent-color: #38bdf8;" />
+            <input id="chk-mini-web-autoclose" type="checkbox" style="accent-color: #38bdf8;" />
             <span>Tự đóng hẳn WebView khi tắt bảng Mini Screen (giải phóng 0 MB RAM)</span>
           </label>
           <div style="display: flex; flex-wrap: wrap; gap: 5px; align-items: center; justify-content: space-between;">

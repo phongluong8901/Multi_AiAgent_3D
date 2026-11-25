@@ -436,6 +436,38 @@ function buildMicroDuckHierarchy(
   camGlint.position.set(-1.3, 1.4, 3.1);
   camEyeGroup.add(camGlint);
 
+  const shutterMat = new THREE.MeshPhongMaterial({
+    color: 0x1e293b,
+    shininess: 68,
+    specular: 0x64748b,
+    side: THREE.DoubleSide,
+  });
+  const eyelidUpperGeo = new THREE.SphereGeometry(4.34, 20, 10, 0, Math.PI, 0, Math.PI * 0.52);
+  const eyelidUpper = new THREE.Mesh(eyelidUpperGeo, shutterMat);
+  eyelidUpper.position.set(0, 0, 0.12);
+  eyelidUpper.rotation.x = -1.42;
+  camEyeGroup.add(eyelidUpper);
+
+  const eyelidLowerGeo = new THREE.SphereGeometry(
+    4.31,
+    20,
+    10,
+    0,
+    Math.PI,
+    Math.PI * 0.48,
+    Math.PI * 0.52
+  );
+  const eyelidLower = new THREE.Mesh(eyelidLowerGeo, shutterMat);
+  eyelidLower.position.set(0, 0, 0.12);
+  eyelidLower.rotation.x = 1.42;
+  camEyeGroup.add(eyelidLower);
+
+  if (bindGlobalRig) {
+    duckNodes.camGlint = camGlint;
+    duckNodes.eyelidUpper = eyelidUpper;
+    duckNodes.eyelidLower = eyelidLower;
+  }
+
   const irSlotGeo = new THREE.ExtrudeGeometry(makeRoundedRect(7.5, 3.2, 1.5), {
     depth: 1.4,
     bevelEnabled: false,
@@ -491,7 +523,13 @@ function buildMicroDuckHierarchy(
     duckNodes.beakLower = lowerBeak;
   }
 
-  [-1, 1].forEach((side) => {
+  let earLeftGroup: THREE.Group | null = null;
+  let earRightGroup: THREE.Group | null = null;
+  ([-1, 1] as const).forEach((side) => {
+    const earPivot = new THREE.Group();
+    earPivot.position.set(side * 30.8, 1.5, -5);
+    head.add(earPivot);
+
     const earShape = new THREE.Shape();
     earShape.moveTo(-6, -2);
     earShape.lineTo(6, -2);
@@ -507,10 +545,9 @@ function buildMicroDuckHierarchy(
     });
     earGeo.rotateY((side * Math.PI) / 2);
     const earMesh = new THREE.Mesh(earGeo, orangePrintMat);
-    earMesh.position.set(side * 30.8, 1.5, -5);
-    head.add(earMesh);
+    earPivot.add(earMesh);
     addBoltDots(
-      earMesh,
+      earPivot,
       [
         [side * 2.5, 2, 1.5],
         [side * 2.5, 6.2, -1],
@@ -518,12 +555,57 @@ function buildMicroDuckHierarchy(
       ],
       0.75
     );
+    if (side === -1) earLeftGroup = earPivot;
+    else earRightGroup = earPivot;
   });
+  if (bindGlobalRig) {
+    duckNodes.earLeft = earLeftGroup;
+    duckNodes.earRight = earRightGroup;
+  }
 
-  const leftArm = new THREE.Group();
-  const rightArm = new THREE.Group();
+  const buildCyberWinglet = (side: -1 | 1): THREE.Group => {
+    const arm = new THREE.Group();
+    arm.position.set(side * 24.4, 11.5, 1.2);
+
+    const hinge = new THREE.Mesh(new THREE.CylinderGeometry(3.0, 3.0, 2.2, 12), silverBracketMat);
+    hinge.rotation.z = Math.PI / 2;
+    arm.add(hinge);
+
+    const wingShape = new THREE.Shape();
+    wingShape.moveTo(-5.2, 1.5);
+    wingShape.lineTo(5.8, 1.5);
+    wingShape.quadraticCurveTo(7.0, -6.5, 2.2, -14.5);
+    wingShape.quadraticCurveTo(-3.8, -16.2, -8.5, -9.5);
+    wingShape.quadraticCurveTo(-8.2, -2.5, -5.2, 1.5);
+
+    const wingGeo = new THREE.ExtrudeGeometry(wingShape, {
+      depth: 2.6,
+      bevelEnabled: true,
+      bevelThickness: 0.7,
+      bevelSize: 0.6,
+      bevelSegments: 2,
+    });
+    wingGeo.translate(0, 0, -1.3);
+    wingGeo.rotateY(Math.PI / 2);
+    const wingMesh = new THREE.Mesh(wingGeo, whitePrintMat);
+    wingMesh.position.set(side * 1.6, -1.0, -1.2);
+    arm.add(wingMesh);
+
+    const wingTipGeo = new THREE.BoxGeometry(1.8, 4.8, 8.2);
+    const wingTip = new THREE.Mesh(wingTipGeo, orangePrintMat);
+    wingTip.position.set(side * 2.3, -11.2, -2.6);
+    wingTip.rotation.x = 0.28;
+    arm.add(wingTip);
+
+    return arm;
+  };
+
+  const leftArm = buildCyberWinglet(-1);
+  const rightArm = buildCyberWinglet(1);
   const leftForearm = new THREE.Group();
   const rightForearm = new THREE.Group();
+  leftArm.add(leftForearm);
+  rightArm.add(rightForearm);
   if (bindGlobalRig) {
     setRigLeftArm(leftArm);
     setRigRightArm(rightArm);
@@ -531,6 +613,21 @@ function buildMicroDuckHierarchy(
     setRigRightForearm(rightForearm);
   }
   torso.add(leftArm, rightArm);
+
+  const tailGroup = new THREE.Group();
+  tailGroup.position.set(0, 9.5, -17.2);
+  const tailBase = new THREE.Mesh(new THREE.BoxGeometry(12, 6.2, 7.5), whitePrintMat);
+  tailBase.position.set(0, 1.4, -2.6);
+  tailBase.rotation.x = 0.38;
+  tailGroup.add(tailBase);
+  const tailTip = new THREE.Mesh(new THREE.BoxGeometry(8.6, 3.6, 5.2), orangePrintMat);
+  tailTip.position.set(0, 4.0, -5.8);
+  tailTip.rotation.x = 0.56;
+  tailGroup.add(tailTip);
+  torso.add(tailGroup);
+  if (bindGlobalRig) {
+    duckNodes.tail = tailGroup;
+  }
 
   const buildOpenDuckLeg = (side: -1 | 1): { hip: THREE.Group; knee: THREE.Group } => {
     const hip = new THREE.Group();
@@ -679,10 +776,17 @@ function buildMicroDuckHierarchy(
     torso,
     neck,
     head,
+    camEyeGroup,
+    eyelidUpper,
+    eyelidLower,
+    camGlint,
     upperBeak,
     lowerBeak,
     leftArm,
     rightArm,
+    leftForearm,
+    rightForearm,
+    tailGroup,
     leftLeg.hip,
     rightLeg.hip,
     leftLeg.knee,
@@ -691,6 +795,8 @@ function buildMicroDuckHierarchy(
     ...localFootRollers,
     ...localWheels,
   ]);
+  if (earLeftGroup) excludeNodes.add(earLeftGroup);
+  if (earRightGroup) excludeNodes.add(earRightGroup);
   root.updateMatrixWorld(true);
   mergeStaticMeshesInGroup(hips, excludeNodes);
   mergeStaticMeshesInGroup(torso, excludeNodes);

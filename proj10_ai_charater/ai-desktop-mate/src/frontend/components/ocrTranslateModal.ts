@@ -63,10 +63,11 @@ export const ocrTranslateModalHtml = `
       </div>
     </div>
 
-    <div class="fd-footer" style="margin-top: 8px;">
+    <div class="fd-footer" style="margin-top: 8px; flex-wrap: wrap;">
       <button id="btn-ocr-copy-src" class="btn-footer" type="button">Copy Gốc</button>
       <button id="btn-ocr-copy-dst" class="btn-footer" type="button" style="background: rgba(16, 185, 129, 0.2); border-color: rgba(52, 211, 153, 0.45); color: #6ee7b7;">Copy Bản Dịch</button>
       <button id="btn-ocr-speak-dst" class="btn-footer" type="button">Đọc To</button>
+      <button id="btn-ocr-save-vocab" class="btn-footer" type="button" style="background: rgba(99, 102, 241, 0.24); border-color: rgba(129, 140, 248, 0.5); color: #c7d2fe;">Lưu Từ TA</button>
       <button id="btn-ocr-send-chat" class="btn-footer" type="button" style="background: rgba(56, 189, 248, 0.2); border-color: rgba(56, 189, 248, 0.45); color: #7dd3fc;">Đưa Vào Chat</button>
     </div>
   </div>

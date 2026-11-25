@@ -1,6 +1,7 @@
 pub mod automation_desktop;
 pub mod cloud_hub;
 pub mod desktop_icons;
+pub mod english_offline_deck;
 pub mod llm;
 pub mod memory;
 pub mod mini_screen;

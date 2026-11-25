@@ -5,6 +5,12 @@ export interface DuckNodes {
   beakLower: THREE.Group | null;
   neck: THREE.Group | null;
   cameraRingMat: THREE.MeshPhongMaterial | THREE.MeshStandardMaterial | null;
+  eyelidUpper: THREE.Mesh | null;
+  eyelidLower: THREE.Mesh | null;
+  camGlint: THREE.Mesh | null;
+  earLeft: THREE.Group | null;
+  earRight: THREE.Group | null;
+  tail: THREE.Group | null;
   wheels: THREE.Object3D[];
   footRollers: THREE.Group[];
   feet: THREE.Group[];
@@ -30,6 +36,12 @@ export const duckNodes: DuckNodes = {
   beakLower: null,
   neck: null,
   cameraRingMat: null,
+  eyelidUpper: null,
+  eyelidLower: null,
+  camGlint: null,
+  earLeft: null,
+  earRight: null,
+  tail: null,
   wheels: [],
   footRollers: [],
   feet: [],
@@ -70,6 +82,12 @@ export function resetRigNodes() {
   duckNodes.beakLower = null;
   duckNodes.neck = null;
   duckNodes.cameraRingMat = null;
+  duckNodes.eyelidUpper = null;
+  duckNodes.eyelidLower = null;
+  duckNodes.camGlint = null;
+  duckNodes.earLeft = null;
+  duckNodes.earRight = null;
+  duckNodes.tail = null;
   duckNodes.wheels = [];
   duckNodes.footRollers = [];
   duckNodes.feet = [];

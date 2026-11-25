@@ -1,6 +1,12 @@
 import { invoke } from '@tauri-apps/api/core';
 import { appState } from '../core/state';
-import { AutoBehaviorKey, FrameZone } from '../core/types';
+import {
+  fireAnimationTrigger,
+  getClipById,
+  isAnimationOverlayActive,
+  previewClip,
+} from '../core/animationBinder';
+import { AUTO_BEHAVIOR_CATALOG, AutoBehaviorKey, FrameZone } from '../core/types';
 import { createMicroDuckCharacter } from '../characters/characterRig';
 import { equipAccessory3D } from '../characters/accessories3d';
 import { clearCachedVrm } from '../characters/vrmManager';
@@ -77,6 +83,49 @@ let frameZoneIdx = 0;
 let ignoreWindowHwnd: number | null = null;
 let ignoreWindowTimer = 0;
 let lastAutoBehaviorKey: AutoBehaviorKey | null = null;
+const roamClipDeck: AutoBehaviorKey[] = [];
+const roamActionDeck: AutoBehaviorKey[] = [];
+let ambientClipTimer = 0;
+
+const WINDOW_UNSAFE_ROOT_CLIPS = new Set<AutoBehaviorKey>([
+  'clip_front_flip',
+  'clip_victory',
+  'clip_celebrate_backhop',
+  'clip_startled_hop',
+  'clip_surprise',
+  'clip_eureka_idea',
+  'clip_super_saiyan_charge',
+]);
+
+function drawFromBehaviorDeck(
+  deck: AutoBehaviorKey[],
+  validKeys: AutoBehaviorKey[],
+  excludeKey: AutoBehaviorKey | null
+): AutoBehaviorKey | null {
+  if (validKeys.length === 0) return null;
+  const validSet = new Set(validKeys);
+  const findIdx = (ignoreExclude: boolean) =>
+    deck.findIndex(
+      (k) => validSet.has(k) && (ignoreExclude || validKeys.length <= 1 || k !== excludeKey)
+    );
+
+  let idx = findIdx(false);
+  if (idx < 0) {
+    deck.length = 0;
+    deck.push(...validKeys);
+    for (let i = deck.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const tmp = deck[i];
+      deck[i] = deck[j];
+      deck[j] = tmp;
+    }
+    idx = findIdx(false);
+    if (idx < 0) idx = findIdx(true);
+  }
+  if (idx < 0) return validKeys[0];
+  const [picked] = deck.splice(idx, 1);
+  return picked;
+}
 let lastLandedWinHwnd: number | null = null;
 let lastLandedTime = 0;
 
@@ -112,6 +161,7 @@ export function triggerSpawnRandomFood(announce = true) {
   }
 
   spawnFoodItem(foodX, foodY);
+  fireAnimationTrigger('event', 'food_spawn', 'enter');
   if (announce) {
     speak('Ồ! Đồ ăn vừa xuất hiện trên màn hình kìa, để tớ nhảy & leo lên lấy nhé!');
   }
@@ -130,6 +180,7 @@ function consumeFoodNow() {
   appState.changeMood(10);
   spawnParticles(appState.posX, appState.posY - 90, 14, 0xfbbf24);
   playSuccessChimeSound(appState.posX);
+  fireAnimationTrigger('event', 'food_eat', 'enter');
   speak('Măm măm! Leo trèo vất vả mới lấy được miếng bánh, ngon tuyệt cú mèo!');
 }
 
@@ -498,6 +549,7 @@ export function stepPhysicsAndRoam(delta: number) {
   } else if (appState.state === 'SLEEP' && appState.stateTimer > 15.0) {
     appState.nextRoamDuration = appState.getAutoActionDelay();
     appState.setState(appState.attachedWindowHwnd !== null ? 'SITTING_WINDOW' : 'IDLE');
+    fireAnimationTrigger('event', 'duck_wake', 'enter');
     speak('Oáp... MicroDuck thức dậy rồi!');
   } else if (
     appState.state === 'TIRED' &&
@@ -505,6 +557,7 @@ export function stepPhysicsAndRoam(delta: number) {
   ) {
     appState.nextRoamDuration = appState.getAutoActionDelay();
     appState.setState(appState.attachedWindowHwnd !== null ? 'SITTING_WINDOW' : 'IDLE');
+    fireAnimationTrigger('event', 'duck_wake', 'enter');
     speak('Đã nghỉ khỏe lại rồi, tiếp tục chiến đấu thôi!');
   }
 
@@ -852,6 +905,7 @@ export function stepPhysicsAndRoam(delta: number) {
             prevY <= win.y + Math.max(16, appState.velY + 4) &&
             appState.posY >= win.y - 10;
           if (withinX && crossedTop) {
+            const impactVy = Math.abs(appState.velY);
             appState.posY = win.y;
             appState.velX = 0;
             appState.velY = 0;
@@ -860,11 +914,16 @@ export function stepPhysicsAndRoam(delta: number) {
             appState.attachedLedgeOffsetY = 0;
             appState.attachedWinTitle = win.title;
             appState.attachedZoneLabel = '';
-            appState.squashX = 1.18;
-            appState.squashY = 0.84;
+            appState.triggerSquash(
+              Math.min(1.28, 1.12 + impactVy * 0.008),
+              Math.max(0.76, 0.88 - impactVy * 0.007)
+            );
             spawnShockwave(appState.posX, win.y, 0x38bdf8);
             playLandSound(appState.posX);
             appState.setState('SITTING_WINDOW');
+            if (impactVy > 13) {
+              fireAnimationTrigger('event', 'duck_land_heavy', 'enter');
+            }
             if (lastLandedWinHwnd !== win.hwnd || performance.now() - lastLandedTime > 4000) {
               speak(`Đang ngồi nghỉ trên: ${appState.attachedWinTitle.slice(0, 26)}`);
               lastLandedWinHwnd = win.hwnd;
@@ -876,24 +935,29 @@ export function stepPhysicsAndRoam(delta: number) {
       }
 
       if (appState.posY >= floorY) {
+        const impactVy = Math.abs(appState.velY);
         appState.posY = floorY;
-        if (Math.abs(appState.velY) > 6.5 && appState.bounceFactor > 0.1) {
-          appState.squashX = 1.2;
-          appState.squashY = 0.82;
+        if (impactVy > 6.5 && appState.bounceFactor > 0.1) {
+          appState.triggerSquash(
+            Math.min(1.30, 1.14 + impactVy * 0.009),
+            Math.max(0.74, 0.86 - impactVy * 0.008)
+          );
           spawnShockwave(appState.posX, floorY, 0x38bdf8);
           playLandSound(appState.posX);
           appState.velY = -appState.velY * appState.bounceFactor;
           appState.velX *= 0.72;
         } else {
-          if (Math.abs(appState.velY) > 3.0) {
-            appState.squashX = 1.14;
-            appState.squashY = 0.88;
+          if (impactVy > 3.0) {
+            appState.triggerSquash(1.16, 0.86);
             spawnShockwave(appState.posX, floorY, 0x38bdf8);
             playLandSound(appState.posX);
           }
           appState.velY = 0;
           appState.velX = 0;
           appState.setState('IDLE');
+          if (impactVy > 11.5) {
+            fireAnimationTrigger('event', 'duck_land_heavy', 'enter');
+          }
         }
       }
     }
@@ -988,8 +1052,36 @@ export function stepPhysicsAndRoam(delta: number) {
       return;
     }
 
+    const perchedOnWindow = appState.attachedWindowHwnd !== null;
+    const enabledClipKeys: AutoBehaviorKey[] = [];
+    for (const item of AUTO_BEHAVIOR_CATALOG) {
+      if (item.group !== 'clip3d') continue;
+      if (!appState.isAutoBehaviorEnabled(item.key)) continue;
+      if (perchedOnWindow && WINDOW_UNSAFE_ROOT_CLIPS.has(item.key)) continue;
+      enabledClipKeys.push(item.key);
+    }
+
+    // Diễn xen kẽ 1 hoạt ảnh nhẹ trong lúc đứng/ngồi chờ giữa các chu kỳ auto-roam dài
+    ambientClipTimer += delta;
+    if (
+      appState.nextRoamDuration >= 12 &&
+      ambientClipTimer >= 8.5 &&
+      appState.stateTimer < appState.nextRoamDuration - 3.0 &&
+      !isAnimationOverlayActive() &&
+      enabledClipKeys.length > 0
+    ) {
+      ambientClipTimer = 0;
+      const ambientPick = drawFromBehaviorDeck(roamClipDeck, enabledClipKeys, lastAutoBehaviorKey);
+      if (ambientPick) {
+        lastAutoBehaviorKey = ambientPick;
+        triggerAutoBehaviorNow(ambientPick, false);
+        return;
+      }
+    }
+
     if (appState.stateTimer >= appState.nextRoamDuration) {
       appState.stateTimer = 0;
+      ambientClipTimer = 0;
       appState.nextRoamDuration = appState.getAutoActionDelay();
 
       const floatingWins = appState.openWindows.filter(
@@ -1001,125 +1093,156 @@ export function stepPhysicsAndRoam(delta: number) {
           w.width < appState.W - 60
       );
 
-      const candidates: AutoBehaviorKey[] = [];
-      const addIfEnabled = (key: AutoBehaviorKey, cond = true) => {
-        if (cond && appState.isAutoBehaviorEnabled(key)) {
-          candidates.push(key);
+      const actionKeys: AutoBehaviorKey[] = [];
+      for (const item of AUTO_BEHAVIOR_CATALOG) {
+        if (item.group === 'clip3d') continue;
+        if (!appState.isAutoBehaviorEnabled(item.key)) continue;
+        if (
+          (item.key === 'jump_window' || item.key === 'window_swing') &&
+          floatingWins.length === 0
+        ) {
+          continue;
         }
-      };
+        if (
+          item.key === 'window_push_resize' &&
+          (floatingWins.length === 0 || !appState.windowInteractEnabled)
+        ) {
+          continue;
+        }
+        if (
+          (item.key === 'territory_defense' || item.key === 'goose_mischief') &&
+          isGooseModeActive()
+        ) {
+          continue;
+        }
+        actionKeys.push(item.key);
+      }
 
-      addIfEnabled('walk_roam');
-      addIfEnabled('wheel_roll');
-      addIfEnabled('wave');
-      addIfEnabled('dance');
-      addIfEnabled('backflip');
-      addIfEnabled('spin');
-      addIfEnabled('radar_scan');
-      addIfEnabled('sleep');
-      addIfEnabled('feed_food');
-      addIfEnabled('accessory_hat');
-      addIfEnabled('special_fx');
-      addIfEnabled('rocket_parachute');
-      addIfEnabled('black_hole');
-      addIfEnabled('jump_window', floatingWins.length > 0);
-      addIfEnabled('window_swing', floatingWins.length > 0);
-      addIfEnabled('window_push_resize', floatingWins.length > 0 && appState.windowInteractEnabled);
-      addIfEnabled('swim_pool');
-      addIfEnabled('territory_defense', !isGooseModeActive());
-      addIfEnabled('goose_mischief', !isGooseModeActive());
-      addIfEnabled('beat_dance');
-      addIfEnabled('drag_desktop_icon');
-
-      if (candidates.length === 0) {
+      if (enabledClipKeys.length === 0 && actionKeys.length === 0) {
         return;
       }
 
-      const pool =
-        candidates.length > 1 && lastAutoBehaviorKey
-          ? candidates.filter((k) => k !== lastAutoBehaviorKey)
-          : candidates;
-      const chosen = pool[Math.floor(Math.random() * pool.length)];
+      const preferClip =
+        enabledClipKeys.length > 0 && (actionKeys.length === 0 || Math.random() < 0.58);
+      const chosen = preferClip
+        ? drawFromBehaviorDeck(roamClipDeck, enabledClipKeys, lastAutoBehaviorKey)
+        : drawFromBehaviorDeck(roamActionDeck, actionKeys, lastAutoBehaviorKey);
+      if (!chosen) return;
       lastAutoBehaviorKey = chosen;
-
-      switch (chosen) {
-        case 'walk_roam':
-          appState.walkDir = Math.random() < 0.5 ? -1 : 1;
-          appState.duckCrouchRoll = false;
-          appState.setState('WALKING');
-          break;
-        case 'wheel_roll':
-          void triggerDuckWheelRoll();
-          break;
-        case 'wave':
-          appState.setState('WAVING');
-          appState.setExpression('happy', 3.0);
-          break;
-        case 'dance':
-          appState.activeWindowTask = null;
-          appState.attachedWindowHwnd = null;
-          appState.setState('DANCING');
-          appState.setExpression('happy', 3.4);
-          spawnParticles(appState.posX, appState.posY - 100, 10, 0xf472b6);
-          appState.changeMood(4);
-          break;
-        case 'backflip':
-          triggerBackflip();
-          break;
-        case 'spin':
-          triggerSpin();
-          break;
-        case 'radar_scan':
-          void triggerDuckRadarScan();
-          break;
-        case 'sleep':
-          void triggerDuckSleepMode();
-          break;
-        case 'feed_food':
-          triggerSpawnRandomFood(false);
-          break;
-        case 'accessory_hat':
-          clearTemporaryAccessoryTimer();
-          equipAccessory3D('random', false);
-          break;
-        case 'special_fx':
-          triggerRandomSpecial3DEffect(appState.posX, appState.posY);
-          break;
-        case 'rocket_parachute':
-          triggerClimbWindow();
-          break;
-        case 'black_hole':
-          triggerBlackHoleTeleport();
-          break;
-        case 'jump_window':
-          triggerJumpToWindow();
-          break;
-        case 'window_swing':
-          triggerWindowSwing();
-          break;
-        case 'window_push_resize':
-          if (Math.random() < 0.65) {
-            startPhysicalPush(Math.random() < 0.5 ? -1 : 1, undefined, 6, true);
-          } else {
-            startPhysicalResize(Math.random() < 0.5 ? 'shrink' : 'expand', undefined, 5, true);
-          }
-          break;
-        case 'swim_pool':
-          triggerStartSwimming(false, 11);
-          break;
-        case 'territory_defense':
-          triggerTerritoryDefenseMode(false);
-          break;
-        case 'goose_mischief':
-          triggerGooseMischiefMode(false);
-          break;
-        case 'beat_dance':
-          triggerManualBeatDance();
-          break;
-        case 'drag_desktop_icon':
-          void startDragDesktopIcon();
-          break;
-      }
+      triggerAutoBehaviorNow(chosen, false);
     }
+  }
+}
+
+export function triggerAutoBehaviorNow(key: AutoBehaviorKey, interactive = false) {
+  const meta = AUTO_BEHAVIOR_CATALOG.find((x) => x.key === key);
+  if (meta?.clipId) {
+    const clip = getClipById(meta.clipId);
+    previewClip(meta.clipId);
+    const expr =
+      meta.clipId === 'dramatic_flop' ||
+      meta.clipId === 'shy_sit' ||
+      meta.clipId === 'sad' ||
+      meta.clipId === 'facepalm' ||
+      meta.clipId === 'head_shake'
+        ? 'sad'
+        : meta.clipId === 'startled_hop' ||
+          meta.clipId === 'dizzy_spin' ||
+          meta.clipId === 'surprise' ||
+          meta.clipId === 'shiver' ||
+          meta.clipId === 'sneeze'
+        ? 'surprised'
+        : 'happy';
+    appState.setExpression(expr, (clip?.defaultDuration ?? 2.6) + 0.4);
+    appState.changeMood(3);
+    if (interactive && clip) {
+      speak(`[HOẠT ẢNH 3D] ${clip.label}: ${clip.description}`);
+    }
+    return;
+  }
+
+  switch (key) {
+    case 'walk_roam':
+      appState.walkDir = Math.random() < 0.5 ? -1 : 1;
+      appState.duckCrouchRoll = false;
+      appState.setState('WALKING');
+      if (interactive) speak('Đi dạo thư giãn quanh màn hình chút nào!');
+      break;
+    case 'wheel_roll':
+      void triggerDuckWheelRoll();
+      break;
+    case 'wave':
+      appState.setState('WAVING');
+      appState.setExpression('happy', 3.0);
+      if (interactive) speak('Xin chào chủ nhân! Tớ vẫn luôn ở đây nè!');
+      break;
+    case 'dance':
+      appState.activeWindowTask = null;
+      appState.attachedWindowHwnd = null;
+      appState.setState('DANCING');
+      appState.setExpression('happy', 3.4);
+      spawnParticles(appState.posX, appState.posY - 100, 10, 0xf472b6);
+      appState.changeMood(4);
+      if (interactive) speak('Quẩy điệu nhảy Idol 3D nào!');
+      break;
+    case 'backflip':
+      triggerBackflip();
+      break;
+    case 'spin':
+      triggerSpin();
+      break;
+    case 'radar_scan':
+      void triggerDuckRadarScan();
+      break;
+    case 'sleep':
+      void triggerDuckSleepMode();
+      break;
+    case 'feed_food':
+      triggerSpawnRandomFood(interactive);
+      break;
+    case 'accessory_hat':
+      clearTemporaryAccessoryTimer();
+      equipAccessory3D('random', interactive);
+      break;
+    case 'special_fx': {
+      const fx = triggerRandomSpecial3DEffect(appState.posX, appState.posY);
+      if (interactive) speak(`[FX 3D] Đã bung hiệu ứng: ${fx}`);
+      break;
+    }
+    case 'rocket_parachute':
+      triggerClimbWindow();
+      break;
+    case 'black_hole':
+      triggerBlackHoleTeleport();
+      break;
+    case 'jump_window':
+      triggerJumpToWindow();
+      break;
+    case 'window_swing':
+      triggerWindowSwing();
+      break;
+    case 'window_push_resize':
+      if (Math.random() < 0.65) {
+        startPhysicalPush(Math.random() < 0.5 ? -1 : 1, undefined, 6, true);
+      } else {
+        startPhysicalResize(Math.random() < 0.5 ? 'shrink' : 'expand', undefined, 5, true);
+      }
+      break;
+    case 'swim_pool':
+      triggerStartSwimming(interactive, 11);
+      break;
+    case 'territory_defense':
+      triggerTerritoryDefenseMode(interactive);
+      break;
+    case 'goose_mischief':
+      triggerGooseMischiefMode(interactive);
+      break;
+    case 'beat_dance':
+      triggerManualBeatDance();
+      break;
+    case 'drag_desktop_icon':
+      void startDragDesktopIcon();
+      break;
   }
 }
 

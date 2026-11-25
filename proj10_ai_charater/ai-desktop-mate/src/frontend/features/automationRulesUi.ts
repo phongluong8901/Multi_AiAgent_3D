@@ -85,7 +85,11 @@ export function refreshAutomationSkillSelect() {
     sel.appendChild(opt);
   });
 
-  if (prev) sel.value = prev;
+  if (prev && Array.from(sel.options).some((o) => o.value === prev)) {
+    sel.value = prev;
+  } else if (sel.options.length > 0) {
+    sel.selectedIndex = 0;
+  }
 }
 
 export async function runRuleTarget(
@@ -112,6 +116,18 @@ export async function refreshAutomationRulesUi(deps: AutomationUiDeps) {
   } catch {
     cachedRules = [];
   }
+
+  document
+    .querySelectorAll<HTMLButtonElement>('#tf-auto-presets button[data-preset-id]')
+    .forEach((chip) => {
+      const pid = chip.getAttribute('data-preset-id') || '';
+      const presetMeta = QUICK_AUTOMATION_PRESETS.find((p) => p.id === pid);
+      const added = Boolean(pid && cachedRules.some((r) => r.id === pid));
+      chip.classList.toggle('active', added);
+      if (presetMeta) {
+        chip.textContent = added ? `${presetMeta.label} [ĐÃ THÊM]` : presetMeta.label;
+      }
+    });
 
   const listEl = document.getElementById('tf-auto-rules-list');
   if (!listEl) return;
@@ -152,10 +168,17 @@ export async function refreshAutomationRulesUi(deps: AutomationUiDeps) {
     const chk = document.createElement('input');
     chk.type = 'checkbox';
     chk.checked = rule.enabled;
-    chk.addEventListener('change', () => {
-      void invoke('auto_rule_toggle', { id: rule.id, enabled: chk.checked }).then(() =>
-        refreshAutomationRulesUi(deps)
-      );
+    chk.addEventListener('change', async () => {
+      chk.disabled = true;
+      try {
+        await invoke('auto_rule_toggle', { id: rule.id, enabled: chk.checked });
+        await refreshAutomationRulesUi(deps);
+      } catch (err) {
+        chk.checked = !chk.checked;
+        deps.speakMessage(`[AUTO ERR] ${String(err)}`);
+      } finally {
+        chk.disabled = false;
+      }
     });
 
     head.append(titleWrap, chk);
@@ -193,10 +216,17 @@ export async function refreshAutomationRulesUi(deps: AutomationUiDeps) {
     btnDel.style.cssText =
       'padding:3px 9px;font-size:10.5px;border-color:rgba(248,113,113,0.45);color:#fca5a5;';
     btnDel.textContent = 'Xóa';
-    btnDel.addEventListener('click', () => {
-      void invoke('auto_rule_delete', { id: rule.id }).then(() =>
-        refreshAutomationRulesUi(deps)
-      );
+    btnDel.addEventListener('click', async () => {
+      btnDel.disabled = true;
+      btnDel.textContent = 'Đang xóa...';
+      try {
+        await invoke('auto_rule_delete', { id: rule.id });
+        await refreshAutomationRulesUi(deps);
+      } catch (err) {
+        deps.speakMessage(`[AUTO ERR] ${String(err)}`);
+        btnDel.disabled = false;
+        btnDel.textContent = 'Xóa';
+      }
     });
 
     btnRow.append(btnRunNow, btnDel);
@@ -213,54 +243,105 @@ export function initAutomationRulesUi(deps: AutomationUiDeps) {
       const chip = document.createElement('button');
       chip.type = 'button';
       chip.className = 'chat-chip';
+      chip.setAttribute('data-preset-id', p.id);
       chip.textContent = p.label;
       chip.addEventListener('click', async () => {
-        await invoke('auto_rule_upsert', {
-          id: p.id,
-          name: p.name,
-          triggerType: p.trigger_type,
-          triggerValue: p.trigger_value,
-          skillId: p.skill_id,
-          argsJson: p.args_json,
-          enabled: true,
-        });
-        await refreshAutomationRulesUi(deps);
-        deps.speakMessage(`[AUTOMATION] Đã thêm nhanh rule "${p.name}".`);
+        chip.disabled = true;
+        try {
+          await invoke('auto_rule_upsert', {
+            id: p.id,
+            name: p.name,
+            triggerType: p.trigger_type,
+            triggerValue: p.trigger_value,
+            skillId: p.skill_id,
+            argsJson: p.args_json,
+            enabled: true,
+          });
+          await refreshAutomationRulesUi(deps);
+          deps.speakMessage(`[AUTOMATION] Đã thêm nhanh rule "${p.name}".`);
+        } catch (err) {
+          deps.speakMessage(`[AUTO ERR] ${String(err)}`);
+        } finally {
+          chip.disabled = false;
+        }
       });
       presetsBox.appendChild(chip);
     });
   }
 
   document.getElementById('btn-tf-add-auto-rule')?.addEventListener('click', async () => {
-    const name =
-      (document.getElementById('tf-auto-name') as HTMLInputElement | null)?.value.trim() ||
-      'Rule Tự Động';
-    const triggerType =
-      (document.getElementById('tf-auto-trig-type') as HTMLSelectElement | null)?.value ||
-      'interval_min';
-    const triggerValue =
-      (document.getElementById('tf-auto-trig-val') as HTMLInputElement | null)?.value.trim() ||
-      '30';
-    const skillId =
-      (document.getElementById('tf-auto-skill-select') as HTMLSelectElement | null)?.value ||
-      'builtin:clean_ram';
-    const argsJson =
-      (document.getElementById('tf-auto-args') as HTMLInputElement | null)?.value.trim() || '{}';
+    const addBtn = document.getElementById('btn-tf-add-auto-rule') as HTMLButtonElement | null;
+    const nameInp = document.getElementById('tf-auto-name') as HTMLInputElement | null;
+    const trigTypeEl = document.getElementById('tf-auto-trig-type') as HTMLSelectElement | null;
+    const trigValEl = document.getElementById('tf-auto-trig-val') as HTMLInputElement | null;
+    const skillSel = document.getElementById('tf-auto-skill-select') as HTMLSelectElement | null;
+    const argsInp = document.getElementById('tf-auto-args') as HTMLInputElement | null;
 
-    await invoke('auto_rule_upsert', {
-      id: `rule_${Date.now()}`,
-      name,
-      triggerType,
-      triggerValue,
-      skillId,
-      argsJson,
-      enabled: true,
-    });
-    await refreshAutomationRulesUi(deps);
+    const name = nameInp?.value.trim() || 'Rule Tự Động';
+    const triggerType = trigTypeEl?.value || 'interval_min';
+    const triggerValue = trigValEl?.value.trim() || '30';
+    const skillId = skillSel?.value || 'builtin:clean_ram';
+    const argsJson = argsInp?.value.trim() || '{}';
+
+    try {
+      JSON.parse(argsJson);
+    } catch {
+      deps.speakMessage('[AUTO ERR] Tham số JSON không hợp lệ.');
+      return;
+    }
+
+    if (triggerType === 'daily_time' && !/^([01]\d|2[0-3]):[0-5]\d$/.test(triggerValue)) {
+      deps.speakMessage('[AUTO ERR] Giờ cố định phải có định dạng HH:MM (vd: 08:30).');
+      return;
+    }
+    if (triggerType === 'interval_min' && !(Number(triggerValue) >= 1)) {
+      deps.speakMessage('[AUTO ERR] Chu kỳ phút phải là số >= 1.');
+      return;
+    }
+    if (triggerType === 'cpu_high' && !(Number(triggerValue) >= 1 && Number(triggerValue) <= 100)) {
+      deps.speakMessage('[AUTO ERR] Ngưỡng CPU % phải nằm trong 1..100.');
+      return;
+    }
+    if (triggerType === 'ram_high' && !(Number(triggerValue) >= 1)) {
+      deps.speakMessage('[AUTO ERR] Ngưỡng RAM GB phải >= 1.');
+      return;
+    }
+
+    if (addBtn) {
+      addBtn.disabled = true;
+      addBtn.textContent = 'Đang thêm...';
+    }
+    try {
+      await invoke('auto_rule_upsert', {
+        id: `rule_${Date.now()}`,
+        name,
+        triggerType,
+        triggerValue,
+        skillId,
+        argsJson,
+        enabled: true,
+      });
+      if (nameInp) nameInp.value = '';
+      if (argsInp) argsInp.value = '';
+      await refreshAutomationRulesUi(deps);
+      deps.speakMessage(`[AUTOMATION] Đã thêm rule "${name}".`);
+    } catch (err) {
+      deps.speakMessage(`[AUTO ERR] ${String(err)}`);
+    } finally {
+      if (addBtn) {
+        addBtn.disabled = false;
+        addBtn.textContent = 'Thêm Rule';
+      }
+    }
   });
 
   document.getElementById('btn-tf-cdp-launch')?.addEventListener('click', async () => {
+    const btn = document.getElementById('btn-tf-cdp-launch') as HTMLButtonElement | null;
     const logEl = document.getElementById('tf-cdp-status-log');
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Đang mở...';
+    }
     try {
       const msg = await invoke<string>('cdp_launch_debug_chrome', {
         url: 'https://www.google.com',
@@ -269,11 +350,21 @@ export function initAutomationRulesUi(deps: AutomationUiDeps) {
       if (logEl) logEl.textContent = `[CDP] ${msg}`;
     } catch (err) {
       if (logEl) logEl.textContent = `[CDP ERR] ${String(err)}`;
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = 'Mở Chrome CDP (Port 9222)';
+      }
     }
   });
 
   document.getElementById('btn-tf-cdp-tabs')?.addEventListener('click', async () => {
+    const btn = document.getElementById('btn-tf-cdp-tabs') as HTMLButtonElement | null;
     const logEl = document.getElementById('tf-cdp-status-log');
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Đang quét...';
+    }
     try {
       const tabs = await invoke<CdpTabInfo[]>('cdp_list_tabs', { port: 9222 });
       if (logEl) {
@@ -284,6 +375,11 @@ export function initAutomationRulesUi(deps: AutomationUiDeps) {
       }
     } catch (err) {
       if (logEl) logEl.textContent = `[CDP ERR] ${String(err)}`;
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = 'Quét Tab Đang Mở';
+      }
     }
   });
 
@@ -325,7 +421,7 @@ export function initAutomationRulesUi(deps: AutomationUiDeps) {
         if (hw) {
           const thresh = Number(rule.trigger_value) || 85;
           if (rule.trigger_type === 'cpu_high' && hw.cpu_load_pct >= thresh) shouldFire = true;
-          if (rule.trigger_type === 'ram_high' && hw.ram_used_pct >= thresh) shouldFire = true;
+          if (rule.trigger_type === 'ram_high' && hw.ram_used_gb >= thresh) shouldFire = true;
         }
       } else if (rule.trigger_type === 'app_focus') {
         if (nowSec - rule.last_run_at < 300) continue;

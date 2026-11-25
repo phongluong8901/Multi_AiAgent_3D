@@ -17,10 +17,10 @@ export default defineConfig(() => ({
     host: host || false,
     hmr: host
       ? {
-          protocol: "ws",
-          host,
-          port: 1421,
-        }
+        protocol: "ws",
+        host,
+        port: 1421,
+      }
       : undefined,
     watch: {
       // 3. tell Vite to ignore watching `src-tauri` and `data`
@@ -28,11 +28,43 @@ export default defineConfig(() => ({
     },
   },
   build: {
-    rollupOptions: {
+    chunkSizeWarningLimit: 750,
+    rolldownOptions: {
       output: {
-        manualChunks(id: string) {
-          if (id.includes("@pixiv/three-vrm")) return "vrm";
-          if (id.includes("node_modules/three")) return "three";
+        codeSplitting: {
+          includeDependenciesRecursively: false,
+          groups: [
+            {
+              name: "vendor-vrm",
+              test: /node_modules[\\/]@pixiv[\\/]three-vrm/,
+              priority: 40,
+            },
+            {
+              name: "vendor-three-addons",
+              test: /node_modules[\\/]three[\\/]examples[\\/]/,
+              priority: 35,
+            },
+            {
+              name: "vendor-three",
+              test: /node_modules[\\/]three[\\/]/,
+              priority: 30,
+            },
+            {
+              name: "vendor-tauri",
+              test: /node_modules[\\/]@tauri-apps[\\/]/,
+              priority: 25,
+            },
+            {
+              name: "duck-3d-fx",
+              test: /src[\\/](characters[\\/](microduck|animeIdol|rigState\.ts|accessories3d\.ts)|core[\\/](particles\.ts|soundFx\.ts))/,
+              priority: 20,
+            },
+            {
+              name: "ui-html",
+              test: /src[\\/]frontend[\\/]components[\\/](?!(mountUi|animationManagerModal|dataChartEngine)\.ts$)/,
+              priority: 15,
+            },
+          ],
         },
       },
     },

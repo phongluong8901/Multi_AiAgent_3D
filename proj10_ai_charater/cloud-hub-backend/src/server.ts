@@ -12,7 +12,9 @@ import {
 import {
   type ChatSyncDocument,
   type CommunitySkillDocument,
+  type EnglishVocabDocument,
   buildSkillFilter,
+  buildVocabFilter,
   connectMongo,
 } from './mongo.js';
 import { webCompanionHtml } from './webUi.js';
@@ -33,6 +35,7 @@ app.use(express.json({ limit: '256kb' }));
 
 let mongoCollection: Collection<CommunitySkillDocument> | null = null;
 let chatCollection: Collection<ChatSyncDocument> | null = null;
+let vocabCollection: Collection<EnglishVocabDocument> | null = null;
 let mongoClient: MongoClient | null = null;
 let mongoInitPromise: Promise<boolean> | null = null;
 let mongoRetryTimer: NodeJS.Timeout | null = null;
@@ -54,7 +57,7 @@ function broadcastSse(userSub: string, eventName: string, payload: unknown): voi
 }
 
 async function initMongo(): Promise<boolean> {
-  if (mongoCollection && chatCollection) {
+  if (mongoCollection && chatCollection && vocabCollection) {
     return true;
   }
   if (!MONGODB_URI) {
@@ -77,6 +80,7 @@ async function initMongo(): Promise<boolean> {
       mongoClient = conn.client;
       mongoCollection = conn.collection;
       chatCollection = conn.chatCollection;
+      vocabCollection = conn.vocabCollection;
       mongoRetryAttempts = 0;
       if (mongoRetryTimer) {
         clearTimeout(mongoRetryTimer);
@@ -121,14 +125,14 @@ async function requireAuth(
 }
 
 async function requireMongo(_req: Request, res: Response, next: NextFunction): Promise<void> {
-  if ((!mongoCollection || !chatCollection) && MONGODB_URI) {
+  if ((!mongoCollection || !chatCollection || !vocabCollection) && MONGODB_URI) {
     try {
       await initMongo();
     } catch {
       // ignore; fallback 503 below
     }
   }
-  if (!mongoCollection || !chatCollection) {
+  if (!mongoCollection || !chatCollection || !vocabCollection) {
     res.status(503).json({
       ok: false,
       error: 'MongoDB chua san sang tren backend online.',
@@ -148,8 +152,130 @@ app.get('/api/health', (_req: Request, res: Response) => {
     ok: true,
     service: 'duck-ai-cloud-hub',
     mongo_connected: Boolean(mongoCollection),
+    vocab_ready: Boolean(vocabCollection),
     google_client_configured: Boolean(GOOGLE_CLIENT_ID),
   });
+});
+
+app.get('/api/vocab/stats', requireMongo, async (_req: Request, res: Response) => {
+  try {
+    const total_words = await vocabCollection!.estimatedDocumentCount();
+    res.json({ ok: true, total_words });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: (err as Error).message });
+  }
+});
+
+app.get('/api/vocab/random', requireMongo, async (req: Request, res: Response) => {
+  try {
+    const topic = typeof req.query.topic === 'string' ? req.query.topic : 'random';
+    const level = typeof req.query.level === 'string' ? req.query.level : 'all';
+    const limit = Math.max(1, Math.min(12, Number(req.query.limit || 1) || 1));
+    const rawExclude = typeof req.query.exclude === 'string' ? req.query.exclude : '';
+    const excludeList = rawExclude
+      .split(',')
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean)
+      .slice(0, 150);
+
+    const runSample = async (t: string, lv: string, withExcl: boolean) => {
+      const f = buildVocabFilter({ topic: t, level: lv });
+      if (withExcl && excludeList.length > 0) {
+        f.word = { $nin: excludeList };
+      }
+      return vocabCollection!
+        .aggregate<EnglishVocabDocument>([
+          { $match: f },
+          { $sample: { size: limit } },
+          { $project: { _id: 0 } },
+        ])
+        .toArray();
+    };
+
+    let items = await runSample(topic, level, true);
+    if (items.length === 0 && level !== 'all') {
+      items = await runSample(topic, 'all', true);
+    }
+    if (items.length === 0) {
+      items = await runSample('random', 'all', true);
+    }
+    if (items.length === 0) {
+      items = await runSample('random', 'all', false);
+    }
+    res.json({ ok: true, item: items[0] || null, items });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: (err as Error).message });
+  }
+});
+
+app.get('/api/vocab/search', requireMongo, async (req: Request, res: Response) => {
+  try {
+    const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+    const topic = typeof req.query.topic === 'string' ? req.query.topic : 'all';
+    const level = typeof req.query.level === 'string' ? req.query.level : 'all';
+    const limit = Math.max(1, Math.min(40, Number(req.query.limit || 20) || 20));
+    const baseFilter = buildVocabFilter({ topic, level });
+
+    if (!q) {
+      const items = await vocabCollection!
+        .find(baseFilter, { projection: { _id: 0 } })
+        .sort({ freq_rank: 1, word: 1 })
+        .limit(limit)
+        .toArray();
+      res.json({ ok: true, items });
+      return;
+    }
+
+    const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const prefixFilter = {
+      ...baseFilter,
+      word: { $regex: `^${escaped}`, $options: 'i' },
+    };
+    const prefixItems = await vocabCollection!
+      .find(prefixFilter, { projection: { _id: 0 } })
+      .sort({ freq_rank: 1, word: 1 })
+      .limit(limit)
+      .toArray();
+
+    const seen = new Set(prefixItems.map((it) => it.word));
+    let combined = [...prefixItems];
+    if (combined.length < limit) {
+      const broadFilter = buildVocabFilter({ query: q, topic, level });
+      const extra = await vocabCollection!
+        .find(broadFilter, { projection: { _id: 0 } })
+        .sort({ freq_rank: 1, word: 1 })
+        .limit(limit * 2)
+        .toArray();
+      for (const it of extra) {
+        if (!seen.has(it.word)) {
+          seen.add(it.word);
+          combined.push(it);
+          if (combined.length >= limit) break;
+        }
+      }
+    }
+    res.json({ ok: true, items: combined });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: (err as Error).message });
+  }
+});
+
+app.get('/api/vocab/word/:word', requireMongo, async (req: Request, res: Response) => {
+  try {
+    const word = String(req.params.word || '').trim().toLowerCase();
+    if (!word) {
+      res.status(400).json({ ok: false, error: 'Thieu tu can tra.' });
+      return;
+    }
+    const item = await vocabCollection!.findOne({ word }, { projection: { _id: 0 } });
+    if (!item) {
+      res.status(404).json({ ok: false, error: 'Khong tim thay tu nay trong kho MongoDB.' });
+      return;
+    }
+    res.json({ ok: true, item });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: (err as Error).message });
+  }
 });
 
 app.get('/api/skills', requireAuth, requireMongo, async (req: AuthedRequest, res: Response) => {

@@ -7,7 +7,7 @@ import {
   validateChatPayload,
   validateSkillPayload,
 } from '../src/auth.js';
-import { buildSkillFilter } from '../src/mongo.js';
+import { buildSkillFilter, buildVocabFilter } from '../src/mongo.js';
 
 test('extractBearerToken parses Bearer header cleanly', () => {
   assert.equal(extractBearerToken('Bearer abc.def.ghi'), 'abc.def.ghi');
@@ -83,4 +83,18 @@ test('isSkillOwner and validateChatPayload enforce ownership and chat format', (
     assert.equal(okChat.clean.source, 'web');
     assert.equal(okChat.clean.content, 'Xin chao');
   }
+});
+
+test('buildVocabFilter builds MongoDB filter for topic, level, and query', () => {
+  const all = buildVocabFilter({ query: '', topic: 'random', level: 'all' });
+  assert.deepEqual(all, {});
+
+  const techB2 = buildVocabFilter({ query: 'algo', topic: 'technology', level: 'b2' });
+  assert.equal(techB2.topic, 'technology');
+  assert.equal(techB2.level, 'B2');
+  assert.equal(Array.isArray(techB2.$or), true);
+  assert.equal((techB2.$or as unknown[]).length, 2);
+
+  const ieltsOnly = buildVocabFilter({ topic: 'ielts' });
+  assert.deepEqual(ieltsOnly.topic, { $in: ['ielts', 'academic'] });
 });

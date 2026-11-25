@@ -11,7 +11,8 @@
     "build": "tsc",
     "start": "node dist/src/server.js",
     "dev": "tsx watch src/server.ts",
-    "test": "tsc && node --test dist/test/hub.test.js"
+    "test": "tsc && node --test dist/test/hub.test.js",
+    "seed:vocab": "node scripts/seed_english_vocab.mjs"
   },
   "dependencies": {
     "cors": "^2.8.5",

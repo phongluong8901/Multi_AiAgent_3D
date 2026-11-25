@@ -20,7 +20,7 @@ use crate::backend::tool_forge::{
 
 const CLOUD_CONFIG_KEY: &str = "cloud_hub_config_v2";
 const CLOUD_SESSION_KEY: &str = "cloud_google_session_v1";
-const DEFAULT_CLOUD_HUB_URL: &str = "http://127.0.0.1:8787";
+const DEFAULT_CLOUD_HUB_URL: &str = "https://duck-ai-3p5a.onrender.com";
 static OAUTH_NONCE_SEQ: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -372,9 +372,18 @@ fn load_effective_cloud_config(mem_state: &MemoryState) -> CloudHubConfig {
     if cfg.google_client_secret.trim().is_empty() {
         cfg.google_client_secret = read_env_value("GOOGLE_CLIENT_SECRET").unwrap_or_default();
     }
-    if cfg.cloud_hub_api_url.trim().is_empty() {
-        cfg.cloud_hub_api_url = read_env_value("CLOUD_HUB_API_URL")
-            .unwrap_or_else(|| DEFAULT_CLOUD_HUB_URL.to_string());
+    let saved_url = cfg
+        .cloud_hub_api_url
+        .trim()
+        .trim_end_matches('/')
+        .to_string();
+    let is_legacy_local =
+        saved_url == "http://127.0.0.1:8787" || saved_url == "http://localhost:8787";
+    if saved_url.is_empty() || is_legacy_local {
+        let env_url = read_env_value("CLOUD_HUB_API_URL")
+            .map(|u| u.trim().trim_end_matches('/').to_string())
+            .filter(|u| !u.is_empty());
+        cfg.cloud_hub_api_url = env_url.unwrap_or_else(|| DEFAULT_CLOUD_HUB_URL.to_string());
     }
     cfg
 }
@@ -473,6 +482,18 @@ fn curl_get_bearer(url: &str, bearer_token: &str, timeout_secs: u32) -> Result<S
         return Err(format!("Không kết nối được backend online ({url}): {err}"));
     }
     Ok(body)
+}
+
+pub fn resolve_cloud_hub_base_url(mem_state: &MemoryState) -> String {
+    load_effective_cloud_config(mem_state)
+        .cloud_hub_api_url
+        .trim()
+        .trim_end_matches('/')
+        .to_string()
+}
+
+pub fn curl_get_public_json(url: &str, timeout_secs: u32) -> Result<String, String> {
+    curl_get_bearer(url, "", timeout_secs)
 }
 
 fn curl_post_json_bearer(
@@ -688,7 +709,7 @@ pub async fn cloud_check_hub_health(
     let cfg = load_effective_cloud_config(&mem_state);
     let base = cfg.cloud_hub_api_url.trim().trim_end_matches('/').to_string();
     let url = format!("{base}/api/health");
-    let raw = tauri::async_runtime::spawn_blocking(move || curl_get_bearer(&url, "", 4))
+    let raw = tauri::async_runtime::spawn_blocking(move || curl_get_bearer(&url, "", 30))
         .await
         .map_err(|e| format!("Lỗi kiểm tra Cloud Hub: {e}"))??;
     serde_json::from_str::<serde_json::Value>(&raw)
@@ -912,7 +933,7 @@ pub async fn cloud_list_community_skills(
     );
     let bearer = session_bearer(&sess).to_string();
 
-    let raw = tauri::async_runtime::spawn_blocking(move || curl_get_bearer(&url, &bearer, 15))
+    let raw = tauri::async_runtime::spawn_blocking(move || curl_get_bearer(&url, &bearer, 45))
         .await
         .map_err(|e| format!("Lỗi tải danh sách từ Cloud Hub: {e}"))??;
 
@@ -960,7 +981,7 @@ pub async fn cloud_publish_skill(
     });
 
     let raw = tauri::async_runtime::spawn_blocking(move || {
-        curl_post_json_bearer(&url, &bearer, &payload, 15)
+        curl_post_json_bearer(&url, &bearer, &payload, 45)
     })
     .await
     .map_err(|e| format!("Lỗi đẩy skill lên Cloud Hub: {e}"))??;
@@ -995,7 +1016,7 @@ pub async fn cloud_install_community_skill(
     let get_url = format!("{base}/api/skills/{encoded_key}");
     let bearer = session_bearer(&sess).to_string();
 
-    let raw_doc = tauri::async_runtime::spawn_blocking(move || curl_get_bearer(&get_url, &bearer, 15))
+    let raw_doc = tauri::async_runtime::spawn_blocking(move || curl_get_bearer(&get_url, &bearer, 45))
         .await
         .map_err(|e| format!("Lỗi tải skill từ Cloud Hub: {e}"))??;
 
@@ -1127,7 +1148,7 @@ pub async fn cloud_delete_community_skill(
     let url = format!("{base}/api/skills/{encoded}");
     let bearer = session_bearer(&sess).to_string();
 
-    let raw = tauri::async_runtime::spawn_blocking(move || curl_delete_bearer(&url, &bearer, 12))
+    let raw = tauri::async_runtime::spawn_blocking(move || curl_delete_bearer(&url, &bearer, 30))
         .await
         .map_err(|e| format!("Lỗi xóa skill trên Cloud Hub: {e}"))??;
     let parsed: serde_json::Value = serde_json::from_str(&raw)
@@ -1155,7 +1176,7 @@ pub async fn cloud_toggle_star_skill(
     let bearer = session_bearer(&sess).to_string();
 
     let raw = tauri::async_runtime::spawn_blocking(move || {
-        curl_post_json_bearer(&url, &bearer, &serde_json::json!({}), 10)
+        curl_post_json_bearer(&url, &bearer, &serde_json::json!({}), 30)
     })
     .await
     .map_err(|e| format!("Lỗi star skill: {e}"))??;

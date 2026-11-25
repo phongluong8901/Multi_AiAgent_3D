@@ -88,6 +88,94 @@
   }
 }
 
+@keyframes thinkingDotWave {
+  0%,
+  80%,
+  100% {
+    transform: scaleY(0.45);
+    opacity: 0.45;
+  }
+  40% {
+    transform: scaleY(1.18);
+    opacity: 1;
+  }
+}
+
+@keyframes thinkingSpinPulse {
+  0% {
+    transform: rotate(0deg) scale(0.95);
+  }
+  50% {
+    transform: rotate(180deg) scale(1.08);
+  }
+  100% {
+    transform: rotate(360deg) scale(0.95);
+  }
+}
+
+@keyframes liveStatusPulse {
+  0%,
+  100% {
+    opacity: 0.75;
+    transform: scale(0.92);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.18);
+  }
+}
+
+@keyframes tabContentSlideIn {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 5px, 0);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes cardCascadeIn {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 6px, 0) scale(0.985);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+.duck-live-dot {
+  animation: liveStatusPulse 2.2s ease-in-out infinite;
+}
+
+.ui-tab-in {
+  animation: tabContentSlideIn 0.2s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.ui-card-in {
+  animation: cardCascadeIn 0.24s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: var(--card-delay, 0ms);
+}
+
+.thinking-pulse-icon svg {
+  animation: thinkingSpinPulse 2.4s linear infinite;
+}
+
+.thinking-dots span {
+  animation: thinkingDotWave 1.05s ease-in-out infinite;
+}
+
+.thinking-dots span:nth-child(2) {
+  animation-delay: 0.16s;
+}
+
+.thinking-dots span:nth-child(3) {
+  animation-delay: 0.32s;
+}
+
 /* Modal giữa màn hình bật hiệu ứng spring khi mở */
 #studio-panel.ui-pop-in,
 #long-memory-panel.ui-pop-in,
@@ -97,7 +185,8 @@
 #ocr-translate-modal.ui-pop-in,
 #tool-forge-modal.ui-pop-in,
 #tarot-modal.ui-pop-in,
-#anim-manager-modal.ui-pop-in {
+#anim-manager-modal.ui-pop-in,
+#file-dashboard-modal.ui-pop-in {
   animation: modalSpringIn 0.28s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
@@ -126,8 +215,23 @@
 #left-telemetry-panel.ui-pop-in,
 #right-action-panel.ui-pop-in,
 #mini-screen-panel.ui-pop-in,
+#sticky-notes-widget.ui-pop-in,
 #speech-bubble.ui-pop-in {
   animation: panelFadeSlide 0.22s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.dock-btn.active::after {
+  content: '';
+  position: absolute;
+  bottom: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 6px;
+  height: 2px;
+  border-radius: 999px;
+  background: #ffffff;
+  box-shadow: 0 0 6px rgba(255, 255, 255, 0.9);
+  pointer-events: none;
 }
 
 /* 2. Micro-interactions cho nút, card, dock & chat */
@@ -148,14 +252,14 @@
     box-shadow 0.18s ease;
 }
 
-.action-btn:active,
-.btn-footer:active,
-.btn-mini-action:active,
-.studio-btn-primary:active,
-.studio-tab-btn:active,
-.dock-btn:active,
-.chat-chip:active,
-.icon-btn-tiny:active {
+.action-btn:not(:disabled):active,
+.btn-footer:not(:disabled):active,
+.btn-mini-action:not(:disabled):active,
+.studio-btn-primary:not(:disabled):active,
+.studio-tab-btn:not(:disabled):active,
+.dock-btn:not(:disabled):active,
+.chat-chip:not(:disabled):active,
+.icon-btn-tiny:not(:disabled):active {
   transform: scale(0.95) !important;
 }
 
@@ -170,7 +274,7 @@
   pointer-events: none;
 }
 
-.studio-btn-primary:hover::after,
+.studio-btn-primary:not(:disabled):hover::after,
 .btn-anim-manager:hover::after {
   transform: translateX(115%);
 }

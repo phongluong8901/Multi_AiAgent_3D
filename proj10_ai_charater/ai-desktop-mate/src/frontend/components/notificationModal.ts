@@ -36,11 +36,11 @@ export const notificationModalHtml = `
     </div>
 
     <!-- Tab navigation -->
-    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; margin-bottom: 8px;">
-      <button id="tab-btn-win-notif" class="btn-mini-action active" type="button">Ứng dụng</button>
-      <button id="tab-btn-web-notif" class="btn-mini-action" type="button">Web</button>
-      <button id="tab-btn-hist-notif" class="btn-mini-action" type="button">Lịch sử</button>
-      <button id="tab-btn-autoreply-notif" class="btn-mini-action" type="button">Auto-Reply</button>
+    <div class="studio-tabs-bar" style="grid-template-columns: repeat(4, 1fr); margin-bottom: 10px;">
+      <button id="tab-btn-win-notif" class="studio-tab-btn active" type="button">Ứng dụng</button>
+      <button id="tab-btn-web-notif" class="studio-tab-btn" type="button">Web</button>
+      <button id="tab-btn-hist-notif" class="studio-tab-btn" type="button">Lịch sử</button>
+      <button id="tab-btn-autoreply-notif" class="studio-tab-btn" type="button">Auto-Reply</button>
     </div>
 
     <!-- Tab 1: Apps Content -->
@@ -105,39 +105,39 @@ export const notificationModalHtml = `
       </div>
     </div>
 
-    <div id="tab-content-autoreply-notif" style="display: none; flex-direction: column; gap: 8px;">
+    <div id="tab-content-autoreply-notif" class="studio-section" style="display: none; flex-direction: column; gap: 8px; margin-bottom: 0;">
       <div class="dash-sub" style="line-height: 1.4;">
         Tự động nối thông báo Zalo / Telegram / Discord với Duck AI: hiển thị thanh Trả lời nhanh 1-click hoặc tự động gửi phản hồi qua UIA/CDP.
       </div>
-      <label style="display: flex; align-items: center; gap: 8px; font-size: 12px; color: #e2e8f0; cursor: pointer;">
+      <label class="toggle-row" style="justify-content: flex-start; gap: 8px;">
         <input id="chk-notif-quick-reply" type="checkbox" checked />
         <span>Hiện thanh Trả lời nhanh trên bong bóng chat khi có tin nhắn mới</span>
       </label>
-      <label style="display: flex; align-items: center; gap: 8px; font-size: 12px; color: #fbbf24; cursor: pointer;">
+      <label class="toggle-row" style="justify-content: flex-start; gap: 8px; color: #fbbf24;">
         <input id="chk-notif-auto-reply" type="checkbox" />
         <span>Bật Auto-Reply tự động gửi tin trả lời ngay (theo bộ lọc &amp; Cooldown)</span>
       </label>
       <div style="display: flex; flex-direction: column; gap: 4px;">
         <label style="font-size: 11px; color: #94a3b8;">Ứng dụng áp dụng (cách nhau dấu phẩy)</label>
-        <input id="inp-notif-ar-apps" type="text" value="Zalo, Telegram, Discord" style="width: 100%; padding: 6px 8px; border-radius: 6px; border: 1px solid rgba(148,163,184,0.3); background: rgba(15,23,42,0.85); color: #f8fafc; font-size: 12px;" />
+        <input id="inp-notif-ar-apps" class="studio-input" type="text" value="Zalo, Telegram, Discord" />
       </div>
       <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 6px;">
         <div style="display: flex; flex-direction: column; gap: 4px;">
           <label style="font-size: 11px; color: #94a3b8;">Lọc người gửi (để trống = tất cả)</label>
-          <input id="inp-notif-ar-sender" type="text" placeholder="VD: Anh Thư, Sếp" style="width: 100%; padding: 6px 8px; border-radius: 6px; border: 1px solid rgba(148,163,184,0.3); background: rgba(15,23,42,0.85); color: #f8fafc; font-size: 12px;" />
+          <input id="inp-notif-ar-sender" class="studio-input" type="text" placeholder="VD: Anh Thư, Sếp" />
         </div>
         <div style="display: flex; flex-direction: column; gap: 4px;">
           <label style="font-size: 11px; color: #94a3b8;">Cooldown (giây)</label>
-          <input id="inp-notif-ar-cooldown" type="number" min="15" value="300" style="width: 100%; padding: 6px 8px; border-radius: 6px; border: 1px solid rgba(148,163,184,0.3); background: rgba(15,23,42,0.85); color: #f8fafc; font-size: 12px;" />
+          <input id="inp-notif-ar-cooldown" class="studio-input" type="number" min="15" value="300" />
         </div>
       </div>
       <div style="display: flex; flex-direction: column; gap: 4px;">
         <label style="font-size: 11px; color: #94a3b8;">Nội dung Auto-Reply mặc định</label>
-        <input id="inp-notif-ar-message" type="text" value="Mình đang bận xíu, nhận được tin nhắn rồi sẽ trả lời lại ngay nhé!" style="width: 100%; padding: 6px 8px; border-radius: 6px; border: 1px solid rgba(148,163,184,0.3); background: rgba(15,23,42,0.85); color: #f8fafc; font-size: 12px;" />
+        <input id="inp-notif-ar-message" class="studio-input" type="text" value="Mình đang bận xíu, nhận được tin nhắn rồi sẽ trả lời lại ngay nhé!" />
       </div>
       <div style="display: flex; gap: 6px;">
-        <button id="btn-save-notif-autoreply" class="btn-mini-action" type="button" style="flex: 1;">Lưu Cấu Hình Auto-Reply</button>
-        <button id="btn-test-notif-autoreply" class="btn-mini-action" type="button">Test Ngay (Zalo)</button>
+        <button id="btn-save-notif-autoreply" class="studio-btn-primary" type="button" style="flex: 1;">Lưu Cấu Hình Auto-Reply</button>
+        <button id="btn-test-notif-autoreply" class="action-btn" type="button">Test Ngay (Zalo)</button>
       </div>
       <div id="notif-ar-status" class="dash-sub" style="font-size: 11px; min-height: 16px;"></div>
     </div>

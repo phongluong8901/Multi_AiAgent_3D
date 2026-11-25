@@ -6,6 +6,7 @@ import {
   openFileAnalyticsDashboard,
   pinStickyNote,
   renderDashboardAiSummary,
+  setBubbleThinkingState,
   setFileDragHoverMode,
   setStreamSpeechText,
   speakVietnameseTts,
@@ -18,7 +19,13 @@ import {
   toggleTarotModal,
 } from '../frontend/ui';
 import { appState } from '../core/state';
-import { fireAnimationTrigger } from '../core/animationBinder';
+import {
+  fireAnimationTrigger,
+  getClipById,
+  playRandomClipFromDeck,
+  previewClip,
+  stopAllThinkingClips,
+} from '../core/animationBinder';
 import { syncChatPushToCloud, syncChatStreamChunkToCloud } from './toolForge';
 import {
   buildPinnedFilesPromptContext,
@@ -29,6 +36,7 @@ import {
   getPrimaryPinnedFile,
   pinFileToChatBar,
 } from '../frontend/features/pinnedChatFiles';
+import { speakEnglishTts } from '../frontend/features/voiceTts';
 import { runMultiStepDesktopAgent } from './agentLoop';
 import {
   COMPACT_LOCAL_TOOLSET_PROMPT,
@@ -60,7 +68,10 @@ async function runWithToolAnim<T>(
   isOk?: (res: T) => boolean
 ): Promise<T> {
   const ownTrigger = activeToolAnimDepth === 0;
-  if (ownTrigger) fireAnimationTrigger('tool', toolKey, 'start');
+  if (ownTrigger) {
+    fireAnimationTrigger('tool', toolKey, 'start');
+    setBubbleThinkingState(true, `[TOOL: ${toolKey.toUpperCase()}] Đang thực thi...`);
+  }
   activeToolAnimDepth++;
   let ok = false;
   try {
@@ -72,7 +83,10 @@ async function runWithToolAnim<T>(
     throw err;
   } finally {
     activeToolAnimDepth = Math.max(0, activeToolAnimDepth - 1);
-    if (ownTrigger) fireAnimationTrigger('tool', toolKey, ok ? 'success' : 'error');
+    if (ownTrigger) {
+      if (!isStreamingActive) setBubbleThinkingState(false);
+      fireAnimationTrigger('tool', toolKey, ok ? 'success' : 'error');
+    }
   }
 }
 
@@ -82,6 +96,24 @@ function scheduleScanIdleReset(delayMs = 1800) {
       appState.setState(appState.attachedWindowHwnd !== null ? 'SITTING_WINDOW' : 'IDLE');
     }
   }, delayMs);
+}
+
+const telemetryTtlCache = new Map<string, { ts: number; value: unknown }>();
+const TELEMETRY_CACHE_TTL_MS = 15_000;
+
+async function invokeCachedTelemetry<T>(
+  cacheKey: string,
+  command: string,
+  bypassCache = false
+): Promise<T> {
+  const now = Date.now();
+  const cached = telemetryTtlCache.get(cacheKey);
+  if (!bypassCache && cached && now - cached.ts < TELEMETRY_CACHE_TTL_MS) {
+    return cached.value as T;
+  }
+  const fresh = await invoke<T>(command);
+  telemetryTtlCache.set(cacheKey, { ts: now, value: fresh });
+  return fresh;
 }
 import {
   show3DRadar,
@@ -496,6 +528,7 @@ function triggerHardwareAlertUi(hw: HardwareInfo) {
   appState.setState('ALERT');
   appState.setExpression('surprised', 4.0);
   spawnAlertEffect(appState.posX, appState.posY);
+  fireAnimationTrigger('event', 'hw_high_alert', 'enter');
   playAlertBeep(appState.posX);
   showTelemetrySection('alert');
   pushDashboardAlert(`CẢNH BÁO: ${alertText}`);
@@ -648,7 +681,11 @@ export async function runCheckAppMetrics(interactive = true): Promise<string> {
       spawnScanEffect(appState.posX, appState.posY);
     }
     try {
-      const m = await invoke<AppProcessMetrics>('get_app_process_metrics');
+      const m = await invokeCachedTelemetry<AppProcessMetrics>(
+        'app_metrics',
+        'get_app_process_metrics',
+        interactive
+      );
       updateAppMetricsDashboard(m);
       if (interactive) {
         showTelemetrySection('app_metrics');
@@ -941,7 +978,7 @@ export async function runHardwareCheck(interactive = true): Promise<string> {
       spawnScanEffect(appState.posX, appState.posY);
     }
     try {
-      const hw = await invoke<HardwareInfo>('check_hardware');
+      const hw = await invokeCachedTelemetry<HardwareInfo>('hw', 'check_hardware', interactive);
       updateHardwareDashboard(hw);
       const summary = formatHardwareSummary(hw);
       if (interactive) {
@@ -986,7 +1023,7 @@ export async function runNetworkCheck(interactive = true): Promise<string> {
       spawnScanEffect(appState.posX, appState.posY);
     }
     try {
-      const net = await invoke<NetworkInfo>('check_network');
+      const net = await invokeCachedTelemetry<NetworkInfo>('net', 'check_network', interactive);
       updateLlmBadge(net.ollama_ok);
       updateNetworkDashboard(net);
       const summary = formatNetworkSummary(net);
@@ -1024,7 +1061,7 @@ export async function runBitcoinCheck(interactive = true): Promise<string> {
       spawnScanEffect(appState.posX, appState.posY);
     }
     try {
-      const btc = await invoke<BitcoinInfo>('check_bitcoin');
+      const btc = await invokeCachedTelemetry<BitcoinInfo>('btc', 'check_bitcoin', interactive);
       lastBtcPrice = btc.price_usd;
       updateBitcoinDashboard(btc);
       const summary = formatBitcoinSummary(btc);
@@ -1368,10 +1405,16 @@ export async function refreshLongMemoryUi(): Promise<LongMemoryEntry[]> {
           chk.type = 'checkbox';
           chk.checked = entry.enabled;
           chk.style.marginTop = '3px';
-          chk.addEventListener('change', () => {
-            void invoke('long_memory_toggle', { id: entry.id, enabled: chk.checked })
-              .then(() => void refreshLongMemoryUi())
-              .catch(() => { });
+          chk.addEventListener('change', async () => {
+            chk.disabled = true;
+            try {
+              await invoke('long_memory_toggle', { id: entry.id, enabled: chk.checked });
+              await refreshLongMemoryUi();
+            } catch {
+              chk.checked = !chk.checked;
+            } finally {
+              chk.disabled = false;
+            }
           });
 
           const txtWrap = document.createElement('div');
@@ -1404,10 +1447,16 @@ export async function refreshLongMemoryUi(): Promise<LongMemoryEntry[]> {
           delBtn.title = `Xóa "${entry.title}"`;
           delBtn.style.cssText =
             'flex-shrink:0;width:20px;height:20px;border-radius:5px;border:1px solid rgba(248,113,113,0.35);background:rgba(248,113,113,0.12);color:#fca5a5;font-size:10px;cursor:pointer;';
-          delBtn.addEventListener('click', () => {
-            void invoke('long_memory_delete', { id: entry.id })
-              .then(() => void refreshLongMemoryUi())
-              .catch(() => { });
+          delBtn.addEventListener('click', async () => {
+            delBtn.disabled = true;
+            delBtn.textContent = '...';
+            try {
+              await invoke('long_memory_delete', { id: entry.id });
+              await refreshLongMemoryUi();
+            } catch {
+              delBtn.disabled = false;
+              delBtn.textContent = 'X';
+            }
           });
 
           card.appendChild(left);
@@ -1416,6 +1465,7 @@ export async function refreshLongMemoryUi(): Promise<LongMemoryEntry[]> {
         }
       }
     }
+    window.dispatchEvent(new CustomEvent('duck-long-memory-updated'));
     return list;
   } catch {
     return [];
@@ -2211,6 +2261,7 @@ export async function summarizeLastIngestedFile(
 
   appState.setState('SCANNING');
   spawnScanEffect(appState.posX, appState.posY);
+  fireAnimationTrigger('tool', 'file_cleanup', 'start');
   speak(`[ĐANG TÓM TẮT ${analysis.file_type}] Vịt đang đọc toàn bộ "${analysis.file_name}" cho bạn...`);
 
   let finalSummary = '';
@@ -2251,6 +2302,7 @@ export async function summarizeLastIngestedFile(
 
   appState.setState('WAVING');
   appState.setExpression('happy', 3.4);
+  fireAnimationTrigger('tool', 'file_cleanup', 'success');
   renderDashboardAiSummary(analysis.file_name, finalSummary);
   pushChatHistory('assistant', finalSummary);
   pushDashboardAlert(`[TÓM TẮT] ${analysis.file_name}: ${finalSummary.slice(0, 120)}...`);
@@ -2270,7 +2322,9 @@ export async function summarizeLastIngestedFile(
   return finalSummary;
 }
 
-export async function handleDroppedAnyFile(fileOrPath: File | string): Promise<void> {
+export async function handleDroppedAnyFile(
+  fileOrPath: File | string
+): Promise<IngestedFileAnalysis | null> {
   setFileDragHoverMode(false);
   fireAnimationTrigger('event', 'file_drop', 'enter');
   const isPathStr = typeof fileOrPath === 'string';
@@ -2340,10 +2394,12 @@ export async function handleDroppedAnyFile(fileOrPath: File | string): Promise<v
     appState.setExpression('happy', 3.5);
     speak(promptMsg);
     hideSuggestionButtons();
+    return analysis;
   } catch (err) {
     const errMsg = `[LỖI HẤP THỤ FILE] ${String(err)}`;
     appState.setExpression('sad', 2.5);
     speak(errMsg);
+    return null;
   }
 }
 
@@ -2757,33 +2813,15 @@ export async function loadAndSpeakLiveNews(
     : exec();
 }
 
-export function playEnglishVocabAudio(item?: EnglishVocabItem | null) {
+export function playEnglishVocabAudio(
+  item?: EnglishVocabItem | null,
+  opts?: { slow?: boolean; sentence?: boolean }
+) {
   const target = item || currentEnglishItem;
   if (!target || !target.word) return;
-  const speakWebTts = () => {
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      try {
-        window.speechSynthesis.cancel();
-        const utter = new SpeechSynthesisUtterance(target.word);
-        utter.lang = 'en-US';
-        utter.rate = 0.92;
-        window.speechSynthesis.speak(utter);
-      } catch {
-        // Bỏ qua nếu môi trường không có TTS
-      }
-    }
-  };
-  if (target.audio_url) {
-    try {
-      const audio = new Audio(target.audio_url);
-      audio.volume = 0.85;
-      void audio.play().catch(() => speakWebTts());
-      return;
-    } catch {
-      // Fallback sang Web Speech API
-    }
-  }
-  speakWebTts();
+  const textToSpeak = opts?.sentence && target.example_en ? target.example_en : target.word;
+  const audioUrl = !opts?.sentence && !opts?.slow ? target.audio_url || '' : '';
+  void speakEnglishTts(textToSpeak, Boolean(opts?.slow), audioUrl);
 }
 
 const englishAutoRepairedWords = new Set<string>();
@@ -3149,38 +3187,77 @@ export async function runEnglishMiniQuiz(): Promise<string> {
   });
 }
 
+export function getCurrentEnglishVocabItem(): EnglishVocabItem | null {
+  return currentEnglishItem;
+}
+
+export function setCurrentEnglishVocabItem(item: EnglishVocabItem | null) {
+  if (!item) {
+    currentEnglishItem = null;
+    return;
+  }
+  renderEnglishCard(item);
+}
+
+export async function askEnglishCoachAi(
+  scenario: string,
+  userText: string,
+  history: Array<{ role: 'user' | 'assistant'; content: string }> = []
+): Promise<{ reply: string; engine: string }> {
+  const systemPrompt =
+    `You are Duck English Coach tutoring a Vietnamese learner in "${scenario}". ` +
+    `Reply warmly in concise natural English (under 45 words), then optionally add one short Vietnamese tip after "VN_HINT: ". ` +
+    `Gently fix any major grammar mistake if present.`;
+  const msgs: OllamaMessage[] = [
+    ...history.map((h) => ({ role: h.role, content: h.content })),
+    { role: 'user', content: userText },
+  ];
+  return askHybridLlm(systemPrompt, systemPrompt, msgs, true);
+}
+
 export async function triggerRandomFeatureOrEffect(interactive = true): Promise<string> {
   const fxName = triggerRandomSpecial3DEffect(appState.posX, appState.posY);
+  const fxLabels: Record<string, string> = {
+    meteor_shower: 'Mưa Sao Băng 3D',
+    aurora_ring: 'Vòng Cực Quang Đa Sắc',
+    cyber_fireworks: 'Pháo Hoa 3D Cyber',
+    starlight_fountain: 'Đài Phun Ánh Sao',
+    matrix_pulse: 'Sóng Dữ Liệu Matrix',
+    plasma_nova: 'Vụ Nổ Plasma Nova 3D',
+    sakura_vortex: 'Lốc Xoáy Hoa Anh Đào',
+    cyber_dna_helix: 'Chuỗi Xoắn Kép Cyber DNA',
+    golden_jackpot: 'Suối Vàng Thần Tài',
+  };
   const roll = Math.random();
-  if (roll < 0.18) {
+  if (roll < 0.42) {
+    const picked = playRandomClipFromDeck();
+    appState.setExpression('happy', picked.defaultDuration + 0.4);
+    const msg = `[HIỆU ỨNG & HOẠT ẢNH 3D] ${fxLabels[fxName] || fxName} + diễn "${picked.label}"!`;
+    if (interactive) speak(msg);
+    return msg;
+  }
+  if (roll < 0.56) {
     const hats: AccessoryType[] = ['crown', 'cyber_visor', 'headset', 'propeller', 'halo'];
     const randomHat = hats[Math.floor(Math.random() * hats.length)];
     clearTemporaryAccessoryTimer();
     equipAccessory3D(randomHat, false);
     appState.setState('DANCING');
     appState.setExpression('happy', 3.2);
-    const fxLabels: Record<string, string> = {
-      meteor_shower: 'Mưa Sao Băng 3D',
-      aurora_ring: 'Vòng Cực Quang Đa Sắc',
-      cyber_fireworks: 'Pháo Hoa 3D Cyber',
-      starlight_fountain: 'Đài Phun Ánh Sao',
-      matrix_pulse: 'Sóng Dữ Liệu Matrix',
-    };
     const msg = `[HIỆU ỨNG RANDOM] Bùng nổ ${fxLabels[fxName] || fxName} + đội phụ kiện "${randomHat}"!`;
     if (interactive) speak(msg);
     return msg;
   }
-  if (roll < 0.36) {
+  if (roll < 0.68) {
     triggerTerritoryDefenseMode(true);
-    return '[HIỆU ỨNG RANDOM] Kích hoạt Bảo Vệ Lãnh Thổ: Rút Kiếm Cyber đánh đuổi vịt xâm phạm!';
+    return `[HIỆU ỨNG RANDOM] ${fxLabels[fxName] || fxName} + Bảo Vệ Lãnh Thổ: Rút Kiếm Cyber!`;
   }
-  if (roll < 0.54) {
+  if (roll < 0.78) {
     return triggerWindowSwing();
   }
-  if (roll < 0.70) {
+  if (roll < 0.87) {
     return syncLiveWeather3D('auto', interactive);
   }
-  if (roll < 0.85) {
+  if (roll < 0.94) {
     return loadAndSpeakLiveNews(undefined, interactive);
   }
   return loadNextEnglishLesson('random', interactive);
@@ -3578,6 +3655,75 @@ async function dispatchAiToolCallInner(toolCall: ToolCallItem): Promise<boolean>
           await clearCachedVrm();
           createDetailedAnimeCharacter();
           spawnParticles(appState.posX, appState.posY - 90, 10, 0x38bdf8);
+        } else if (action === 'random' || action === 'ngau_nhien' || action === 'random_clip') {
+          const picked = playRandomClipFromDeck();
+          appState.setExpression('happy', picked.defaultDuration + 0.4);
+        } else {
+          const clipAliases: Record<string, string> = {
+            salute: 'cyber_salute',
+            cyber_salute: 'cyber_salute',
+            gym: 'gym_pump',
+            gym_pump: 'gym_pump',
+            saiyan: 'super_saiyan_charge',
+            super_saiyan_charge: 'super_saiyan_charge',
+            photo: 'paparazzi_pose',
+            paparazzi_pose: 'paparazzi_pose',
+            hologram: 'hologram_code',
+            hologram_code: 'hologram_code',
+            love: 'love_serenade',
+            love_serenade: 'love_serenade',
+            celebrate: 'celebrate_backhop',
+            celebrate_backhop: 'celebrate_backhop',
+            flop: 'dramatic_flop',
+            dramatic_flop: 'dramatic_flop',
+            read: 'reading_study',
+            books: 'reading_study',
+            reading_study: 'reading_study',
+            pipe: 'pipe_ponder',
+            pipe_ponder: 'pipe_ponder',
+            coffee: 'coffee_sip',
+            coffee_sip: 'coffee_sip',
+            royal: 'royal_parade',
+            parade: 'royal_parade',
+            royal_parade: 'royal_parade',
+            thinking: 'ai_thinking_orbit',
+            ai_thinking_orbit: 'ai_thinking_orbit',
+            flutter: 'wing_flutter_joy',
+            wing_flutter_joy: 'wing_flutter_joy',
+            bow: 'polite_bow',
+            nod: 'nod',
+            shake: 'head_shake',
+            think: 'think',
+            typing: 'typing',
+            idea: 'eureka_idea',
+            eureka: 'eureka_idea',
+            detective: 'detective_scan',
+            guard: 'focus_guard',
+            focus: 'focus_guard',
+            dizzy: 'dizzy_spin',
+            poke: 'poke_giggle',
+            explain: 'chat_explain',
+            groove: 'groove',
+            cheer: 'cheer',
+            victory: 'victory',
+            stalk: 'stalking_crouch',
+            wake: 'wake_stretch',
+            stretch: 'stretch',
+            levitate: 'levitate',
+            chomp: 'chomp',
+            sneeze: 'sneeze',
+            shiver: 'shiver',
+            facepalm: 'facepalm',
+            jelly: 'jelly',
+            twirl: 'twirl',
+            hop: 'hop',
+          };
+          const resolvedClip = clipAliases[action] || (getClipById(action) ? action : '');
+          if (resolvedClip) {
+            previewClip(resolvedClip);
+          } else {
+            playRandomClipFromDeck();
+          }
         }
         return true;
       }
@@ -3889,7 +4035,20 @@ async function dispatchAiToolCallInner(toolCall: ToolCallItem): Promise<boolean>
       case 'learn_english': {
         const act = String(params.action || 'learn').toLowerCase().trim();
         const topic = params.topic ? String(params.topic).trim() : undefined;
-        if (act === 'quiz' || act === 'test') {
+        const word = params.word || params.query || params.target ? String(params.word || params.query || params.target).trim() : undefined;
+        if (act === 'open_coach' || act === 'coach' || act === 'flashcard' || act === 'lookup' || act === 'search' || act === 'speak' || act === 'srs') {
+          window.dispatchEvent(
+            new CustomEvent('duck-open-english-coach', {
+              detail: {
+                tab: act === 'speak' ? 'speak' : act === 'srs' ? 'srs' : 'learn',
+                wordQuery: word,
+              },
+            })
+          );
+          lastToolOutputSummary = word
+            ? `Đã mở Duck English Coach và tra từ "${word}".`
+            : 'Đã mở Duck English Coach Studio 4 Tab.';
+        } else if (act === 'quiz' || act === 'test') {
           lastToolOutputSummary = await runEnglishMiniQuiz();
         } else {
           lastToolOutputSummary = await loadNextEnglishLesson(topic, true);
@@ -4670,7 +4829,24 @@ async function tryRunDevMacroWeatherEdgeCommand(
     return { label: 'Đọc Tin Mới Live', msg };
   }
 
-  // 2c. Học Tiếng Anh vô tận từ Internet & Đố vui từ vựng
+  // 2c. Học Tiếng Anh vô tận từ MongoDB / Internet, mở English Coach & Đố vui từ vựng
+  if (
+    /(?:mở bảng học tiếng anh|mở english coach|luyện nói tiếng anh|học flashcard|flashcard tiếng anh|sổ từ srs)/i.test(
+      lower
+    )
+  ) {
+    const tab = lower.includes('nói') ? 'speak' : lower.includes('srs') || lower.includes('sổ') ? 'srs' : 'learn';
+    window.dispatchEvent(new CustomEvent('duck-open-english-coach', { detail: { tab } }));
+    return { label: 'Duck English Coach', msg: 'Đã mở bảng Duck English Coach 4 Tab cho bạn!' };
+  }
+  const lookupMatch = text.match(/^(?:tra\s+từ|tra\s+nghĩa\s+từ)\s+([a-zA-Z\-']{2,32})/i);
+  if (lookupMatch?.[1]) {
+    const wordQuery = lookupMatch[1].trim();
+    window.dispatchEvent(
+      new CustomEvent('duck-open-english-coach', { detail: { tab: 'learn', wordQuery } })
+    );
+    return { label: 'Tra Từ Tiếng Anh', msg: `Đang tra từ "${wordQuery}" trên MongoDB & từ điển...` };
+  }
   if (
     /(?:đố vui tiếng anh|on tap tieng anh|ôn tập tiếng anh|kiểm tra từ vựng|quiz tiếng anh)/i.test(lower)
   ) {
@@ -5609,7 +5785,9 @@ export async function chatWithLocalLlm(userText: string) {
   streamingBuffer = '';
   streamEmotionApplied = false;
   clearSpeechMessage();
-  setStreamSpeechText(`[${activeStreamEngine}] Đang kết nối...`);
+  setBubbleThinkingState(true, `[${activeStreamEngine}] Duck AI đang suy luận...`);
+  fireAnimationTrigger('event', 'ai_thinking', 'enter');
+  setStreamSpeechText(`[${activeStreamEngine}] Đang phân tích ngữ cảnh...`);
 
   // Tạo ngữ cảnh thời gian thực rút gọn
   const now = new Date();
@@ -5751,14 +5929,20 @@ YÊU CẦU:
     void saveSemanticMemory(`Chủ nhân: ${userText} -> Trợ lý: ${finalCleanText}`);
 
     appState.velY = -6;
+    appState.triggerSquash(0.88, 1.15);
     appState.setState('JUMPING');
     if (appState.expressionMood === 'neutral') {
-      appState.setExpression('happy', 2.8);
+      appState.setExpression('happy', 3.0);
     }
     appState.changeMood(3);
+    stopAllThinkingClips();
+    setBubbleThinkingState(false);
+    fireAnimationTrigger('event', 'chat_reply', 'enter');
     setStreamSpeechText(`[${engine}] ${finalCleanText}`);
     void speakVietnameseTts(finalCleanText);
   } catch (err) {
+    stopAllThinkingClips();
+    setBubbleThinkingState(false);
     updateLlmBadge(false);
     // Nếu LLM lỗi mạng/offline, tự động chạy heuristic handler dự phòng
     const handled = await fallbackHeuristicCommandHandler(userText);
@@ -5768,6 +5952,8 @@ YÊU CẦU:
       );
     }
   } finally {
+    stopAllThinkingClips();
+    setBubbleThinkingState(false);
     isStreamingActive = false;
     isBusy = false;
   }
@@ -5938,7 +6124,7 @@ async function runProactiveCheckIn() {
 
   if (proactiveStep === 0) {
     try {
-      const hw = await invoke<HardwareInfo>('check_hardware');
+      const hw = await invokeCachedTelemetry<HardwareInfo>('hw', 'check_hardware', false);
       updateHardwareDashboard(hw);
       const { cpuHigh, ramHigh } = isHardwareOverThreshold(hw);
       if (cpuHigh || ramHigh) {
@@ -5960,7 +6146,7 @@ async function runProactiveCheckIn() {
     }
   } else if (proactiveStep === 2) {
     try {
-      const btc = await invoke<BitcoinInfo>('check_bitcoin');
+      const btc = await invokeCachedTelemetry<BitcoinInfo>('btc', 'check_bitcoin', false);
       updateBitcoinDashboard(btc);
       if (lastBtcPrice !== null) {
         const diffPct = Math.abs(((btc.price_usd - lastBtcPrice) / lastBtcPrice) * 100);
@@ -6248,6 +6434,8 @@ export function initAssistant() {
       streamingBuffer += token;
       const cleanPartial = sanitizeStreamingText(streamingBuffer);
       if (cleanPartial) {
+        stopAllThinkingClips();
+        setBubbleThinkingState(true, `[${activeStreamEngine}] Đang phản hồi trực tiếp...`);
         if (!streamEmotionApplied && (cleanPartial.length >= 28 || /[.!?]/.test(cleanPartial))) {
           streamEmotionApplied = true;
           applyAutoEmotionFromText(cleanPartial);

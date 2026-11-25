@@ -4,7 +4,7 @@ use std::net::{SocketAddr, TcpListener, TcpStream, UdpSocket};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::backend::telemetry::apply_no_window;
 
@@ -1036,6 +1036,18 @@ fn spawn_peer_reader(
 }
 
 const MOBILE_WEB_HTML: &str = include_str!("mobile_web.html");
+const MOBILE_DECK_HTML: &str = include_str!("mobile_deck.html");
+
+fn extract_query_param(raw_path: &str, key: &str) -> Option<String> {
+    let (_, qs) = raw_path.split_once('?')?;
+    for pair in qs.split('&') {
+        let (k, v) = pair.split_once('=').unwrap_or((pair, ""));
+        if k == key {
+            return Some(v.replace('+', " "));
+        }
+    }
+    None
+}
 
 #[derive(Serialize, Clone, Debug)]
 struct WebArenaStateJson {
@@ -1138,6 +1150,245 @@ fn handle_http_client(
             MOBILE_WEB_HTML,
         );
         return;
+    }
+
+    if method == "GET" && path == "/deck" {
+        send_http_response(
+            &mut write_stream,
+            "200 OK",
+            "text/html; charset=utf-8",
+            MOBILE_DECK_HTML,
+        );
+        return;
+    }
+
+    if path.starts_with("/api/deck/") {
+        let mut body_buf = vec![0u8; content_length];
+        if method == "POST" && content_length > 0 && reader.read_exact(&mut body_buf).is_err() {
+            send_http_response(
+                &mut write_stream,
+                "400 Bad Request",
+                "application/json; charset=utf-8",
+                r#"{"ok":false,"error":"Body read error"}"#,
+            );
+            return;
+        }
+        let body_json: serde_json::Value = if !body_buf.is_empty() {
+            serde_json::from_slice(&body_buf).unwrap_or_else(|_| serde_json::json!({}))
+        } else {
+            serde_json::json!({})
+        };
+
+        let supplied_pin = extract_query_param(raw_path, "pin")
+            .or_else(|| {
+                body_json
+                    .get("pin")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+            })
+            .unwrap_or_default();
+
+        let (app_handle, expected_pin, host_name) = {
+            let guard = inner_arc.lock().unwrap();
+            (
+                guard.app.clone(),
+                guard.room_code.clone(),
+                guard.local_name.clone(),
+            )
+        };
+
+        if supplied_pin.trim() != expected_pin {
+            send_http_response(
+                &mut write_stream,
+                "401 Unauthorized",
+                "application/json; charset=utf-8",
+                r#"{"ok":false,"error":"Mã PIN không đúng. Hãy quét lại mã QR trên máy tính."}"#,
+            );
+            return;
+        }
+
+        if method == "GET" && path == "/api/deck/status" {
+            let hb = app_handle.state::<Arc<crate::core::hitbox::HitboxState>>();
+            let peak = hb.audio_peak_milli.load(Ordering::Relaxed) as f32 / 1000.0;
+            let bpm = hb.audio_bpm.load(Ordering::Relaxed);
+            let resp = serde_json::json!({
+                "ok": true,
+                "host_name": host_name,
+                "audio_peak": peak,
+                "audio_bpm": bpm,
+            });
+            send_http_response(
+                &mut write_stream,
+                "200 OK",
+                "application/json; charset=utf-8",
+                &resp.to_string(),
+            );
+            return;
+        }
+
+        if method == "GET" && path == "/api/deck/screenshot" {
+            let resp = match crate::backend::pc_control::deck_capture_jpeg_b64_sync() {
+                Ok(b64) => serde_json::json!({ "ok": true, "image_base64": b64 }),
+                Err(e) => serde_json::json!({ "ok": false, "error": e }),
+            };
+            send_http_response(
+                &mut write_stream,
+                "200 OK",
+                "application/json; charset=utf-8",
+                &resp.to_string(),
+            );
+            return;
+        }
+
+        if path == "/api/deck/vocab" {
+            let mem_state = app_handle.state::<crate::backend::memory::MemoryState>();
+            if method == "GET" {
+                let items =
+                    crate::backend::memory::vocab_list_words(mem_state, Some(60)).unwrap_or_default();
+                let featured = items.first().cloned().unwrap_or_else(|| {
+                    let idx = (SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .map(|d| d.as_secs() as usize)
+                        .unwrap_or(0))
+                        % crate::backend::english_offline_deck::OFFLINE_ENGLISH_DECK.len();
+                    crate::backend::english_offline_deck::OFFLINE_ENGLISH_DECK[idx].to_item()
+                });
+                let resp = serde_json::json!({
+                    "ok": true,
+                    "items": items,
+                    "featured": featured,
+                });
+                send_http_response(
+                    &mut write_stream,
+                    "200 OK",
+                    "application/json; charset=utf-8",
+                    &resp.to_string(),
+                );
+                return;
+            }
+
+            let act = body_json
+                .get("action")
+                .and_then(|v| v.as_str())
+                .unwrap_or("draw");
+            let resp = match act {
+                "draw" => {
+                    let deck = crate::backend::english_offline_deck::OFFLINE_ENGLISH_DECK;
+                    let nanos = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .map(|d| d.subsec_nanos() as usize)
+                        .unwrap_or(7);
+                    let card = deck[nanos % deck.len()].to_item();
+                    serde_json::json!({ "ok": true, "card": card })
+                }
+                "review" => {
+                    let word = body_json
+                        .get("word")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let quality = body_json
+                        .get("quality")
+                        .and_then(|v| v.as_i64())
+                        .unwrap_or(4) as i32;
+                    if let Some(item_val) = body_json.get("item") {
+                        if let Ok(parsed_item) = serde_json::from_value::<
+                            crate::backend::telemetry::EnglishVocabItem,
+                        >(item_val.clone())
+                        {
+                            let _ = crate::backend::memory::vocab_save_word(
+                                app_handle.state::<crate::backend::memory::MemoryState>(),
+                                parsed_item,
+                            );
+                        }
+                    }
+                    match crate::backend::memory::vocab_record_review(mem_state, word.clone(), quality)
+                    {
+                        Ok(updated) => {
+                            let _ = app_handle.emit(
+                                "desktop-mate://mobile-deck-cmd",
+                                serde_json::json!({ "action": "vocab_updated", "word": word }),
+                            );
+                            serde_json::json!({
+                                "ok": true,
+                                "item": updated,
+                                "message": format!("[SRS] Đã lưu điểm ôn tập ({quality}/5) cho '{word}'.")
+                            })
+                        }
+                        Err(e) => serde_json::json!({ "ok": false, "error": e }),
+                    }
+                }
+                "speak_pc" => {
+                    let word = body_json
+                        .get("word")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+                    let _ = app_handle.emit(
+                        "desktop-mate://mobile-deck-cmd",
+                        serde_json::json!({ "action": "speak_word", "text": word }),
+                    );
+                    serde_json::json!({ "ok": true, "message": format!("[TTS PC] Vịt đang phát âm '{word}' trên máy tính.") })
+                }
+                _ => serde_json::json!({ "ok": false, "error": "Unsupported vocab action" }),
+            };
+            send_http_response(
+                &mut write_stream,
+                "200 OK",
+                "application/json; charset=utf-8",
+                &resp.to_string(),
+            );
+            return;
+        }
+
+        if method == "POST" && path == "/api/deck/action" {
+            let act = body_json
+                .get("action")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let text = body_json
+                .get("text")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim();
+
+            let resp = match act {
+                "push_clipboard" => match crate::backend::pc_control::deck_set_clipboard_sync(text) {
+                    Ok(m) => serde_json::json!({ "ok": true, "message": m }),
+                    Err(e) => serde_json::json!({ "ok": false, "error": e }),
+                },
+                "pull_clipboard" => match crate::backend::pc_control::deck_get_clipboard_sync() {
+                    Ok(c) => serde_json::json!({ "ok": true, "clipboard": c }),
+                    Err(e) => serde_json::json!({ "ok": false, "error": e }),
+                },
+                "open_url" => match crate::backend::pc_control::open_web_or_app(text.to_string()) {
+                    Ok(m) => serde_json::json!({ "ok": true, "message": m }),
+                    Err(e) => serde_json::json!({ "ok": false, "error": e }),
+                },
+                "beat_dance" | "send_chat" => {
+                    let _ = app_handle.emit(
+                        "desktop-mate://mobile-deck-cmd",
+                        serde_json::json!({ "action": act, "text": text }),
+                    );
+                    let msg = if act == "beat_dance" {
+                        "Đã bật chế độ Vịt Nhảy Theo Nhạc 3D trên máy tính!"
+                    } else {
+                        "Đã gửi tin nhắn sang Duck AI trên máy tính!"
+                    };
+                    serde_json::json!({ "ok": true, "message": msg })
+                }
+                _ => match crate::backend::pc_control::deck_system_action_sync(act) {
+                    Ok(m) => serde_json::json!({ "ok": true, "message": m }),
+                    Err(e) => serde_json::json!({ "ok": false, "error": e }),
+                },
+            };
+            send_http_response(
+                &mut write_stream,
+                "200 OK",
+                "application/json; charset=utf-8",
+                &resp.to_string(),
+            );
+            return;
+        }
     }
 
     if method == "GET" && path == "/favicon.ico" {

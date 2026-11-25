@@ -4,7 +4,7 @@ export const speechBubbleHtml = `
     <!-- HEADER ĐIỀU KHIỂN & TRẠNG THÁI AI -->
     <div class="bubble-header">
       <div class="bubble-header-left">
-        <span class="badge badge-duck-tag">[DUCK]</span>
+        <span class="badge badge-duck-tag"><span class="duck-live-dot" aria-hidden="true"></span>[DUCK]</span>
         <span id="llm-badge" class="badge badge-chat-tag">[LLM: ...]</span>
         <span id="duck-mood-indicator" class="badge badge-mood-tag" style="display: none;">Live</span>
       </div>
@@ -21,6 +21,17 @@ export const speechBubbleHtml = `
           </svg>
         </button>
       </div>
+    </div>
+
+    <!-- TRẠNG THÁI SUY LUẬN / ĐANG CHẠY CÔNG CỤ ĐỘNG -->
+    <div id="bubble-thinking-bar" class="bubble-thinking-bar" style="display: none;">
+      <span class="thinking-pulse-icon" aria-hidden="true">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"></path>
+        </svg>
+      </span>
+      <span id="bubble-thinking-label" class="thinking-label">Duck AI đang suy luận...</span>
+      <span class="thinking-dots" aria-hidden="true"><span></span><span></span><span></span></span>
     </div>
 
     <!-- KHUNG THOẠI CHÍNH & CẢNH BÁO TÀI NGUYÊN / TƯƠNG TÁC -->
@@ -234,22 +245,18 @@ export const speechBubbleHtml = `
         <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
       </svg>
     </button>
-    <button id="dock-btn-right" class="dock-btn" type="button" title="Bật/Tắt Bảng Hành động Phải">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
-      </svg>
-    </button>
-    <button id="dock-btn-pc-control" class="dock-btn" type="button" title="Điều Khiển Máy Tính, Google &amp; OCR Cắt Vùng">
+    <span class="dock-sep" aria-hidden="true"></span>
+    <button id="dock-btn-pc-control" class="dock-btn" type="button" title="Điều Khiển Máy Tính, Màn Hình Mini (PiP) &amp; OCR Cắt Vùng">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
         <line x1="8" y1="21" x2="16" y2="21"></line>
         <line x1="12" y1="17" x2="12" y2="21"></line>
       </svg>
     </button>
-    <button id="dock-btn-mini-screen" class="dock-btn" type="button" title="Màn Hình Mini (Xem YouTube / Chiếu Tab &amp; App)">
+    <button id="dock-btn-english" class="dock-btn dock-btn-english" type="button" title="Học Tiếng Anh (Flashcard MongoDB, SRS SM-2, Quiz &amp; Luyện Nói Mic)">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <rect x="2" y="4" width="20" height="15" rx="2"></rect>
-        <rect x="11" y="10" width="9" height="7" rx="1.2" fill="rgba(56, 189, 248, 0.35)"></rect>
+        <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path>
+        <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path>
       </svg>
     </button>
     <button id="dock-btn-studio" class="dock-btn" type="button" title="Cấu Hình Hệ Thống &amp; Studio 3D">
@@ -265,6 +272,7 @@ export const speechBubbleHtml = `
         <polyline points="9 9 12 12 9 15"></polyline>
       </svg>
     </button>
+    <span class="dock-sep" aria-hidden="true"></span>
     <button id="dock-btn-p2p" class="dock-btn" type="button" title="Đấu Trường P2P PK &amp; Điều Khiển Chéo (Cross-PC)">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <polyline points="14.5 17.5 3 6 3 3 6 3 17.5 14.5"></polyline>
@@ -284,7 +292,7 @@ export const speechBubbleHtml = `
       </svg>
       <span id="dock-tarot-ready-dot" class="tarot-ready-dot" style="display: none;"></span>
     </button>
-    <button id="dock-btn-anim" class="dock-btn dock-btn-anim" type="button" title="Quản lý Hoạt Ảnh (gắn hoạt ảnh với Tool / Trạng thái / Trang)">
+    <button id="dock-btn-anim" class="dock-btn dock-btn-anim" type="button" title="Quản Lý Hoạt Ảnh, Hành Động &amp; Trạng Thái Nhân Vật">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M12 3l1.9 5.8L20 10l-5 3.6L16.8 20 12 16.6 7.2 20 9 13.6 4 10l6.1-1.2z"></path>
       </svg>

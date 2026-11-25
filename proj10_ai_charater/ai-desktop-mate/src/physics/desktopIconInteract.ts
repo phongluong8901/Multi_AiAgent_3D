@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { invoke } from '@tauri-apps/api/core';
 import { scene } from '../core/scene';
 import { appState } from '../core/state';
+import { fireAnimationTrigger } from '../core/animationBinder';
 import {
   spawnDriftSmoke,
   spawnParticles,
@@ -399,6 +400,7 @@ export async function arrangeDesktopIcons(mode: 'circle' | 'grid' | 'restore'): 
   }
 
   isArrangingIcons = true;
+  fireAnimationTrigger('tool', 'desktop_icon', 'start');
   try {
     await invoke<boolean>('begin_desktop_icon_drag').catch(() => false);
 

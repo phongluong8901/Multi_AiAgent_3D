@@ -31,6 +31,7 @@ import {
 import type { FaceExpression } from '../../core/types';
 import { getCachedCustomSkills, refreshCustomSkills } from '../../backend/toolForge';
 import { syncHitboxToRust } from '../ui';
+import { rightActionControlsInnerHtml } from './rightActionPanel';
 
 const ICON_CLOSE = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>`;
 const ICON_PLAY = `<svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="6 4 20 12 6 20 6 4"></polygon></svg>`;
@@ -83,7 +84,7 @@ export const animationManagerModalHtml = `
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f0abfc" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M12 3l1.9 5.8L20 10l-5 3.6L16.8 20 12 16.6 7.2 20 9 13.6 4 10l6.1-1.2z"></path>
         </svg>
-        <span>Quản Lý Hoạt Ảnh</span>
+        <span>Quản Lý Hoạt Ảnh &amp; Hành Động</span>
         <span id="anim-mgr-count" class="badge anim-badge-pink">0 GẮN KẾT</span>
       </div>
       <div style="display: flex; align-items: center; gap: 8px;">
@@ -97,10 +98,15 @@ export const animationManagerModalHtml = `
       </div>
     </div>
 
-    <div class="studio-tabs-bar anim-tabs" style="grid-template-columns: 1fr 1fr 1fr; margin-bottom: 10px;">
+    <div class="studio-tabs-bar anim-tabs" style="grid-template-columns: repeat(4, 1fr); margin-bottom: 10px;">
+      <button class="studio-tab-btn" data-anim-tab="actions" type="button">Hành Động &amp; Trạng Thái</button>
       <button class="studio-tab-btn active" data-anim-tab="bind" type="button">Gắn Kết</button>
       <button class="studio-tab-btn" data-anim-tab="library" type="button">Thư Viện (${CLIP_CATALOG.length})</button>
       <button class="studio-tab-btn" data-anim-tab="log" type="button">Nhật Ký</button>
+    </div>
+
+    <div id="anim-pane-actions" class="anim-pane" style="display: none;">
+      ${rightActionControlsInnerHtml}
     </div>
 
     <div id="anim-pane-bind" class="anim-pane">
@@ -216,7 +222,7 @@ export const animationManagerModalHtml = `
 /* ------------------------------------------------------------------ */
 
 let isOpen = false;
-let currentTab: 'bind' | 'library' | 'log' = 'bind';
+let currentTab: 'actions' | 'bind' | 'library' | 'log' = 'bind';
 let libFilter: 'all' | 'featured' | ClipGroup = 'all';
 let formType: AnimTriggerType = 'tool';
 let editingId: string | null = null;
@@ -272,7 +278,11 @@ function fillKeySelect(selected?: string) {
     html = EVENT_TRIGGER_CATALOG.map((e) => `<option value="${esc(e.key)}">${esc(e.label)}</option>`).join('');
   }
   sel.innerHTML = html;
-  if (selected) sel.value = selected;
+  if (selected && Array.from(sel.options).some((o) => o.value === selected)) {
+    sel.value = selected;
+  } else if (sel.options.length > 0) {
+    sel.selectedIndex = 0;
+  }
   const phaseWrap = $('anim-f-phase-wrap');
   if (phaseWrap) phaseWrap.style.display = formType === 'tool' || formType === 'skill' ? '' : 'none';
 }
@@ -346,6 +356,8 @@ function resetForm() {
   ($('anim-f-phase') as HTMLSelectElement).value = 'start';
   const loopEl = $('anim-f-loop') as HTMLInputElement | null;
   if (loopEl) loopEl.checked = false;
+  const saveLbl = $('anim-btn-save')?.querySelector('span');
+  if (saveLbl) saveLbl.textContent = 'Lưu gắn kết';
   $('anim-pane-bind')?.querySelector('.anim-form-card')?.classList.remove('editing');
 }
 
@@ -363,6 +375,8 @@ function loadIntoForm(b: AnimBinding) {
   if (loopEl) loopEl.checked = b.loop === true;
   const mode = $('anim-form-mode');
   if (mode) mode.textContent = 'Đang chỉnh sửa gắn kết';
+  const saveLbl = $('anim-btn-save')?.querySelector('span');
+  if (saveLbl) saveLbl.textContent = 'Cập nhật gắn kết';
   const cancel = $('anim-btn-cancel');
   if (cancel) cancel.style.display = '';
   const card = $('anim-pane-bind')?.querySelector('.anim-form-card');
@@ -475,6 +489,20 @@ const GLYPH_ANIM: Record<string, string> = {
   weather_shiver: 'g-shiver',
   weather_breeze: 'g-breeze',
   weather_sunbathe: 'g-sun',
+  ai_thinking_orbit: 'g-think',
+  chat_explain: 'g-wiggle',
+  wing_flutter_joy: 'g-hop',
+  poke_giggle: 'g-wiggle',
+  cyber_salute: 'g-bow',
+  dizzy_spin: 'g-twirl',
+  celebrate_backhop: 'g-victory',
+  focus_guard: 'g-peek',
+  gym_pump: 'g-hop',
+  super_saiyan_charge: 'g-idea',
+  paparazzi_pose: 'g-wiggle',
+  hologram_code: 'g-peek',
+  royal_parade: 'g-proud',
+  love_serenade: 'g-wiggle',
 };
 
 function renderLibrary() {
@@ -539,6 +567,7 @@ function setTab(tab: typeof currentTab) {
     b.classList.toggle('active', b.dataset.animTab === tab);
   });
   const panes: Record<typeof currentTab, string> = {
+    actions: 'anim-pane-actions',
     bind: 'anim-pane-bind',
     library: 'anim-pane-library',
     log: 'anim-pane-log',
@@ -552,12 +581,13 @@ function setTab(tab: typeof currentTab) {
   window.setTimeout(() => syncHitboxToRust(true), 30);
 }
 
-export function toggleAnimationManager(force?: boolean) {
+export function toggleAnimationManager(force?: boolean, tab?: typeof currentTab) {
   const modal = $('anim-manager-modal');
   if (!modal) return;
   isOpen = force !== undefined ? force : !isOpen;
   if (isOpen) {
     window.dispatchEvent(new CustomEvent('duck-close-other-modals'));
+    if (tab) setTab(tab);
   }
   modal.style.display = isOpen ? 'block' : 'none';
   $('dock-btn-anim')?.classList.toggle('active', isOpen);
@@ -591,8 +621,16 @@ export function initAnimationManagerUi() {
   window.addEventListener('duck-close-anim-manager', () => {
     if (isOpen) toggleAnimationManager(false);
   });
-  window.addEventListener('duck-open-anim-manager', () => {
-    toggleAnimationManager(true);
+  window.addEventListener('duck-open-anim-manager', (ev: Event) => {
+    const tab = (ev as CustomEvent)?.detail?.tab as typeof currentTab | undefined;
+    toggleAnimationManager(true, tab);
+  });
+  window.addEventListener('duck-skills-updated', () => {
+    if (!isOpen) return;
+    if (formType === 'skill') {
+      fillKeySelect(($('anim-f-key') as HTMLSelectElement | null)?.value);
+    }
+    renderBindingList();
   });
 
   window.addEventListener('keydown', (e) => {

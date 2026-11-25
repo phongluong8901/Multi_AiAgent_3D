@@ -317,9 +317,14 @@ export function animateAnimeIdol(elapsed: number, _delta: number, lerpRate: numb
     lerpRot(rigLeftArm, 'z', -0.18 - breathe * 0.03, lerpRate);
     lerpRot(rigRightArm, 'z', 0.18 + breathe * 0.03, lerpRate);
     lerpRot(rigLeftArm, 'x', breathe * 0.06, lerpRate);
-    lerpRot(rigRightArm, 'x', -breathe * 0.06, lerpRate);
-    lerpRot(rigLeftForearm, 'x', -0.2, lerpRate);
-    lerpRot(rigRightForearm, 'x', -0.2, lerpRate);
+    const beatWave =
+      appState.isSystemMusicPlaying && appState.audioVisualizer3dEnabled
+        ? Math.sin(elapsed * ((Math.max(72, appState.systemAudioBpm || 120) / 60) * Math.PI * 2)) *
+          Math.min(1, appState.systemAudioPeak * 1.2 + appState.audioBeatPulse * 0.4)
+        : 0;
+    lerpRot(rigRightArm, 'x', -breathe * 0.06 + beatWave * 0.12, lerpRate);
+    lerpRot(rigLeftForearm, 'x', -0.2 - Math.abs(beatWave) * 0.18, lerpRate);
+    lerpRot(rigRightForearm, 'x', -0.2 - Math.abs(beatWave) * 0.18, lerpRate);
     lerpRot(rigRightForearm, 'z', 0, lerpRate);
     lerpRot(rigLeftLeg, 'x', 0, lerpRate);
     lerpRot(rigRightLeg, 'x', 0, lerpRate);
@@ -355,7 +360,11 @@ export function animateAnimeIdol(elapsed: number, _delta: number, lerpRate: numb
     expr = 'surprised';
   } else if (appState.expressionMood === 'sad' || appState.state === 'TIRED' || appState.state === 'BUTT_PLANT') {
     expr = 'sad';
-  } else if (appState.speechLipSyncTimer > 0 && Math.sin(elapsed * 18) > 0) {
+  } else if (
+    appState.isRealAudioLipSync
+      ? appState.speechAudioLevel > 0.08
+      : appState.speechLipSyncTimer > 0 && Math.sin(elapsed * 18) > 0
+  ) {
     expr = 'talk';
   }
   updateFaceTexture(expr);

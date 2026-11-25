@@ -29,6 +29,10 @@ pub struct DesktopState {
     pub cursor_x: i32,
     pub cursor_y: i32,
     pub audio_peak: f32,
+    pub audio_left: f32,
+    pub audio_right: f32,
+    pub audio_beat_seq: i32,
+    pub audio_bpm: i32,
     pub key_press_total: i32,
     pub cursor_idle_ms: i32,
 }
@@ -82,6 +86,10 @@ pub fn get_desktop_state(
         cursor_x: state.cursor_x.load(Ordering::Relaxed),
         cursor_y: state.cursor_y.load(Ordering::Relaxed),
         audio_peak: state.audio_peak_milli.load(Ordering::Relaxed) as f32 / 1000.0,
+        audio_left: state.audio_left_milli.load(Ordering::Relaxed) as f32 / 1000.0,
+        audio_right: state.audio_right_milli.load(Ordering::Relaxed) as f32 / 1000.0,
+        audio_beat_seq: state.audio_beat_seq.load(Ordering::Relaxed),
+        audio_bpm: state.audio_bpm.load(Ordering::Relaxed),
         key_press_total: state.key_press_counter.load(Ordering::Relaxed),
         cursor_idle_ms: state.cursor_idle_ms.load(Ordering::Relaxed),
     }

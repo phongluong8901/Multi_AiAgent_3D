@@ -22,6 +22,10 @@ pub struct HitboxState {
     pub cursor_x: AtomicI32,
     pub cursor_y: AtomicI32,
     pub audio_peak_milli: AtomicI32,
+    pub audio_left_milli: AtomicI32,
+    pub audio_right_milli: AtomicI32,
+    pub audio_beat_seq: AtomicI32,
+    pub audio_bpm: AtomicI32,
     pub key_press_counter: AtomicI32,
     pub cursor_idle_ms: AtomicI32,
     pub goose_nudging: AtomicBool,
@@ -39,6 +43,10 @@ impl HitboxState {
             cursor_x: AtomicI32::new(0),
             cursor_y: AtomicI32::new(0),
             audio_peak_milli: AtomicI32::new(0),
+            audio_left_milli: AtomicI32::new(0),
+            audio_right_milli: AtomicI32::new(0),
+            audio_beat_seq: AtomicI32::new(0),
+            audio_bpm: AtomicI32::new(0),
             key_press_counter: AtomicI32::new(0),
             cursor_idle_ms: AtomicI32::new(0),
             goose_nudging: AtomicBool::new(false),
@@ -92,6 +100,14 @@ pub fn spawn_cursor_tracker(window: WebviewWindow, hitbox: Arc<HitboxState>) {
         let mut last_hotkey_at = Instant::now() - Duration::from_secs(2);
         let mut cached_scale: f64 = 1.0;
         let mut cached_win_pos: Option<(i32, i32)> = None;
+        #[cfg(windows)]
+        let mut audio_fast_env: f32 = 0.0;
+        #[cfg(windows)]
+        let mut audio_slow_env: f32 = 0.0;
+        #[cfg(windows)]
+        let mut avg_bpm: f32 = 120.0;
+        #[cfg(windows)]
+        let mut last_beat_at = Instant::now() - Duration::from_secs(5);
 
         let mut currently_ignoring = false;
         loop {
@@ -191,20 +207,70 @@ pub fn spawn_cursor_tracker(window: WebviewWindow, hitbox: Arc<HitboxState>) {
                     prev_alt_q = cur_alt_q;
                     prev_alt_w = cur_alt_w;
 
-                    // Đo biên độ nhạc hệ thống (WASAPI IAudioMeterInformation) mỗi ~48ms
-                    if tick_count % 3 == 0 {
-                        if audio_meter.is_none() && tick_count % 120 == 0 {
-                            audio_meter = acquire_audio_meter();
+                    // Đo biên độ nhạc hệ thống Stereo + phát hiện nhịp Bass/Beat (WASAPI) mỗi ~32ms
+                    if tick_count % 2 == 0 {
+                        if audio_meter.is_none() || tick_count % 300 == 0 {
+                            if let Some(fresh_meter) = acquire_audio_meter() {
+                                audio_meter = Some(fresh_meter);
+                            }
                         }
                         if let Some(ref meter) = audio_meter {
                             match meter.GetPeakValue() {
-                                Ok(peak) => {
-                                    let clamped = (peak.clamp(0.0, 1.0) * 1000.0) as i32;
-                                    hitbox.audio_peak_milli.store(clamped, Ordering::Relaxed);
+                                Ok(raw_peak) => {
+                                    let p = raw_peak.clamp(0.0, 1.0);
+                                    let mut left_p = p;
+                                    let mut right_p = p;
+                                    if let Ok(ch_count) = meter.GetMeteringChannelCount() {
+                                        let n = (ch_count as usize).min(8);
+                                        if n >= 2 {
+                                            let mut peaks = [0.0_f32; 8];
+                                            if meter.GetChannelsPeakValues(&mut peaks[..n]).is_ok() {
+                                                left_p = peaks[0].clamp(0.0, 1.0);
+                                                right_p = peaks[1].clamp(0.0, 1.0);
+                                            }
+                                        }
+                                    }
+
+                                    hitbox
+                                        .audio_peak_milli
+                                        .store((p * 1000.0) as i32, Ordering::Relaxed);
+                                    hitbox
+                                        .audio_left_milli
+                                        .store((left_p * 1000.0) as i32, Ordering::Relaxed);
+                                    hitbox
+                                        .audio_right_milli
+                                        .store((right_p * 1000.0) as i32, Ordering::Relaxed);
+
+                                    audio_fast_env = if p > audio_fast_env {
+                                        audio_fast_env * 0.35 + p * 0.65
+                                    } else {
+                                        audio_fast_env * 0.72 + p * 0.28
+                                    };
+                                    audio_slow_env = audio_slow_env * 0.91 + p * 0.09;
+
+                                    let transient = audio_fast_env - audio_slow_env;
+                                    let since_beat_ms = last_beat_at.elapsed().as_millis() as f32;
+                                    if p > 0.085 && transient > 0.062 && since_beat_ms >= 240.0 {
+                                        if since_beat_ms <= 1450.0 {
+                                            let inst_bpm =
+                                                (60_000.0 / since_beat_ms).clamp(68.0, 192.0);
+                                            avg_bpm = avg_bpm * 0.72 + inst_bpm * 0.28;
+                                            hitbox
+                                                .audio_bpm
+                                                .store(avg_bpm.round() as i32, Ordering::Relaxed);
+                                        }
+                                        last_beat_at = Instant::now();
+                                        hitbox.audio_beat_seq.fetch_add(1, Ordering::Relaxed);
+                                    } else if p < 0.015 && since_beat_ms > 3000.0 {
+                                        hitbox.audio_bpm.store(0, Ordering::Relaxed);
+                                    }
                                 }
                                 Err(_) => {
                                     audio_meter = None;
                                     hitbox.audio_peak_milli.store(0, Ordering::Relaxed);
+                                    hitbox.audio_left_milli.store(0, Ordering::Relaxed);
+                                    hitbox.audio_right_milli.store(0, Ordering::Relaxed);
+                                    hitbox.audio_bpm.store(0, Ordering::Relaxed);
                                 }
                             }
                         }

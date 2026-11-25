@@ -37,6 +37,10 @@ export interface DesktopState {
   cursor_x: number;
   cursor_y: number;
   audio_peak?: number;
+  audio_left?: number;
+  audio_right?: number;
+  audio_beat_seq?: number;
+  audio_bpm?: number;
   key_press_total?: number;
   cursor_idle_ms?: number;
 }
@@ -278,6 +282,13 @@ export interface EnglishVocabItem {
   audio_url: string;
   topic: string;
   synonyms: string[];
+  level?: string;
+  mastery_level?: number;
+  next_review_at?: number;
+  correct_count?: number;
+  wrong_count?: number;
+  is_starred?: boolean;
+  learned_at?: number;
 }
 
 export interface NumericColStat {
@@ -337,18 +348,134 @@ export type AutoBehaviorKey =
   | 'territory_defense'
   | 'goose_mischief'
   | 'beat_dance'
-  | 'drag_desktop_icon';
+  | 'drag_desktop_icon'
+  | 'clip_ai_thinking_orbit'
+  | 'clip_chat_explain'
+  | 'clip_wing_flutter_joy'
+  | 'clip_poke_giggle'
+  | 'clip_cyber_salute'
+  | 'clip_dizzy_spin'
+  | 'clip_celebrate_backhop'
+  | 'clip_focus_guard'
+  | 'clip_gym_pump'
+  | 'clip_super_saiyan_charge'
+  | 'clip_paparazzi_pose'
+  | 'clip_hologram_code'
+  | 'clip_royal_parade'
+  | 'clip_love_serenade'
+  | 'clip_curious_inspect'
+  | 'clip_happy_wiggle'
+  | 'clip_startled_hop'
+  | 'clip_shy_sit'
+  | 'clip_polite_bow'
+  | 'clip_wake_stretch'
+  | 'clip_stalking_crouch'
+  | 'clip_proud_carry'
+  | 'clip_dramatic_flop'
+  | 'clip_reading_study'
+  | 'clip_pipe_ponder'
+  | 'clip_eureka_idea'
+  | 'clip_coffee_sip'
+  | 'clip_detective_scan'
+  | 'clip_idle_alive'
+  | 'clip_sleepy_doze'
+  | 'clip_nod'
+  | 'clip_head_shake'
+  | 'clip_hop'
+  | 'clip_victory'
+  | 'clip_bow'
+  | 'clip_think'
+  | 'clip_shiver'
+  | 'clip_typing'
+  | 'clip_peek'
+  | 'clip_surprise'
+  | 'clip_sad'
+  | 'clip_twirl'
+  | 'clip_heartbeat'
+  | 'clip_sneeze'
+  | 'clip_groove'
+  | 'clip_chomp'
+  | 'clip_stretch'
+  | 'clip_front_flip'
+  | 'clip_jelly'
+  | 'clip_levitate'
+  | 'clip_scan_look'
+  | 'clip_facepalm'
+  | 'clip_cheer'
+  | 'clip_weather_shiver'
+  | 'clip_weather_breeze'
+  | 'clip_weather_sunbathe';
 
 export type AutoBehaviorConfig = Record<AutoBehaviorKey, boolean>;
 
 export interface AutoBehaviorMeta {
   key: AutoBehaviorKey;
   label: string;
-  group: 'basic' | 'action';
+  group: 'basic' | 'action' | 'clip3d';
   defaultEnabled: boolean;
+  clipId?: string;
 }
 
 export const AUTO_BEHAVIOR_CATALOG: AutoBehaviorMeta[] = [
+  // Nhóm Hoạt ảnh Đa Pha & Đạo cụ 3D Mới (28)
+  { key: 'clip_ai_thinking_orbit', label: 'Suy Luận AI & Hologram 3D', group: 'clip3d', defaultEnabled: true, clipId: 'ai_thinking_orbit' },
+  { key: 'clip_chat_explain', label: 'Giảng Giải Vẫy Cánh', group: 'clip3d', defaultEnabled: true, clipId: 'chat_explain' },
+  { key: 'clip_wing_flutter_joy', label: 'Vỗ Cánh Phấn Khích', group: 'clip3d', defaultEnabled: true, clipId: 'wing_flutter_joy' },
+  { key: 'clip_poke_giggle', label: 'Khúc Khích & Trái Tim 3D', group: 'clip3d', defaultEnabled: true, clipId: 'poke_giggle' },
+  { key: 'clip_cyber_salute', label: 'Chào Quân Đội & Vương Miện 3D', group: 'clip3d', defaultEnabled: true, clipId: 'cyber_salute' },
+  { key: 'clip_dizzy_spin', label: 'Chóng Mặt Loạng Choạng', group: 'clip3d', defaultEnabled: true, clipId: 'dizzy_spin' },
+  { key: 'clip_celebrate_backhop', label: 'Bật Nhảy Ăn Mừng', group: 'clip3d', defaultEnabled: true, clipId: 'celebrate_backhop' },
+  { key: 'clip_focus_guard', label: 'Canh Gác Tập Trung', group: 'clip3d', defaultEnabled: true, clipId: 'focus_guard' },
+  { key: 'clip_gym_pump', label: 'Tập Tạ Thể Lực 3D', group: 'clip3d', defaultEnabled: true, clipId: 'gym_pump' },
+  { key: 'clip_super_saiyan_charge', label: 'Tụ Khí Sấm Sét 3D', group: 'clip3d', defaultEnabled: true, clipId: 'super_saiyan_charge' },
+  { key: 'clip_paparazzi_pose', label: 'Chụp Ảnh Flash 3D', group: 'clip3d', defaultEnabled: true, clipId: 'paparazzi_pose' },
+  { key: 'clip_hologram_code', label: 'Thao Tác Hologram 3D', group: 'clip3d', defaultEnabled: true, clipId: 'hologram_code' },
+  { key: 'clip_royal_parade', label: 'Diễu Hành Hoàng Gia 3D', group: 'clip3d', defaultEnabled: true, clipId: 'royal_parade' },
+  { key: 'clip_love_serenade', label: 'Bắn Tim Yêu Thương 3D', group: 'clip3d', defaultEnabled: true, clipId: 'love_serenade' },
+  { key: 'clip_curious_inspect', label: 'Tò Mò Quan Sát (? 3D)', group: 'clip3d', defaultEnabled: true, clipId: 'curious_inspect' },
+  { key: 'clip_happy_wiggle', label: 'Nhún Nhảy & Nốt Nhạc 3D', group: 'clip3d', defaultEnabled: true, clipId: 'happy_wiggle' },
+  { key: 'clip_startled_hop', label: 'Giật Mình Nảy Bật (! 3D)', group: 'clip3d', defaultEnabled: true, clipId: 'startled_hop' },
+  { key: 'clip_shy_sit', label: 'Dỗi & Ngại Ngùng', group: 'clip3d', defaultEnabled: true, clipId: 'shy_sit' },
+  { key: 'clip_polite_bow', label: 'Cúi Chào Lễ Phép', group: 'clip3d', defaultEnabled: true, clipId: 'polite_bow' },
+  { key: 'clip_wake_stretch', label: 'Thức Dậy Vươn Vai', group: 'clip3d', defaultEnabled: true, clipId: 'wake_stretch' },
+  { key: 'clip_stalking_crouch', label: 'Rình Mồi Rón Rén', group: 'clip3d', defaultEnabled: true, clipId: 'stalking_crouch' },
+  { key: 'clip_proud_carry', label: 'Khoe Cúp Vàng 3D', group: 'clip3d', defaultEnabled: true, clipId: 'proud_carry' },
+  { key: 'clip_dramatic_flop', label: 'Ăn Vạ / Giả Chết', group: 'clip3d', defaultEnabled: true, clipId: 'dramatic_flop' },
+  { key: 'clip_reading_study', label: 'Đọc 3 Cuốn Sách 3D', group: 'clip3d', defaultEnabled: true, clipId: 'reading_study' },
+  { key: 'clip_pipe_ponder', label: 'Hút Tẩu Khói Tròn 3D', group: 'clip3d', defaultEnabled: true, clipId: 'pipe_ponder' },
+  { key: 'clip_eureka_idea', label: 'Bóng Đèn Ý Tưởng 3D', group: 'clip3d', defaultEnabled: true, clipId: 'eureka_idea' },
+  { key: 'clip_coffee_sip', label: 'Thưởng Thức Cà Phê 3D', group: 'clip3d', defaultEnabled: true, clipId: 'coffee_sip' },
+  { key: 'clip_detective_scan', label: 'Kính Lúp Thám Tử 3D', group: 'clip3d', defaultEnabled: true, clipId: 'detective_scan' },
+  { key: 'clip_idle_alive', label: 'Thở & Quan Sát Tự Nhiên', group: 'clip3d', defaultEnabled: true, clipId: 'idle_alive' },
+  { key: 'clip_sleepy_doze', label: 'Ngủ Gật & Bong Bóng Zzz 3D', group: 'clip3d', defaultEnabled: true, clipId: 'sleepy_doze' },
+  { key: 'clip_nod', label: 'Gật Đầu Đồng Ý', group: 'clip3d', defaultEnabled: true, clipId: 'nod' },
+  { key: 'clip_head_shake', label: 'Lắc Đầu Từ Chối', group: 'clip3d', defaultEnabled: true, clipId: 'head_shake' },
+  { key: 'clip_hop', label: 'Nhảy Chân Sáo Đàn Hồi', group: 'clip3d', defaultEnabled: true, clipId: 'hop' },
+  { key: 'clip_victory', label: 'Ăn Mừng Cúp Vàng 360', group: 'clip3d', defaultEnabled: true, clipId: 'victory' },
+  { key: 'clip_bow', label: 'Cúi Gập Người Nhanh', group: 'clip3d', defaultEnabled: true, clipId: 'bow' },
+  { key: 'clip_think', label: 'Suy Nghĩ Trầm Tư (Tẩu 3D)', group: 'clip3d', defaultEnabled: true, clipId: 'think' },
+  { key: 'clip_shiver', label: 'Run Rẩy Sợ Hãi', group: 'clip3d', defaultEnabled: true, clipId: 'shiver' },
+  { key: 'clip_typing', label: 'Gõ Phím Hacker Liên Hồi', group: 'clip3d', defaultEnabled: true, clipId: 'typing' },
+  { key: 'clip_peek', label: 'Ngó Nghiêng Quan Sát', group: 'clip3d', defaultEnabled: true, clipId: 'peek' },
+  { key: 'clip_surprise', label: 'Ngạc Nhiên Nảy Bật (! 3D)', group: 'clip3d', defaultEnabled: true, clipId: 'surprise' },
+  { key: 'clip_sad', label: 'Buồn Xìu Ỉu Xìu', group: 'clip3d', defaultEnabled: true, clipId: 'sad' },
+  { key: 'clip_twirl', label: 'Xoay Vòng Ballet 360', group: 'clip3d', defaultEnabled: true, clipId: 'twirl' },
+  { key: 'clip_heartbeat', label: 'Tim Đập Rộn Ràng', group: 'clip3d', defaultEnabled: true, clipId: 'heartbeat' },
+  { key: 'clip_sneeze', label: 'Hắt Xì Hơi Vui Nhộn', group: 'clip3d', defaultEnabled: true, clipId: 'sneeze' },
+  { key: 'clip_groove', label: 'Lắc Lư Groove Nhịp Điệu', group: 'clip3d', defaultEnabled: true, clipId: 'groove' },
+  { key: 'clip_chomp', label: 'Đớp Đớp Thèm Ăn', group: 'clip3d', defaultEnabled: true, clipId: 'chomp' },
+  { key: 'clip_stretch', label: 'Duỗi Thân Vươn Cao', group: 'clip3d', defaultEnabled: true, clipId: 'stretch' },
+  { key: 'clip_front_flip', label: 'Lộn Nhào Mini 360', group: 'clip3d', defaultEnabled: true, clipId: 'front_flip' },
+  { key: 'clip_jelly', label: 'Rung Thạch Jelly Đàn Hồi', group: 'clip3d', defaultEnabled: true, clipId: 'jelly' },
+  { key: 'clip_levitate', label: 'Bay Lơ Lửng Thiền 3D', group: 'clip3d', defaultEnabled: true, clipId: 'levitate' },
+  { key: 'clip_scan_look', label: 'Quét Mắt Toàn Cảnh (Kính Lúp)', group: 'clip3d', defaultEnabled: true, clipId: 'scan_look' },
+  { key: 'clip_facepalm', label: 'Ôm Đầu Thất Vọng', group: 'clip3d', defaultEnabled: true, clipId: 'facepalm' },
+  { key: 'clip_cheer', label: 'Cổ Vũ Nhiệt Tình (Nốt Nhạc 3D)', group: 'clip3d', defaultEnabled: true, clipId: 'cheer' },
+  { key: 'clip_weather_shiver', label: 'Co Ro Trời Lạnh & Tuyết', group: 'clip3d', defaultEnabled: true, clipId: 'weather_shiver' },
+  { key: 'clip_weather_breeze', label: 'Nghiêng Mình Đón Gió', group: 'clip3d', defaultEnabled: true, clipId: 'weather_breeze' },
+  { key: 'clip_weather_sunbathe', label: 'Tắm Nắng Khoan Khoái', group: 'clip3d', defaultEnabled: true, clipId: 'weather_sunbathe' },
+
+  // Nhóm Cơ bản (11)
   { key: 'walk_roam', label: 'Đi dạo quanh màn hình', group: 'basic', defaultEnabled: true },
   { key: 'wheel_roll', label: 'Gập người lướt bánh xe', group: 'basic', defaultEnabled: true },
   { key: 'wave', label: 'Vẫy tay chào & Biểu cảm', group: 'basic', defaultEnabled: true },
@@ -359,7 +486,9 @@ export const AUTO_BEHAVIOR_CATALOG: AutoBehaviorMeta[] = [
   { key: 'sleep', label: 'Ngủ đông nghỉ ngơi', group: 'basic', defaultEnabled: true },
   { key: 'feed_food', label: 'Thả đồ ăn & Chạy ăn', group: 'basic', defaultEnabled: true },
   { key: 'accessory_hat', label: 'Đổi Phụ kiện 3D', group: 'basic', defaultEnabled: true },
-  { key: 'special_fx', label: 'Hiệu ứng 3D (Sao băng / Pháo hoa)', group: 'basic', defaultEnabled: true },
+  { key: 'special_fx', label: 'Hiệu ứng 3D (9 loại FX)', group: 'basic', defaultEnabled: true },
+
+  // Nhóm Kỹ năng 3D & Tương tác Màn hình (10)
   { key: 'rocket_parachute', label: 'Rocket Bay & Nhảy Dù Nóc', group: 'action', defaultEnabled: true },
   { key: 'black_hole', label: 'Hố Đen Vũ Trụ dịch chuyển', group: 'action', defaultEnabled: true },
   { key: 'jump_window', label: 'Nhảy lên mép cửa sổ', group: 'action', defaultEnabled: true },

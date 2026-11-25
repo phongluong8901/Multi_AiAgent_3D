@@ -63,6 +63,8 @@ export class AppState {
   swingTiltAngle: number = 0;
   squashX: number = 1.0;
   squashY: number = 1.0;
+  squashVelX: number = 0;
+  squashVelY: number = 0;
   stateTimer: number = 0;
   autoActionIntervalSec: number = loadInitialAutoActionIntervalSec();
   nextRoamDuration: number = this.autoActionIntervalSec;
@@ -80,11 +82,23 @@ export class AppState {
   hunger: number = 85;
   foodTarget: { x: number; y: number } | null = null;
   speechLipSyncTimer: number = 0;
+  speechAudioLevel: number = 0;
+  speechFormantSharpness: number = 0;
+  isRealAudioLipSync: boolean = false;
   expressionMood: FaceExpression = 'neutral';
   expressionTimer: number = 0;
   globalCursorX: number = window.innerWidth / 2;
   globalCursorY: number = window.innerHeight / 2;
   systemAudioPeak: number = 0;
+  systemAudioLeft: number = 0;
+  systemAudioRight: number = 0;
+  systemAudioBeatSeq: number = 0;
+  systemAudioBpm: number = 0;
+  audioBeatPulse: number = 0;
+  isSystemMusicPlaying: boolean = false;
+  audioVisualizer3dEnabled: boolean =
+    localStorage.getItem('mate_audio_beat_3d') !== '0';
+  isSmartDropzoneOpen: boolean = false;
   keyPressTotal: number = 0;
   cursorIdleMs: number = 0;
   rhythmIntensity: number = 0;
@@ -165,6 +179,7 @@ export class AppState {
   isOcrSnipMode: boolean = false;
   isToolForgeOpen: boolean = false;
   isTarotModalOpen: boolean = false;
+  isEnglishCoachOpen: boolean = false;
   isMiniScreenOpen: boolean = false;
   isMigratedOut: boolean = false;
   blackHoleWarpMode: boolean = false;
@@ -259,6 +274,13 @@ export class AppState {
   setExpression(expr: FaceExpression, duration = 3.2) {
     this.expressionMood = expr;
     this.expressionTimer = duration;
+  }
+
+  triggerSquash(sx: number, sy: number) {
+    this.squashX = THREE.MathUtils.clamp(sx, 0.68, 1.38);
+    this.squashY = THREE.MathUtils.clamp(sy, 0.68, 1.38);
+    this.squashVelX = 0;
+    this.squashVelY = 0;
   }
 
   setState(next: CharacterState) {

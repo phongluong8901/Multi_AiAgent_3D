@@ -157,6 +157,29 @@ export const webCompanionHtml = `<!DOCTYPE html>
 
     <section class="card" style="grid-column: 1 / -1; min-height: 200px;">
       <div class="header">
+        <div class="title">MOBILE STREAM DECK &amp; FLASHCARD TIẾNG ANH (CLOUD)</div>
+        <button id="btn-cloud-vocab-draw" type="button">Từ Vựng Mới</button>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:6px;">
+        <button type="button" data-pc-deck="vol_down">Vol -</button>
+        <button type="button" data-pc-deck="mute">Mute</button>
+        <button type="button" data-pc-deck="vol_up">Vol +</button>
+        <button type="button" data-pc-deck="prev">Prev</button>
+        <button type="button" data-pc-deck="play_pause">Play/Pause</button>
+        <button type="button" data-pc-deck="next">Next</button>
+        <button type="button" data-pc-deck="clean_ram">Dọn RAM PC</button>
+        <button type="button" class="danger" data-pc-deck="lock_pc">Khóa Màn PC</button>
+      </div>
+      <div class="row">
+        <input id="inp-cloud-clip" type="text" placeholder="Dán link hoặc văn bản bắn thẳng sang PC..." />
+        <button id="btn-cloud-clip" type="button">Chép Vào PC</button>
+        <button id="btn-cloud-open" type="button">Mở Trên PC</button>
+      </div>
+      <div id="cloud-vocab-box" class="skill-item" style="display:none;"></div>
+    </section>
+
+    <section class="card" style="grid-column: 1 / -1; min-height: 200px;">
+      <div class="header">
         <div class="title">TỰ ĐỘNG HÓA PC TỪ XA (RULES)</div>
         <button id="btn-load-remote-rules" type="button">Tải Rules PC</button>
       </div>
@@ -467,6 +490,30 @@ export const webCompanionHtml = `<!DOCTYPE html>
     };
     document.getElementById('btn-load-remote-rules').onclick = () => {
       sendChat('/rules');
+    };
+    document.querySelectorAll('[data-pc-deck]').forEach((btn) => {
+      btn.onclick = () => sendChat('/pc_deck ' + btn.getAttribute('data-pc-deck'));
+    });
+    document.getElementById('btn-cloud-clip').onclick = () => {
+      var v = (document.getElementById('inp-cloud-clip').value || '').trim();
+      if (v) sendChat('/pc_deck clip:' + v);
+    };
+    document.getElementById('btn-cloud-open').onclick = () => {
+      var v = (document.getElementById('inp-cloud-clip').value || '').trim();
+      if (v) sendChat('/pc_deck open:' + v);
+    };
+    document.getElementById('btn-cloud-vocab-draw').onclick = async () => {
+      try {
+        var res = await fetch('/api/vocab/random').then((r) => r.json());
+        var box = document.getElementById('cloud-vocab-box');
+        if (res && res.ok && res.item && box) {
+          box.style.display = 'flex';
+          box.textContent =
+            '[' + (res.item.level || 'B2') + '] ' + res.item.word + ' ' + (res.item.phonetic || '') +
+            ' — ' + (res.item.meaning_vi || res.item.definition_en || '') +
+            (res.item.example_en ? (' | VD: ' + res.item.example_en) : '');
+        }
+      } catch {}
     };
     chatInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') sendChat(chatInput.value);

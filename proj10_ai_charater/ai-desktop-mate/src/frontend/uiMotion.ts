@@ -16,9 +16,11 @@ const MODAL_AND_PANEL_IDS = [
   'tool-forge-modal',
   'tarot-modal',
   'anim-manager-modal',
+  'file-dashboard-modal',
   'left-telemetry-panel',
   'right-action-panel',
   'mini-screen-panel',
+  'sticky-notes-widget',
   'speech-bubble',
 ];
 
@@ -67,7 +69,7 @@ export function initUiMotion() {
       if (prefersReduced || document.body.classList.contains('eco-mode')) return;
       const target = e.target as HTMLElement | null;
       const btn = target?.closest(
-        '.action-btn, .btn-footer, .btn-mini-action, .studio-btn-primary, .studio-tab-btn, .dock-btn, .chat-chip, .tarot-pick-card'
+        '.action-btn, .btn-footer, .btn-mini-action, .studio-btn-primary, .studio-tab-btn, .dock-btn, .chat-chip, .tarot-pick-card, .btn-expand-history, .bubble-btn-file, .bubble-btn-send, .preset-btn, .auto-beh-play-btn'
       ) as HTMLElement | null;
       if (!btn || (btn as HTMLButtonElement).disabled) return;
 
@@ -100,8 +102,36 @@ export function initUiMotion() {
       visibilityMap.set(el.id, shown);
       if (shown && !was) {
         triggerClassOnce(el, 'ui-pop-in');
+        const cards = el.querySelectorAll<HTMLElement>('.dash-card, .section-block, .studio-section');
+        cards.forEach((card, idx) => {
+          if (idx < 10) {
+            card.style.setProperty('--card-delay', `${idx * 22}ms`);
+            triggerClassOnce(card, 'ui-card-in');
+          }
+        });
       }
     }
+  });
+
+  // 2b. Hiệu ứng chuyển Tab mượt mà trong mọi Modal (GPU transform + opacity)
+  document.addEventListener('click', (e) => {
+    if (prefersReduced || document.body.classList.contains('eco-mode')) return;
+    const tabBtn = (e.target as HTMLElement | null)?.closest(
+      '.studio-tab-btn, [data-anim-tab], #anim-lib-filters button'
+    ) as HTMLElement | null;
+    if (!tabBtn) return;
+    const modal = tabBtn.closest('.glass-panel') as HTMLElement | null;
+    if (!modal) return;
+    window.requestAnimationFrame(() => {
+      const panes = modal.querySelectorAll<HTMLElement>(
+        '.studio-tab-pane, .anim-pane, [id$="-pane-today"], [id$="-pane-history"], [id^="tf-pane-"], [id^="mini-pane-"], [id^="tab-content-"], #anim-library-grid'
+      );
+      panes.forEach((pane) => {
+        if (pane.style.display !== 'none') {
+          triggerClassOnce(pane, 'ui-tab-in');
+        }
+      });
+    });
   });
 
   const attachPanelObservers = () => {

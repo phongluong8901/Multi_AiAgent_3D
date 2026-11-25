@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { appState } from '../core/state';
+import { fireAnimationTrigger } from '../core/animationBinder';
+import { playHappyChirpSound } from '../core/soundFx';
 import { camera, getRenderViewport } from '../core/scene';
 import { DragSample, DesktopState } from '../core/types';
 import { spawnParticles, clearLadder, showParachute } from '../core/particles';
@@ -23,7 +25,6 @@ import {
   syncHitboxToRust,
 } from './ui';
 import { loadVrmFromBuffer } from '../characters/vrmManager';
-import { handleDroppedAnyFile } from '../backend/assistant';
 import { isP2pDuelActive, performP2pSkill } from '../core/p2pArena';
 
 const raycaster = new THREE.Raycaster();
@@ -37,6 +38,14 @@ let lastPatX = 0;
 let lastPatDir = 0;
 let patStrokes = 0;
 let lastPatTime = 0;
+let pokeReplyIdx = 0;
+const POKE_REPLIES = [
+  'Quạc! Nhột quá, bạn cần tớ hỗ trợ gì nào?',
+  'Hihi chọc tớ hả? Kéo thả file vào tớ hoặc gõ lệnh ở dưới nhé!',
+  'MicroDuck sẵn sàng! Double-click vào tớ để ẩn/hiện nhanh khung chat nha!',
+  'Ối nhột! Muốn xem tớ diễn trò thì mở bảng Hành động hoặc Quản lý Hoạt ảnh nhé!',
+  'Quạc quạc! Hệ thống cảm biến vẫn nhạy 100%, chủ nhân cứ sai bảo!',
+];
 
 export function checkMouseIntersect(clientX: number, clientY: number): boolean {
   const vp = getRenderViewport();
@@ -173,12 +182,12 @@ export function initInput() {
 
     if (docFiles.length > 0) {
       window.setTimeout(() => {
-        void (async () => {
-          for (const docFile of docFiles) {
-            if (wasRecentlyTauriDropped(docFile.name)) continue;
-            await handleDroppedAnyFile(docFile);
-          }
-        })();
+        const freshFiles = docFiles.filter((docFile) => !wasRecentlyTauriDropped(docFile.name));
+        if (freshFiles.length > 0) {
+          window.dispatchEvent(
+            new CustomEvent('duck-smart-dropzone-open', { detail: { items: freshFiles } })
+          );
+        }
       }, 80);
     }
   });
@@ -202,19 +211,23 @@ export function initInput() {
         setFileDragHoverMode(false);
       } else if (payload.type === 'drop') {
         setFileDragHoverMode(false);
-        const paths = (payload.paths || []).filter(Boolean).slice(0, 5);
+        const paths = (payload.paths || []).filter(Boolean).slice(0, 12);
         if (paths.length > 0) {
-          void (async () => {
-            for (const droppedPath of paths) {
-              const baseName = droppedPath.split(/[\\/]/).pop() || '';
-              const lower = baseName.toLowerCase();
-              if (lower.endsWith('.vrm') || lower.endsWith('.glb')) {
-                continue;
-              }
-              markTauriDropped(baseName);
-              await handleDroppedAnyFile(droppedPath);
+          const docPaths: string[] = [];
+          for (const droppedPath of paths) {
+            const baseName = droppedPath.split(/[\\/]/).pop() || '';
+            const lower = baseName.toLowerCase();
+            if (lower.endsWith('.vrm') || lower.endsWith('.glb')) {
+              continue;
             }
-          })();
+            markTauriDropped(baseName);
+            docPaths.push(droppedPath);
+          }
+          if (docPaths.length > 0) {
+            window.dispatchEvent(
+              new CustomEvent('duck-smart-dropzone-open', { detail: { items: docPaths } })
+            );
+          }
         }
       }
     })
@@ -319,6 +332,8 @@ export function initInput() {
       showParachute(false);
       clearLadder();
       appState.setState('DRAGGING');
+      appState.setExpression('surprised', 2.2);
+      appState.triggerSquash(0.86, 1.18);
       appState.attachedWindowHwnd = null;
       appState.velX = 0;
       appState.velY = 0;
@@ -345,11 +360,17 @@ export function initInput() {
     );
     if (movedDist < 5) {
       appState.velX = 0;
-      appState.velY = -9;
+      appState.velY = -7.5;
+      appState.triggerSquash(1.22, 0.80);
+      appState.setExpression('happy', 2.6);
       appState.setState('JUMPING');
-      spawnParticles(appState.posX, appState.posY - 90, 6, 0x38bdf8);
+      playHappyChirpSound(appState.posX);
+      spawnParticles(appState.posX, appState.posY - 90, 8, 0x38bdf8);
       appState.changeMood(2);
-      speakMessage('Chọc vào tớ à? Cần gì hãy hỏi tớ nhé!');
+      fireAnimationTrigger('event', 'duck_poke', 'enter');
+      const reply = POKE_REPLIES[pokeReplyIdx % POKE_REPLIES.length];
+      pokeReplyIdx++;
+      speakMessage(reply);
     } else {
       const now = performance.now();
       const valid = dragSamples.filter((s) => now - s.t <= 85);
@@ -363,7 +384,9 @@ export function initInput() {
         appState.velX = 0;
         appState.velY = 0;
       }
+      appState.triggerSquash(0.90, 1.12);
       appState.setState('FALLING');
+      fireAnimationTrigger('event', 'duck_drag_end', 'enter');
     }
 
     document.body.style.cursor = 'grab';
@@ -378,18 +401,25 @@ export function initInput() {
   });
 
   let lastAttachedWinPos: { hwnd: number; x: number; y: number } | null = null;
+  let lastSeenBeatSeq = -1;
 
   const scheduleDesktopStatePoll = () => {
     const isBusyTracking =
       appState.attachedWindowHwnd !== null ||
+      appState.activeWindowTask !== null ||
       appState.state === 'DRAGGING' ||
       appState.state === 'PUSHING' ||
       appState.state === 'PULLING' ||
+      appState.state === 'CLIMBING' ||
+      appState.state === 'FLYING_ROCKET' ||
+      appState.state === 'PARACHUTING' ||
       appState.state === 'SWINGING_WINDOW';
+    const isMusicActive =
+      appState.audioVisualizer3dEnabled && appState.systemAudioPeak > 0.028;
     const nextDelay = document.hidden
       ? 1000
-      : isBusyTracking
-      ? 65
+      : isBusyTracking || isMusicActive
+      ? 55
       : appState.ecoMode
       ? 180
       : 100;
@@ -411,6 +441,16 @@ export function initInput() {
       appState.globalCursorX = res.cursor_x;
       appState.globalCursorY = res.cursor_y;
       appState.systemAudioPeak = res.audio_peak ?? 0;
+      appState.systemAudioLeft = res.audio_left ?? appState.systemAudioPeak;
+      appState.systemAudioRight = res.audio_right ?? appState.systemAudioPeak;
+      appState.systemAudioBpm = res.audio_bpm ?? 0;
+      if (typeof res.audio_beat_seq === 'number') {
+        if (lastSeenBeatSeq !== -1 && res.audio_beat_seq !== lastSeenBeatSeq) {
+          appState.systemAudioBeatSeq = res.audio_beat_seq;
+          appState.audioBeatPulse = 1.0;
+        }
+        lastSeenBeatSeq = res.audio_beat_seq;
+      }
       appState.keyPressTotal = res.key_press_total ?? 0;
       appState.cursorIdleMs = res.cursor_idle_ms ?? 0;
       appState.activeWindowHwnd = res.active_hwnd > 0 ? res.active_hwnd : null;

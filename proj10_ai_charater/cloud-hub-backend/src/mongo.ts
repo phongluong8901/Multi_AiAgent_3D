@@ -22,6 +22,60 @@ export interface ChatSyncDocument {
   created_at_ms: number;
 }
 
+export interface EnglishVocabDocument {
+  word: string;
+  phonetic: string;
+  part_of_speech: string;
+  meaning_vi: string;
+  definition_en: string;
+  example_en: string;
+  example_vi: string;
+  audio_url: string;
+  topic: string;
+  level: string;
+  synonyms: string[];
+  freq_rank: number;
+  updated_at_ms: number;
+}
+
+export interface VocabFilterQuery {
+  query?: string;
+  topic?: string;
+  level?: string;
+}
+
+export function buildVocabFilter({
+  query = '',
+  topic = 'all',
+  level = 'all',
+}: VocabFilterQuery = {}): Filter<Document> {
+  const filter: Filter<Document> = {};
+  const cleanTopic = String(topic || '').trim().toLowerCase();
+  if (cleanTopic && cleanTopic !== 'all' && cleanTopic !== 'random') {
+    if (cleanTopic === 'daily') {
+      filter.topic = { $in: ['daily', 'general'] };
+    } else if (cleanTopic === 'ielts') {
+      filter.topic = { $in: ['ielts', 'academic'] };
+    } else {
+      filter.topic = cleanTopic;
+    }
+  }
+  const cleanLevel = String(level || '').trim().toUpperCase();
+  if (['A1', 'A2', 'B1', 'B2', 'C1', 'C2'].includes(cleanLevel)) {
+    filter.level = cleanLevel;
+  }
+  const cleanQuery = String(query || '').trim();
+  if (cleanQuery) {
+    const escaped = cleanQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const rx = new RegExp(escaped, 'i');
+    filter.$or = [
+      { word: rx },
+      { meaning_vi: rx },
+    ];
+  }
+  return filter;
+}
+
 export interface SkillFilterQuery {
   query?: string;
   language?: string;
@@ -60,6 +114,7 @@ export async function connectMongo(params: {
   db: Db;
   collection: Collection<CommunitySkillDocument>;
   chatCollection: Collection<ChatSyncDocument>;
+  vocabCollection: Collection<EnglishVocabDocument>;
 }> {
   if (!params.uri) {
     throw new Error('Thiếu MONGODB_URI trong biến môi trường.');
@@ -82,7 +137,13 @@ export async function connectMongo(params: {
     await chatCollection.createIndex({ user_sub: 1, created_at_ms: 1 });
     await chatCollection.createIndex({ user_sub: 1, msg_id: 1 }, { unique: true });
 
-    return { client, db, collection, chatCollection };
+    const vocabCollection = db.collection<EnglishVocabDocument>('english_vocab');
+    await vocabCollection.createIndex({ word: 1 }, { unique: true });
+    await vocabCollection.createIndex({ topic: 1, freq_rank: 1 });
+    await vocabCollection.createIndex({ level: 1, freq_rank: 1 });
+    await vocabCollection.createIndex({ freq_rank: 1 });
+
+    return { client, db, collection, chatCollection, vocabCollection };
   } catch (err) {
     await client.close().catch(() => {});
     throw err;

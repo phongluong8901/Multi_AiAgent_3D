@@ -24,7 +24,7 @@ export function switchBuiltinCharacterType(type: 'idol' | 'microduck') {
 export function animateBuiltinCharacter(elapsed: number, delta: number) {
   if (!rigRoot || !rigHips || !rigTorso || !rigHead) return;
 
-  const lerpRate = Math.min(1, delta * 12);
+  const lerpRate = Math.min(1, 1 - Math.exp(-14 * delta));
 
   // 1. Tính toán hướng nhìn (Look-At)
   let lookYaw = 0;
@@ -45,17 +45,24 @@ export function animateBuiltinCharacter(elapsed: number, delta: number) {
     lookPitch = THREE.MathUtils.clamp(dy / 340, -0.28, 0.28);
   }
 
-  // 2. Chạy diễn hoạt khung xương cơ bản theo nhân vật
-  animateAnimeIdol(elapsed, delta, lerpRate);
-
+  // 2. Hồi tiếp mượt góc xoay tổng khi thoát nhào lộn / xoay tròn (tránh giật cục 1 frame)
   if (appState.state !== 'BACKFLIP' && appState.state !== 'SPIN') {
-    rigRoot.rotation.x = 0;
-    rigRoot.rotation.y = 0;
+    lerpRot(rigRoot, 'x', 0, Math.min(1, 1 - Math.exp(-16 * delta)));
+    lerpRot(rigRoot, 'y', 0, Math.min(1, 1 - Math.exp(-16 * delta)));
+    lerpRot(rigRoot, 'z', 0, Math.min(1, 1 - Math.exp(-16 * delta)));
   }
 
-  // 3. Nếu là MicroDuck, áp dụng chuyển động servo & kinematics đặc thù
+  // 3. Chạy diễn hoạt chuyên biệt cho từng nhân vật (không chồng chéo xương Idol lên MicroDuck)
   if (appState.builtinModelType === 'microduck') {
+    if (appState.state === 'BACKFLIP') {
+      const spinAngle = -elapsed * 11.5;
+      rigRoot.rotation.x = spinAngle;
+    } else if (appState.state === 'SPIN') {
+      rigRoot.rotation.y = elapsed * 14.0;
+    }
     animateMicroDuck(elapsed, delta, lerpRate);
+  } else {
+    animateAnimeIdol(elapsed, delta, lerpRate);
   }
 
   // 4. Áp dụng góc nhìn và hướng đầu
@@ -65,10 +72,19 @@ export function animateBuiltinCharacter(elapsed: number, delta: number) {
   } else if (appState.state === 'SLEEP') {
     lookYaw = 0;
     lookPitch = 0.45;
+  } else if (appState.state === 'DRAGGING' && appState.builtinModelType === 'microduck') {
+    lookYaw = Math.sin(elapsed * 7.5) * 0.22;
+    lookPitch = -0.14;
   }
 
   if (appState.state !== 'HEADPAT') {
-    lerpRot(rigHead, 'z', 0, lerpRate);
+    const idleTiltZ =
+      appState.builtinModelType === 'microduck' && appState.state === 'IDLE'
+        ? Math.sin(elapsed * 1.35) * 0.035
+        : 0;
+    lerpRot(rigHead, 'z', idleTiltZ, lerpRate);
+  } else if (appState.builtinModelType === 'microduck') {
+    lerpRot(rigHead, 'z', Math.sin(elapsed * 7.2) * 0.16, lerpRate);
   }
   lerpRot(rigHead, 'y', lookYaw, lerpRate);
   if (appState.state !== 'EATING' && appState.state !== 'TIRED') {

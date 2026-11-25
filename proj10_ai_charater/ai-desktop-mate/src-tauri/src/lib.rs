@@ -36,7 +36,7 @@ use crate::backend::memory::{
     memory_save_profile, memory_scan_browser_history, memory_search_similar,
     save_avatar_studio_config, schedule_note_add, schedule_note_clear_all, schedule_note_delete,
     schedule_note_list, schedule_note_mark_triggered, schedule_note_toggle_done,
-    vocab_delete_word, vocab_list_words, vocab_save_word,
+    vocab_delete_word, vocab_list_words, vocab_record_review, vocab_save_word, vocab_toggle_star,
 };
 use crate::backend::notification::{
     clear_notification_history, get_notification_history, get_notification_settings,
@@ -50,8 +50,9 @@ use crate::backend::p2p::{
 };
 use crate::backend::pc_control::{
     analyze_ingested_file, capture_and_encode_screenshot, check_git_status, control_media,
-    deep_system_control, get_clipboard_text, hardware_action, inspect_dropped_file,
-    lock_pc_screen, manage_ports, manage_processes, ocr_latest_screenshot, ocr_screen_region,
+    deep_system_control, execute_dropzone_action, get_clipboard_text, hardware_action,
+    inspect_dropped_file, lock_pc_screen, manage_ports, manage_processes, ocr_latest_screenshot,
+    ocr_screen_region,
     open_latest_screenshot, open_local_file_or_search, open_web_or_app,
     save_sticky_note_to_desktop, set_clipboard_text, take_screenshot, translate_text_quick,
     trigger_app_hotkey,
@@ -63,8 +64,9 @@ use crate::backend::mini_screen::{
 };
 use crate::backend::tarot::{tarot_draw_card, tarot_get_status, tarot_save_ai_reading};
 use crate::backend::telemetry::{
-    check_bitcoin, check_hardware, check_network, check_weather, fetch_live_news,
-    fetch_real_english_lesson, fetch_vietnamese_tts_audio, get_app_process_metrics,
+    check_bitcoin, check_hardware, check_network, check_weather, fetch_english_tts_audio,
+    fetch_english_vocab_cloud_stats, fetch_live_news, fetch_real_english_lesson,
+    fetch_vietnamese_tts_audio, get_app_process_metrics, search_english_vocab,
 };
 use crate::backend::tool_forge::{
     tool_forge_apply_healed_skill, tool_forge_delete_skill, tool_forge_execute_skill,
@@ -120,6 +122,9 @@ pub fn run() {
             check_bitcoin,
             fetch_live_news,
             fetch_real_english_lesson,
+            search_english_vocab,
+            fetch_english_vocab_cloud_stats,
+            fetch_english_tts_audio,
             fetch_vietnamese_tts_audio,
             ask_ollama,
             ask_ollama_stream,
@@ -145,6 +150,7 @@ pub fn run() {
             check_git_status,
             inspect_dropped_file,
             analyze_ingested_file,
+            execute_dropzone_action,
             ocr_latest_screenshot,
             ocr_screen_region,
             open_latest_screenshot,
@@ -185,6 +191,8 @@ pub fn run() {
             vocab_save_word,
             vocab_list_words,
             vocab_delete_word,
+            vocab_record_review,
+            vocab_toggle_star,
             get_avatar_studio_config,
             save_avatar_studio_config,
             get_notification_settings,

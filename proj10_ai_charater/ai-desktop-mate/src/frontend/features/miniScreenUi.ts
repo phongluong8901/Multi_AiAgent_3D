@@ -114,6 +114,25 @@ function setMiniScreenModeBadge(label: string) {
   if (b) b.textContent = label;
 }
 
+function isMiniScreenBodyActive(): boolean {
+  if (appState.isMiniScreenOpen && !miniPanelCollapsed) return true;
+  if (appState.isPcControlOpen) {
+    const slot = document.getElementById('pc-mini-dock-slot');
+    const body = document.getElementById('mini-screen-body');
+    const pcMiniPane = document.getElementById('pc-pane-mini');
+    if (
+      slot &&
+      body &&
+      slot.contains(body) &&
+      pcMiniPane &&
+      pcMiniPane.style.display !== 'none'
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function getVisibleSlotIndices(): number[] {
   if (miniLayout === 1) {
     return [Math.max(0, Math.min(3, activeSlot))];
@@ -387,7 +406,7 @@ function stopMiniWindowMirror() {
 
 async function stepMiniMirrorFrame() {
   if (!miniMirrorActive) return;
-  if (!appState.isMiniScreenOpen || miniPanelCollapsed || miniScreenTab !== 'mirror') {
+  if (!isMiniScreenBodyActive() || miniScreenTab !== 'mirror') {
     stopMiniWindowMirror();
     return;
   }
@@ -590,6 +609,10 @@ function updateMiniWebStatusUi(st: MiniWebStatus) {
   if (!miniMirrorActive && !miniDisplayStream) {
     setMiniScreenModeBadge(st.is_open ? '[WEB MINI ON]' : '[LIVE]');
   }
+  const btnFocus = document.getElementById('btn-mini-web-focus') as HTMLButtonElement | null;
+  const btnClose = document.getElementById('btn-mini-web-close') as HTMLButtonElement | null;
+  if (btnFocus) btnFocus.disabled = !miniWebIsOpen;
+  if (btnClose) btnClose.disabled = !miniWebIsOpen;
   updateMiniResourceStatus();
 }
 
@@ -610,6 +633,57 @@ async function openMiniWebTarget(rawTarget: string) {
   }
 }
 
+function ensureMiniBodyInFloatingPanel() {
+  const panel =
+    savedDeps?.getMiniScreenPanel() ??
+    (document.getElementById('mini-screen-panel') as HTMLDivElement | null);
+  const body = document.getElementById('mini-screen-body');
+  if (!panel || !body) return;
+  if (body.parentElement !== panel) {
+    const firstHandle = panel.querySelector('.mini-resize-handle');
+    if (firstHandle) {
+      panel.insertBefore(body, firstHandle);
+    } else {
+      panel.appendChild(body);
+    }
+  }
+  body.style.display = miniPanelCollapsed ? 'none' : 'flex';
+}
+
+export function dockMiniScreenIntoPcControl(defaultTab?: 'web' | 'mirror') {
+  const slot = document.getElementById('pc-mini-dock-slot');
+  const body = document.getElementById('mini-screen-body');
+  const panel =
+    savedDeps?.getMiniScreenPanel() ??
+    (document.getElementById('mini-screen-panel') as HTMLDivElement | null);
+  appState.isMiniScreenOpen = false;
+  if (panel) panel.style.display = 'none';
+  savedDeps?.getDockBtnMiniScreen()?.classList.remove('active');
+
+  if (slot && body) {
+    if (body.parentElement !== slot) {
+      slot.appendChild(body);
+    }
+    body.style.display = 'flex';
+  }
+  setMiniScreenTab(defaultTab ?? miniScreenTab);
+  void invoke<MiniWebStatus>('mini_screen_control_web', { action: 'status' })
+    .then((st) => updateMiniWebStatusUi(st))
+    .catch(() => updateMiniResourceStatus());
+}
+
+export function undockMiniScreenFromPcControl(defaultTab?: 'web' | 'mirror') {
+  ensureMiniBodyInFloatingPanel();
+  toggleMiniScreenPanel(true, defaultTab);
+}
+
+export function pauseDockedMiniMirrorCapture() {
+  if (!appState.isMiniScreenOpen) {
+    stopMiniWindowMirror();
+    stopMiniDisplayMedia();
+  }
+}
+
 export function toggleMiniScreenPanel(
   forceState?: boolean,
   defaultTab?: 'web' | 'mirror'
@@ -617,11 +691,8 @@ export function toggleMiniScreenPanel(
   appState.isMiniScreenOpen =
     forceState !== undefined ? forceState : !appState.isMiniScreenOpen;
   if (appState.isMiniScreenOpen) {
-    if (defaultTab) {
-      setMiniScreenTab(defaultTab);
-    } else {
-      void refreshMiniMirrorWindowSelect(true);
-    }
+    ensureMiniBodyInFloatingPanel();
+    setMiniScreenTab(defaultTab ?? miniScreenTab);
     void invoke<MiniWebStatus>('mini_screen_control_web', { action: 'status' })
       .then((st) => updateMiniWebStatusUi(st))
       .catch(() => updateMiniResourceStatus());
@@ -631,11 +702,17 @@ export function toggleMiniScreenPanel(
     void invoke('mini_screen_restore_all_stealth').catch(() => {});
     const autoCloseWeb =
       (document.getElementById('chk-mini-web-autoclose') as HTMLInputElement | null)?.checked ??
-      true;
+      false;
     if (autoCloseWeb && miniWebIsOpen) {
       void invoke<MiniWebStatus>('mini_screen_control_web', { action: 'close' })
         .then((st) => updateMiniWebStatusUi(st))
         .catch(() => {});
+    }
+    const dockSlot = document.getElementById('pc-mini-dock-slot');
+    const body = document.getElementById('mini-screen-body');
+    if (dockSlot && body && body.parentElement !== dockSlot) {
+      dockSlot.appendChild(body);
+      body.style.display = 'flex';
     }
   }
   const panel = savedDeps?.getMiniScreenPanel() ?? (document.getElementById('mini-screen-panel') as HTMLDivElement | null);
@@ -650,7 +727,7 @@ export function toggleMiniScreenPanel(
 }
 
 export function refreshMiniMirrorWindowsIfOpen() {
-  if (appState.isMiniScreenOpen && miniScreenTab === 'mirror') {
+  if ((appState.isMiniScreenOpen || isMiniScreenBodyActive()) && miniScreenTab === 'mirror') {
     void refreshMiniMirrorWindowSelect(false);
   }
 }
@@ -883,8 +960,15 @@ export function initMiniScreenUi(deps: MiniScreenUiDeps) {
     applyPanelSize(miniScreenPanel, defaultByLayout.w, defaultByLayout.h, true);
   });
 
-  document.getElementById('btn-mini-collapse')?.addEventListener('click', () => {
+  document.getElementById('btn-mini-collapse')?.addEventListener('click', (ev) => {
     miniPanelCollapsed = !miniPanelCollapsed;
+    const collapseBtn = ev.currentTarget as HTMLButtonElement | null;
+    if (collapseBtn) {
+      collapseBtn.classList.toggle('active', miniPanelCollapsed);
+      collapseBtn.title = miniPanelCollapsed
+        ? 'Mở rộng thân Màn Hình Mini'
+        : 'Thu gọn thân Màn Hình Mini';
+    }
     const bodyEl = document.getElementById('mini-screen-body');
     if (bodyEl) bodyEl.style.display = miniPanelCollapsed ? 'none' : 'flex';
     miniScreenPanel?.querySelectorAll('.mini-resize-handle').forEach((h) => {
@@ -1137,4 +1221,6 @@ export function initMiniScreenUi(deps: MiniScreenUiDeps) {
   document.getElementById('btn-mini-media-next')?.addEventListener('click', () => void deps.runPcMedia('next'));
   document.getElementById('btn-mini-vol-down')?.addEventListener('click', () => void deps.runPcMedia('vol_down'));
   document.getElementById('btn-mini-vol-up')?.addEventListener('click', () => void deps.runPcMedia('vol_up'));
+
+  dockMiniScreenIntoPcControl();
 }

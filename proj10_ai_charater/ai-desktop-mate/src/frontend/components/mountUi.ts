@@ -16,6 +16,8 @@ import { toolForgeModalHtml } from './toolForgeModal';
 import { tarotModalHtml } from './tarotModal';
 import { miniScreenPanelHtml } from './miniScreenPanel';
 import { animationManagerModalHtml } from './animationManagerModal';
+import { englishCoachModalHtml } from './englishCoachModal';
+import { smartDropzoneModalHtml } from './smartDropzoneModal';
 
 let mounted = false;
 
@@ -37,6 +39,8 @@ export function mountUi() {
     tarotModalHtml,
     miniScreenPanelHtml,
     animationManagerModalHtml,
+    englishCoachModalHtml,
+    smartDropzoneModalHtml,
   ].join('\n');
   mounted = true;
 }

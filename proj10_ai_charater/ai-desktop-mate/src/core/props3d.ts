@@ -12,7 +12,13 @@ export type ActionProp3DId =
   | 'prop_zzz'
   | 'prop_magnifier'
   | 'prop_music'
-  | 'prop_trophy';
+  | 'prop_trophy'
+  | 'prop_hearts'
+  | 'prop_hologram'
+  | 'prop_dumbbell'
+  | 'prop_camera_flash'
+  | 'prop_crown_aura'
+  | 'prop_lightning_aura';
 
 interface ActiveActionProp {
   id: ActionProp3DId;
@@ -537,6 +543,282 @@ function buildTrophyProp(root: THREE.Group): ActiveActionProp['onUpdate'] {
   };
 }
 
+function createHeartMesh(colorHex: number): THREE.Mesh {
+  const s = new THREE.Shape();
+  s.moveTo(0, 3);
+  s.bezierCurveTo(0, 6.5, -5.5, 9.5, -9, 6);
+  s.bezierCurveTo(-12.5, 2.5, -9, -3.5, 0, -10.5);
+  s.bezierCurveTo(9, -3.5, 12.5, 2.5, 9, 6);
+  s.bezierCurveTo(5.5, 9.5, 0, 6.5, 0, 3);
+  const geo = new THREE.ExtrudeGeometry(s, {
+    depth: 2.6,
+    bevelEnabled: true,
+    bevelThickness: 0.9,
+    bevelSize: 0.7,
+    bevelSegments: 2,
+  });
+  geo.center();
+  const mat = new THREE.MeshStandardMaterial({
+    color: colorHex,
+    emissive: colorHex,
+    emissiveIntensity: 0.35,
+    roughness: 0.3,
+    transparent: true,
+    opacity: 0.95,
+  });
+  return new THREE.Mesh(geo, mat);
+}
+
+function buildHeartsProp(root: THREE.Group): ActiveActionProp['onUpdate'] {
+  const palette = [0xf43f5e, 0xfb7185, 0xf472b6];
+  const hearts = palette.map((c, idx) => {
+    const h = createHeartMesh(c);
+    h.scale.setScalar(idx === 1 ? 1.15 : 0.9);
+    root.add(h);
+    return h;
+  });
+
+  return (t) => {
+    hearts.forEach((h, idx) => {
+      const ph = (t * 0.55 + idx * 0.33) % 1;
+      const fade = ph < 0.15 ? ph / 0.15 : 1 - (ph - 0.15) / 0.85;
+      const angle = t * 2.2 + idx * ((Math.PI * 2) / 3);
+      const radius = 30 + ph * 18;
+      h.position.set(
+        Math.cos(angle) * radius,
+        125 + ph * 76,
+        Math.sin(angle) * 16 + 22
+      );
+      h.rotation.y = Math.sin(t * 2.5 + idx) * 0.45;
+      h.rotation.z = Math.sin(t * 3.1 + idx) * 0.14;
+      const sc = (idx === 1 ? 1.12 : 0.9) * (0.75 + Math.sin(t * 5 + idx) * 0.12);
+      h.scale.setScalar(sc);
+      (h.material as THREE.MeshStandardMaterial).opacity = Math.max(0.1, fade);
+    });
+  };
+}
+
+function buildHologramProp(root: THREE.Group): ActiveActionProp['onUpdate'] {
+  const grp = new THREE.Group();
+  grp.position.set(0, 132, 46);
+
+  const panelGeo = new THREE.BoxGeometry(64, 40, 1.2);
+  const bgMat = new THREE.MeshBasicMaterial({
+    color: 0x0284c7,
+    transparent: true,
+    opacity: 0.24,
+  });
+  const bgPanel = new THREE.Mesh(panelGeo, bgMat);
+  grp.add(bgPanel);
+
+  const edgeMesh = new THREE.LineSegments(
+    new THREE.EdgesGeometry(panelGeo),
+    new THREE.LineBasicMaterial({ color: 0x22d3ee, transparent: true, opacity: 0.92 })
+  );
+  grp.add(edgeMesh);
+
+  const bars: THREE.Mesh[] = [];
+  const barColors = [0x38bdf8, 0x34d399, 0xa855f7];
+  const barGeo = new THREE.BoxGeometry(10, 1, 1.6);
+  for (let i = 0; i < 3; i++) {
+    const bm = new THREE.Mesh(
+      barGeo,
+      new THREE.MeshBasicMaterial({ color: barColors[i], transparent: true, opacity: 0.88 })
+    );
+    bm.position.set(-16 + i * 16, -6, 1.2);
+    grp.add(bm);
+    bars.push(bm);
+  }
+
+  const scanLine = new THREE.Mesh(
+    new THREE.BoxGeometry(60, 1.8, 1.8),
+    new THREE.MeshBasicMaterial({ color: 0x67e8f9, transparent: true, opacity: 0.85 })
+  );
+  scanLine.position.set(0, 0, 1.5);
+  grp.add(scanLine);
+
+  root.add(grp);
+
+  return (t) => {
+    grp.position.set(0, 132 + Math.sin(t * 2.6) * 4, 46);
+    grp.rotation.x = -0.14 + Math.sin(t * 2.0) * 0.04;
+    bars.forEach((b, i) => {
+      const h = 8 + Math.abs(Math.sin(t * 4.5 + i * 1.4)) * 18;
+      b.scale.y = h;
+      b.position.y = -13 + h * 0.5;
+    });
+    scanLine.position.y = Math.sin(t * 3.8) * 16;
+  };
+}
+
+function buildDumbbellMesh(): THREE.Group {
+  const g = new THREE.Group();
+  const barMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, metalness: 0.85, roughness: 0.2 });
+  const plateMat = new THREE.MeshStandardMaterial({ color: 0xef4444, roughness: 0.35, metalness: 0.25 });
+  const innerPlateMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.4, metalness: 0.5 });
+
+  const bar = new THREE.Mesh(new THREE.CylinderGeometry(1.8, 1.8, 22, 10), barMat);
+  bar.rotation.z = Math.PI / 2;
+  g.add(bar);
+
+  for (const side of [-1, 1]) {
+    const outer = new THREE.Mesh(new THREE.CylinderGeometry(6.8, 6.8, 3.2, 14), plateMat);
+    outer.rotation.z = Math.PI / 2;
+    outer.position.x = side * 9.5;
+    const inner = new THREE.Mesh(new THREE.CylinderGeometry(5.2, 5.2, 2.2, 14), innerPlateMat);
+    inner.rotation.z = Math.PI / 2;
+    inner.position.x = side * 6.8;
+    g.add(outer, inner);
+  }
+  return g;
+}
+
+function buildDumbbellProp(root: THREE.Group): ActiveActionProp['onUpdate'] {
+  const leftDb = buildDumbbellMesh();
+  const rightDb = buildDumbbellMesh();
+  leftDb.position.set(-42, 98, 18);
+  rightDb.position.set(42, 98, 18);
+  root.add(leftDb, rightDb);
+
+  return (t) => {
+    const liftL = Math.max(0, Math.sin(t * 7.5));
+    const liftR = Math.max(0, Math.sin(t * 7.5 + 0.35));
+    leftDb.position.set(-42, 94 + liftL * 22, 18 + liftL * 4);
+    rightDb.position.set(42, 94 + liftR * 22, 18 + liftR * 4);
+    leftDb.rotation.z = 0.14 - liftL * 0.26;
+    rightDb.rotation.z = -0.14 + liftR * 0.26;
+  };
+}
+
+function buildCameraFlashProp(root: THREE.Group): ActiveActionProp['onUpdate'] {
+  const grp = new THREE.Group();
+  const bodyMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.35, metalness: 0.55 });
+  const silverMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.25, metalness: 0.8 });
+  const lensMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.15, metalness: 0.9 });
+
+  const body = new THREE.Mesh(new THREE.BoxGeometry(26, 17, 11), bodyMat);
+  const topHump = new THREE.Mesh(new THREE.BoxGeometry(12, 4, 8), silverMat);
+  topHump.position.set(0, 10, 0);
+
+  const lensRing = new THREE.Mesh(new THREE.CylinderGeometry(5.6, 5.6, 5, 18), silverMat);
+  lensRing.rotation.x = Math.PI / 2;
+  lensRing.position.set(0, 0, -6.5);
+
+  const lensCore = new THREE.Mesh(new THREE.CylinderGeometry(4.2, 4.2, 5.5, 16), lensMat);
+  lensCore.rotation.x = Math.PI / 2;
+  lensCore.position.set(0, 0, -6.8);
+
+  const flashMat = new THREE.MeshBasicMaterial({
+    color: 0xfef08a,
+    side: THREE.DoubleSide,
+    transparent: true,
+    opacity: 0,
+  });
+  const flashRing = new THREE.Mesh(new THREE.RingGeometry(8, 22, 24), flashMat);
+  flashRing.position.set(7, 8, -9);
+
+  grp.add(body, topHump, lensRing, lensCore, flashRing);
+  root.add(grp);
+
+  return (t) => {
+    const orbit = Math.sin(t * 2.1) * 0.35;
+    grp.position.set(46 + Math.sin(t * 1.9) * 8, 138 + Math.cos(t * 2.7) * 6, 38);
+    grp.rotation.y = 0.55 + orbit;
+    grp.rotation.z = Math.sin(t * 3.0) * 0.08;
+
+    const cycle = (t * 1.25) % 1;
+    const burst = cycle < 0.26 ? 1 - cycle / 0.26 : 0;
+    flashRing.scale.setScalar(0.6 + (1 - burst) * 1.45);
+    flashMat.opacity = burst * 0.85;
+  };
+}
+
+function buildCrownAuraProp(root: THREE.Group): ActiveActionProp['onUpdate'] {
+  const grp = new THREE.Group();
+  const goldMat = new THREE.MeshStandardMaterial({
+    color: 0xfacc15,
+    emissive: 0xd97706,
+    emissiveIntensity: 0.45,
+    metalness: 0.85,
+    roughness: 0.2,
+  });
+  const halo = new THREE.Mesh(new THREE.TorusGeometry(36, 2.2, 10, 32), goldMat);
+  halo.rotation.x = Math.PI / 2;
+  grp.add(halo);
+
+  const gemColors = [0x38bdf8, 0xfacc15, 0x34d399, 0xf472b6];
+  const gems: THREE.Mesh[] = [];
+  const gemGeo = new THREE.OctahedronGeometry(5.2, 0);
+  for (let i = 0; i < 4; i++) {
+    const g = new THREE.Mesh(
+      gemGeo,
+      new THREE.MeshBasicMaterial({ color: gemColors[i] })
+    );
+    grp.add(g);
+    gems.push(g);
+  }
+  root.add(grp);
+
+  return (t) => {
+    grp.position.set(0, 176 + Math.sin(t * 2.8) * 5, 10);
+    halo.rotation.z = t * 1.5;
+    gems.forEach((g, i) => {
+      const a = t * 2.4 + (i * Math.PI) / 2;
+      g.position.set(Math.cos(a) * 38, Math.sin(t * 4.2 + i) * 4, Math.sin(a) * 38);
+      g.rotation.y = t * 3.8 + i;
+    });
+  };
+}
+
+function buildLightningAuraProp(root: THREE.Group): ActiveActionProp['onUpdate'] {
+  const r1Mat = new THREE.MeshBasicMaterial({ color: 0x38bdf8, side: THREE.DoubleSide, transparent: true, opacity: 0.78 });
+  const r2Mat = new THREE.MeshBasicMaterial({ color: 0xfacc15, side: THREE.DoubleSide, transparent: true, opacity: 0.72 });
+  const ring1 = new THREE.Mesh(new THREE.RingGeometry(42, 47, 28), r1Mat);
+  ring1.rotation.x = -Math.PI / 2;
+  const ring2 = new THREE.Mesh(new THREE.RingGeometry(32, 36, 28), r2Mat);
+  ring2.rotation.x = -Math.PI / 2;
+  root.add(ring1, ring2);
+
+  const boltMat = new THREE.MeshBasicMaterial({ color: 0xfde047 });
+  const bolts: THREE.Group[] = [];
+  const segGeo = new THREE.BoxGeometry(2.6, 20, 2.6);
+  for (let i = 0; i < 5; i++) {
+    const bg = new THREE.Group();
+    const s1 = new THREE.Mesh(segGeo, boltMat);
+    s1.rotation.z = 0.42;
+    s1.position.y = 8;
+    const s2 = new THREE.Mesh(segGeo, boltMat);
+    s2.rotation.z = -0.42;
+    s2.position.y = -8;
+    bg.add(s1, s2);
+    root.add(bg);
+    bolts.push(bg);
+  }
+
+  return (t) => {
+    const ph1 = (t * 1.6) % 1;
+    const ph2 = (t * 1.6 + 0.5) % 1;
+    ring1.position.set(0, 12 + ph1 * 155, 0);
+    ring1.scale.setScalar(0.85 + ph1 * 0.45);
+    r1Mat.opacity = (1 - ph1) * 0.85;
+
+    ring2.position.set(0, 12 + ph2 * 155, 0);
+    ring2.scale.setScalar(0.85 + ph2 * 0.45);
+    r2Mat.opacity = (1 - ph2) * 0.82;
+
+    bolts.forEach((b, i) => {
+      const a = t * 5.2 + i * ((Math.PI * 2) / 5);
+      b.position.set(
+        Math.cos(a) * 48,
+        52 + ((i * 28 + t * 90) % 115),
+        Math.sin(a) * 26 + 12
+      );
+      b.rotation.y = a;
+      b.visible = Math.sin(t * 28 + i * 1.9) > -0.35;
+    });
+  };
+}
+
 function createPropUpdater(id: ActionProp3DId, root: THREE.Group): ActiveActionProp['onUpdate'] {
   switch (id) {
     case 'prop_books':
@@ -559,6 +841,18 @@ function createPropUpdater(id: ActionProp3DId, root: THREE.Group): ActiveActionP
       return buildMusicProp(root);
     case 'prop_trophy':
       return buildTrophyProp(root);
+    case 'prop_hearts':
+      return buildHeartsProp(root);
+    case 'prop_hologram':
+      return buildHologramProp(root);
+    case 'prop_dumbbell':
+      return buildDumbbellProp(root);
+    case 'prop_camera_flash':
+      return buildCameraFlashProp(root);
+    case 'prop_crown_aura':
+      return buildCrownAuraProp(root);
+    case 'prop_lightning_aura':
+      return buildLightningAuraProp(root);
   }
 }
 
@@ -587,7 +881,11 @@ export function spawnActionProp3D(id: ActionProp3DId, durationSec = 3.2) {
   const s = appState.modelScale || 1.0;
   root.scale.setScalar(s);
   root.position.set(appState.posX, -appState.posY, (appState.posZ || 0) + 12 * s);
-  const followFacing = id === 'prop_pipe' || id === 'prop_magnifier';
+  const followFacing =
+    id === 'prop_pipe' ||
+    id === 'prop_magnifier' ||
+    id === 'prop_hologram' ||
+    id === 'prop_dumbbell';
   if (followFacing) {
     root.rotation.y = appState.facingAngle || 0;
   }

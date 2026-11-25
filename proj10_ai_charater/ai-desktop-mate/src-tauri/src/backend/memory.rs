@@ -360,6 +360,18 @@ impl MemoryDb {
             ",
         )?;
 
+        for alter_sql in [
+            "ALTER TABLE english_vocab_log ADD COLUMN synonyms_json TEXT NOT NULL DEFAULT '[]'",
+            "ALTER TABLE english_vocab_log ADD COLUMN level TEXT NOT NULL DEFAULT 'B1'",
+            "ALTER TABLE english_vocab_log ADD COLUMN mastery_level INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE english_vocab_log ADD COLUMN next_review_at INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE english_vocab_log ADD COLUMN correct_count INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE english_vocab_log ADD COLUMN wrong_count INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE english_vocab_log ADD COLUMN is_starred INTEGER NOT NULL DEFAULT 0",
+        ] {
+            let _ = self.exec_sql(alter_sql);
+        }
+
         let mut macro_count = 0i64;
         if let Ok(stmt) = self.prepare("SELECT COUNT(*) FROM user_macros") {
             unsafe {
@@ -1633,7 +1645,10 @@ pub fn macro_delete(state: tauri::State<'_, MemoryState>, id: i64) -> Result<(),
 
 fn read_vocab_list(db: &MemoryDb, limit: i64) -> Result<Vec<EnglishVocabItem>, String> {
     let stmt = db.prepare(
-        "SELECT word, phonetic, part_of_speech, meaning_vi, definition_en, example_en, example_vi, audio_url, topic
+        "SELECT word, phonetic, part_of_speech, meaning_vi, definition_en, example_en, example_vi, audio_url, topic,
+                COALESCE(synonyms_json, '[]'), COALESCE(level, 'B1'), COALESCE(mastery_level, 0),
+                COALESCE(next_review_at, 0), COALESCE(correct_count, 0), COALESCE(wrong_count, 0),
+                COALESCE(is_starred, 0), learned_at
          FROM english_vocab_log
          ORDER BY learned_at DESC, id DESC
          LIMIT ?1",
@@ -1642,6 +1657,9 @@ fn read_vocab_list(db: &MemoryDb, limit: i64) -> Result<Vec<EnglishVocabItem>, S
     unsafe {
         (db.api.bind_int64)(stmt, 1, limit.max(1));
         while (db.api.step)(stmt) == SQLITE_ROW {
+            let syn_raw = db.col_str(stmt, 9);
+            let synonyms: Vec<String> = serde_json::from_str(&syn_raw).unwrap_or_default();
+            let raw_level = db.col_str(stmt, 10);
             list.push(EnglishVocabItem {
                 word: db.col_str(stmt, 0),
                 phonetic: db.col_str(stmt, 1),
@@ -1652,7 +1670,18 @@ fn read_vocab_list(db: &MemoryDb, limit: i64) -> Result<Vec<EnglishVocabItem>, S
                 example_vi: db.col_str(stmt, 6),
                 audio_url: db.col_str(stmt, 7),
                 topic: db.col_str(stmt, 8),
-                synonyms: Vec::new(),
+                synonyms,
+                level: if raw_level.trim().is_empty() {
+                    "B1".to_string()
+                } else {
+                    raw_level
+                },
+                mastery_level: (db.api.column_int64)(stmt, 11),
+                next_review_at: (db.api.column_int64)(stmt, 12),
+                correct_count: (db.api.column_int64)(stmt, 13),
+                wrong_count: (db.api.column_int64)(stmt, 14),
+                is_starred: (db.api.column_int64)(stmt, 15) != 0,
+                learned_at: (db.api.column_int64)(stmt, 16),
             });
         }
         (db.api.finalize)(stmt);
@@ -1669,21 +1698,38 @@ pub fn vocab_save_word(
     if word_clean.is_empty() {
         return Err("Từ vựng không được để trống".to_string());
     }
+    let syn_json = serde_json::to_string(&item.synonyms).unwrap_or_else(|_| "[]".to_string());
+    let level_clean = if item.level.trim().is_empty() {
+        "B1".to_string()
+    } else {
+        item.level.trim().to_uppercase()
+    };
     let guard = state.inner.lock().map_err(|e| e.to_string())?;
     let db = guard.as_ref().ok_or("SQLite chưa sẵn sàng")?;
     let stmt = db.prepare(
-        "INSERT INTO english_vocab_log (word, phonetic, part_of_speech, meaning_vi, definition_en, example_en, example_vi, audio_url, topic, learned_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+        "INSERT INTO english_vocab_log (
+            word, phonetic, part_of_speech, meaning_vi, definition_en, example_en, example_vi,
+            audio_url, topic, learned_at, synonyms_json, level, mastery_level, next_review_at,
+            correct_count, wrong_count, is_starred
+         )
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
          ON CONFLICT(word) DO UPDATE SET
-           phonetic = excluded.phonetic,
+           phonetic = CASE WHEN excluded.phonetic != '' THEN excluded.phonetic ELSE english_vocab_log.phonetic END,
            part_of_speech = excluded.part_of_speech,
            meaning_vi = excluded.meaning_vi,
            definition_en = excluded.definition_en,
            example_en = excluded.example_en,
-           example_vi = excluded.example_vi,
-           audio_url = excluded.audio_url,
+           example_vi = CASE WHEN excluded.example_vi != '' THEN excluded.example_vi ELSE english_vocab_log.example_vi END,
+           audio_url = CASE WHEN excluded.audio_url != '' THEN excluded.audio_url ELSE english_vocab_log.audio_url END,
            topic = excluded.topic,
-           learned_at = excluded.learned_at",
+           learned_at = excluded.learned_at,
+           synonyms_json = CASE WHEN excluded.synonyms_json != '[]' THEN excluded.synonyms_json ELSE english_vocab_log.synonyms_json END,
+           level = CASE WHEN excluded.level != '' THEN excluded.level ELSE english_vocab_log.level END,
+           mastery_level = MAX(english_vocab_log.mastery_level, excluded.mastery_level),
+           next_review_at = CASE WHEN english_vocab_log.next_review_at > 0 THEN english_vocab_log.next_review_at ELSE excluded.next_review_at END,
+           correct_count = MAX(english_vocab_log.correct_count, excluded.correct_count),
+           wrong_count = MAX(english_vocab_log.wrong_count, excluded.wrong_count),
+           is_starred = MAX(english_vocab_log.is_starred, excluded.is_starred)",
     )?;
     db.bind_str(stmt, 1, &word_clean);
     db.bind_str(stmt, 2, &item.phonetic);
@@ -1694,12 +1740,111 @@ pub fn vocab_save_word(
     db.bind_str(stmt, 7, &item.example_vi);
     db.bind_str(stmt, 8, &item.audio_url);
     db.bind_str(stmt, 9, &item.topic);
+    db.bind_str(stmt, 11, &syn_json);
+    db.bind_str(stmt, 12, &level_clean);
     unsafe {
         (db.api.bind_int64)(stmt, 10, now_unix());
+        (db.api.bind_int64)(stmt, 13, item.mastery_level.clamp(0, 5));
+        (db.api.bind_int64)(stmt, 14, item.next_review_at.max(0));
+        (db.api.bind_int64)(stmt, 15, item.correct_count.max(0));
+        (db.api.bind_int64)(stmt, 16, item.wrong_count.max(0));
+        (db.api.bind_int64)(stmt, 17, if item.is_starred { 1 } else { 0 });
         (db.api.step)(stmt);
         (db.api.finalize)(stmt);
     }
-    read_vocab_list(db, 100)
+    read_vocab_list(db, 200)
+}
+
+#[tauri::command]
+pub fn vocab_record_review(
+    state: tauri::State<'_, MemoryState>,
+    word: String,
+    quality: i32,
+) -> Result<EnglishVocabItem, String> {
+    let clean = word.trim().to_lowercase();
+    if clean.is_empty() {
+        return Err("Từ vựng không hợp lệ".to_string());
+    }
+    let guard = state.inner.lock().map_err(|e| e.to_string())?;
+    let db = guard.as_ref().ok_or("SQLite chưa sẵn sàng")?;
+
+    let mut cur_mastery = 0i64;
+    let mut cur_correct = 0i64;
+    let mut cur_wrong = 0i64;
+    if let Ok(q_stmt) = db.prepare(
+        "SELECT COALESCE(mastery_level, 0), COALESCE(correct_count, 0), COALESCE(wrong_count, 0)
+         FROM english_vocab_log WHERE word = ?1 LIMIT 1",
+    ) {
+        db.bind_str(q_stmt, 1, &clean);
+        unsafe {
+            if (db.api.step)(q_stmt) == SQLITE_ROW {
+                cur_mastery = (db.api.column_int64)(q_stmt, 0);
+                cur_correct = (db.api.column_int64)(q_stmt, 1);
+                cur_wrong = (db.api.column_int64)(q_stmt, 2);
+            }
+            (db.api.finalize)(q_stmt);
+        }
+    }
+
+    let now = now_unix();
+    let (new_mastery, interval_sec, new_correct, new_wrong) = if quality <= 1 {
+        (0, 600i64, cur_correct, cur_wrong + 1)
+    } else if quality == 2 {
+        (cur_mastery.clamp(1, 5), 14_400i64, cur_correct + 1, cur_wrong)
+    } else {
+        let next_m = (cur_mastery + 1).clamp(1, 5);
+        let intervals = [86_400i64, 259_200, 604_800, 1_209_600, 2_592_000];
+        let iv = intervals[(next_m as usize).saturating_sub(1).min(4)];
+        (next_m, iv, cur_correct + 1, cur_wrong)
+    };
+    let next_review_at = now + interval_sec;
+
+    let upd = db.prepare(
+        "UPDATE english_vocab_log
+         SET mastery_level = ?1, next_review_at = ?2, correct_count = ?3, wrong_count = ?4, learned_at = ?5
+         WHERE word = ?6",
+    )?;
+    unsafe {
+        (db.api.bind_int64)(upd, 1, new_mastery);
+        (db.api.bind_int64)(upd, 2, next_review_at);
+        (db.api.bind_int64)(upd, 3, new_correct);
+        (db.api.bind_int64)(upd, 4, new_wrong);
+        (db.api.bind_int64)(upd, 5, now);
+    }
+    db.bind_str(upd, 6, &clean);
+    unsafe {
+        (db.api.step)(upd);
+        (db.api.finalize)(upd);
+    }
+
+    let all = read_vocab_list(db, 200)?;
+    all.into_iter()
+        .find(|w| w.word.eq_ignore_ascii_case(&clean))
+        .ok_or_else(|| format!("Không tìm thấy từ '{clean}' trong sổ SQLite"))
+}
+
+#[tauri::command]
+pub fn vocab_toggle_star(
+    state: tauri::State<'_, MemoryState>,
+    word: String,
+    starred: bool,
+) -> Result<bool, String> {
+    let clean = word.trim().to_lowercase();
+    if clean.is_empty() {
+        return Err("Từ vựng không hợp lệ".to_string());
+    }
+    let guard = state.inner.lock().map_err(|e| e.to_string())?;
+    let db = guard.as_ref().ok_or("SQLite chưa sẵn sàng")?;
+    let stmt = db.prepare("UPDATE english_vocab_log SET is_starred = ?1 WHERE word = ?2")?;
+    unsafe {
+        (db.api.bind_int64)(stmt, 1, if starred { 1 } else { 0 });
+    }
+    db.bind_str(stmt, 2, &clean);
+    unsafe {
+        (db.api.step)(stmt);
+        (db.api.finalize)(stmt);
+    }
+    Ok(starred)
 }
 
 #[tauri::command]

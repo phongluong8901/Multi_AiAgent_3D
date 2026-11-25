@@ -200,9 +200,26 @@ export async function handleIncomingNotificationForReply(item: NotificationItem)
   }
 }
 
+export function syncNotificationAutoReplyForm() {
+  const cfg = loadNotifAutoReplyConfig();
+  const chkQuick = document.getElementById('chk-notif-quick-reply') as HTMLInputElement | null;
+  const chkAuto = document.getElementById('chk-notif-auto-reply') as HTMLInputElement | null;
+  const inpApps = document.getElementById('inp-notif-ar-apps') as HTMLInputElement | null;
+  const inpSender = document.getElementById('inp-notif-ar-sender') as HTMLInputElement | null;
+  const inpMsg = document.getElementById('inp-notif-ar-message') as HTMLInputElement | null;
+  const inpCooldown = document.getElementById('inp-notif-ar-cooldown') as HTMLInputElement | null;
+
+  if (chkQuick) chkQuick.checked = cfg.quickReplyEnabled;
+  if (chkAuto) chkAuto.checked = cfg.autoReplyEnabled;
+  if (inpApps) inpApps.value = cfg.allowedApps.join(', ');
+  if (inpSender) inpSender.value = cfg.senderFilter;
+  if (inpMsg) inpMsg.value = cfg.autoReplyMessage;
+  if (inpCooldown) inpCooldown.value = String(cfg.cooldownSec);
+}
+
 export function initNotificationAutoReplyUi(deps: NotifAutoReplyDeps) {
   savedDeps = deps;
-  const cfg = loadNotifAutoReplyConfig();
+  syncNotificationAutoReplyForm();
 
   const chkQuick = document.getElementById('chk-notif-quick-reply') as HTMLInputElement | null;
   const chkAuto = document.getElementById('chk-notif-auto-reply') as HTMLInputElement | null;
@@ -211,13 +228,6 @@ export function initNotificationAutoReplyUi(deps: NotifAutoReplyDeps) {
   const inpMsg = document.getElementById('inp-notif-ar-message') as HTMLInputElement | null;
   const inpCooldown = document.getElementById('inp-notif-ar-cooldown') as HTMLInputElement | null;
   const statusEl = document.getElementById('notif-ar-status');
-
-  if (chkQuick) chkQuick.checked = cfg.quickReplyEnabled;
-  if (chkAuto) chkAuto.checked = cfg.autoReplyEnabled;
-  if (inpApps) inpApps.value = cfg.allowedApps.join(', ');
-  if (inpSender) inpSender.value = cfg.senderFilter;
-  if (inpMsg) inpMsg.value = cfg.autoReplyMessage;
-  if (inpCooldown) inpCooldown.value = String(cfg.cooldownSec);
 
   const persistFromForm = (): NotifAutoReplyConfig => {
     const next: NotifAutoReplyConfig = {
@@ -236,10 +246,18 @@ export function initNotificationAutoReplyUi(deps: NotifAutoReplyDeps) {
     return next;
   };
 
-  document.getElementById('btn-save-notif-autoreply')?.addEventListener('click', () => {
+  document.getElementById('btn-save-notif-autoreply')?.addEventListener('click', (ev) => {
     const saved = persistFromForm();
     if (statusEl) {
       statusEl.textContent = `[SAVED] QuickReply=${saved.quickReplyEnabled ? 'ON' : 'OFF'} | AutoReply=${saved.autoReplyEnabled ? 'ON' : 'OFF'} (${saved.allowedApps.join(', ')})`;
+    }
+    const btn = ev.currentTarget as HTMLButtonElement | null;
+    if (btn) {
+      const prev = btn.textContent || 'Lưu Cấu Hình Auto-Reply';
+      btn.textContent = 'Đã Lưu!';
+      window.setTimeout(() => {
+        btn.textContent = prev;
+      }, 1400);
     }
   });
 
