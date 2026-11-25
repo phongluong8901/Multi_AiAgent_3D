@@ -66,19 +66,25 @@ export async function connectMongo(params: {
   }
   const { MongoClient: MongoClientCtor } = await import('mongodb');
   const client = new MongoClientCtor(params.uri, {
-    serverSelectionTimeoutMS: 8000,
+    serverSelectionTimeoutMS: 10000,
+    family: 4,
   });
-  await client.connect();
-  const db = client.db(params.dbName || 'duck_ai_manager');
-  const collection = db.collection<CommunitySkillDocument>(
-    params.collectionName || 'community_skills'
-  );
-  await collection.createIndex({ skill_key: 1 }, { unique: true });
-  await collection.createIndex({ downloads: -1, updated_at_ms: -1 });
+  try {
+    await client.connect();
+    const db = client.db(params.dbName || 'duck_ai_manager');
+    const collection = db.collection<CommunitySkillDocument>(
+      params.collectionName || 'community_skills'
+    );
+    await collection.createIndex({ skill_key: 1 }, { unique: true });
+    await collection.createIndex({ downloads: -1, updated_at_ms: -1 });
 
-  const chatCollection = db.collection<ChatSyncDocument>('chat_sync');
-  await chatCollection.createIndex({ user_sub: 1, created_at_ms: 1 });
-  await chatCollection.createIndex({ user_sub: 1, msg_id: 1 }, { unique: true });
+    const chatCollection = db.collection<ChatSyncDocument>('chat_sync');
+    await chatCollection.createIndex({ user_sub: 1, created_at_ms: 1 });
+    await chatCollection.createIndex({ user_sub: 1, msg_id: 1 }, { unique: true });
 
-  return { client, db, collection, chatCollection };
+    return { client, db, collection, chatCollection };
+  } catch (err) {
+    await client.close().catch(() => {});
+    throw err;
+  }
 }

@@ -46,10 +46,11 @@ jobs:
           cache: npm
           cache-dependency-path: proj10_ai_charater/cloud-hub-backend/package-lock.json
 
-      - name: Ensure .env is not tracked in Git
+      - name: Ensure .env secret files are not tracked in Git
         run: |
-          if git ls-files --error-unmatch .env >/dev/null 2>&1; then
-            echo "[ERROR] .env dang bi commit len Git! Hay chay git rm --cached .env."
+          LEAKED_ENV=$(git ls-files | grep -E '(^|/)\.env(\..+)?$' | grep -vE '(^|/)\.env\.example$' || true)
+          if [ -n "$LEAKED_ENV" ]; then
+            echo "[ERROR] File env chua secret dang bi commit len Git: $LEAKED_ENV"
             exit 1
           fi
           echo "[SUCCESS] Khong co file .env bi track trong Git."

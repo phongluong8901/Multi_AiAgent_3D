@@ -1,6 +1,7 @@
 use ai_desktop_mate_lib::backend::automation_desktop::{
     auto_uia_snapshot, decode_ws_server_frame, draw_som_box_on_bgra, encode_ws_client_text_frame,
-    is_installer_or_uninstaller_name, parse_cdp_tabs_json, parse_hotkey_vkeys, uia_control_type_name,
+    is_installer_or_uninstaller_name, parse_cdp_tabs_json, parse_hotkey_vkeys,
+    uia_control_type_name,
 };
 
 #[test]
@@ -20,7 +21,8 @@ fn test_parse_hotkey_vkeys_combinations() {
 fn test_ws_frame_encode_decode_and_cdp_tabs_parser() {
     let encoded = encode_ws_client_text_frame(r#"{"id":1,"method":"Runtime.evaluate"}"#);
     assert_eq!(encoded[0], 0x81);
-    let (opcode, text, consumed) = decode_ws_server_frame(&encoded).expect("Should decode WS frame");
+    let (opcode, text, consumed) =
+        decode_ws_server_frame(&encoded).expect("Should decode WS frame");
     assert_eq!(opcode, 1);
     assert_eq!(consumed, encoded.len());
     assert!(text.contains("Runtime.evaluate"));

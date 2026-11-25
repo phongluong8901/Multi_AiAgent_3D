@@ -34,6 +34,10 @@ app.use(express.json({ limit: '256kb' }));
 let mongoCollection: Collection<CommunitySkillDocument> | null = null;
 let chatCollection: Collection<ChatSyncDocument> | null = null;
 let mongoClient: MongoClient | null = null;
+let mongoInitPromise: Promise<boolean> | null = null;
+let mongoRetryTimer: NodeJS.Timeout | null = null;
+let mongoRetryAttempts = 0;
+let isShuttingDown = false;
 const sseClients = new Map<string, Set<Response>>();
 
 function broadcastSse(userSub: string, eventName: string, payload: unknown): void {
@@ -49,24 +53,57 @@ function broadcastSse(userSub: string, eventName: string, payload: unknown): voi
   }
 }
 
-async function initMongo(): Promise<void> {
+async function initMongo(): Promise<boolean> {
+  if (mongoCollection && chatCollection) {
+    return true;
+  }
   if (!MONGODB_URI) {
-    console.warn('[WARN] MONGODB_URI chua duoc cau hinh. Chi chay endpoint /api/health.');
-    return;
+    if (mongoRetryAttempts === 0) {
+      console.warn('[WARN] MONGODB_URI chua duoc cau hinh. Chi chay endpoint /api/health.');
+    }
+    return false;
   }
-  try {
-    const conn = await connectMongo({
-      uri: MONGODB_URI,
-      dbName: MONGODB_DB,
-      collectionName: MONGODB_COLLECTION,
-    });
-    mongoClient = conn.client;
-    mongoCollection = conn.collection;
-    chatCollection = conn.chatCollection;
-    console.log(`[INFO] Ket noi MongoDB thanh cong (${MONGODB_DB}.${MONGODB_COLLECTION}).`);
-  } catch (err) {
-    console.error('[ERROR] Khong ket noi duoc MongoDB:', (err as Error).message);
+  if (mongoInitPromise) {
+    return mongoInitPromise;
   }
+
+  mongoInitPromise = (async () => {
+    try {
+      const conn = await connectMongo({
+        uri: MONGODB_URI,
+        dbName: MONGODB_DB,
+        collectionName: MONGODB_COLLECTION,
+      });
+      mongoClient = conn.client;
+      mongoCollection = conn.collection;
+      chatCollection = conn.chatCollection;
+      mongoRetryAttempts = 0;
+      if (mongoRetryTimer) {
+        clearTimeout(mongoRetryTimer);
+        mongoRetryTimer = null;
+      }
+      console.log(`[INFO] Ket noi MongoDB thanh cong (${MONGODB_DB}.${MONGODB_COLLECTION}).`);
+      return true;
+    } catch (err) {
+      mongoRetryAttempts += 1;
+      console.error(
+        `[ERROR] Khong ket noi duoc MongoDB (lan ${mongoRetryAttempts}):`,
+        (err as Error).message
+      );
+      if (!isShuttingDown && mongoRetryAttempts < 12) {
+        if (mongoRetryTimer) clearTimeout(mongoRetryTimer);
+        mongoRetryTimer = setTimeout(() => {
+          mongoRetryTimer = null;
+          void initMongo();
+        }, 15_000);
+      }
+      return false;
+    } finally {
+      mongoInitPromise = null;
+    }
+  })();
+
+  return mongoInitPromise;
 }
 
 async function requireAuth(
@@ -83,7 +120,14 @@ async function requireAuth(
   }
 }
 
-function requireMongo(_req: Request, res: Response, next: NextFunction): void {
+async function requireMongo(_req: Request, res: Response, next: NextFunction): Promise<void> {
+  if ((!mongoCollection || !chatCollection) && MONGODB_URI) {
+    try {
+      await initMongo();
+    } catch {
+      // ignore; fallback 503 below
+    }
+  }
   if (!mongoCollection || !chatCollection) {
     res.status(503).json({
       ok: false,
@@ -379,10 +423,13 @@ const server = app.listen(PORT, '0.0.0.0', () => {
   void initMongo();
 });
 
-let isShuttingDown = false;
 async function shutdown(signal: string): Promise<void> {
   if (isShuttingDown) return;
   isShuttingDown = true;
+  if (mongoRetryTimer) {
+    clearTimeout(mongoRetryTimer);
+    mongoRetryTimer = null;
+  }
   console.log(`[INFO] Received ${signal}, shutting down Duck ai Cloud Hub gracefully...`);
   if (mongoClient) {
     await mongoClient.close().catch(() => {});
