@@ -1,0 +1,31 @@
+# Render Blueprint cho Duck ai Cloud Hub Backend
+# Luu y: Copy file nay len thu muc goc Git repo (D:\A_Self_Proj\learn_mlflow\render.yaml)
+# de Render Blueprint tu dong nhan dien khi tao Blueprint / ket noi GitHub.
+
+services:
+  - type: web
+    name: duck-ai-cloud-hub
+    runtime: node
+    plan: free
+    region: singapore
+    branch: p11_advanced_proj
+    rootDir: proj10_ai_charater/cloud-hub-backend
+    # Chi deploy sau khi GitHub Actions CI pass va goi RENDER_DEPLOY_HOOK_URL.
+    # Doi thanh true neu ban muon Render tu deploy moi khi git push khong can GitHub Secrets.
+    autoDeploy: false
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: MONGODB_DB
+        value: duck_ai_manager
+      - key: MONGODB_COLLECTION
+        value: community_skills
+      - key: MONGODB_URI
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false

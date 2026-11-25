@@ -375,11 +375,24 @@ app.delete('/api/chat', requireAuth, requireMongo, async (req: AuthedRequest, re
 });
 
 const server = app.listen(PORT, '0.0.0.0', () => {
-  console.log(`[INFO] Duck ai Cloud Hub API listening on http://127.0.0.1:${PORT}`);
+  console.log(`[INFO] Duck ai Cloud Hub API listening on http://0.0.0.0:${PORT}`);
   void initMongo();
 });
 
-process.on('SIGINT', async () => {
-  if (mongoClient) await mongoClient.close().catch(() => {});
+let isShuttingDown = false;
+async function shutdown(signal: string): Promise<void> {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+  console.log(`[INFO] Received ${signal}, shutting down Duck ai Cloud Hub gracefully...`);
+  if (mongoClient) {
+    await mongoClient.close().catch(() => {});
+  }
   server.close(() => process.exit(0));
+}
+
+process.on('SIGINT', () => {
+  void shutdown('SIGINT');
+});
+process.on('SIGTERM', () => {
+  void shutdown('SIGTERM');
 });

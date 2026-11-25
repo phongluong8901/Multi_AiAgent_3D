@@ -6,3 +6,9 @@ cd cloud-hub-backend
 npm install
 npm test
 npm run dev
+
+# --- run
+npm run dev
+
+
+# --- deploy render

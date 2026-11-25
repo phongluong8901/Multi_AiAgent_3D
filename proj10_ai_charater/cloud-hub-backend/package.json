@@ -4,6 +4,9 @@
   "description": "Online backend API (TypeScript + Google OAuth 2.0 verification + MongoDB) for Duck ai Manager Community Skill Hub",
   "type": "module",
   "main": "dist/src/server.js",
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "scripts": {
     "build": "tsc",
     "start": "node dist/src/server.js",

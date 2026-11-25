@@ -1,0 +1,130 @@
+# GitHub Actions CI/CD cho cloud-hub-backend -> Render
+# Luu y: GitHub Actions chi doc workflow o thu muc goc repo (.github/workflows/).
+# Copy file nay len D:\A_Self_Proj\learn_mlflow\.github\workflows\cloud-hub-backend-cicd.yml truoc khi git push.
+
+name: CI/CD Cloud Hub Backend (Render)
+
+on:
+  push:
+    branches:
+      - p11_advanced_proj
+      - main
+    paths:
+      - "proj10_ai_charater/cloud-hub-backend/**"
+      - ".github/workflows/cloud-hub-backend-cicd.yml"
+      - "render.yaml"
+  pull_request:
+    branches:
+      - p11_advanced_proj
+      - main
+    paths:
+      - "proj10_ai_charater/cloud-hub-backend/**"
+      - ".github/workflows/cloud-hub-backend-cicd.yml"
+      - "render.yaml"
+  workflow_dispatch:
+
+concurrency:
+  group: cloud-hub-backend-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  ci-test-and-build:
+    name: Test, Build & Smoke Check
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: proj10_ai_charater/cloud-hub-backend
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: proj10_ai_charater/cloud-hub-backend/package-lock.json
+
+      - name: Ensure .env is not tracked in Git
+        run: |
+          if git ls-files --error-unmatch .env >/dev/null 2>&1; then
+            echo "[ERROR] .env dang bi commit len Git! Hay chay git rm --cached .env."
+            exit 1
+          fi
+          echo "[SUCCESS] Khong co file .env bi track trong Git."
+
+      - name: Install dependencies (including devDependencies for tsc)
+        run: npm ci --include=dev
+
+      - name: Run unit tests
+        run: npm test
+
+      - name: Build production TypeScript output
+        run: npm run build
+
+      - name: Smoke test /api/health endpoint
+        env:
+          PORT: "8787"
+          MONGODB_URI: ""
+          GOOGLE_CLIENT_ID: ""
+        run: |
+          node dist/src/server.js > /tmp/cloud-hub-smoke.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill $SERVER_PID 2>/dev/null || true' EXIT
+
+          for i in $(seq 1 15); do
+            if curl -fsS http://127.0.0.1:8787/api/health > /tmp/health.json 2>/dev/null; then
+              echo "[SUCCESS] Health response: $(cat /tmp/health.json)"
+              grep -q '"ok":true' /tmp/health.json
+              exit 0
+            fi
+            sleep 1
+          done
+
+          echo "[ERROR] Smoke test /api/health that bai:"
+          cat /tmp/cloud-hub-smoke.log
+          exit 1
+
+  cd-deploy-render:
+    name: Deploy to Render via Deploy Hook
+    needs: ci-test-and-build
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/p11_advanced_proj' || github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Trigger Render Deploy Hook
+        env:
+          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+        run: |
+          if [ -z "$RENDER_DEPLOY_HOOK_URL" ]; then
+            echo "::warning::Chua cau hinh GitHub Secret RENDER_DEPLOY_HOOK_URL. Hay tao service tren Render (tu render.yaml), lay Deploy Hook URL trong Render Settings va them vao GitHub Secrets."
+            exit 0
+          fi
+          echo "[DEPLOY] Dang kich hoat deploy moi tren Render..."
+          curl -fsS -X POST "$RENDER_DEPLOY_HOOK_URL" >/dev/null
+          echo "[SUCCESS] Da gui lenh deploy toi Render thanh cong."
+
+      - name: Post-deploy Render health check (optional)
+        env:
+          RENDER_SERVICE_URL: ${{ secrets.RENDER_SERVICE_URL || vars.RENDER_SERVICE_URL }}
+          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+        run: |
+          if [ -z "$RENDER_DEPLOY_HOOK_URL" ] || [ -z "$RENDER_SERVICE_URL" ]; then
+            echo "[INFO] Bo qua post-deploy health check vi chua dat RENDER_SERVICE_URL."
+            exit 0
+          fi
+          BASE_URL="${RENDER_SERVICE_URL%/}"
+          echo "[INFO] Cho Render khoi dong phien ban moi tai $BASE_URL/api/health..."
+          sleep 15
+          for i in $(seq 1 24); do
+            BODY="$(curl -fsS --max-time 10 "$BASE_URL/api/health" 2>/dev/null || true)"
+            if echo "$BODY" | grep -q '"ok":true' && echo "$BODY" | grep -q '"mongo_connected":true'; then
+              echo "[SUCCESS] Render service da san sang va ket noi MongoDB Atlas thanh cong: $BODY"
+              exit 0
+            fi
+            echo "[INFO] Lan thu $i/24 - Trang thai: ${BODY:-dang khoi dong}"
+            sleep 10
+          done
+          echo "[ERROR] Render khong phan hoi healthy sau 4 phut."
+          exit 1
