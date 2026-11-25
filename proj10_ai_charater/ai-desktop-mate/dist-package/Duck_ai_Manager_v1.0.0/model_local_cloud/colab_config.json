@@ -1,0 +1,8 @@
+{
+  "tunnel_url": "https://visitor-submitting-retained-deeper.trycloudflare.com",
+  "default_model": "qwen2.5-coder:14b",
+  "temperature": 0.2,
+  "num_ctx": 8192,
+  "keep_alive": -1,
+  "enabled": true
+}

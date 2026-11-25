@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+package proto;
+
+option go_package = "go-distributed-llm/shared/api/proto;proto";
+
+service TokenStreamer {
+  rpc PushTokens(stream TokenChunkRequest) returns (StreamSummaryResponse);
+}
+
+message TokenChunkRequest {
+  string job_id = 1;
+  string worker_id = 2;
+  string token = 3;
+  bool is_final = 4;
+  string error_msg = 5;
+  int32 prompt_tokens = 6;
+  int32 completion_tokens = 7;
+  int32 token_units = 8;
+}
+
+message StreamSummaryResponse {
+  bool acknowledged = 1;
+}
+

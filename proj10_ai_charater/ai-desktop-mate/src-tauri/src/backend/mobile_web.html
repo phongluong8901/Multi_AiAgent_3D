@@ -1,0 +1,902 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Duck AI P2P Mobile Arena</title>
+  <style>
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    body {
+      margin: 0;
+      padding: 10px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: radial-gradient(circle at top, #1e1b4b, #0f172a 65%, #020617);
+      color: #f8fafc;
+      min-height: 100vh;
+    }
+    .wrap { max-width: 540px; margin: 0 auto; display: flex; flex-direction: column; gap: 9px; }
+    .card {
+      background: rgba(15, 23, 42, 0.88);
+      border: 1px solid rgba(56, 189, 248, 0.28);
+      border-radius: 12px;
+      padding: 11px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.42);
+    }
+    .hdr { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .title { font-size: 14.5px; font-weight: 800; color: #38bdf8; letter-spacing: 0.3px; }
+    .badge {
+      font-size: 10.5px; font-weight: 700; padding: 3px 9px; border-radius: 999px;
+      background: rgba(56, 189, 248, 0.16); border: 1px solid rgba(56, 189, 248, 0.4); color: #7dd3fc;
+    }
+    .badge.warn { background: rgba(250, 204, 21, 0.2); border-color: rgba(250, 204, 21, 0.5); color: #fef08a; }
+    .badge.ok { background: rgba(16, 185, 129, 0.2); border-color: rgba(52, 211, 153, 0.5); color: #6ee7b7; }
+    .badge.danger { background: rgba(239, 68, 68, 0.22); border-color: rgba(248, 113, 113, 0.55); color: #fecaca; }
+    label { display: block; font-size: 11px; color: #94a3b8; margin-bottom: 4px; }
+    input, select {
+      width: 100%; padding: 9px 10px; border-radius: 8px;
+      background: rgba(2, 6, 23, 0.85); border: 1px solid rgba(148, 163, 184, 0.3);
+      color: #f8fafc; font-size: 13px; outline: none; margin-bottom: 8px;
+    }
+    input:focus { border-color: #38bdf8; }
+    .btn {
+      border: 1px solid rgba(148, 163, 184, 0.3);
+      background: rgba(30, 41, 59, 0.9);
+      color: #f8fafc; border-radius: 9px; padding: 8px 10px;
+      font-size: 12px; font-weight: 700; cursor: pointer;
+      display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+      touch-action: manipulation; user-select: none;
+    }
+    .btn:active, .btn.held { transform: scale(0.96); filter: brightness(1.22); }
+    .btn.primary { background: linear-gradient(135deg, #0284c7, #4f46e5); border-color: rgba(56, 189, 248, 0.5); width: 100%; }
+    .btn.pk { background: linear-gradient(135deg, #f97316, #ef4444); border: none; width: 100%; }
+    .btn.danger { background: rgba(239, 68, 68, 0.22); border-color: rgba(248, 113, 113, 0.5); color: #fecaca; }
+    .btn.sword { border-color: rgba(56, 189, 248, 0.55); color: #7dd3fc; }
+    .btn.laser { border-color: rgba(250, 204, 21, 0.55); color: #fde047; }
+    .btn.thunder { border-color: rgba(192, 132, 252, 0.55); color: #e9d5ff; }
+    .btn.shield { border-color: rgba(52, 211, 153, 0.55); color: #6ee7b7; }
+    .btn.active-shield { background: rgba(6, 182, 212, 0.35); border-color: #22d3ee; color: #cffafe; }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+    .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
+    .grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; }
+    .hp-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 7px; }
+    .hp-box { background: rgba(2, 6, 23, 0.65); padding: 6px 8px; border-radius: 8px; border: 1px solid rgba(148, 163, 184, 0.16); }
+    .hp-lbl { display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 4px; font-weight: 700; }
+    .hp-track { height: 7px; border-radius: 999px; background: rgba(30, 41, 59, 0.9); overflow: hidden; }
+    .hp-fill { height: 100%; transition: width 0.18s ease; }
+    #arena-canvas {
+      width: 100%; height: 245px; display: block; border-radius: 10px;
+      background: linear-gradient(180deg, #090d1a 0%, #172033 84%, #334155 100%);
+      border: 1px solid rgba(56, 189, 248, 0.4);
+      touch-action: none; cursor: crosshair;
+    }
+    #mob-touchpad {
+      position: relative; height: 180px; border-radius: 10px;
+      background: linear-gradient(135deg, rgba(2, 6, 23, 0.92), rgba(30, 41, 59, 0.85));
+      border: 2px dashed rgba(250, 204, 21, 0.65);
+      touch-action: none; user-select: none; overflow: hidden;
+      display: flex; align-items: center; justify-content: center;
+    }
+    #mob-cursor {
+      position: absolute; width: 14px; height: 14px; border-radius: 999px;
+      background: #facc15; box-shadow: 0 0 12px rgba(250, 204, 21, 0.9);
+      transform: translate(-50%, -50%); left: 50%; top: 50%; pointer-events: none;
+    }
+    .hint { font-size: 11px; color: #94a3b8; line-height: 1.35; }
+    .msg-log { font-size: 11px; color: #bae6fd; margin-top: 5px; min-height: 16px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card hdr">
+      <div>
+        <div class="title">DUCK AI P2P - MOBILE ARENA</div>
+        <div class="hint" id="host-info">Ket noi cung Wi-Fi/LAN voi may chu phong</div>
+      </div>
+      <span id="phase-badge" class="badge">[CHUA KET NOI]</span>
+    </div>
+
+    <!-- CONNECT SCREEN -->
+    <div id="sec-connect" class="card">
+      <label>Ten nhan vat cua ban (Mobile)</label>
+      <input id="inp-name" type="text" value="MobileDuck" maxlength="20" />
+      <label>Mau Vit 3D cua ban</label>
+      <select id="inp-color">
+        <option value="#312e81|#f43f5e">Tim Cyber + Do Hong</option>
+        <option value="#064e3b|#facc15">Xanh Ngoc + Vang Gold</option>
+        <option value="#0f172a|#38bdf8">Den Obsidian + Xanh Cyan</option>
+        <option value="#7f1d1d|#fb923c">Do Tham + Cam Lua</option>
+      </select>
+      <label>Ma Phong 6 so (xem trong bang P2P tren PC)</label>
+      <input id="inp-room" type="tel" inputmode="numeric" placeholder="Nhap 6 chu so ma phong..." maxlength="6" />
+      <button id="btn-handshake" class="btn primary" type="button">Gui Yeu Cau Handshake Vao PC</button>
+      <div id="connect-msg" class="msg-log"></div>
+    </div>
+
+    <!-- REMOTE CONTROL PANEL (WHEN MOBILE WINS 60S) -->
+    <div id="sec-remote" class="card" style="display: none; border-color: rgba(250, 204, 21, 0.7); background: rgba(67, 20, 7, 0.32);">
+      <div class="hdr" style="margin-bottom: 8px;">
+        <div class="title" style="color: #fde047;">[WINNER 60S] DIEU KHIEN CHUOT &amp; PHIM PC</div>
+        <span id="remote-timer" class="badge warn">60s</span>
+      </div>
+      <div class="hint" style="color: #fde68a; margin-bottom: 8px;">
+        Vuot tren khung vang ben duoi de di chuyen con tro chuot PC theo thoi gian thuc, cham nhe de Click trai!
+      </div>
+      <div id="mob-touchpad">
+        <div class="hint" style="pointer-events: none; text-align: center; padding: 0 12px;">
+          TOUCHPAD DIEU KHIEN CHUOT PC
+        </div>
+        <div id="mob-cursor"></div>
+      </div>
+      <div class="grid2" style="margin-top: 8px;">
+        <button id="btn-mob-lclick" class="btn sword" type="button">Click Trai PC</button>
+        <button id="btn-mob-rclick" class="btn thunder" type="button">Click Phai PC</button>
+      </div>
+      <div style="display: flex; gap: 6px; margin-top: 8px;">
+        <input id="inp-remote-txt" type="text" placeholder="Nhap chu muon go vao PC..." style="margin: 0; flex: 1;" />
+        <button id="btn-mob-type" class="btn primary" type="button" style="width: auto;">Go Chu</button>
+      </div>
+      <div class="grid2" style="margin-top: 8px;">
+        <button id="btn-mob-notepad" class="btn" type="button">Mo Notepad Treu</button>
+        <button id="btn-mob-jitter" class="btn" type="button">Xoay Chuot PC 4s</button>
+        <button id="btn-mob-win-d" class="btn" type="button">Thu Nho PC (Win+D)</button>
+        <button id="btn-mob-block" class="btn danger" type="button">Khoa PC 8s</button>
+      </div>
+    </div>
+
+    <!-- ARENA & PK SCREEN -->
+    <div id="sec-arena" class="card" style="display: none;">
+      <div class="hp-row">
+        <div class="hp-box">
+          <div class="hp-lbl"><span style="color:#7dd3fc;" id="lbl-mob-name">Mobile</span><span id="lbl-mob-hp">100/100</span></div>
+          <div class="hp-track"><div id="bar-mob-hp" class="hp-fill" style="width:100%;background:linear-gradient(90deg,#06b6d4,#34d399);"></div></div>
+          <div class="hp-lbl" style="margin-top:5px;font-size:10px;"><span style="color:#fde047;">Nang luong</span><span id="lbl-mob-en">100/100</span></div>
+          <div class="hp-track" style="height:5px;"><div id="bar-mob-en" class="hp-fill" style="width:100%;background:linear-gradient(90deg,#f59e0b,#fde047);"></div></div>
+        </div>
+        <div class="hp-box">
+          <div class="hp-lbl"><span style="color:#fda4af;" id="lbl-pc-name">PC Host</span><span id="lbl-pc-hp">100/100</span></div>
+          <div class="hp-track"><div id="bar-pc-hp" class="hp-fill" style="width:100%;background:linear-gradient(90deg,#f97316,#ef4444);"></div></div>
+          <div class="hp-lbl" style="margin-top:5px;font-size:10px;"><span style="color:#fde047;">Nang luong</span><span id="lbl-pc-en">100/100</span></div>
+          <div class="hp-track" style="height:5px;"><div id="bar-pc-en" class="hp-fill" style="width:100%;background:linear-gradient(90deg,#f59e0b,#fde047);"></div></div>
+        </div>
+      </div>
+
+      <canvas id="arena-canvas" width="480" height="245"></canvas>
+      <div id="arena-msg" class="msg-log">Cham Canvas de ban (-14 EN) | Ten lua &amp; Truot ton EN | Nhat Do An (+40 EN)!</div>
+
+      <!-- D-PAD & MOVEMENT DODGE -->
+      <div class="grid4" style="margin-top: 6px;">
+        <button id="btn-move-left" class="btn" type="button">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"></polyline></svg>
+          Trai
+        </button>
+        <button id="btn-move-jump" class="btn" type="button">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="18 15 12 9 6 15"></polyline></svg>
+          Nhay
+        </button>
+        <button id="btn-move-rocket" class="btn laser" type="button">Ten Lua</button>
+        <button id="btn-move-right" class="btn" type="button">
+          Phai
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"></polyline></svg>
+        </button>
+      </div>
+
+      <div class="grid3" style="margin-top: 6px;">
+        <button id="btn-move-slide" class="btn sword" type="button">Truot Nhanh</button>
+        <button id="btn-hold-shield" class="btn shield" type="button">Khien Chan Dan</button>
+        <button id="btn-bh-hide" class="btn thunder" type="button">Ho Den An</button>
+      </div>
+
+      <div class="grid2" style="margin-top: 6px;">
+        <button id="btn-mob-migrate" class="btn sword" type="button">Nhay Len Man PC</button>
+        <button id="btn-mob-recall" class="btn" type="button">Quay Ve Phone</button>
+      </div>
+
+      <button id="btn-start-pk" class="btn pk" type="button" style="margin-top: 7px;">BAT DAU PK (THANG DIEU KHIEN PC 60S)</button>
+
+      <div class="grid3" style="margin-top: 7px;">
+        <button id="btn-sk-sword" class="btn sword" type="button">Kiem (25 DMG)</button>
+        <button id="btn-sk-laser" class="btn laser" type="button">Ban (10 DMG)</button>
+        <button id="btn-sk-thunder" class="btn thunder" type="button">Sam Set (26 DMG)</button>
+      </div>
+
+      <button id="btn-disconnect" class="btn danger" type="button" style="width: 100%; margin-top: 8px;">Ngat Ket Noi Phong P2P</button>
+    </div>
+  </div>
+
+  <script>
+    const qs = new URLSearchParams(location.search);
+    if (qs.get('room')) {
+      document.getElementById('inp-room').value = qs.get('room');
+    }
+
+    const hostInfoEl = document.getElementById('host-info');
+    const connectMsgEl = document.getElementById('connect-msg');
+    const btnHandshakeEl = document.getElementById('btn-handshake');
+    if (location.protocol === 'file:') {
+      if (hostInfoEl) {
+        hostInfoEl.textContent = '[LOI MO FILE TRUC TIEP] Khong mo mobile_web.html bang file://';
+        hostInfoEl.style.color = '#fda4af';
+      }
+      if (connectMsgEl) {
+        connectMsgEl.textContent =
+          'Hay mo Duck ai Manager.exe tren PC -> vao P2P -> copy link http://<IP_PC>:39282/?room=... roi dan vao trinh duyet dien thoai (cung Wi-Fi).';
+        connectMsgEl.style.color = '#fde047';
+      }
+      if (btnHandshakeEl) btnHandshakeEl.disabled = true;
+    }
+
+    let phase = 'disconnected';
+    let myName = 'MobileDuck';
+    let myBody = '#312e81';
+    let myAccent = '#f43f5e';
+    let myX = 0.72, myY = 0.88, myVy = 0, myWalkDir = -1, myWeapon = 'sword';
+    let myMoveInput = 0, myJetpack = false, mySliding = false, myShielding = false, myHidden = false;
+    let slideTimer = 0, hiddenTimer = 0;
+    let aimX = 0.28, aimY = 0.75;
+
+    let pcX = 0.28, pcY = 0.88, pcWalkDir = 1, pcWeapon = 'sword';
+    let pcHidden = false, pcShielding = false, pcJetpack = false, pcSliding = false;
+    let pcBody = '#f4f4f6', pcAccent = '#f97316', pcName = 'PC Host';
+    let myHp = 100, pcHp = 100;
+    let myEnergy = 100, pcEnergy = 100;
+    let pkFoods = [];
+    let mobOnPc = false, lastPcSeq = 0;
+    let hostWindows = [];
+
+    let curTouchX = 0.5, curTouchY = 0.5, lastMoveSent = 0, lastSyncSent = 0;
+    let effects = [];
+    let pollTimer = null;
+
+    const canvas = document.getElementById('arena-canvas');
+    const ctx = canvas.getContext('2d');
+
+    async function apiPost(pkt) {
+      const res = await fetch('/api/p2p', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(pkt),
+      });
+      return res.json();
+    }
+
+    function addFx(fx) {
+      effects.push({ ...fx, life: 0, maxLife: fx.maxLife || 0.48 });
+    }
+
+    document.getElementById('btn-handshake').onclick = async () => {
+      myName = document.getElementById('inp-name').value.trim() || 'MobileDuck';
+      const col = document.getElementById('inp-color').value.split('|');
+      myBody = col[0] || '#312e81';
+      myAccent = col[1] || '#f43f5e';
+      const code = document.getElementById('inp-room').value.trim();
+      const log = document.getElementById('connect-msg');
+      if (!code) { log.textContent = '[LOI] Hay nhap Ma Phong 6 so tren PC!'; return; }
+      log.textContent = 'Dang gui yeu cau Handshake... Hay bam Dong y tren may tinh!';
+      try {
+        const data = await apiPost({
+          kind: 'handshake_req',
+          room_code: code,
+          peer_name: myName,
+          body_color: myBody,
+          accent_color: myAccent,
+        });
+        if (!data.ok) {
+          log.textContent = '[TU CHOI] ' + (data.error || 'Khong the ket noi');
+          return;
+        }
+        phase = 'waiting_consent';
+        startPolling();
+      } catch (e) {
+        log.textContent = '[LOI MANG] ' + e;
+      }
+    };
+
+    function syncUiVisibility() {
+      const badge = document.getElementById('phase-badge');
+      const secConn = document.getElementById('sec-connect');
+      const secArena = document.getElementById('sec-arena');
+      const secRemote = document.getElementById('sec-remote');
+
+      const map = {
+        disconnected: ['[CHUA KET NOI]', 'badge'],
+        hosting: ['[CHO HANDSHAKE]', 'badge'],
+        waiting_consent: ['[CHO PC DONG Y]', 'badge warn'],
+        incoming_consent: ['[CHO PC XAC NHAN]', 'badge warn'],
+        connected: ['[DA KET NOI P2P]', 'badge ok'],
+        pk_duel: ['[DANG DAU PK]', 'badge danger'],
+        victim_controlled: ['[WINNER 60S!]', 'badge warn'],
+        winner_control: ['[THUA TRAN 60S]', 'badge danger'],
+      };
+      const m = map[phase] || ['[' + phase.toUpperCase() + ']', 'badge'];
+      badge.textContent = m[0];
+      badge.className = m[1];
+
+      const isConn = ['connected', 'pk_duel', 'victim_controlled', 'winner_control'].includes(phase);
+      secConn.style.display = isConn ? 'none' : 'block';
+      secArena.style.display = isConn ? 'block' : 'none';
+      secRemote.style.display = phase === 'victim_controlled' ? 'block' : 'none';
+
+      document.getElementById('lbl-mob-name').textContent = myName;
+      document.getElementById('lbl-mob-hp').textContent = myHp + '/100';
+      document.getElementById('bar-mob-hp').style.width = Math.max(0, Math.min(100, myHp)) + '%';
+      document.getElementById('lbl-mob-en').textContent = Math.round(myEnergy) + '/100';
+      document.getElementById('bar-mob-en').style.width = Math.max(0, Math.min(100, myEnergy)) + '%';
+      document.getElementById('lbl-pc-name').textContent = pcName;
+      document.getElementById('lbl-pc-hp').textContent = pcHp + '/100';
+      document.getElementById('bar-pc-hp').style.width = Math.max(0, Math.min(100, pcHp)) + '%';
+      document.getElementById('lbl-pc-en').textContent = Math.round(pcEnergy) + '/100';
+      document.getElementById('bar-pc-en').style.width = Math.max(0, Math.min(100, pcEnergy)) + '%';
+    }
+
+    function sendSync(force = false) {
+      if (!['connected', 'pk_duel'].includes(phase)) return;
+      const now = performance.now();
+      if (!force && now - lastSyncSent < 70) return;
+      lastSyncSent = now;
+      void apiPost({
+        kind: 'state_sync',
+        x_ratio: myX,
+        y_ratio: myY,
+        walk_dir: myWalkDir,
+        char_state: mySliding ? 'DASH' : myVy !== 0 ? 'JUMPING' : 'WALKING',
+        weapon: myWeapon,
+        energy: Math.round(myEnergy),
+        is_hidden: myHidden,
+        is_shielding: myShielding,
+        is_jetpack: myJetpack,
+        is_sliding: mySliding,
+      });
+    }
+
+    // Hold-to-move Left/Right & Rocket
+    function bindHold(btnId, onDown, onUp) {
+      const el = document.getElementById(btnId);
+      el.addEventListener('pointerdown', (e) => { e.preventDefault(); el.classList.add('held'); onDown(); });
+      el.addEventListener('pointerup', () => { el.classList.remove('held'); onUp(); });
+      el.addEventListener('pointerleave', () => { el.classList.remove('held'); onUp(); });
+      el.addEventListener('pointercancel', () => { el.classList.remove('held'); onUp(); });
+    }
+    bindHold('btn-move-left', () => { myMoveInput = -1; myWalkDir = -1; }, () => { if (myMoveInput < 0) myMoveInput = 0; });
+    bindHold('btn-move-right', () => { myMoveInput = 1; myWalkDir = 1; }, () => { if (myMoveInput > 0) myMoveInput = 0; });
+    bindHold('btn-move-rocket', () => {
+      if (phase === 'pk_duel') {
+        if (myEnergy < 10) {
+          document.getElementById('arena-msg').textContent = '[HET NANG LUONG] Nhat do an de dung Ten Lua!';
+          return;
+        }
+        myEnergy = Math.max(0, myEnergy - 8);
+      }
+      myJetpack = true; myHidden = false; sendSync(true);
+    }, () => { myJetpack = false; sendSync(true); });
+
+    document.getElementById('btn-move-jump').onclick = () => {
+      if (myHidden) { myHidden = false; sendSync(true); return; }
+      myVy = -0.95;
+      sendSync(true);
+    };
+
+    document.getElementById('btn-move-slide').onclick = () => {
+      if (phase === 'pk_duel') {
+        if (myEnergy < 20) {
+          document.getElementById('arena-msg').textContent = '[CAN 20 EN] Nhat do an tren san/cua so de Truot!';
+          return;
+        }
+        myEnergy = Math.max(0, myEnergy - 20);
+      }
+      myHidden = false;
+      mySliding = true;
+      slideTimer = 0.42;
+      myX = Math.max(0.05, Math.min(0.95, myX + myWalkDir * 0.16));
+      addFx({ type: 'slash', x: myX, y: myY, color: '#22d3ee' });
+      sendSync(true);
+    };
+
+    const btnShield = document.getElementById('btn-hold-shield');
+    btnShield.onclick = () => {
+      myShielding = !myShielding;
+      btnShield.classList.toggle('active-shield', myShielding);
+      sendSync(true);
+    };
+
+    document.getElementById('btn-bh-hide').onclick = async () => {
+      if (hostWindows.length === 0) {
+        document.getElementById('arena-msg').textContent = '[HO DEN] May chu phong chua mo cua so thuong nao de an!';
+        return;
+      }
+      myHidden = !myHidden;
+      if (myHidden) {
+        hiddenTimer = 3.5;
+        const win = hostWindows[Math.floor(Math.random() * hostWindows.length)];
+        myX = Math.max(0.08, Math.min(0.92, win.x + win.w * 0.5));
+        myY = Math.max(0.18, win.y);
+        addFx({ type: 'bh', x: myX, y: myY, color: '#a855f7' });
+        document.getElementById('arena-msg').textContent = '[HO DEN] Da chui vao an trong cua so: ' + win.title.slice(0, 18);
+      } else {
+        addFx({ type: 'bh', x: myX, y: myY, color: '#38bdf8' });
+      }
+      await apiPost({ kind: 'blackhole_hide', is_hidden: myHidden, x_ratio: myX, y_ratio: myY });
+      sendSync(true);
+    };
+
+    document.getElementById('btn-mob-migrate').onclick = async () => {
+      mobOnPc = true;
+      await apiPost({
+        kind: 'migrate_enter',
+        x_ratio: 0.12,
+        y_ratio: 0.88,
+        walk_dir: 1,
+        peer_name: myName,
+        body_color: myBody,
+        accent_color: myAccent,
+      });
+      document.getElementById('arena-msg').textContent = '[CROSS-PC] Vit cua ban da nhay len man hinh PC! Dung Trai/Phai/Ten Lua/Ho Den!';
+    };
+
+    document.getElementById('btn-mob-recall').onclick = async () => {
+      mobOnPc = false;
+      await apiPost({ kind: 'migrate_return' });
+      document.getElementById('arena-msg').textContent = '[CROSS-PC] Vit da quay ve dien thoai!';
+    };
+
+    document.getElementById('btn-start-pk').onclick = async () => {
+      myHp = 100; pcHp = 100;
+      myEnergy = 100; pcEnergy = 100; pkFoods = [];
+      myX = 0.72; myY = 0.88; pcX = 0.28; pcY = 0.88;
+      await apiPost({ kind: 'pk_start', peer_name: myName });
+      document.getElementById('arena-msg').textContent = '[PK ARENA] Bat dau! Cham len Canvas de ban theo huong chi, hoac dung Kiem / Sam Set!';
+    };
+
+    // Canvas Tap-to-Aim & Shoot
+    canvas.addEventListener('pointermove', (e) => {
+      const r = canvas.getBoundingClientRect();
+      aimX = Math.max(0, Math.min(1, (e.clientX - r.left) / Math.max(1, r.width)));
+      aimY = Math.max(0, Math.min(1, (e.clientY - r.top) / Math.max(1, r.height)));
+    });
+    canvas.addEventListener('pointerdown', (e) => {
+      const r = canvas.getBoundingClientRect();
+      aimX = Math.max(0, Math.min(1, (e.clientX - r.left) / Math.max(1, r.width)));
+      aimY = Math.max(0, Math.min(1, (e.clientY - r.top) / Math.max(1, r.height)));
+      if (phase === 'pk_duel') {
+        void doSkill('laser');
+      }
+    });
+
+    async function doSkill(skill) {
+      if (phase !== 'pk_duel') {
+        document.getElementById('arena-msg').textContent = 'Bam "BAT DAU PK" truoc khi tung chieu!';
+        return;
+      }
+      if (skill === 'laser') {
+        if (myEnergy < 14) {
+          document.getElementById('arena-msg').textContent = '[HET NANG LUONG] Can 14 EN de ban! Hay nhat Do An (+40 EN)!';
+          return;
+        }
+        myEnergy = Math.max(0, myEnergy - 14);
+      }
+      myHidden = false;
+      let dmg = 0;
+      if (skill === 'sword') {
+        myWeapon = 'sword';
+        dmg = 24;
+        addFx({ type: 'slash', x: pcX, y: pcY, color: '#38bdf8' });
+      } else if (skill === 'laser') {
+        myWeapon = 'gun';
+        dmg = 10;
+        addFx({ type: 'laser', x1: myX, y1: myY, x2: aimX, y2: aimY, color: '#22d3ee' });
+      } else if (skill === 'thunder') {
+        dmg = 26;
+        addFx({ type: 'thunder', x: pcX, y: pcY, color: '#facc15' });
+      }
+      await apiPost({
+        kind: 'pk_attack',
+        skill,
+        damage: dmg,
+        x_ratio: myX,
+        y_ratio: myY,
+        aim_x: aimX,
+        aim_y: aimY,
+      });
+    }
+
+    document.getElementById('btn-sk-sword').onclick = () => doSkill('sword');
+    document.getElementById('btn-sk-laser').onclick = () => doSkill('laser');
+    document.getElementById('btn-sk-thunder').onclick = () => doSkill('thunder');
+    document.getElementById('btn-disconnect').onclick = async () => {
+      await apiPost({ kind: 'disconnect' });
+      phase = 'disconnected';
+      syncUiVisibility();
+    };
+
+    // Touchpad 60s Mobile-to-PC Remote Control
+    const touchpad = document.getElementById('mob-touchpad');
+    const mobCursor = document.getElementById('mob-cursor');
+    function updateTouchPos(clientX, clientY) {
+      const r = touchpad.getBoundingClientRect();
+      curTouchX = Math.max(0, Math.min(1, (clientX - r.left) / Math.max(1, r.width)));
+      curTouchY = Math.max(0, Math.min(1, (clientY - r.top) / Math.max(1, r.height)));
+      mobCursor.style.left = Math.round(curTouchX * 100) + '%';
+      mobCursor.style.top = Math.round(curTouchY * 100) + '%';
+    }
+    let touchStartPos = null;
+    touchpad.addEventListener('pointerdown', (e) => {
+      touchStartPos = { x: e.clientX, y: e.clientY };
+      updateTouchPos(e.clientX, e.clientY);
+      void apiPost({ kind: 'remote_cmd', cmd_type: 'mouse_move', x_norm: curTouchX, y_norm: curTouchY });
+    });
+    touchpad.addEventListener('pointermove', (e) => {
+      if (e.buttons === 0 && e.pointerType === 'mouse') return;
+      updateTouchPos(e.clientX, e.clientY);
+      const now = performance.now();
+      if (now - lastMoveSent >= 48) {
+        lastMoveSent = now;
+        void apiPost({ kind: 'remote_cmd', cmd_type: 'mouse_move', x_norm: curTouchX, y_norm: curTouchY });
+      }
+    });
+    touchpad.addEventListener('pointerup', (e) => {
+      if (touchStartPos && Math.hypot(e.clientX - touchStartPos.x, e.clientY - touchStartPos.y) < 9) {
+        void apiPost({ kind: 'remote_cmd', cmd_type: 'mouse_click', x_norm: curTouchX, y_norm: curTouchY, button: 'left' });
+      }
+      touchStartPos = null;
+    });
+
+    document.getElementById('btn-mob-lclick').onclick = () =>
+      apiPost({ kind: 'remote_cmd', cmd_type: 'mouse_click', x_norm: curTouchX, y_norm: curTouchY, button: 'left' });
+    document.getElementById('btn-mob-rclick').onclick = () =>
+      apiPost({ kind: 'remote_cmd', cmd_type: 'mouse_click', x_norm: curTouchX, y_norm: curTouchY, button: 'right' });
+    document.getElementById('btn-mob-type').onclick = () => {
+      const inp = document.getElementById('inp-remote-txt');
+      const t = inp.value.trim();
+      if (!t) return;
+      inp.value = '';
+      apiPost({ kind: 'remote_cmd', cmd_type: 'type_text', text: t });
+    };
+    document.getElementById('btn-mob-notepad').onclick = () =>
+      apiPost({ kind: 'remote_cmd', cmd_type: 'open_notepad_taunt', text: 'QUAC! Dien thoai vua thang PK va dang dieu khien may tinh cua ban trong 60 giay!' });
+    document.getElementById('btn-mob-jitter').onclick = () =>
+      apiPost({ kind: 'remote_cmd', cmd_type: 'jitter_mouse' });
+    document.getElementById('btn-mob-win-d').onclick = () =>
+      apiPost({ kind: 'remote_cmd', cmd_type: 'minimize_all' });
+    document.getElementById('btn-mob-block').onclick = () =>
+      apiPost({ kind: 'remote_cmd', cmd_type: 'block_input', duration_sec: 8 });
+
+    async function pollState() {
+      try {
+        const res = await fetch('/api/state');
+        const data = await res.json();
+        const st = data.status;
+        if (phase === 'waiting_consent' && st.phase === 'hosting') {
+          document.getElementById('connect-msg').textContent = '[TU CHOI] PC khong chap nhan ket noi.';
+          phase = 'disconnected';
+        } else if (st.phase === 'hosting' && phase !== 'waiting_consent' && phase !== 'disconnected') {
+          phase = 'disconnected';
+        } else if (st.phase !== 'hosting' || phase === 'waiting_consent') {
+          phase = st.phase;
+        }
+
+        pcName = st.local_name || 'PC Host';
+        pcX = data.pc_x_ratio ?? pcX;
+        pcY = data.pc_y_ratio ?? pcY;
+        pcWalkDir = data.pc_walk_dir ?? 1;
+        pcWeapon = data.pc_weapon || 'sword';
+        pcHp = data.pc_hp ?? pcHp;
+        myHp = data.peer_hp ?? myHp;
+        pcEnergy = data.pc_energy ?? pcEnergy;
+        pcHidden = Boolean(data.pc_hidden);
+        pcShielding = Boolean(data.pc_shielding);
+        pcJetpack = Boolean(data.pc_jetpack);
+        pcSliding = Boolean(data.pc_sliding);
+        try {
+          const parsed = JSON.parse(data.host_windows_json || '[]');
+          if (Array.isArray(parsed)) hostWindows = parsed;
+        } catch {}
+        try {
+          const parsedFoods = JSON.parse(data.pk_foods_json || '[]');
+          if (Array.isArray(parsedFoods)) pkFoods = parsedFoods;
+        } catch {}
+
+        if (data.last_pc_skill_seq > lastPcSeq) {
+          lastPcSeq = data.last_pc_skill_seq;
+          const sk = data.last_pc_skill;
+          const ax = data.last_pc_aim_x ?? myX;
+          const ay = data.last_pc_aim_y ?? myY;
+          if (sk === 'laser') addFx({ type: 'laser', x1: pcX, y1: pcY, x2: ax, y2: ay, color: '#f97316' });
+          else if (sk === 'thunder') addFx({ type: 'thunder', x: myX, y: myY, color: '#f97316' });
+          else addFx({ type: 'slash', x: myX, y: myY, color: '#f97316' });
+        }
+        if (phase === 'victim_controlled') {
+          document.getElementById('remote-timer').textContent = st.victim_remaining_sec + 's';
+          document.getElementById('arena-msg').textContent = '[WINNER] Ban da thang! Quyen dieu khien PC con ' + st.victim_remaining_sec + ' giay!';
+        } else if (phase === 'winner_control') {
+          document.getElementById('arena-msg').textContent = '[THUA TRAN] PC dang an mung WINNER (' + st.winner_remaining_sec + 's)!';
+        }
+        syncUiVisibility();
+      } catch {}
+    }
+
+    function startPolling() {
+      if (pollTimer) clearInterval(pollTimer);
+      pollTimer = setInterval(pollState, 150);
+    }
+
+    async function initConnectionCheck() {
+      if (location.protocol === 'file:') return;
+      try {
+        const res = await fetch('/api/state', { cache: 'no-store' });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        const st = data.status;
+        if (hostInfoEl && st) {
+          hostInfoEl.textContent =
+            '[SAN SANG] PC: ' + (st.local_name || 'PC Host') + ' (' + st.local_ip + ':' + st.listen_port + ')';
+          hostInfoEl.style.color = '#6ee7b7';
+        }
+        if (st && st.is_web_peer && ['connected', 'pk_duel', 'victim_controlled', 'winner_control'].includes(st.phase)) {
+          phase = st.phase;
+          if (st.peer_name) myName = st.peer_name;
+          if (st.peer_body_color) myBody = st.peer_body_color;
+          if (st.peer_accent_color) myAccent = st.peer_accent_color;
+          syncUiVisibility();
+          startPolling();
+        }
+      } catch (e) {
+        if (hostInfoEl) {
+          hostInfoEl.textContent = '[LOI KET NOI PC] Hay kiem tra chung Wi-Fi & Firewall cong 39282';
+          hostInfoEl.style.color = '#fda4af';
+        }
+        if (connectMsgEl) {
+          connectMsgEl.textContent = 'Khong ket noi duoc toi PC: ' + e;
+        }
+      }
+    }
+    void initConnectionCheck();
+
+    function stepPhysics(dt) {
+      if (phase === 'pk_duel') {
+        if (myJetpack) {
+          myEnergy = Math.max(0, myEnergy - 28 * dt);
+          if (myEnergy <= 0) {
+            myJetpack = false;
+            document.getElementById('arena-msg').textContent = '[HET NANG LUONG] Nhat Do An de hoi nang luong!';
+          }
+        } else if (!mySliding) {
+          myEnergy = Math.min(100, myEnergy + 4.5 * dt);
+        }
+      }
+      if (slideTimer > 0) { slideTimer -= dt; if (slideTimer <= 0) mySliding = false; }
+      if (myHidden) {
+        hiddenTimer -= dt;
+        if (hiddenTimer <= 0) {
+          myHidden = false;
+          addFx({ type: 'bh', x: myX, y: myY, color: '#38bdf8' });
+          sendSync(true);
+        }
+        return;
+      }
+      if (myMoveInput !== 0) {
+        myX = Math.max(0.05, Math.min(0.95, myX + myMoveInput * dt * 0.42));
+      }
+      if (myJetpack) {
+        myVy = -0.62;
+      } else {
+        myVy += 2.3 * dt;
+      }
+      const prevY = myY;
+      myY += myVy * dt;
+
+      // Landing on Host Window platforms
+      if (myVy > 0) {
+        for (const win of hostWindows) {
+          if (myX >= win.x && myX <= win.x + win.w && prevY <= win.y + 0.03 && myY >= win.y - 0.01) {
+            myY = win.y;
+            myVy = 0;
+            break;
+          }
+        }
+      }
+      if (myY < 0.14) { myY = 0.14; myVy = 0; }
+      if (myY >= 0.88) { myY = 0.88; myVy = 0; }
+
+      if (phase === 'pk_duel' && pkFoods.length > 0) {
+        for (let i = pkFoods.length - 1; i >= 0; i--) {
+          const f = pkFoods[i];
+          if (Math.hypot(myX - f.x, myY - f.y) < 0.085) {
+            myEnergy = Math.min(100, myEnergy + 40);
+            addFx({ type: 'bh', x: f.x, y: f.y, color: '#fde047' });
+            document.getElementById('arena-msg').textContent = '[DO AN +40 EN] Da hoi nang luong thanh cong!';
+            pkFoods.splice(i, 1);
+            void apiPost({ kind: 'pk_food_pickup', food_id: f.id });
+            sendSync(true);
+            break;
+          }
+        }
+      }
+
+      if (myMoveInput !== 0 || myJetpack || Math.abs(myVy) > 0.01) {
+        sendSync(false);
+      }
+    }
+
+    function drawRoundRect(c, x, y, w, h, r) {
+      const rr = Math.min(r, w * 0.5, h * 0.5);
+      c.beginPath();
+      c.moveTo(x + rr, y);
+      c.lineTo(x + w - rr, y);
+      c.quadraticCurveTo(x + w, y, x + w, y + rr);
+      c.lineTo(x + w, y + h - rr);
+      c.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+      c.lineTo(x + rr, y + h);
+      c.quadraticCurveTo(x, y + h, x, y + h - rr);
+      c.lineTo(x, y + rr);
+      c.quadraticCurveTo(x, y, x + rr, y);
+      c.closePath();
+    }
+
+    function drawDuck(xRatio, yRatio, dir, bodyCol, accCol, label, weapon, hidden, shielding, jetpack, sliding) {
+      if (hidden) return;
+      const x = xRatio * canvas.width;
+      const y = Math.min(canvas.height - 20, Math.max(46, yRatio * (canvas.height - 16)));
+      ctx.save();
+      ctx.translate(x, y);
+      if (sliding) ctx.rotate(dir * 0.32);
+
+      // Jetpack flame
+      if (jetpack) {
+        ctx.fillStyle = '#f97316';
+        ctx.beginPath(); ctx.ellipse(-dir * 10, 2, 6, 12, 0, 0, Math.PI * 2); ctx.fill();
+      }
+      // Shadow
+      ctx.fillStyle = 'rgba(0,0,0,0.32)';
+      ctx.beginPath(); ctx.ellipse(0, 6, 18, 5, 0, 0, Math.PI * 2); ctx.fill();
+      // Legs & body
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(-8, -8, 5, 11);
+      ctx.fillRect(3, -8, 5, 11);
+      ctx.fillStyle = bodyCol;
+      ctx.fillRect(-13, -27, 26, 19);
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(-4, -38, 8, 11);
+      ctx.fillStyle = bodyCol;
+      drawRoundRect(ctx, -14, -58, 28, 20, 6);
+      ctx.fill();
+      ctx.fillStyle = accCol;
+      ctx.fillRect(dir >= 0 ? 10 : -18, -45, 8, 5);
+      ctx.fillStyle = '#0f172a';
+      ctx.beginPath(); ctx.arc(dir >= 0 ? 6 : -6, -50, 4, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#fbbf24';
+      ctx.beginPath(); ctx.arc(dir >= 0 ? 7 : -7, -50, 1.8, 0, Math.PI * 2); ctx.fill();
+
+      if (weapon === 'sword') {
+        ctx.strokeStyle = '#22d3ee'; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.moveTo(dir * 13, -18); ctx.lineTo(dir * 32, -45); ctx.stroke();
+      } else if (weapon === 'gun') {
+        ctx.fillStyle = '#38bdf8';
+        ctx.fillRect(dir >= 0 ? 12 : -26, -24, 14, 5);
+      }
+
+      // Shield dome
+      if (shielding) {
+        ctx.strokeStyle = 'rgba(34, 211, 238, 0.9)';
+        ctx.fillStyle = 'rgba(34, 211, 238, 0.22)';
+        ctx.lineWidth = 2.2;
+        ctx.beginPath(); ctx.arc(0, -28, 34, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      }
+
+      ctx.fillStyle = '#f8fafc';
+      ctx.font = 'bold 10px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(label, 0, -64);
+      ctx.restore();
+    }
+
+    let lastTs = performance.now();
+    function renderLoop(now) {
+      const dt = Math.min(0.05, (now - lastTs) / 1000);
+      lastTs = now;
+      if (['connected', 'pk_duel'].includes(phase)) stepPhysics(dt);
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.1)';
+      ctx.lineWidth = 1;
+      for (let gx = 0; gx < canvas.width; gx += 40) {
+        ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, canvas.height); ctx.stroke();
+      }
+
+      // Draw Host Window Map Platforms
+      for (const win of hostWindows) {
+        const rx = win.x * canvas.width;
+        const ry = win.y * (canvas.height - 16);
+        const rw = win.w * canvas.width;
+        const rh = Math.max(14, win.h * (canvas.height - 16));
+        ctx.fillStyle = 'rgba(56, 189, 248, 0.12)';
+        ctx.strokeStyle = 'rgba(56, 189, 248, 0.65)';
+        ctx.lineWidth = 1.5;
+        ctx.fillRect(rx, ry, rw, rh);
+        ctx.strokeRect(rx, ry, rw, rh);
+        ctx.fillStyle = '#7dd3fc';
+        ctx.font = '9px sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillText((win.title || 'Window').slice(0, 16), rx + 4, ry + 11);
+      }
+
+      ctx.fillStyle = 'rgba(30, 41, 59, 0.92)';
+      ctx.fillRect(0, canvas.height - 18, canvas.width, 18);
+
+      // Draw Energy Food Pickups
+      for (const f of pkFoods) {
+        const fx = f.x * canvas.width;
+        const fy = Math.min(canvas.height - 22, Math.max(24, f.y * (canvas.height - 16)));
+        ctx.save();
+        ctx.fillStyle = f.kind === 'battery' ? '#22d3ee' : '#fbbf24';
+        ctx.strokeStyle = '#fef08a';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(fx, fy - 12, 8, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = '#fde047';
+        ctx.font = 'bold 9px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('+40 EN', fx, fy - 24);
+        ctx.restore();
+      }
+
+      // Draw Aiming Sight in PK
+      if (phase === 'pk_duel' && !myHidden) {
+        ctx.save();
+        ctx.setLineDash([4, 4]);
+        ctx.strokeStyle = 'rgba(250, 204, 21, 0.55)';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(myX * canvas.width, myY * (canvas.height - 16) - 24);
+        ctx.lineTo(aimX * canvas.width, aimY * canvas.height);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.arc(aimX * canvas.width, aimY * canvas.height, 6, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      drawDuck(pcX, pcY, pcWalkDir, pcBody, pcAccent, pcName, pcWeapon, pcHidden, pcShielding, pcJetpack, pcSliding);
+      drawDuck(myX, myY, myWalkDir, myBody, myAccent, mobOnPc ? myName + ' [ON PC]' : myName, myWeapon, myHidden, myShielding, myJetpack, mySliding);
+
+      for (let i = effects.length - 1; i >= 0; i--) {
+        const fx = effects[i];
+        fx.life += dt;
+        if (fx.life >= fx.maxLife) { effects.splice(i, 1); continue; }
+        ctx.save();
+        ctx.strokeStyle = fx.color;
+        ctx.lineWidth = 3;
+        if (fx.type === 'laser') {
+          ctx.beginPath();
+          ctx.moveTo(fx.x1 * canvas.width, fx.y1 * (canvas.height - 16) - 24);
+          ctx.lineTo(fx.x2 * canvas.width, fx.y2 * canvas.height);
+          ctx.stroke();
+        } else if (fx.type === 'thunder') {
+          const tx = fx.x * canvas.width;
+          ctx.beginPath(); ctx.moveTo(tx - 12, 0); ctx.lineTo(tx + 10, 90); ctx.lineTo(tx - 6, 170); ctx.stroke();
+        } else if (fx.type === 'bh') {
+          ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
+          ctx.beginPath();
+          ctx.arc(fx.x * canvas.width, fx.y * (canvas.height - 16) - 26, 20 * (1 - fx.life / fx.maxLife), 0, Math.PI * 2);
+          ctx.fill(); ctx.stroke();
+        } else {
+          ctx.beginPath();
+          ctx.arc(fx.x * canvas.width, fx.y * (canvas.height - 16) - 28, 16 + fx.life * 64, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+
+      if (phase === 'victim_controlled') {
+        ctx.fillStyle = 'rgba(250, 204, 21, 0.95)';
+        ctx.font = 'bold 18px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('WINNER - MOBILE CONTROL 60S', canvas.width / 2, 28);
+      }
+      requestAnimationFrame(renderLoop);
+    }
+    requestAnimationFrame(renderLoop);
+  </script>
+</body>
+</html>

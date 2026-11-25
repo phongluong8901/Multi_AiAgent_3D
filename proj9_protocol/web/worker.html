@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Worker Node #01 - Processing Monitor</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #0b1120;
+            color: #e2e8f0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            margin: 0;
+            padding: 24px;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: 16px;
+            margin-bottom: 24px;
+            border-bottom: 1px solid #1e293b;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 20px;
+            color: #38bdf8;
+        }
+
+        .subtitle {
+            font-size: 12px;
+            color: #64748b;
+            margin-top: 4px;
+        }
+
+        .tags {
+            display: flex;
+            gap: 8px;
+        }
+
+        .tag {
+            font-size: 11px;
+            font-family: monospace;
+            padding: 4px 8px;
+            border-radius: 4px;
+            background: #1e293b;
+            color: #94a3b8;
+        }
+
+        .tag-active {
+            background: #166534;
+            color: #86efac;
+            font-weight: 600;
+        }
+
+        .tag-warn {
+            background: #854d0e;
+            color: #fde047;
+            font-weight: 600;
+        }
+
+        .kpi-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .kpi-card {
+            background: #131d33;
+            border: 1px solid #1e293b;
+            padding: 16px;
+            border-radius: 8px;
+        }
+
+        .kpi-title {
+            font-size: 12px;
+            color: #94a3b8;
+            text-transform: uppercase;
+            font-weight: 600;
+        }
+
+        .kpi-value {
+            font-size: 28px;
+            font-weight: 700;
+            color: #f8fafc;
+            margin-top: 8px;
+            font-family: monospace;
+        }
+
+        .panel {
+            background: #131d33;
+            border: 1px solid #1e293b;
+            border-radius: 8px;
+            padding: 18px;
+            margin-bottom: 24px;
+        }
+
+        .panel-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: #cbd5e1;
+            margin-bottom: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+
+        th,
+        td {
+            padding: 10px 12px;
+            text-align: left;
+            border-bottom: 1px solid #1e293b;
+        }
+
+        th {
+            background: #090e1a;
+            color: #64748b;
+            font-size: 11px;
+            text-transform: uppercase;
+            font-weight: 600;
+        }
+
+        tr:hover {
+            background: #18233d;
+        }
+
+        .badge-proto {
+            font-family: monospace;
+            font-size: 11px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            background: #1e293b;
+            color: #38bdf8;
+            font-weight: 600;
+        }
+
+        code {
+            font-family: "JetBrains Mono", Consolas, monospace;
+            font-size: 12px;
+            color: #4ade80;
+            word-break: break-all;
+        }
+
+        .toolbar {
+            display: flex;
+            gap: 10px;
+            margin-top: 12px;
+        }
+
+        input,
+        button {
+            background: #1e293b;
+            border: 1px solid #334155;
+            color: #fff;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 13px;
+        }
+
+        input {
+            flex: 1;
+        }
+
+        button {
+            cursor: pointer;
+            background: #0284c7;
+            border-color: #0369a1;
+            font-weight: 600;
+        }
+
+        button:hover {
+            background: #0369a1;
+        }
+
+        .back-link {
+            color: #38bdf8;
+            text-decoration: none;
+            font-size: 13px;
+        }
+
+        .back-link:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="header">
+        <div>
+            <h1>Worker Node #01 - Processing Monitor</h1>
+            <div class="subtitle">Distributed AI / LLM Worker Pipeline (Port :8090)</div>
+        </div>
+        <div class="tags">
+            <a id="gatewayBackLink" href="/" target="_blank" class="back-link" style="align-self:center; margin-right:12px;">Sang Gateway Dashboard (:8080)</a>
+            <span id="redisTag" class="tag">KIEM TRA REDIS...</span>
+            <span class="tag tag-active">WORKER: RUNNING</span>
+        </div>
+    </div>
+
+    <div class="kpi-row">
+        <div class="kpi-card">
+            <div class="kpi-title">Goi tin da nhan (Inbound)</div>
+            <div id="recvCount" class="kpi-value">0</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-title">Goi tin da xu ly (Processed)</div>
+            <div id="procCount" class="kpi-value">0</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-title">Do tre trung binh</div>
+            <div id="avgLatency" class="kpi-value" style="color:#38bdf8;">0.00 ms</div>
+        </div>
+    </div>
+
+    <div class="panel">
+        <div class="panel-title">
+            <span>Test ban goi tin truc tiep den Worker</span>
+            <span style="font-size:11px; color:#64748b;">Gia lap xu ly AI/LLM</span>
+        </div>
+        <div class="toolbar">
+            <input type="text" id="simPayload" value='{"prompt":"classify sentiment","text":"Protocol streaming works great!"}' />
+            <button onclick="sendSimulate()">Ban goi tin test</button>
+        </div>
+    </div>
+
+    <div class="panel">
+        <div class="panel-title">
+            <span>Danh sach goi tin Worker da tiep nhan (Live Inbound Inspector)</span>
+            <button style="font-size:11px; padding:4px 8px; background:#1e293b;" onclick="clearTable()">Xoa lich su</button>
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Thoi gian</th>
+                    <th>Packet ID</th>
+                    <th>Giao thuc goc</th>
+                    <th>Size</th>
+                    <th>Do tre den</th>
+                    <th>Du lieu goc nhan duoc</th>
+                    <th>Du lieu sau khi Worker xu ly</th>
+                </tr>
+            </thead>
+            <tbody id="eventsBody">
+                <tr>
+                    <td colspan="7" style="text-align:center; color:#64748b; padding:24px;">Chua co goi tin nao chuyen den. Hay ban goi tu Gateway (:8080) hoac bam nut test o tren.</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        let events = [];
+        let totalLat = 0;
+        let latCount = 0;
+
+        async function fetchStats() {
+            try {
+                const res = await fetch('/stats');
+                const data = await res.json();
+
+                document.getElementById('recvCount').textContent = (data.total_received || 0).toLocaleString();
+                document.getElementById('procCount').textContent = (data.total_processed || 0).toLocaleString();
+                if (typeof data.avg_latency_ms === 'number' && data.total_received > 0) {
+                    document.getElementById('avgLatency').textContent = data.avg_latency_ms.toFixed(2) + " ms";
+                }
+
+                const redisTag = document.getElementById('redisTag');
+                if (data.redis_connected) {
+                    redisTag.textContent = "REDIS: CONNECTED";
+                    redisTag.className = "tag tag-active";
+                } else {
+                    redisTag.textContent = "MODE: STANDALONE (HTTP BRIDGE)";
+                    redisTag.className = "tag tag-warn";
+                }
+
+                if (Array.isArray(data.recent_events)) {
+                    events = data.recent_events;
+                    renderTable();
+                }
+            } catch (err) {
+                console.error("fetchStats error", err);
+            }
+        }
+
+        function renderTable() {
+            const tbody = document.getElementById('eventsBody');
+            if (events.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; color:#64748b; padding:24px;">Chua co goi tin nao.</td></tr>';
+                return;
+            }
+            tbody.innerHTML = events.slice(0, 30).map(e => `
+                <tr>
+                    <td><code>${e.received_at}</code></td>
+                    <td><strong style="color:#f8fafc;">${e.id}</strong></td>
+                    <td><span class="badge-proto">${e.source_proto}</span></td>
+                    <td>${e.original_size} B</td>
+                    <td style="color:#38bdf8; font-family:monospace;">${(e.transit_latency_ms || 0).toFixed(2)} ms</td>
+                    <td><code>${escapeHTML(e.original_data)}</code></td>
+                    <td><code style="color:#93c5fd;">${escapeHTML(e.processed_data)}</code></td>
+                </tr>
+            `).join('');
+        }
+
+        function escapeHTML(str) {
+            if (!str) return '';
+            return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        }
+
+        async function clearTable() {
+            events = [];
+            totalLat = 0;
+            latCount = 0;
+            document.getElementById('avgLatency').textContent = "0.00 ms";
+            renderTable();
+            try {
+                await fetch('/clear', { method: 'POST' });
+            } catch (err) {
+                console.error("clear error", err);
+            }
+        }
+
+        async function sendSimulate() {
+            const val = document.getElementById('simPayload').value;
+            try {
+                await fetch('/simulate?proto=web_test', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: val
+                });
+            } catch (err) {
+                alert("Loi khi gui test: " + err.message);
+            }
+        }
+
+        // Ket noi SSE de nhan live stream moi khi Worker co goi tin moi
+        function initSSE() {
+            const evt = new EventSource('/events');
+            evt.onmessage = (e) => {
+                try {
+                    const data = JSON.parse(e.data);
+                    if (data.type === "ping") return;
+                    if (!events.some(item => item.id === data.id && item.received_at === data.received_at)) {
+                        events.unshift(data);
+                        if (events.length > 50) events.pop();
+                    }
+
+                    totalLat += (data.transit_latency_ms || 0);
+                    latCount++;
+                    document.getElementById('avgLatency').textContent = (totalLat / latCount).toFixed(2) + " ms";
+
+                    fetchStats();
+                    renderTable();
+                } catch (err) {
+                    console.error(err);
+                }
+            };
+        }
+
+        const backLink = document.getElementById('gatewayBackLink');
+        if (backLink && (window.location.port === '8090' || window.location.port === '8091')) {
+            backLink.href = `http://${window.location.hostname || 'localhost'}:8080/`;
+        }
+
+        initSSE();
+        fetchStats();
+        setInterval(fetchStats, 2000);
+    </script>
+</body>
+
+</html>
+

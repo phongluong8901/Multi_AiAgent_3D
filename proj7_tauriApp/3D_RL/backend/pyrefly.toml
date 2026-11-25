@@ -1,0 +1,5 @@
+# Pyrefly configuration for 3D_RL Backend
+search-path = [
+    "."
+]
+

@@ -1,0 +1,15 @@
+version: '3.8'
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: bench_redis
+    ports:
+      - "6379:6379"
+
+  mediamtx:
+    image: bluenviron/mediamtx:latest
+    container_name: bench_mediamtx
+    ports:
+      - "8554:8554" # Cổng nhận/phát RTSP
+      - "8889:8889" # Cổng phát WebRTC
+      - "8888:8888" # Cổng phát HLS

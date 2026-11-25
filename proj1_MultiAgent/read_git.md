@@ -3,3 +3,63 @@ git checkout -b p1_setup_BE_FE
 git add .
 git commit -m "change: first"
 git push origin p1_setup_BE_FE
+
+--- 
+git checkout -b p2_Base_3d
+git add .
+git commit -m "change: first"
+git push origin p2_Base_3d
+
+--- 
+git checkout -b p3_backend_anget_fake
+git add .
+git commit -m "change: first"
+git push origin p3_backend_anget_fake
+
+--- 
+git checkout -b p4_langgraph_modelAI
+git add .
+git commit -m "change: first"
+git push origin p4_langgraph_modelAI
+
+--- 
+git checkout -b p5_update_user-service
+git add .
+git commit -m "change: first"
+git push origin p5_update_user-service
+
+--- 
+git checkout -b p6_update_room-service
+git add .
+git commit -m "change: first"
+git push origin p6_update_room-service
+
+--- 
+git checkout -b p7_update_chat-service
+git add .
+git commit -m "change: first"
+git push origin p7_update_chat-service
+
+--- 
+git checkout -b p8_update_agent-service
+git add .
+git commit -m "change: first"
+git push origin p8_update_agent-service
+
+--- 
+git checkout -b p9_update_drawmap-service
+git add .
+git commit -m "change: first"
+git push origin p9_update_drawmap-service
+
+--- 
+git checkout -b p10_setup_flow_all
+git add .
+git commit -m "change: first"
+git push origin p10_setup_flow_all
+
+--- 
+git checkout -b p11_advanced_proj
+git add .
+git commit -m "change: first"
+git push origin p11_advanced_proj
