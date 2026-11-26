@@ -9,6 +9,7 @@ import importlib.util
 import inspect
 import json
 import sys
+import traceback
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Sequence
@@ -48,7 +49,11 @@ def _make_function_skill_handler(execute_fn: Callable[..., Any]) -> Callable[...
                 return result
             return {"ok": True, "data": result}
         except Exception as exc:
-            return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+            return {
+                "ok": False,
+                "error": f"{type(exc).__name__}: {exc}",
+                "traceback": traceback.format_exc()[-900:],
+            }
 
     return _run
 
@@ -100,7 +105,11 @@ def _make_handler(
                 data_obj = serialized
             return {"ok": True, "data": data_obj}
         except Exception as exc:
-            return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+            return {
+                "ok": False,
+                "error": f"{type(exc).__name__}: {exc}",
+                "traceback": traceback.format_exc()[-900:],
+            }
 
     return _run
 

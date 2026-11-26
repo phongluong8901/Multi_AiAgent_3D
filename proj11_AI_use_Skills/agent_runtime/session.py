@@ -27,8 +27,10 @@ from agent_runtime.executor import (
     run_interruptible,
 )
 from agent_runtime.llm_router import MultiProviderRouter, UnifiedToolCall
+from agent_runtime.memory_consolidator import MemoryConsolidator
 from agent_runtime.memory_store import SQLiteMemoryStore
 from agent_runtime.mlflow_tracker import MLflowTracker
+from agent_runtime.profile_learner import extract_profile_candidates
 from agent_runtime.schema_builder import safe_serialize, slim_tool_payload
 from agent_runtime.skill_router import SkillRouter
 from agent_runtime.telemetry import TokenUsage, extract_usage
@@ -83,6 +85,7 @@ class GeminiSkillSession:
 
         self.turn_count = 0
         self.pinned_tools: list[str] = []
+        self._recently_updated_tools: list[str] = []
         self.all_traces: list[dict[str, Any]] = []
         self.session_usage = TokenUsage()
         self._clean_history: list[types.Content] = []
@@ -118,8 +121,8 @@ class GeminiSkillSession:
 
     def _should_use_multi_router(self) -> bool:
         m = (self.model or "").lower()
-        return m in ("auto", "9router", "groq", "cloudflare", "mistral") or m.startswith(
-            ("llama", "@cf/", "groq", "cloudflare", "mistral", "open-mistral", "qwen", "openai/")
+        return m in ("auto", "9router", "groq", "cloudflare") or m.startswith(
+            ("llama", "@cf/", "groq", "cloudflare", "qwen", "openai/")
         )
 
     def _execute_turn_via_multi_router(
@@ -127,11 +130,29 @@ class GeminiSkillSession:
         prompt: str,
         active_decls: list[types.FunctionDeclaration],
         verbose: bool,
+        playbook_hint: str = "",
     ) -> dict[str, Any]:
-        """Run a full multi-step tool loop via MultiProviderRouter (Gemini + Groq + Cloudflare)."""
+        """Run a full multi-step tool loop via MultiProviderRouter (Gemini + Groq + Mistral + Cloudflare)."""
         t0 = time.perf_counter()
         facts_text = self.memory_store.format_facts_for_prompt()
-        sys_inst = build_system_instruction(user_facts_text=facts_text)
+        rules_text = self.memory_store.format_rules_for_prompt()
+        persona_prompt = self.memory_store.get_persona_config()["effective_persona_prompt"]
+        routed_names = [d.name for d in active_decls if d.name]
+        antipatterns_text = self.memory_store.format_antipatterns_for_prompt(routed_names)
+        prospective_text = self.memory_store.format_prospective_for_prompt(
+            prompt=prompt,
+            is_session_start=(self.turn_count == 0),
+        )
+        updated_tools_text = ", ".join(self._recently_updated_tools)
+        sys_inst = build_system_instruction(
+            user_facts_text=facts_text,
+            playbook_hint=playbook_hint,
+            user_rules_text=rules_text,
+            persona_prompt=persona_prompt,
+            antipatterns_text=antipatterns_text,
+            prospective_text=prospective_text,
+            updated_tools_text=updated_tools_text,
+        )
 
         messages: list[dict[str, Any]] = []
         for c in self._clean_history:
@@ -186,6 +207,7 @@ class GeminiSkillSession:
             response_parts, step_traces, step_hits = self._execute_tool_batch(step, llm_res.tool_calls, verbose=verbose)
             trace.extend(step_traces)
             total_cache_hits += step_hits
+            self._escalate_backups_if_failed(step, step_traces, active_decls, response_parts, verbose=verbose)
 
             for tc, part in zip(llm_res.tool_calls, response_parts):
                 fr = getattr(part, "function_response", None)
@@ -213,16 +235,42 @@ class GeminiSkillSession:
         }
 
     def _make_turn_config(
-        self, active_decls: list[types.FunctionDeclaration]
+        self,
+        active_decls: list[types.FunctionDeclaration],
+        playbook_hint: str = "",
+        prompt: str = "",
     ) -> types.GenerateContentConfig:
         facts_text = self.memory_store.format_facts_for_prompt()
+        rules_text = self.memory_store.format_rules_for_prompt()
+        persona_prompt = self.memory_store.get_persona_config()["effective_persona_prompt"]
+        routed_names = [d.name for d in active_decls if d.name]
+        antipatterns_text = self.memory_store.format_antipatterns_for_prompt(routed_names)
+        prospective_text = self.memory_store.format_prospective_for_prompt(
+            prompt=prompt,
+            is_session_start=(self.turn_count == 0),
+        )
+        updated_tools_text = ", ".join(self._recently_updated_tools)
         return types.GenerateContentConfig(
-            system_instruction=build_system_instruction(user_facts_text=facts_text),
+            system_instruction=build_system_instruction(
+                user_facts_text=facts_text,
+                playbook_hint=playbook_hint,
+                user_rules_text=rules_text,
+                persona_prompt=persona_prompt,
+                antipatterns_text=antipatterns_text,
+                prospective_text=prospective_text,
+                updated_tools_text=updated_tools_text,
+            ),
             tools=[types.Tool(function_declarations=active_decls)] if active_decls else None,
             temperature=self.temperature,
         )
 
     def reset(self, new_title: str = "") -> None:
+        # Auto-consolidate Episodic logs in background when closing an active multi-turn session
+        if self.persist_messages and self.turn_count >= 2:
+            try:
+                MemoryConsolidator(self.memory_store, self.llm_router).consolidate_async(use_llm=True)
+            except Exception:
+                pass
         self.turn_count = 0
         self.pinned_tools.clear()
         self.all_traces.clear()
@@ -284,12 +332,21 @@ class GeminiSkillSession:
         self,
         router: SkillRouter,
         handlers: dict[str, Callable[..., dict[str, Any]]],
+        updated_tools: list[str] | None = None,
     ) -> None:
         """Hot-swap router and tool handlers in-place without losing conversation memory."""
         self.router = router
         self.handlers = handlers
         self.pinned_tools = [t for t in self.pinned_tools if t in handlers]
         self.tool_cache.clear()
+        if updated_tools:
+            try:
+                self.memory_store.reset_tool_health(updated_tools)
+            except Exception:
+                pass
+            for t in updated_tools:
+                if t not in self._recently_updated_tools:
+                    self._recently_updated_tools.append(t)
 
     def _run_single_tool(self, fname: str, fargs: dict[str, Any]) -> tuple[dict[str, Any], int, bool]:
         t0 = time.perf_counter()
@@ -299,6 +356,12 @@ class GeminiSkillSession:
             return cached, elapsed_ms, True
 
         handler = self.handlers.get(fname)
+        if handler is None and "__" not in fname:
+            # Auto-resolve when LLM omits method suffix (e.g. 'web_search' -> 'web_search__search')
+            prefix_matches = [k for k in self.handlers if k.startswith(f"{fname}__")]
+            if len(prefix_matches) == 1:
+                fname = prefix_matches[0]
+                handler = self.handlers[fname]
         if handler is None:
             payload: dict[str, Any] = {"ok": False, "error": f"Handler not found: {fname}"}
         else:
@@ -314,7 +377,68 @@ class GeminiSkillSession:
             self.tool_cache.set(fname, fargs, payload)
 
         elapsed_ms = int((time.perf_counter() - t0) * 1000)
+        ok_flag = bool(payload.get("ok"))
+        err_str = str(payload.get("error") or "")
+        try:
+            self.memory_store.record_tool_execution(
+                tool_name=fname,
+                ok=ok_flag,
+                elapsed_ms=elapsed_ms,
+                error=err_str,
+            )
+            self.memory_store.record_episodic_tool_log(
+                session_id=self.session_id,
+                tool_name=fname,
+                args_dict=fargs,
+                ok=ok_flag,
+                elapsed_ms=elapsed_ms,
+                error_text=err_str,
+                output_snippet="" if not ok_flag else safe_serialize(payload.get("data"))[:260],
+            )
+            if not ok_flag and err_str:
+                self.memory_store.record_tool_antipattern(
+                    tool_name=fname,
+                    error_text=err_str,
+                    args_dict=fargs,
+                )
+        except Exception:
+            pass
         return payload, elapsed_ms, False
+
+    def _escalate_backups_if_failed(
+        self,
+        step: int,
+        step_traces: list[dict[str, Any]],
+        active_decls: list[types.FunctionDeclaration],
+        response_parts: list[types.Part],
+        verbose: bool,
+    ) -> bool:
+        """Unlock lower-rated backup tools dynamically when a higher-rated primary tool fails."""
+        failed_names = [str(t["tool"]) for t in step_traces if not t.get("ok")]
+        if not failed_names:
+            return False
+
+        backups = self.router.get_backup_declarations(failed_names, active_decls)
+        if not backups:
+            return False
+
+        backup_names = [b.name or "" for b in backups]
+        active_decls.extend(backups)
+        if verbose:
+            print(
+                f"[STEP {step}] [FALLBACK] Primary tool {failed_names} failed -> "
+                f"unlocked backup tool(s): {backup_names}",
+                flush=True,
+            )
+
+        # Annotate failed function_response so the LLM immediately tries the unlocked backup tool
+        hint = f" [BACKUP UNLOCKED: Hay thu goi tool du phong {', '.join(backup_names)}]"
+        for idx, tr in enumerate(step_traces):
+            if not tr.get("ok") and idx < len(response_parts):
+                fr = getattr(response_parts[idx], "function_response", None)
+                if fr and isinstance(getattr(fr, "response", None), dict):
+                    fr.response["result"] = str(fr.response.get("result", "")) + hint
+        return True
 
     def _execute_tool_batch(
         self,
@@ -365,6 +489,8 @@ class GeminiSkillSession:
             if from_cache:
                 cache_hits += 1
             ok = bool(payload.get("ok"))
+            err_msg = "" if ok else str(payload.get("error") or "")
+            tb_msg = "" if ok else str(payload.get("traceback") or "")
             step_traces.append(
                 {
                     "step": step,
@@ -373,6 +499,8 @@ class GeminiSkillSession:
                     "ok": ok,
                     "elapsed_ms": elapsed_ms,
                     "cached": from_cache,
+                    "error": err_msg,
+                    "traceback": tb_msg,
                 }
             )
             if verbose:
@@ -443,9 +571,10 @@ class GeminiSkillSession:
         prompt: str,
         active_decls: list[types.FunctionDeclaration],
         verbose: bool,
+        playbook_hint: str = "",
     ) -> dict[str, Any]:
         t0 = time.perf_counter()
-        turn_config = self._make_turn_config(active_decls)
+        turn_config = self._make_turn_config(active_decls, playbook_hint=playbook_hint, prompt=prompt)
         message_input: Any = prompt
         trace: list[dict[str, Any]] = []
         turn_usage = TokenUsage()
@@ -501,6 +630,10 @@ class GeminiSkillSession:
                     )
                 trace.extend(step_traces)
                 total_cache_hits += step_hits
+                if self._escalate_backups_if_failed(
+                    step, step_traces, active_decls, response_parts, verbose=verbose
+                ):
+                    turn_config = self._make_turn_config(active_decls, playbook_hint=playbook_hint, prompt=prompt)
                 message_input = response_parts
 
             if verbose:
@@ -524,13 +657,46 @@ class GeminiSkillSession:
                 "hit_max_steps": True,
             }
 
+    def _record_playbook_if_applicable(self, prompt: str, trace: list[dict[str, Any]]) -> None:
+        if not trace or not all(t.get("ok") for t in trace):
+            return
+        ordered = [str(t["tool"]) for t in trace if t.get("tool")]
+        kws = self.router.extract_significant_keywords(prompt)
+        try:
+            self.memory_store.record_successful_workflow(kws, ordered)
+        except Exception:
+            pass
+
     def send(self, prompt: str, verbose: bool = True, run_name: str | None = None) -> dict[str, Any]:
-        """Send a user message with routing, streaming, SQLite persistence, cache, and MLflow logging."""
-        active_decls = self.router.route(
-            prompt,
-            top_k=self.top_k,
-            pinned_names=self.pinned_tools,
+        """Send a user message with Adaptive Telemetry, Playbooks, Auto-Profile Learning, and MLflow."""
+        # Zero-cost Auto-Profile Extractor -> queues durable user preferences for approval
+        try:
+            for cand in extract_profile_candidates(prompt):
+                self.memory_store.add_pending_fact(
+                    key=cand["key"],
+                    value=cand["value"],
+                    category=cand["category"],
+                    evidence=cand["evidence"],
+                )
+        except Exception:
+            pass
+
+        metrics_map = self.memory_store.get_tool_metrics_map()
+        playbooks = self.memory_store.list_playbooks()
+        pb_tools, pb_hint = self.router.match_playbook(prompt, playbooks)
+
+        active_decls = list(
+            self.router.route(
+                prompt,
+                top_k=self.top_k,
+                pinned_names=self.pinned_tools,
+                metrics_map=metrics_map,
+                playbook_tools=pb_tools,
+                use_embeddings=bool(self.router._embeddings),
+            )
         )
+        if verbose and pb_hint:
+            print(f"[PLAYBOOK] Matched strategy -> tools={pb_tools}", flush=True)
         if verbose and self.top_k > 0 and self.top_k < self.router.total_tools:
             if not active_decls:
                 print(
@@ -545,7 +711,11 @@ class GeminiSkillSession:
                 )
 
         if self._should_use_multi_router():
-            res = self._execute_turn_via_multi_router(prompt, active_decls, verbose=verbose)
+            res = self._execute_turn_via_multi_router(
+                prompt, active_decls, verbose=verbose, playbook_hint=pb_hint
+            )
+            self._record_playbook_if_applicable(prompt, res["trace"])
+            self._recently_updated_tools.clear()
             self.turn_count += 1
             self.all_traces.extend(res["trace"])
             self.session_usage.add(res["usage"])
@@ -609,7 +779,10 @@ class GeminiSkillSession:
                 self.model = candidate
                 self._chat = self._create_chat(model=candidate, history=history_snapshot)
             try:
-                res = self._execute_turn(prompt, active_decls, verbose=verbose)
+                res = self._execute_turn(
+                    prompt, active_decls, verbose=verbose, playbook_hint=pb_hint
+                )
+                self._record_playbook_if_applicable(prompt, res["trace"])
                 self.turn_count += 1
                 self.all_traces.extend(res["trace"])
                 self.session_usage.add(res["usage"])

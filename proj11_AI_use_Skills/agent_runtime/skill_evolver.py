@@ -8,6 +8,8 @@ Supports:
 from __future__ import annotations
 
 import ast
+import importlib
+import importlib.util
 import json
 import os
 import re
@@ -45,6 +47,48 @@ _FORBIDDEN_ATTR_CALLS = frozenset(
     }
 )
 
+# Safe curated allowlist mapping import root name -> PyPI package name for auto-install
+_SAFE_IMPORT_TO_PYPI: dict[str, str] = {
+    "psutil": "psutil",
+    "pyperclip": "pyperclip",
+    "bs4": "beautifulsoup4",
+    "PIL": "pillow",
+    "yaml": "pyyaml",
+    "docx": "python-docx",
+    "pptx": "python-pptx",
+    "qrcode": "qrcode",
+    "youtube_transcript_api": "youtube-transcript-api",
+    "pyautogui": "pyautogui",
+    "pygetwindow": "pygetwindow",
+    "pycaw": "pycaw",
+    "uiautomation": "uiautomation",
+    "ics": "ics",
+    "mss": "mss",
+    "feedparser": "feedparser",
+    "lxml": "lxml",
+    "tabulate": "tabulate",
+    "requests": "requests",
+    "httpx": "httpx",
+    "ddgs": "ddgs",
+    "pypdf": "pypdf",
+    "openpyxl": "openpyxl",
+    "pandas": "pandas",
+    "numpy": "numpy",
+    "scipy": "scipy",
+    "matplotlib": "matplotlib",
+    "jsonschema": "jsonschema",
+    "pydantic": "pydantic",
+    "dns": "dnspython",
+    "whois": "python-whois",
+    "tzdata": "tzdata",
+    "win32com": "pywin32",
+    "rich": "rich",
+    "curl_cffi": "curl_cffi",
+    "markitdown": "markitdown",
+    "trafilatura": "trafilatura",
+    "playwright": "playwright",
+}
+
 _CODER_SYSTEM_PROMPT = """Ban la Senior Python Tool Engineer chuyen viet va sua cac module Skill cho Gemini Function Calling.
 
 QUY TAC BAT BUOC CHO FILE SKILL (`skill_<name>.py`):
@@ -53,11 +97,18 @@ QUY TAC BAT BUOC CHO FILE SKILL (`skill_<name>.py`):
    - BAT BUOC co day du Python type annotations cho moi tham so (str, int, float, bool, list[dict], ...) va kieu tra ve (`-> dict` hoac `-> list[dict]`).
    - BAT BUOC co docstring ngan gon mo ta ro chuc nang o dong dau tien.
    - `__init__(self)` KHONG bat buoc tham so nao (tat ca tham so cua `__init__` phai co gia tri mac dinh).
-3. Uu tien dung thu vien co san: `httpx`, `json`, `re`, `math`, `datetime`, `zoneinfo`, `bs4`, `pandas`, `pypdf`, `openpyxl`, `ddgs`.
-4. CAM TUYET DOI: Khong dung `subprocess`, `os.system`, `eval`, `exec`, `shutil.rmtree`, khong doc file `.env`, va khong dung emoji trong code/log.
+3. Uu tien dung thu vien co san hoac thu vien pho bien (`httpx`, `psutil`, `pyperclip`, `bs4`, `pandas`, `pypdf`, `openpyxl`, `ddgs`, `qrcode`, `feedparser`, `playwright`).
+   QUAN TRONG: Khong bao gio nuot `ImportError` roi tra ve so 0 gia tao; neu thieu thu vien hay `raise RuntimeError("Missing package ...")`.
+4. CHIEN LUOC CHONG LAP LOI (SPA / API):
+   - Neu `error_context` cho thay `httpx + BeautifulSoup` khong trich xuat duoc du lieu tu trang web (do trang SPA render bang JavaScript nhu ZingMP3, React/Next/Vue, hoac HTTP 403/404): CAM LAP LAI BeautifulSoup tren HTML tinh!
+   - Hay chuyen chien luoc: (a) dung `playwright.sync_api` (headless Chromium) de render JS / bat response XHR JSON, HOAC (b) dung nguon API/RSS cong khai on dinh (vi du RSS XML, public JSON endpoint).
+5. CAM TUYET DOI REWARD HACKING / HARDCODE DU LIEU GIA:
+   - KHONG BAO GIO duoc hardcode `fallback_data`, `dummy_data`, `sample_data` hoac tra ve danh sach bai hat/gia ca/ket qua co dinh gia tao de qua mat pytest/Live Smoke Probe.
+   - Neu khong lay duoc du lieu that tu mang/API/Playwright, BAT BUOC `raise RuntimeError("...")` kem thong tin chan doan.
+6. CAM TUYET DOI: Khong dung `subprocess`, `os.system`, `eval`, `exec`, `shutil.rmtree`, khong doc file `.env`, va khong dung emoji trong code/log.
 
 QUY TAC BAT BUOC CHO FILE TEST (`test_skill_<name>.py`):
-1. Dung `pytest` va `unittest.mock.patch` de mock cac loi goi mang (`httpx.get` / `httpx.Client`) de test chay nhanh (<2s), on dinh, khong phu thuoc mang ngoai.
+1. Dung `pytest` va `unittest.mock.patch` de mock cac loi goi mang (`httpx.get` / `httpx.Client` / `sync_playwright`) de test chay nhanh (<2s), on dinh, khong phu thuoc mang ngoai.
 2. Import truc tiep tu module `from skill_<name> import <ClassName>`.
 3. Test ca truong hop thanh cong lan truong hop dau vao khong hop le / HTTP loi.
 
@@ -72,9 +123,12 @@ Tra ve DUY NHAT 2 khoi code theo dung tag sau (khong giai thich dai dong ngoai t
 """
 
 _FIXER_SYSTEM_PROMPT = """Ban la Senior Python QA & Debugging Engineer.
-Ban nhan duoc `skill_code`, `test_code` va traceback loi tu AST Check hoac `pytest`.
+Ban nhan duoc `skill_code`, `test_code` va traceback loi tu AST Check, `pytest`, hoac **LIVE SMOKE PROBE (goi that ra he thong/mang)**.
 Hay phan tich chinh xac nguyen nhan loi va tra ve ban code DA SUA HOAN CHINH cho ca 2 file.
-Giu nguyen tat ca quy tac an toan (khong subprocess/eval/exec, day du type hint + docstring, khong emoji).
+QUAN TRONG:
+- Neu loi den tu **LIVE SMOKE PROBE** (vi du HTTP 404, trang SPA/React rong khong co du lieu trong HTML tinh, hoac tra ve danh sach rong):
+  TUYET DOI KHONG chi doi CSS selector BeautifulSoup kieu doan mo va TUYET DOI KHONG hardcode `fallback_data` gia tao de qua mat probe! Hay doi han chien luoc sang `playwright.sync_api` (render JS / bat JSON response) hoac dung nguon RSS/API cong khai that su hoat dong.
+- Giu nguyen tat ca quy tac an toan (khong subprocess/eval/exec, day du type hint + docstring, khong emoji).
 
 Tra ve DUY NHAT theo dung 2 tag:
 <SKILL_CODE>
@@ -101,6 +155,67 @@ class EvolutionResult:
     backup_available: bool = False
     version: str = ""
     versions: list[dict[str, Any]] = field(default_factory=list)
+
+
+def detect_missing_imports(code: str) -> list[str]:
+    """Scan Python AST (including lazy imports inside functions) for missing third-party packages."""
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return []
+
+    stdlib = sys.stdlib_module_names
+    imported: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                imported.add(alias.name.split(".")[0])
+        elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+            imported.add(node.module.split(".")[0])
+
+    missing: list[str] = []
+    for mod in sorted(imported):
+        if mod in stdlib or mod.startswith(("skill_", "agent_runtime", "skills", "_")):
+            continue
+        if importlib.util.find_spec(mod) is None:
+            missing.append(mod)
+    return missing
+
+
+def ensure_skill_dependencies(code: str, auto_install: bool = True) -> list[str]:
+    """Detect missing third-party imports and safely auto-install allowlisted PyPI packages into .venv."""
+    logs: list[str] = []
+    missing = detect_missing_imports(code)
+    if not missing:
+        return logs
+
+    for mod in missing:
+        pypi_pkg = _SAFE_IMPORT_TO_PYPI.get(mod)
+        if not pypi_pkg:
+            logs.append(f"[DEPS WARN] Missing non-allowlisted package '{mod}'. Install manually: pip install {mod}")
+            continue
+        if not auto_install:
+            logs.append(f"[DEPS INFO] Missing allowlisted package '{pypi_pkg}' (auto_install=False).")
+            continue
+
+        logs.append(f"[DEPS] Missing '{mod}' -> auto-installing '{pypi_pkg}' into .venv...")
+        try:
+            proc = subprocess.run(
+                [sys.executable, "-m", "pip", "install", "-q", pypi_pkg],
+                capture_output=True,
+                text=True,
+                timeout=90,
+            )
+            if proc.returncode == 0:
+                importlib.invalidate_caches()
+                logs.append(f"[DEPS OK] Installed '{pypi_pkg}' successfully.")
+            else:
+                err = (proc.stderr or proc.stdout or "").strip()[:160]
+                logs.append(f"[DEPS ERR] Failed to install '{pypi_pkg}': {err}")
+        except Exception as exc:
+            logs.append(f"[DEPS ERR] Failed to install '{pypi_pkg}': {type(exc).__name__}: {exc}")
+
+    return logs
 
 
 def validate_skill_ast(code: str, is_test: bool = False) -> list[str]:
@@ -134,6 +249,13 @@ def validate_skill_ast(code: str, is_test: bool = False) -> list[str]:
         elif isinstance(node, ast.Constant) and isinstance(node.value, str):
             if ".env" in node.value.lower() and not is_test:
                 errors.append("Forbidden reference to '.env' in skill code")
+        elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store) and not is_test:
+            low_id = node.id.lower()
+            if low_id in {"fallback_data", "mock_data", "dummy_data", "fake_data", "sample_data", "hardcoded_data"}:
+                errors.append(
+                    f"Reward hacking detected: forbidden hardcoded variable '{node.id}' in skill code. "
+                    "Fetch real data or raise RuntimeError."
+                )
 
     if not is_test:
         for node in tree.body:
@@ -182,6 +304,8 @@ def run_pytest_isolated(module_name: str, skill_code: str, test_code: str, timeo
         existing_py = env.get("PYTHONPATH", "")
         extra_paths = os.pathsep.join([str(tmp_path), str(SKILLS_ROOT), str(SKILLS_ROOT.parent)])
         env["PYTHONPATH"] = f"{extra_paths}{os.pathsep}{existing_py}" if existing_py else extra_paths
+        env["PYTHONIOENCODING"] = "utf-8"
+        env["PYTHONUTF8"] = "1"
 
         try:
             proc = subprocess.run(
@@ -190,6 +314,8 @@ def run_pytest_isolated(module_name: str, skill_code: str, test_code: str, timeo
                 env=env,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=timeout_sec,
             )
             combined = ((proc.stdout or "") + "\n" + (proc.stderr or "")).strip()
@@ -198,6 +324,146 @@ def run_pytest_isolated(module_name: str, skill_code: str, test_code: str, timeo
             return False, f"Pytest timed out after {timeout_sec}s"
         except Exception as exc:
             return False, f"{type(exc).__name__}: {exc}"
+
+
+def _parse_probe_hint(error_context: str) -> tuple[str, dict[str, Any] | None]:
+    """Extract target method name and JSON kwargs from Tab 1 error_context if present."""
+    method_name = ""
+    kwargs: dict[str, Any] | None = None
+    m_tool = re.search(r"Tool\s+v[ừu]a\s+g[ọo]i:\s*([a-zA-Z0-9_]+)", error_context or "")
+    if m_tool:
+        full_tool = m_tool.group(1)
+        if "__" in full_tool:
+            method_name = full_tool.split("__", 1)[1]
+    m_args = re.search(r"Tham\s+s[ốo]:\s*(\{[^\n]*\})", error_context or "")
+    if m_args:
+        try:
+            parsed = json.loads(m_args.group(1))
+            if isinstance(parsed, dict):
+                kwargs = parsed
+        except Exception:
+            kwargs = None
+    return method_name, kwargs
+
+
+def run_live_smoke_probe(
+    module_name: str,
+    skill_code: str,
+    error_context: str = "",
+    timeout_sec: int = 20,
+) -> tuple[bool, str]:
+    """Execute one real isolated live call after mocked pytest passes to catch SPA/404/empty-DOM bugs."""
+    target_method, hint_kwargs = _parse_probe_hint(error_context)
+    runner_script = f"""
+import importlib.util, inspect, json, sys, traceback
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
+spec = importlib.util.spec_from_file_location({module_name!r}, "{module_name}.py")
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+
+target_cls = None
+for _, obj in inspect.getmembers(mod, inspect.isclass):
+    if obj.__module__ == {module_name!r} and not obj.__name__.startswith("_"):
+        target_cls = obj
+        break
+
+if target_cls is None:
+    print("SKIP: No public class found")
+    sys.exit(0)
+
+preferred = {target_method!r}
+hint_kwargs = {hint_kwargs!r}
+methods = [
+    (name, fn)
+    for name, fn in inspect.getmembers(target_cls, predicate=inspect.isfunction)
+    if not name.startswith("_") and name in target_cls.__dict__
+]
+chosen = None
+for name, fn in methods:
+    if preferred and name == preferred:
+        chosen = (name, fn)
+        break
+if chosen is None and methods:
+    chosen = methods[0]
+if chosen is None:
+    print("SKIP: No public method found")
+    sys.exit(0)
+
+m_name, m_fn = chosen
+sig = inspect.signature(m_fn)
+req_params = [
+    p.name for p in sig.parameters.values()
+    if p.name != "self"
+    and p.default is inspect._empty
+    and p.kind not in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
+]
+
+call_kwargs = {{}}
+if isinstance(hint_kwargs, dict):
+    valid_names = set(sig.parameters.keys()) - {{"self"}}
+    call_kwargs = {{k: v for k, v in hint_kwargs.items() if k in valid_names}}
+
+missing_req = [p for p in req_params if p not in call_kwargs]
+if missing_req:
+    print(f"SKIP: Method {{m_name}} requires args {{missing_req}}")
+    sys.exit(0)
+
+try:
+    inst = target_cls()
+    res = getattr(inst, m_name)(**call_kwargs)
+except Exception as exc:
+    tb = traceback.format_exc()[-900:]
+    print(f"FAIL: {{type(exc).__name__}}: {{exc}}\\n{{tb}}")
+    sys.exit(2)
+
+is_empty = (
+    res is None
+    or res == []
+    or res == {{}}
+    or res == ""
+    or (isinstance(res, dict) and not any(res.values()))
+)
+if is_empty:
+    print(f"FAIL: Method {{m_name}}({{call_kwargs}}) returned empty result: {{res!r}}")
+    sys.exit(2)
+
+preview = json.dumps(res, ensure_ascii=False, default=str)[:260]
+print(f"PASS: {{m_name}}({{call_kwargs}}) -> {{preview}}")
+"""
+    with tempfile.TemporaryDirectory(prefix="skill_smoke_") as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        (tmp_path / f"{module_name}.py").write_text(skill_code, encoding="utf-8")
+        probe_file = tmp_path / "_smoke_probe.py"
+        probe_file.write_text(runner_script, encoding="utf-8")
+
+        env = dict(os.environ)
+        existing_py = env.get("PYTHONPATH", "")
+        extra_paths = os.pathsep.join([str(tmp_path), str(SKILLS_ROOT), str(SKILLS_ROOT.parent)])
+        env["PYTHONPATH"] = f"{extra_paths}{os.pathsep}{existing_py}" if existing_py else extra_paths
+        env["PYTHONIOENCODING"] = "utf-8"
+        env["PYTHONUTF8"] = "1"
+
+        try:
+            proc = subprocess.run(
+                [sys.executable, str(probe_file)],
+                cwd=str(tmp_path),
+                env=env,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=timeout_sec,
+            )
+            combined = ((proc.stdout or "") + "\n" + (proc.stderr or "")).strip()
+            return proc.returncode == 0, combined
+        except subprocess.TimeoutExpired:
+            return False, f"FAIL: Live smoke probe timed out after {timeout_sec}s"
+        except Exception as exc:
+            return False, f"FAIL: {type(exc).__name__}: {exc}"
 
 
 class SkillEvolver:
@@ -377,6 +643,26 @@ class SkillEvolver:
             Path(data["test_path"]).write_text(data["test_code"], encoding="utf-8")
         return data
 
+    def delete_skill(self, pack: str, module_name: str) -> dict[str, Any]:
+        """Archive backup then delete skill_<name>.py and test_skill_<name>.py safely inside SKILLS_ROOT."""
+        mod = sanitize_module_name(module_name)
+        pack_dir = (SKILLS_ROOT / pack).resolve()
+        if SKILLS_ROOT.resolve() not in pack_dir.parents:
+            raise ValueError("Duong dan pack khong hop le.")
+        skill_path = pack_dir / f"{mod}.py"
+        test_path = pack_dir / f"test_{mod}.py"
+        if not skill_path.exists():
+            raise FileNotFoundError(f"Khong tim thay skill: {pack}/{mod}.py")
+
+        self.save_backup(pack, mod, skill_path, test_path)
+        deleted_files: list[str] = []
+        skill_path.unlink(missing_ok=True)
+        deleted_files.append(str(skill_path.name))
+        if test_path.exists():
+            test_path.unlink(missing_ok=True)
+            deleted_files.append(str(test_path.name))
+        return {"pack": pack, "module_name": mod, "deleted_files": deleted_files}
+
     def _call_llm(self, model: str, system_prompt: str, user_prompt: str) -> str:
         resp = run_interruptible(
             lambda: self.client.models.generate_content(
@@ -402,6 +688,7 @@ class SkillEvolver:
         model: str = DEFAULT_MODEL,
         max_fix_rounds: int = 3,
         auto_save: bool = True,
+        live_smoke_test: bool = True,
     ) -> EvolutionResult:
         """Generate or rewrite a skill, verify via AST + pytest (with Fixer retries), and save to disk."""
         logs: list[str] = []
@@ -465,44 +752,68 @@ class SkillEvolver:
                 pytest_out = failure_report
                 logs.append(f"[ROUND {attempt}] [AST FAIL] {'; '.join(ast_errs)}")
             else:
+                dep_logs = ensure_skill_dependencies(skill_code, auto_install=True)
+                logs.extend(dep_logs)
                 logs.append(f"[ROUND {attempt}] [AST OK] Running isolated pytest...")
                 passed, pytest_out = run_pytest_isolated(mod_name, skill_code, test_code)
                 if passed:
-                    logs.append(f"[ROUND {attempt}] [PYTEST PASS] All tests passed.")
-                    created_ver = ""
-                    if auto_save:
-                        if skill_path.exists():
-                            self.save_backup(pack, mod_name, skill_path, test_path)
-                        created_ver = self.commit_new_version(
+                    logs.append(f"[ROUND {attempt}] [PYTEST PASS] Unit tests passed.")
+                    smoke_ok = True
+                    smoke_out = ""
+                    if live_smoke_test:
+                        logs.append(f"[ROUND {attempt}] [LIVE SMOKE] Running real isolated probe...")
+                        smoke_ok, smoke_out = run_live_smoke_probe(
+                            mod_name, skill_code, error_context=error_context
+                        )
+                        if smoke_ok:
+                            logs.append(f"[ROUND {attempt}] [LIVE SMOKE OK] {smoke_out.splitlines()[0][:180]}")
+                        else:
+                            logs.append(f"[ROUND {attempt}] [LIVE SMOKE FAIL] Real call failed -> invoking Fixer...")
+                            pytest_out = f"Pytest (mocked): PASSED\n\nLIVE SMOKE PROBE FAILED (goi that bi loi):\n{smoke_out}"
+                            failure_report = (
+                                "Mocked pytest passed, NHUNG GOI THAT (LIVE SMOKE PROBE) BI LOI:\n"
+                                f"{smoke_out}\n"
+                                "Hay phan tich nguyen nhan that (URL 404, SPA render bang JS khong co DOM tinh, "
+                                "hoac sai cau truc response) va DOI CHIEN LUOC (dung playwright headless hoac API/RSS that)."
+                            )
+
+                    if smoke_ok:
+                        created_ver = ""
+                        if auto_save:
+                            if skill_path.exists():
+                                self.save_backup(pack, mod_name, skill_path, test_path)
+                            created_ver = self.commit_new_version(
+                                pack=pack,
+                                module_name=mod_name,
+                                skill_code=skill_code,
+                                test_code=test_code,
+                                source="ai_evolve",
+                                model=model,
+                                note=requirement.strip(),
+                            )
+                            logs.append(
+                                f"[VERSION] Created & activated {pack}/{mod_name} -> {created_ver} "
+                                f"(previous versions preserved in data/skill_versions/)"
+                            )
+                        full_out = pytest_out + (f"\n\n--- LIVE SMOKE PROBE ---\n{smoke_out}" if smoke_out else "")
+                        return EvolutionResult(
+                            ok=True,
                             pack=pack,
                             module_name=mod_name,
+                            skill_path=str(skill_path),
+                            test_path=str(test_path),
                             skill_code=skill_code,
                             test_code=test_code,
-                            source="ai_evolve",
-                            model=model,
-                            note=requirement.strip(),
+                            pytest_output=full_out,
+                            rounds_used=attempt,
+                            logs=logs,
+                            backup_available=self.has_backup(pack, mod_name),
+                            version=created_ver,
+                            versions=self.list_versions(pack, mod_name),
                         )
-                        logs.append(
-                            f"[VERSION] Created & activated {pack}/{mod_name} -> {created_ver} "
-                            f"(previous versions preserved in data/skill_versions/)"
-                        )
-                    return EvolutionResult(
-                        ok=True,
-                        pack=pack,
-                        module_name=mod_name,
-                        skill_path=str(skill_path),
-                        test_path=str(test_path),
-                        skill_code=skill_code,
-                        test_code=test_code,
-                        pytest_output=pytest_out,
-                        rounds_used=attempt,
-                        logs=logs,
-                        backup_available=self.has_backup(pack, mod_name),
-                        version=created_ver,
-                        versions=self.list_versions(pack, mod_name),
-                    )
-                logs.append(f"[ROUND {attempt}] [PYTEST FAIL] Invoking Fixer role...")
-                failure_report = f"Pytest Failure Output:\n{pytest_out}"
+                else:
+                    logs.append(f"[ROUND {attempt}] [PYTEST FAIL] Invoking Fixer role...")
+                    failure_report = f"Pytest Failure Output:\n{pytest_out}"
 
             if attempt < max_rounds:
                 fixer_prompt = (
@@ -570,6 +881,9 @@ class SkillEvolver:
                 logs=logs,
                 backup_available=self.has_backup(pack, mod_name),
             )
+
+        dep_logs = ensure_skill_dependencies(skill_code, auto_install=True)
+        logs.extend(dep_logs)
 
         if test_code.strip():
             logs.append("[AST OK] Running isolated pytest...")

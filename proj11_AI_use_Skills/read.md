@@ -31,6 +31,8 @@ python run_gemini_skills.py --chat --session <session_id>
 # 3. Mo MLflow UI de xem cay Trace & metrics so sanh model
 mlflow ui --backend-store-uri sqlite:///data/mlflow.db
 
+- 
+http://127.0.0.1:5000/
 # ---
 # Mo nhanh Web UI 2 Tab
 python run_web_ui.py
@@ -56,3 +58,18 @@ python run_gemini_skills.py --check-providers
 
 # Khoi dong lai Web UI de ap dung 8/8 endpoint xanh va 44 tools
 python run_gemini_skills.py --web --mlflow
+
+# ---
+# Xem bang xep hang do tin cay & toc do thuc te cua cac tool
+python run_gemini_skills.py --tool-stats
+
+# Xem danh sach cac Playbook kinh nghiem da tich luy trong SQLite
+python run_gemini_skills.py --playbooks
+
+# ---
+3. Lệnh tự cài đồng bộ 1 phát cho toàn bộ các skill vừa thả vào
+
+Bạn chỉ cần chạy 1 lệnh này trên PowerShell (trong .venv) để tự cài sạch các thư viện thiếu ở trên:
+
+powershell
+python run_gemini_skills.py --sync-deps

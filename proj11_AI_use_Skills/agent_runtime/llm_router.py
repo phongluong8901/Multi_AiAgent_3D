@@ -26,7 +26,7 @@ from agent_runtime.config import DEFAULT_API_TIMEOUT_SEC, ENV_FILE
 from agent_runtime.executor import extract_function_calls, extract_text, run_interruptible
 from agent_runtime.telemetry import TokenUsage, extract_usage
 
-ProviderName = Literal["gemini", "groq", "cloudflare", "mistral"]
+ProviderName = Literal["gemini", "groq", "cloudflare"]
 
 
 @dataclass
@@ -267,31 +267,6 @@ class MultiProviderRouter:
                     ep.last_error = "Missing CLOUDFLARE_ACCOUNT_ID in .env (auto-discovery requires Account:Read permission)"
                 self.endpoints.append(ep)
 
-        # 4. Mistral AI Free Tier (OpenAI-compatible, native Function Calling)
-        mistral_keys = [
-            k.strip()
-            for k in (
-                os.environ.get("MISTRAL_API_KEY", "") + "," + os.environ.get("MISTRAL_API_KEYS", "")
-            ).split(",")
-            if k.strip()
-        ]
-        mistral_keys = list(dict.fromkeys(mistral_keys))
-        mistral_models = [
-            ("mistral-small-latest", 25),
-            ("open-mistral-nemo", 45),
-        ]
-        for k_idx, mkey in enumerate(mistral_keys, start=1):
-            for model, base_prio in mistral_models:
-                self.endpoints.append(
-                    ProviderEndpoint(
-                        endpoint_id=f"mistral#{k_idx}:{model}",
-                        provider="mistral",
-                        model=model,
-                        api_key=mkey,
-                        priority=base_prio + (k_idx - 1) * 2,
-                    )
-                )
-
         self.endpoints.sort(key=lambda e: e.priority)
 
     def get_status(self) -> list[dict[str, Any]]:
@@ -332,7 +307,7 @@ class MultiProviderRouter:
         with self._lock:
             ep.errors += 1
             ep.last_error = f"{type(exc).__name__}: {msg}"[:200]
-            if "401" in msg or "403" in msg or "api_key_invalid" in low or "invalid api key" in low:
+            if "401" in msg or "402" in msg or "403" in msg or "api_key_invalid" in low or "invalid api key" in low or "subscription" in low:
                 ep.status = "disabled"
             elif "429" in msg or "resource_exhausted" in low or "rate_limit" in low:
                 # Daily quota gets longer cooldown; RPM gets 60s
@@ -501,7 +476,16 @@ class MultiProviderRouter:
 
         resp = run_interruptible(_do_post, timeout_sec=float(self.timeout_sec + 5))
         if resp.status_code != 200:
-            raise RuntimeError(f"HTTP {resp.status_code} from {ep.provider}: {resp.text[:300]}")
+            err_detail = resp.text[:220]
+            try:
+                j = resp.json()
+                if isinstance(j, dict):
+                    msg = j.get("message") or (j.get("error") or {}).get("message")
+                    if msg:
+                        err_detail = str(msg)
+            except Exception:
+                pass
+            raise RuntimeError(f"HTTP {resp.status_code}: {err_detail}")
 
         data = resp.json()
         choice = (data.get("choices") or [{}])[0]
@@ -582,15 +566,6 @@ class MultiProviderRouter:
                     cf_url = f"https://api.cloudflare.com/client/v4/accounts/{ep.account_id}/ai/v1/chat/completions"
                     res = self._call_openai_compat(
                         ep, cf_url, system_instruction, messages, declarations, temperature
-                    )
-                elif ep.provider == "mistral":
-                    res = self._call_openai_compat(
-                        ep,
-                        "https://api.mistral.ai/v1/chat/completions",
-                        system_instruction,
-                        messages,
-                        declarations,
-                        temperature,
                     )
                 else:
                     raise ValueError(f"Unsupported provider: {ep.provider}")

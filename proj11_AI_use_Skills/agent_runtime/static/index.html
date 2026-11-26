@@ -482,6 +482,54 @@
       grid-template-columns: 2fr 1fr;
       gap: 10px;
     }
+
+    .modal-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(7, 11, 20, 0.78);
+      backdrop-filter: blur(4px);
+      z-index: 999;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .modal-shell {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+      max-height: 88vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .modal-card {
+      background: var(--panel-alt);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px;
+    }
+
+    ::-webkit-scrollbar {
+      width: 7px;
+      height: 7px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 999px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: #475569;
+    }
   </style>
 </head>
 
@@ -502,60 +550,222 @@
         <svg class="icon" viewBox="0 0 24 24">
           <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
         </svg>
-        <span>Tab 1: Chat & Dung Skill</span>
+        <span>Tab 1: Chat & Dùng Skill</span>
       </button>
       <button id="tabBtnStudio" class="tab-btn" onclick="switchTab('studio')">
         <svg class="icon" viewBox="0 0 24 24">
           <path
             d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
         </svg>
-        <span>Tab 2: Viet / Sua Skill & Hot-Reload</span>
+        <span>Tab 2: Viết / Sửa Skill & Hot-Reload</span>
       </button>
     </div>
 
-    <div class="status-pill" id="toolCountBadge">
-      <svg class="icon" viewBox="0 0 24 24">
-        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-        <polyline points="22 4 12 14.01 9 11.01" />
-      </svg>
-      <span id="toolCountText">Loading...</span>
+    <div style="display:flex; align-items:center; gap:8px;">
+      <button class="btn btn-sm" onclick="openProfileModal()" title="Hồ sơ cá nhân, quy tắc ứng xử, bộ nhớ & nhắc việc">
+        <svg class="icon" viewBox="0 0 24 24">
+          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+          <circle cx="12" cy="7" r="4" />
+        </svg>
+        <span>Hồ sơ & Bộ nhớ</span>
+        <span id="pendingBadge" style="display:none; background:var(--primary); color:#fff; border-radius:999px; padding:1px 6px; font-size:10.5px;">0</span>
+      </button>
+      <button class="btn btn-sm" onclick="openInsightsModal()" title="Xem thống kê Tool Metrics, Cảnh báo Skill lỗi & Playbooks">
+        <svg class="icon" viewBox="0 0 24 24">
+          <line x1="18" y1="20" x2="18" y2="10" />
+          <line x1="12" y1="20" x2="12" y2="4" />
+          <line x1="6" y1="20" x2="6" y2="14" />
+        </svg>
+        <span>Thống kê & Playbooks</span>
+        <span id="degradedBadge" style="display:none; background:var(--danger); color:#fff; border-radius:999px; padding:1px 6px; font-size:10.5px;">0</span>
+      </button>
+      <div class="status-pill" id="toolCountBadge">
+        <svg class="icon" viewBox="0 0 24 24">
+          <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+          <polyline points="22 4 12 14.01 9 11.01" />
+        </svg>
+        <span id="toolCountText">Đang tải...</span>
+      </div>
     </div>
   </header>
+
+  <!-- ================= PROFILE & MEMORY OS MODAL ================= -->
+  <div id="profileModal" class="modal-backdrop" onclick="if(event.target===this) closeProfileModal()">
+    <div class="modal-shell" style="width:min(960px, 96vw);">
+      <div style="display:flex; align-items:center; justify-content:space-between; padding:14px 18px; border-bottom:1px solid var(--border);">
+        <div style="display:flex; align-items:center; gap:10px; font-weight:600; font-size:14px;">
+          <svg class="icon" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          <span>Hồ sơ Cá nhân, Quy tắc & Hệ điều hành Bộ nhớ (Memory OS)</span>
+        </div>
+        <button class="btn btn-sm" onclick="closeProfileModal()">Đóng</button>
+      </div>
+      <div style="padding:16px 18px; overflow-y:auto; display:flex; flex-direction:column; gap:14px;">
+        <!-- 1. Quick User Profile & AI Persona Prompt Studio -->
+        <div class="modal-card">
+          <div class="section-title">1. Hồ sơ người dùng & Phong cách trò chuyện của AI</div>
+          <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-bottom:10px;">
+            <div>
+              <label for="profName">Tên / Xưng hô</label>
+              <input type="text" id="profName" value="Phong" />
+            </div>
+            <div>
+              <label for="profRole">Vai trò / Nghề nghiệp</label>
+              <input type="text" id="profRole" value="DEV" />
+            </div>
+            <div>
+              <label for="profCity">Thành phố mặc định</label>
+              <input type="text" id="profCity" value="Hà Nội" />
+            </div>
+          </div>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:10px;">
+            <div>
+              <label for="profStack">Tech Stack / Lĩnh vực quan tâm</label>
+              <input type="text" id="profStack" placeholder="Python, FastAPI, MLflow, AI Agent..." />
+            </div>
+            <div>
+              <label for="profPreset">Kiểu nói chuyện AI (Persona Preset)</label>
+              <select id="profPreset" onchange="onPersonaPresetChange()"></select>
+            </div>
+          </div>
+          <div style="margin-bottom:10px;">
+            <label for="profCustomPrompt">Prompt định hình phong cách AI (chỉnh sửa trực tiếp nếu muốn)</label>
+            <textarea id="profCustomPrompt" rows="3" placeholder="Nhập mô tả phong cách trả lời mong muốn..."></textarea>
+          </div>
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <span id="profSaveStatus" style="font-size:12px; color:var(--success);"></span>
+            <button class="btn btn-sm btn-primary" onclick="savePersonaProfile()">Lưu Hồ sơ & Phong cách AI</button>
+          </div>
+        </div>
+
+        <!-- 2. Pending Auto-Learned Facts -->
+        <div class="modal-card">
+          <div class="section-title">2. Đề xuất AI tự học ngầm (Chờ bạn phê duyệt)</div>
+          <div id="pendingFactsBox" style="display:flex; flex-direction:column; gap:6px;"></div>
+        </div>
+
+        <!-- 3. Personal Rules -->
+        <div class="modal-card">
+          <div class="section-title">3. Quy tắc ứng xử cá nhân (AI bắt buộc tuân thủ mỗi lượt)</div>
+          <div style="display:flex; gap:8px; margin-bottom:8px;">
+            <input type="text" id="newRuleInput" placeholder="Ví dụ: Luôn trả lời ngắn gọn dạng bảng và quy đổi giá USD sang VND..." />
+            <button class="btn btn-sm btn-primary" onclick="addNewRule()" style="white-space:nowrap;">Thêm Quy tắc</button>
+          </div>
+          <div id="userRulesBox" style="display:flex; flex-direction:column; gap:6px;"></div>
+        </div>
+
+        <!-- 4. Raw User Facts + Conflict Resolution History -->
+        <div class="modal-card">
+          <div class="section-title">4. Bộ nhớ Semantic (SQLite user_facts — Time Decay & Xử lý mâu thuẫn)</div>
+          <div style="display:grid; grid-template-columns:1fr 2fr auto; gap:8px; margin-bottom:8px;">
+            <input type="text" id="newFactKey" placeholder="Khóa (vd: watchlist)" />
+            <input type="text" id="newFactVal" placeholder="Giá trị (vd: BTC, Giá vàng SJC)" />
+            <button class="btn btn-sm btn-primary" onclick="addNewFact()">Lưu</button>
+          </div>
+          <div id="userFactsBox" style="display:flex; flex-direction:column; gap:6px;"></div>
+          <details style="margin-top:10px; background:var(--code-bg); border:1px solid var(--border); border-radius:6px; padding:8px 10px;">
+            <summary style="cursor:pointer; font-size:12px; color:var(--muted); user-select:none;">Lịch sử thông tin cũ (Deprecated / Conflict Resolution)</summary>
+            <div id="factHistoryBox" style="display:flex; flex-direction:column; gap:6px; margin-top:8px;"></div>
+          </details>
+        </div>
+
+        <!-- 5. Prospective Memory (Backlog & Reminders) -->
+        <div class="modal-card">
+          <div class="section-title">5. Trí nhớ tương lai — Prospective Memory (Backlog & Nhắc việc tự động)</div>
+          <div style="display:grid; grid-template-columns:2fr 1fr 1fr auto; gap:8px; margin-bottom:8px;">
+            <input type="text" id="newTaskTitle" placeholder="Việc cần nhớ (vd: Kiểm tra báo cáo MLflow cuối tuần)" />
+            <input type="text" id="newTaskDue" placeholder="Hạn (YYYY-MM-DD, tùy chọn)" />
+            <input type="text" id="newTaskTrigger" placeholder="Điều kiện (session_start hoặc từ khóa)" value="session_start" />
+            <button class="btn btn-sm btn-primary" onclick="addProspectiveTask()">Thêm</button>
+          </div>
+          <div id="prospectiveTasksBox" style="display:flex; flex-direction:column; gap:6px;"></div>
+        </div>
+
+        <!-- 6. Memory Consolidation ("Sleep Cycle") -->
+        <div class="modal-card">
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
+            <div>
+              <div class="section-title" style="margin-bottom:3px;">6. Tổng hợp trí nhớ — Memory Consolidation ("Ngủ để tổng hợp" & Dọn log cũ)</div>
+              <div id="episodicStatsText" style="font-size:12px; color:var(--muted);">Đang tải trạng thái Episodic logs...</div>
+            </div>
+            <button id="consolidateBtn" class="btn btn-sm btn-primary" onclick="runMemoryConsolidation()">Tổng hợp Trí nhớ ngay</button>
+          </div>
+          <div id="consolidateResultBox" style="margin-top:8px; font-size:12px; color:var(--success);"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= INSIGHTS MODAL (TOOL STATS, META-MEMORY & PLAYBOOKS) ================= -->
+  <div id="insightsModal" class="modal-backdrop" onclick="if(event.target===this) closeInsightsModal()">
+    <div class="modal-shell" style="width:min(1040px, 96vw);">
+      <div style="display:flex; align-items:center; justify-content:space-between; padding:14px 18px; border-bottom:1px solid var(--border);">
+        <div style="display:flex; align-items:center; gap:10px; font-weight:600; font-size:14px;">
+          <svg class="icon" viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+          <span>Bảng điều khiển Meta-Memory, Anti-Patterns & Playbooks</span>
+          <span id="insightsMetaBadge" style="font-size:11.5px; color:var(--muted); font-weight:400;"></span>
+        </div>
+        <button class="btn btn-sm" onclick="closeInsightsModal()">Đóng</button>
+      </div>
+      <div style="padding:16px 18px; overflow-y:auto; display:flex; flex-direction:column; gap:14px;">
+        <div class="modal-card">
+          <div class="section-title">1. Meta-Memory Auto-Flag (Cảnh báo Skill hay lỗi — Đẩy sang Tab 2 sửa)</div>
+          <div id="degradedToolsBox" style="display:flex; flex-direction:column; gap:8px;"></div>
+        </div>
+        <div class="modal-card">
+          <div class="section-title">2. Failure / Anti-Pattern Memory (Trí nhớ né bẫy — Tự bơm chọn lọc theo 6 tool)</div>
+          <div id="antipatternsBox" style="display:flex; flex-direction:column; gap:6px;"></div>
+        </div>
+        <div class="modal-card">
+          <div class="section-title">3. Thống kê hiệu năng Tool (SQLite tool_metrics)</div>
+          <div id="insightsStatsBox" style="background:var(--code-bg); border:1px solid var(--border); border-radius:6px; overflow-x:auto;"></div>
+        </div>
+        <div class="modal-card">
+          <div class="section-title">4. Quy trình phối hợp đã học — Playbooks (SQLite tool_playbooks)</div>
+          <div id="insightsPlaybooksBox" style="display:flex; flex-direction:column; gap:8px;"></div>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- ================= TAB 1: CHAT WORKSPACE ================= -->
   <section id="viewChat" class="tab-view active">
     <aside class="sidebar">
       <div>
-        <div class="section-title">Cau hinh Model & Router</div>
-        <label for="chatModel">Gemini Model</label>
+        <div class="section-title">Cấu hình Model & Router</div>
+        <label for="chatModel">Model xử lý (9Router / Gemini)</label>
         <select id="chatModel"></select>
         <div style="margin-top:8px;">
-          <label for="chatTopK">SkillRouter Top-K (0 = tat ca)</label>
+          <label for="chatTopK">SkillRouter Top-K (0 = tất cả)</label>
           <input type="number" id="chatTopK" min="0" max="100" value="6" />
         </div>
       </div>
 
       <div>
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-          <span class="section-title" style="margin:0;">Phien Chat (SQLite)</span>
+          <span class="section-title" style="margin:0;">Phiên Chat (SQLite)</span>
           <button class="btn btn-sm" onclick="createNewSession()">
             <svg class="icon" viewBox="0 0 24 24">
               <line x1="12" y1="5" x2="12" y2="19" />
               <line x1="5" y1="12" x2="19" y2="12" />
             </svg>
-            <span>Moi</span>
+            <span>Mới</span>
           </button>
         </div>
         <div id="sessionList" class="session-list"></div>
       </div>
 
       <div>
-        <div class="section-title">File Xuat Ra (outputs/)</div>
+        <div class="section-title">Tệp xuất ra (outputs/)</div>
         <div id="outputList" class="output-list"></div>
       </div>
 
+      <div id="prospectiveSidebarWrap" style="display:none;">
+        <div class="section-title">Việc cần nhớ (Prospective)</div>
+        <div id="prospectiveSidebarList" class="output-list" style="max-height:140px;"></div>
+      </div>
+
       <div>
-        <div class="section-title">9Router Pool (Gemini / Groq / Mistral / CF)</div>
+        <div class="section-title">9Router Pool (Gemini / Groq / CF)</div>
         <div id="routerPoolList" class="output-list" style="max-height:170px;"></div>
       </div>
     </aside>
@@ -564,13 +774,13 @@
       <div id="chatMessages" class="messages"></div>
       <div class="chat-input-bar">
         <textarea id="chatInput" rows="2"
-          placeholder="Nhap cau hoi cho AI... (Enter de gui, Shift+Enter xuong dong)"></textarea>
+          placeholder="Nhập câu hỏi cho AI... (Enter để gửi, Shift+Enter xuống dòng)"></textarea>
         <button id="sendBtn" class="btn btn-primary" onclick="sendChat()" style="height:44px; padding:0 18px;">
           <svg class="icon" viewBox="0 0 24 24">
             <line x1="22" y1="2" x2="11" y2="13" />
             <polygon points="22 2 15 22 11 13 2 9 22 2" />
           </svg>
-          <span>Gui</span>
+          <span>Gửi</span>
         </button>
       </div>
     </main>
@@ -580,34 +790,33 @@
   <section id="viewStudio" class="tab-view">
     <aside class="studio-left">
       <div>
-        <div class="section-title">Che do Skill Studio</div>
+        <div class="section-title">Chế độ Skill Studio</div>
         <div class="mode-switch">
-          <button id="modeRewriteBtn" class="mode-btn active" onclick="setStudioMode('rewrite')">Sua / Nang cap
-            Skill</button>
-          <button id="modeCreateBtn" class="mode-btn" onclick="setStudioMode('create')">Tao Skill Moi</button>
+          <button id="modeRewriteBtn" class="mode-btn active" onclick="setStudioMode('rewrite')">Sửa / Nâng cấp Skill</button>
+          <button id="modeCreateBtn" class="mode-btn" onclick="setStudioMode('create')">Tạo Skill Mới</button>
         </div>
       </div>
 
       <div id="existingSkillGroup">
-        <label for="skillSelect">Chon Skill can sua / viet lai</label>
+        <label for="skillSelect">Chọn Skill cần sửa / viết lại</label>
         <select id="skillSelect" onchange="onSelectExistingSkill()"></select>
       </div>
 
       <div id="newSkillGroup" style="display:none;">
-        <label for="newModuleName">Ten module moi (luu vao skills/auto_skills/)</label>
-        <input type="text" id="newModuleName" placeholder="vi du: skill_gold_price_client" />
+        <label for="newModuleName">Tên module mới (lưu vào skills/auto_skills/)</label>
+        <input type="text" id="newModuleName" placeholder="ví dụ: skill_gold_price_client" />
       </div>
 
       <div>
-        <label for="studioErrorCtx">Loi gap phai / Han che hien tai (tuy chon)</label>
+        <label for="studioErrorCtx">Lỗi gặp phải / Hạn chế hiện tại (tùy chọn)</label>
         <textarea id="studioErrorCtx" rows="3"
-          placeholder="Tu dong dien khi bam 'Sua Skill' tu Tab Chat, hoac dan log loi vao day..."></textarea>
+          placeholder="Tự động điền khi bấm 'Sửa Skill' từ Tab Chat, hoặc dán log lỗi vào đây..."></textarea>
       </div>
 
       <div>
-        <label for="studioRequirement">Yeu cau AI viet lai / bo sung tinh nang</label>
+        <label for="studioRequirement">Yêu cầu AI viết lại / bổ sung tính năng</label>
         <textarea id="studioRequirement" rows="5"
-          placeholder="Vi du: Them ham get_weather_forecast(city: str, days: int = 7) lay nhiet do min/max 7 ngay toi tu Open-Meteo API va viet unit test pytest..."></textarea>
+          placeholder="Ví dụ: Thêm hàm get_weather_forecast(city: str, days: int = 7) lấy nhiệt độ min/max 7 ngày tới từ Open-Meteo API và viết unit test pytest..."></textarea>
       </div>
 
       <div class="row-2col">
@@ -616,16 +825,21 @@
           <select id="studioModel"></select>
         </div>
         <div>
-          <label for="studioRounds">Max Fix Rounds</label>
+          <label for="studioRounds">Số vòng tự sửa tối đa</label>
           <input type="number" id="studioRounds" min="1" max="4" value="3" />
         </div>
       </div>
+
+      <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:12.5px; color:var(--text); margin:0;">
+        <input type="checkbox" id="studioLiveSmoke" checked style="width:auto;" />
+        <span>Chạy thử gọi thật (Live Smoke Probe) sau Pytest</span>
+      </label>
 
       <button id="evolveBtn" class="btn btn-primary" onclick="runEvolve()" style="padding:11px;">
         <svg class="icon" viewBox="0 0 24 24">
           <polygon points="5 3 19 12 5 21 5 3" />
         </svg>
-        <span>AI Viet Code + Chay Pytest + Hot-Reload</span>
+        <span>AI Viết Code + Chạy Pytest + Hot-Reload</span>
       </button>
     </aside>
 
@@ -650,16 +864,16 @@
 
         <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
           <select id="versionSelect" onchange="previewSelectedVersion()" style="width:auto; min-width:170px; padding:4px 8px; font-size:12px;">
-            <option value="">Ban goc (chua tao version)</option>
+            <option value="">Bản gốc (chưa tạo version)</option>
           </select>
           <button id="activateVerBtn" class="btn btn-sm" onclick="activateSelectedVersion()" disabled>
-            <span>Kich hoat Version</span>
+            <span>Kích hoạt Version</span>
           </button>
           <button id="manualSaveBtn" class="btn btn-sm btn-success" onclick="manualTestAndSave()">
             <svg class="icon" viewBox="0 0 24 24">
               <polyline points="20 6 9 17 4 12" />
             </svg>
-            <span>Luu Version Moi + Pytest</span>
+            <span>Lưu Version Mới + Pytest</span>
           </button>
           <button class="btn btn-sm" onclick="forceHotReload()">
             <svg class="icon" viewBox="0 0 24 24">
@@ -669,18 +883,25 @@
             </svg>
             <span>Hot-Reload</span>
           </button>
+          <button id="deleteSkillBtn" class="btn btn-sm" onclick="deleteCurrentSkill()" style="color:#fca5a5; border-color:rgba(239,68,68,0.45);" title="Xóa skill đang chọn (tự lưu backup trước khi xóa)">
+            <svg class="icon" viewBox="0 0 24 24">
+              <polyline points="3 6 5 6 21 6" />
+              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+              <path d="M10 11v6M14 11v6" />
+            </svg>
+            <span>Xóa Skill</span>
+          </button>
         </div>
       </div>
 
       <textarea id="skillCodeEditor" class="code-editor" spellcheck="false"
-        placeholder="# Code skill_*.py se hien thi o day..."></textarea>
+        placeholder="# Mã nguồn skill_*.py sẽ hiển thị ở đây..."></textarea>
       <textarea id="testCodeEditor" class="code-editor" spellcheck="false" style="display:none;"
-        placeholder="# Code test_skill_*.py se hien thi o day..."></textarea>
+        placeholder="# Mã nguồn test_skill_*.py sẽ hiển thị ở đây..."></textarea>
 
       <div>
         <div class="section-title">Terminal Log (Coder / AST Security / Pytest / Hot-Reload)</div>
-        <div id="studioLog" class="terminal-box">[INFO] Chon 1 skill o cot trai de xem code, hoac chuyen tu Tab Chat
-          sang khi gap tool loi.</div>
+        <div id="studioLog" class="terminal-box">[INFO] Chọn 1 skill ở cột trái để xem code, hoặc chuyển từ Tab Chat sang khi gặp tool lỗi.</div>
       </div>
     </main>
   </section>
@@ -789,7 +1010,7 @@
       const box = document.getElementById("outputList");
       box.innerHTML = "";
       if (!outputs || outputs.length === 0) {
-        box.innerHTML = '<div style="font-size:12px;color:var(--muted);">Chua co file xuat ra.</div>';
+        box.innerHTML = '<div style="font-size:12px;color:var(--muted);">Chưa có tệp xuất ra.</div>';
         return;
       }
       for (const f of outputs) {
@@ -797,7 +1018,7 @@
         a.className = "output-item";
         a.href = `/api/outputs/${encodeURIComponent(f.name)}`;
         a.target = "_blank";
-        a.innerHTML = `<span style="overflow:hidden;text-overflow:ellipsis;">${escapeHtml(f.name)}</span><span style="font-size:11px;">Tai</span>`;
+        a.innerHTML = `<span style="overflow:hidden;text-overflow:ellipsis;">${escapeHtml(f.name)}</span><span style="font-size:11px;">Tải</span>`;
         box.appendChild(a);
       }
     }
@@ -816,8 +1037,16 @@
           let rows = "";
           for (const t of meta.trace || []) {
             const statusCls = t.ok ? "badge-ok" : "badge-err";
-            const statusTxt = t.ok ? `OK (${t.elapsed_ms || 0}ms)${t.cached ? " [CACHE]" : ""}` : "ERROR";
-            const encodedArgs = encodeURIComponent(JSON.stringify(t.args || {}));
+            const statusTxt = t.ok ? `OK (${t.elapsed_ms || 0}ms)${t.cached ? " [CACHE]" : ""}` : `ERROR (${t.elapsed_ms || 0}ms)`;
+            const encodedArgs = encodeURIComponent(JSON.stringify(t.args || {})).replace(/'/g, "%27");
+            const safePack = encodeURIComponent(t.pack || "").replace(/'/g, "%27");
+            const safeMod = encodeURIComponent(t.module_name || "").replace(/'/g, "%27");
+            const safeTool = encodeURIComponent(t.tool || "").replace(/'/g, "%27");
+            const safeErr = encodeURIComponent(t.error || "").replace(/'/g, "%27");
+            const safeTb = encodeURIComponent(t.traceback || "").replace(/'/g, "%27");
+            const errBlock = (!t.ok && t.error)
+              ? `<div style="width:100%; margin-top:6px; padding:7px 9px; background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.3); border-radius:5px; font-family:monospace; font-size:11.5px; color:#fca5a5; white-space:pre-wrap; word-break:break-word;">${escapeHtml(t.error)}${t.traceback ? `<details style="margin-top:4px; color:var(--muted);"><summary style="cursor:pointer; font-size:11px;">Xem Traceback chi tiết</summary><pre style="margin-top:4px; white-space:pre-wrap; font-size:11px; color:#cbd5e1;">${escapeHtml(t.traceback)}</pre></details>` : ""}</div>`
+              : "";
             rows += `
               <div class="trace-row">
                 <div>
@@ -825,9 +1054,10 @@
                   <span style="color:var(--muted);margin-left:6px;">${escapeHtml(JSON.stringify(t.args || {}))}</span>
                   <span class="${statusCls}" style="margin-left:8px;">${statusTxt}</span>
                 </div>
-                <button class="btn btn-sm" onclick="openSkillInStudio('${escapeHtml(t.pack)}', '${escapeHtml(t.module_name)}', '${escapeHtml(t.tool)}', '${encodedArgs}')">
-                  Sua / Nang cap Skill nay
+                <button class="btn btn-sm" onclick="openSkillInStudio('${safePack}', '${safeMod}', '${safeTool}', '${encodedArgs}', '${safeErr}', '${safeTb}')">
+                  Sửa / Nâng cấp Skill này
                 </button>
+                ${errBlock}
               </div>`;
           }
           traceHtml = `
@@ -837,7 +1067,39 @@
               ${rows}
             </details>`;
         }
-        div.innerHTML = `<div class="msg-content">${renderMarkdownLite(content)}</div>${traceHtml}`;
+        let suggestHtml = "";
+        if (meta && meta.suggested_skill) {
+          const sMod = encodeURIComponent(meta.suggested_skill.module_name || "skill_custom");
+          const sReq = encodeURIComponent(meta.suggested_skill.requirement || "");
+          suggestHtml = `
+            <div style="margin-top:12px; padding:11px 14px; background:rgba(59,130,246,0.1); border:1px solid rgba(59,130,246,0.35); border-radius:8px; display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+              <div style="font-size:12.5px;">
+                <div style="font-weight:600; color:#93c5fd;">[ĐỀ XUẤT SKILL MỚI] <code>${escapeHtml(meta.suggested_skill.module_name)}</code></div>
+                <div style="color:var(--muted); margin-top:3px;">${escapeHtml(meta.suggested_skill.requirement)}</div>
+              </div>
+              <button class="btn btn-sm btn-primary" onclick="openSuggestedSkillInStudio('${sMod}', '${sReq}')">
+                Mở Tab 2 & Tạo Skill này ngay
+              </button>
+            </div>`;
+        }
+        let feedbackHtml = "";
+        if (meta) {
+          const fbId = "fb_" + Math.random().toString(36).slice(2, 9);
+          const safePrompt = encodeURIComponent(appState.lastUserPrompt || "");
+          feedbackHtml = `
+            <div style="margin-top:8px; display:flex; flex-direction:column; gap:6px;">
+              <div style="display:flex; justify-content:flex-end;">
+                <button class="btn btn-sm" style="font-size:11px; color:var(--muted);" onclick="toggleFeedbackBox('${fbId}')">
+                  Góp ý / Sửa thói quen
+                </button>
+              </div>
+              <div id="${fbId}" style="display:none; gap:6px; align-items:center;">
+                <input type="text" id="${fbId}_inp" placeholder="Nhận xét / quy tắc cho lần sau (vd: Lần sau luôn kẻ bảng so sánh ngắn)..." />
+                <button class="btn btn-sm btn-primary" style="white-space:nowrap;" onclick="submitFeedbackRule('${fbId}', '${safePrompt}')">Lưu thành Quy tắc</button>
+              </div>
+            </div>`;
+        }
+        div.innerHTML = `<div class="msg-content">${renderMarkdownLite(content)}</div>${suggestHtml}${traceHtml}${feedbackHtml}`;
       }
       box.appendChild(div);
       box.scrollTop = box.scrollHeight;
@@ -862,6 +1124,9 @@
       renderSessions(data.sessions, data.session_id);
       renderOutputs(data.outputs);
       renderRouterPool(data.router_status);
+      updatePendingBadge(data.pending_facts_count || 0);
+      updateDegradedBadge(data.degraded_tools_count || 0);
+      renderProspectiveSidebar(data.prospective_tasks || []);
 
       const msgBox = document.getElementById("chatMessages");
       msgBox.innerHTML = "";
@@ -877,11 +1142,12 @@
       if (!text) return;
 
       input.value = "";
+      appState.lastUserPrompt = text;
       appendMessage("user", text, null);
 
       const btn = document.getElementById("sendBtn");
       btn.disabled = true;
-      btn.querySelector("span").textContent = "Dang xu ly...";
+      btn.querySelector("span").textContent = "Đang xử lý...";
 
       try {
         const res = await fetch("/api/chat", {
@@ -895,18 +1161,21 @@
         });
         const data = await res.json();
         if (!res.ok) {
-          appendMessage("model", `[ERROR] ${data.detail || "Request failed"}`, null);
+          appendMessage("model", `[ERROR] ${data.detail || "Yêu cầu thất bại"}`, null);
         } else {
           appendMessage("model", data.answer, data);
           renderSessions(data.sessions, data.session_id);
           renderOutputs(data.outputs);
           renderRouterPool(data.router_status);
+          updatePendingBadge(data.pending_facts_count || 0);
+          updateDegradedBadge(data.degraded_tools_count || 0);
+          renderProspectiveSidebar(data.prospective_tasks || []);
         }
       } catch (err) {
         appendMessage("model", `[ERROR] ${err.message}`, null);
       } finally {
         btn.disabled = false;
-        btn.querySelector("span").textContent = "Gui";
+        btn.querySelector("span").textContent = "Gửi";
       }
     }
 
@@ -939,7 +1208,7 @@
     }
 
     /* ================= TAB 2: SKILL STUDIO LOGIC ================= */
-    function setStudioMode(mode) {
+    function setStudioMode(mode, opts = {}) {
       appState.studioMode = mode;
       document.getElementById("modeRewriteBtn").classList.toggle("active", mode === "rewrite");
       document.getElementById("modeCreateBtn").classList.toggle("active", mode === "create");
@@ -954,7 +1223,7 @@
         document.getElementById("skillFileNameLabel").textContent = "skill_new.py";
         document.getElementById("testFileNameLabel").textContent = "test_skill_new.py";
         renderVersionDropdown([]);
-      } else if (appState.skills.length > 0) {
+      } else if (!opts.skipLoad && appState.skills.length > 0) {
         onSelectExistingSkill();
       }
     }
@@ -966,11 +1235,21 @@
       updateToolBadge(data.total_tools, data.packs);
 
       const sel = document.getElementById("skillSelect");
-      sel.innerHTML = "";
+      let matchedKey = "";
+      const targetMod = selectKey && selectKey.includes("::") ? selectKey.split("::")[1] : (selectKey || "");
+      const optionsHtml = [];
       for (const s of appState.skills) {
         const key = `${s.pack}::${s.module_name}`;
-        const selected = selectKey && selectKey === key ? "selected" : "";
-        sel.innerHTML += `<option value="${key}" ${selected}>[${s.pack}] ${s.module_name}.py (${s.tools.length} tools)</option>`;
+        if (selectKey && key === selectKey) {
+          matchedKey = key;
+        } else if (!matchedKey && targetMod && s.module_name === targetMod) {
+          matchedKey = key;
+        }
+        optionsHtml.push(`<option value="${escapeHtml(key)}">[${escapeHtml(s.pack)}] ${escapeHtml(s.module_name)}.py (${s.tools.length} tools)</option>`);
+      }
+      sel.innerHTML = optionsHtml.join("");
+      if (matchedKey) {
+        sel.value = matchedKey;
       }
       if (appState.studioMode === "rewrite" && appState.skills.length > 0) {
         await onSelectExistingSkill();
@@ -982,7 +1261,7 @@
       const btn = document.getElementById("activateVerBtn");
       if (!sel) return;
       if (!versions || versions.length === 0) {
-        sel.innerHTML = '<option value="">Ban goc (chua tao version)</option>';
+        sel.innerHTML = '<option value="">Bản gốc (chưa tạo version)</option>';
         if (btn) btn.disabled = true;
         return;
       }
@@ -1003,7 +1282,7 @@
       const data = await res.json();
       document.getElementById("skillCodeEditor").value = data.skill_code || "";
       document.getElementById("testCodeEditor").value = data.test_code || "";
-      setStudioLog([`[PREVIEW] Viewing ${appState.currentPack}/${appState.currentModule} @ ${ver} (bam 'Kich hoat Version' de ap dung).`], "");
+      setStudioLog([`[PREVIEW] Đang xem ${appState.currentPack}/${appState.currentModule} @ ${ver} (bấm 'Kích hoạt Version' để áp dụng).`], "");
     }
 
     async function activateSelectedVersion() {
@@ -1043,12 +1322,499 @@
       renderVersionDropdown(data.versions || []);
     }
 
-    async function openSkillInStudio(pack, moduleName, toolName, encodedArgs) {
+    function updatePendingBadge(count) {
+      const b = document.getElementById("pendingBadge");
+      if (!b) return;
+      if (count > 0) {
+        b.style.display = "inline-block";
+        b.textContent = String(count);
+      } else {
+        b.style.display = "none";
+      }
+    }
+
+    function updateDegradedBadge(count) {
+      const b = document.getElementById("degradedBadge");
+      if (!b) return;
+      if (count > 0) {
+        b.style.display = "inline-block";
+        b.textContent = String(count);
+      } else {
+        b.style.display = "none";
+      }
+    }
+
+    function renderProspectiveSidebar(tasks) {
+      const wrap = document.getElementById("prospectiveSidebarWrap");
+      const box = document.getElementById("prospectiveSidebarList");
+      if (!wrap || !box) return;
+      if (!tasks || tasks.length === 0) {
+        wrap.style.display = "none";
+        return;
+      }
+      wrap.style.display = "block";
+      box.innerHTML = tasks.slice(0, 6).map(t => `
+        <div class="output-item" style="font-size:11.5px;" title="${escapeHtml(t.title)}">
+          <span style="overflow:hidden;text-overflow:ellipsis;color:var(--text);">${escapeHtml(t.title)}${t.due_date ? ` (${escapeHtml(t.due_date)})` : ""}</span>
+          <button class="btn btn-sm" style="padding:2px 6px;font-size:10px;" onclick="completeProspectiveTask(${t.id})">Xong</button>
+        </div>`).join("");
+    }
+
+    function toggleFeedbackBox(fbId) {
+      const box = document.getElementById(fbId);
+      if (!box) return;
+      box.style.display = box.style.display === "none" ? "flex" : "none";
+      if (box.style.display === "flex") {
+        const inp = document.getElementById(fbId + "_inp");
+        if (inp) inp.focus();
+      }
+    }
+
+    async function submitFeedbackRule(fbId, encodedPrompt) {
+      const inp = document.getElementById(fbId + "_inp");
+      const text = (inp ? inp.value : "").trim();
+      if (!text) return;
+      const res = await fetch("/api/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          session_id: appState.sessionId,
+          prompt: decodeURIComponent(encodedPrompt || ""),
+          correction_text: text,
+          save_as_rule: true
+        })
+      });
+      if (res.ok) {
+        const box = document.getElementById(fbId);
+        if (box) {
+          box.innerHTML = `<span style="font-size:12px;color:var(--success);">[ĐÃ LƯU QUY TẮC] ${escapeHtml(text)}</span>`;
+        }
+      }
+    }
+
+    async function openProfileModal() {
+      document.getElementById("profileModal").style.display = "flex";
+      await refreshProfileModal();
+    }
+
+    function closeProfileModal() {
+      document.getElementById("profileModal").style.display = "none";
+    }
+
+    let cachedPersonaPresets = {};
+
+    function onPersonaPresetChange() {
+      const key = document.getElementById("profPreset").value;
+      const box = document.getElementById("profCustomPrompt");
+      if (key !== "custom" && cachedPersonaPresets[key]) {
+        box.value = cachedPersonaPresets[key].prompt || "";
+      }
+    }
+
+    async function savePersonaProfile() {
+      const preset = document.getElementById("profPreset").value;
+      const promptText = document.getElementById("profCustomPrompt").value.trim();
+      const presetDefault = (cachedPersonaPresets[preset] || {}).prompt || "";
+      const finalPreset = (preset !== "custom" && promptText && promptText !== presetDefault) ? "custom" : preset;
+
+      const res = await fetch("/api/profile/persona", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_name: document.getElementById("profName").value,
+          user_role: document.getElementById("profRole").value,
+          default_city: document.getElementById("profCity").value,
+          work_tech_stack: document.getElementById("profStack").value,
+          persona_preset: finalPreset,
+          persona_custom_prompt: promptText
+        })
+      });
+      if (res.ok) {
+        document.getElementById("profSaveStatus").textContent = "[ĐÃ LƯU] Đã cập nhật hồ sơ & phong cách AI.";
+        await refreshProfileModal();
+      }
+    }
+
+    async function refreshProfileModal() {
+      const res = await fetch("/api/profile");
+      const data = await res.json();
+      updatePendingBadge((data.pending_facts || []).length);
+
+      // Populate Persona Studio & SFT stats
+      cachedPersonaPresets = data.persona_presets || {};
+      const p = data.persona || {};
+      document.getElementById("profName").value = p.user_name || "Phong";
+      document.getElementById("profRole").value = p.user_role || "DEV";
+      document.getElementById("profCity").value = p.default_city || "Hà Nội";
+      document.getElementById("profStack").value = p.work_tech_stack || "";
+
+      const presetSel = document.getElementById("profPreset");
+      presetSel.innerHTML = "";
+      for (const [k, info] of Object.entries(cachedPersonaPresets)) {
+        presetSel.innerHTML += `<option value="${escapeHtml(k)}" ${k === p.persona_preset ? "selected" : ""}>${escapeHtml(info.label)}</option>`;
+      }
+      document.getElementById("profCustomPrompt").value = p.effective_persona_prompt || "";
+
+      const pBox = document.getElementById("pendingFactsBox");
+      if (!data.pending_facts || data.pending_facts.length === 0) {
+        pBox.innerHTML = '<div style="font-size:12px;color:var(--muted);">Không có đề xuất nào đang chờ duyệt.</div>';
+      } else {
+        pBox.innerHTML = data.pending_facts.map(p => `
+          <div style="background:rgba(59,130,246,0.08); border:1px solid rgba(59,130,246,0.3); border-radius:6px; padding:8px 10px; display:flex; justify-content:space-between; align-items:center; gap:10px; font-size:12.5px;">
+            <div>
+              <strong>${escapeHtml(p.key)}</strong> (${escapeHtml(p.category)}): ${escapeHtml(p.value)}
+              <div style="font-size:11px;color:var(--muted);margin-top:2px;">Từ câu: "${escapeHtml(p.evidence)}"</div>
+            </div>
+            <div style="display:flex;gap:6px;flex-shrink:0;">
+              <button class="btn btn-sm btn-primary" onclick="approvePending(${p.id})">Duyệt</button>
+              <button class="btn btn-sm" onclick="dismissPending(${p.id})">Bỏ qua</button>
+            </div>
+          </div>`).join("");
+      }
+
+      const rBox = document.getElementById("userRulesBox");
+      if (!data.rules || data.rules.length === 0) {
+        rBox.innerHTML = '<div style="font-size:12px;color:var(--muted);">Chưa có quy tắc cá nhân nào.</div>';
+      } else {
+        rBox.innerHTML = data.rules.map(r => `
+          <div style="background:var(--code-bg); border:1px solid var(--border); border-radius:6px; padding:8px 10px; display:flex; justify-content:space-between; align-items:center; gap:10px; font-size:12.5px; opacity:${r.active ? 1 : 0.55};">
+            <div>
+              <span>${escapeHtml(r.rule_text)}</span>
+              <span style="font-size:11px;color:var(--muted);margin-left:6px;">[${escapeHtml(r.source)}]</span>
+            </div>
+            <div style="display:flex;gap:6px;flex-shrink:0;">
+              <button class="btn btn-sm" onclick="toggleRule(${r.rule_id}, ${r.active ? 'false' : 'true'})">${r.active ? 'Tạm tắt' : 'Bật lại'}</button>
+              <button class="btn btn-sm" onclick="deleteRule(${r.rule_id})">Xóa</button>
+            </div>
+          </div>`).join("");
+      }
+
+      const fBox = document.getElementById("userFactsBox");
+      if (!data.facts || data.facts.length === 0) {
+        fBox.innerHTML = '<div style="font-size:12px;color:var(--muted);">Chưa có thông tin hồ sơ nào.</div>';
+      } else {
+        fBox.innerHTML = data.facts.map(f => `
+          <div style="background:var(--code-bg); border:1px solid var(--border); border-radius:6px; padding:8px 10px; display:flex; justify-content:space-between; align-items:center; gap:10px; font-size:12.5px;">
+            <div>
+              <code>${escapeHtml(f.key)}</code>: ${escapeHtml(f.value)}
+              <span style="font-size:11px;color:var(--muted);">(${escapeHtml(f.category)} | điểm=${f.effective_score || 1} | dùng ${f.access_count || 0} lần)</span>
+            </div>
+            <button class="btn btn-sm" onclick="deleteFact('${encodeURIComponent(f.key)}')">Xóa</button>
+          </div>`).join("");
+      }
+
+      // Conflict Resolution History (deprecated facts)
+      const hBox = document.getElementById("factHistoryBox");
+      if (!data.fact_history || data.fact_history.length === 0) {
+        hBox.innerHTML = '<div style="font-size:12px;color:var(--muted);">Chưa có phiên bản thông tin cũ nào bị thay thế.</div>';
+      } else {
+        hBox.innerHTML = data.fact_history.map(h => `
+          <div style="font-size:11.5px; color:var(--muted); border-top:1px solid var(--border); padding-top:6px;">
+            <code>${escapeHtml(h.fact_key)}</code>:
+            <span style="text-decoration:line-through; color:var(--danger);">${escapeHtml(h.old_value)}</span>
+            ${h.new_value ? `-> <span style="color:var(--success);">${escapeHtml(h.new_value)}</span>` : " [ĐÃ XÓA]"}
+            <div style="font-size:10.5px; color:#64748b;">[${escapeHtml(h.status)}] ${escapeHtml(h.valid_from)} -> ${escapeHtml(h.valid_to)} (${escapeHtml(h.reason)})</div>
+          </div>`).join("");
+      }
+
+      // Prospective Tasks
+      const tBox = document.getElementById("prospectiveTasksBox");
+      const allTasks = data.prospective_tasks || [];
+      renderProspectiveSidebar(allTasks.filter(t => t.status === "pending"));
+      if (allTasks.length === 0) {
+        tBox.innerHTML = '<div style="font-size:12px;color:var(--muted);">Chưa có việc cần nhớ / backlog nào.</div>';
+      } else {
+        tBox.innerHTML = allTasks.map(t => `
+          <div style="background:var(--code-bg); border:1px solid var(--border); border-radius:6px; padding:8px 10px; display:flex; justify-content:space-between; align-items:center; gap:10px; font-size:12.5px; opacity:${t.status === 'done' ? 0.55 : 1};">
+            <div>
+              <span style="${t.status === 'done' ? 'text-decoration:line-through;' : ''}">${escapeHtml(t.title)}</span>
+              <span style="font-size:11px;color:var(--muted);margin-left:6px;">[${escapeHtml(t.trigger_condition)}${t.due_date ? ` | hạn: ${escapeHtml(t.due_date)}` : ""}]</span>
+            </div>
+            <div style="display:flex;gap:6px;flex-shrink:0;">
+              ${t.status === 'pending' ? `<button class="btn btn-sm btn-primary" onclick="completeProspectiveTask(${t.id})">Xong</button>` : '<span style="font-size:11px;color:var(--success);">HOÀN THÀNH</span>'}
+              <button class="btn btn-sm" onclick="deleteProspectiveTask(${t.id})">Xóa</button>
+            </div>
+          </div>`).join("");
+      }
+
+      // Episodic Consolidation Stats
+      const ep = data.episodic_stats || {};
+      const epTxt = document.getElementById("episodicStatsText");
+      if (epTxt) {
+        epTxt.textContent = `Episodic tool logs: ${ep.unconsolidated_logs || 0} chưa tổng hợp / ${ep.total_logs || 0} tổng | Lần tổng hợp cuối: ${ep.last_consolidation_at || "Chưa chạy"}`;
+      }
+    }
+
+    async function addProspectiveTask() {
+      const title = document.getElementById("newTaskTitle").value.trim();
+      if (!title) return;
+      const due = document.getElementById("newTaskDue").value.trim();
+      const trig = document.getElementById("newTaskTrigger").value.trim() || "session_start";
+      await fetch("/api/memory/prospective", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title, due_date: due, trigger_condition: trig, priority: "normal" })
+      });
+      document.getElementById("newTaskTitle").value = "";
+      document.getElementById("newTaskDue").value = "";
+      await refreshProfileModal();
+    }
+
+    async function completeProspectiveTask(id) {
+      await fetch(`/api/memory/prospective/${id}/complete`, { method: "POST" });
+      if (document.getElementById("profileModal").style.display === "flex") {
+        await refreshProfileModal();
+      } else {
+        const res = await fetch("/api/state");
+        const data = await res.json();
+        renderProspectiveSidebar(data.prospective_tasks || []);
+      }
+    }
+
+    async function deleteProspectiveTask(id) {
+      await fetch(`/api/memory/prospective/${id}`, { method: "DELETE" });
+      await refreshProfileModal();
+    }
+
+    async function runMemoryConsolidation() {
+      const btn = document.getElementById("consolidateBtn");
+      const out = document.getElementById("consolidateResultBox");
+      btn.disabled = true;
+      btn.textContent = "Đang tổng hợp...";
+      out.textContent = "[RUNNING] Đang đọc Episodic logs, rút ra bài học và dọn log cũ...";
+      try {
+        const res = await fetch("/api/memory/consolidate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ use_llm: true, ttl_days: 14 })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          out.style.color = "var(--danger)";
+          out.textContent = `[ERROR] ${data.detail || "Tổng hợp thất bại"}`;
+        } else {
+          out.style.color = "var(--success)";
+          out.textContent = `[HOÀN TẤT] ${data.summary} (đề xuất mới +${data.new_pending_facts}, anti-pattern +${data.reinforced_antipatterns}, đã dọn ${data.pruned_cold_logs} log cũ${data.llm_used ? `, model=${data.llm_model}` : ""})`;
+          await refreshProfileModal();
+        }
+      } catch (err) {
+        out.style.color = "var(--danger)";
+        out.textContent = `[ERROR] ${err.message}`;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Tổng hợp Trí nhớ ngay";
+      }
+    }
+
+    async function addNewRule() {
+      const inp = document.getElementById("newRuleInput");
+      const val = inp.value.trim();
+      if (!val) return;
+      await fetch("/api/profile/rule", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rule_text: val, source: "manual" })
+      });
+      inp.value = "";
+      await refreshProfileModal();
+    }
+
+    async function toggleRule(id, active) {
+      await fetch(`/api/profile/rule/${id}/toggle`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ active })
+      });
+      await refreshProfileModal();
+    }
+
+    async function deleteRule(id) {
+      await fetch(`/api/profile/rule/${id}`, { method: "DELETE" });
+      await refreshProfileModal();
+    }
+
+    async function addNewFact() {
+      const k = document.getElementById("newFactKey").value.trim();
+      const v = document.getElementById("newFactVal").value.trim();
+      if (!k || !v) return;
+      await fetch("/api/profile/fact", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: k, value: v, category: "profile" })
+      });
+      document.getElementById("newFactKey").value = "";
+      document.getElementById("newFactVal").value = "";
+      await refreshProfileModal();
+    }
+
+    async function deleteFact(encodedKey) {
+      await fetch(`/api/profile/fact/${encodedKey}`, { method: "DELETE" });
+      await refreshProfileModal();
+    }
+
+    async function approvePending(id) {
+      await fetch(`/api/profile/pending/${id}/approve`, { method: "POST" });
+      await refreshProfileModal();
+    }
+
+    async function dismissPending(id) {
+      await fetch(`/api/profile/pending/${id}`, { method: "DELETE" });
+      await refreshProfileModal();
+    }
+
+    async function openSuggestedSkillInStudio(encodedMod, encodedReq) {
       switchTab("studio");
-      setStudioMode("rewrite");
+      setStudioMode("create");
+      document.getElementById("newModuleName").value = decodeURIComponent(encodedMod || "");
+      document.getElementById("studioRequirement").value = decodeURIComponent(encodedReq || "");
+      document.getElementById("studioErrorCtx").value = "Phat hien thieu skill tu Tab 1 Chat.";
+      document.getElementById("studioRequirement").focus();
+    }
+
+    async function openInsightsModal() {
+      const modal = document.getElementById("insightsModal");
+      modal.style.display = "flex";
+      const res = await fetch("/api/insights");
+      const data = await res.json();
+      updateDegradedBadge((data.degraded_tools || []).length);
+      document.getElementById("insightsMetaBadge").textContent =
+        `(${data.total_tools} tools | ${data.embeddings_cached} embeddings | ${(data.antipatterns || []).length} anti-patterns)`;
+
+      // 1. Meta-Memory Auto-Flag (Degraded / Failing Skills)
+      const degBox = document.getElementById("degradedToolsBox");
+      if (!data.degraded_tools || data.degraded_tools.length === 0) {
+        degBox.innerHTML = '<div style="font-size:12.5px;color:var(--success);">[ỔN ĐỊNH] Không có skill nào bị cảnh báo tỉ lệ lỗi cao.</div>';
+      } else {
+        degBox.innerHTML = data.degraded_tools.map(d => {
+          const errCtx = encodeURIComponent(`Meta-Memory Auto-Flag: ${d.reason}. Lỗi gần nhất: ${d.last_error}. Anti-patterns: ${(d.antipatterns || []).join("; ")}`).replace(/'/g, "%27");
+          const safeTool = encodeURIComponent(d.tool_name || "").replace(/'/g, "%27");
+          return `<div style="background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.35); border-radius:6px; padding:10px 12px; display:flex; justify-content:space-between; align-items:center; gap:10px; font-size:12.5px; flex-wrap:wrap;">
+            <div>
+              <strong style="color:#fca5a5;">[CẢNH BÁO] <code>${escapeHtml(d.tool_name)}</code></strong>
+              <span style="color:var(--warn); margin-left:8px;">${escapeHtml(d.reason)}</span>
+              ${d.last_error ? `<div style="font-size:11.5px;color:var(--muted);margin-top:3px;">Lỗi gần nhất: ${escapeHtml(d.last_error)}</div>` : ""}
+            </div>
+            <div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
+              ${d.module_name ? `<button class="btn btn-sm btn-primary" onclick="closeInsightsModal(); openDegradedSkillInStudio('${escapeHtml(d.pack)}', '${escapeHtml(d.module_name)}', '${errCtx}')">Sửa / Tiến hóa ở Tab 2</button>` : ""}
+              <button class="btn btn-sm" onclick="dismissDegradedFlag('${safeTool}')" title="Xóa cảnh báo & reset thống kê lỗi của tool này" style="padding:4px 7px; color:var(--muted);">
+                <svg class="icon" viewBox="0 0 24 24" style="width:13px;height:13px;"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
+          </div>`;
+        }).join("");
+      }
+
+      // 2. Failure / Anti-Pattern Memory
+      const apBox = document.getElementById("antipatternsBox");
+      if (!data.antipatterns || data.antipatterns.length === 0) {
+        apBox.innerHTML = '<div style="font-size:12.5px;color:var(--muted);">Chưa ghi nhận anti-pattern / bẫy lỗi nào.</div>';
+      } else {
+        apBox.innerHTML = data.antipatterns.map(ap => `
+          <div style="background:var(--code-bg); border:1px solid var(--border); border-radius:6px; padding:8px 10px; display:flex; justify-content:space-between; align-items:center; gap:10px; font-size:12px;">
+            <div>
+              <code>${escapeHtml(ap.tool_name)}</code>
+              <span style="color:var(--warn); margin-left:6px;">(gặp ${ap.hit_count} lần)</span>
+              <div style="color:var(--text); margin-top:2px;">${escapeHtml(ap.lesson_learned)}</div>
+            </div>
+            <button class="btn btn-sm" onclick="deleteAntipattern(${ap.id})">Xóa</button>
+          </div>`).join("");
+      }
+
+      const statsBox = document.getElementById("insightsStatsBox");
+      if (!data.tool_stats || data.tool_stats.length === 0) {
+        statsBox.innerHTML = '<div style="padding:12px;font-size:12.5px;color:var(--muted);">Chưa có dữ liệu thống kê gọi tool. Hãy chat vài câu có dùng tool trước.</div>';
+      } else {
+        let rows = data.tool_stats.map(s => {
+          const rateColor = s.ok_rate >= 80 ? "var(--success)" : (s.ok_rate >= 50 ? "var(--warn)" : "var(--danger)");
+          const editBtn = s.module_name
+            ? `<button class="btn btn-sm" onclick="closeInsightsModal(); openSkillInStudio('${escapeHtml(s.pack)}', '${escapeHtml(s.module_name)}', '${escapeHtml(s.tool_name)}', '%7B%7D')">Sửa Skill</button>`
+            : "";
+          return `<tr style="border-top:1px solid var(--border);">
+            <td style="padding:7px 10px;"><code>${escapeHtml(s.tool_name)}</code></td>
+            <td style="padding:7px 10px;text-align:right;">${s.calls}</td>
+            <td style="padding:7px 10px;text-align:right;color:${rateColor};font-weight:600;">${s.ok_rate}%</td>
+            <td style="padding:7px 10px;text-align:right;">${Math.round(s.avg_ms)}ms</td>
+            <td style="padding:7px 10px;text-align:right;color:${s.consecutive_failures > 0 ? 'var(--danger)' : 'var(--muted)'};">${s.consecutive_failures}</td>
+            <td style="padding:7px 10px;text-align:right;">${editBtn}</td>
+          </tr>`;
+        }).join("");
+        statsBox.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:12.5px;">
+          <thead><tr style="color:var(--muted);text-align:left;background:var(--panel-alt);">
+            <th style="padding:8px 10px;">Tool</th>
+            <th style="padding:8px 10px;text-align:right;">Lượt gọi</th>
+            <th style="padding:8px 10px;text-align:right;">Thành công</th>
+            <th style="padding:8px 10px;text-align:right;">Độ trễ TB</th>
+            <th style="padding:8px 10px;text-align:right;">Lỗi liên tiếp</th>
+            <th style="padding:8px 10px;text-align:right;">Thao tác</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>`;
+      }
+
+      const pbBox = document.getElementById("insightsPlaybooksBox");
+      if (!data.playbooks || data.playbooks.length === 0) {
+        pbBox.innerHTML = '<div style="font-size:12.5px;color:var(--muted);">Chưa có playbook nào.</div>';
+      } else {
+        pbBox.innerHTML = data.playbooks.map(pb => `
+          <div style="background:var(--code-bg); border:1px solid var(--border); border-radius:6px; padding:10px 12px; font-size:12.5px;">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <strong style="color:#93c5fd;">${escapeHtml(pb.playbook_id)}</strong>
+              <span style="font-size:11.5px; color:var(--success);">Đã dùng thành công: ${pb.success_count} lần</span>
+            </div>
+            <div style="margin-top:4px; color:var(--text);"><code>${escapeHtml(pb.tools_csv)}</code></div>
+            <div style="margin-top:4px; color:var(--muted);">${escapeHtml(pb.strategy_hint)}</div>
+            <div style="margin-top:3px; font-size:11px; color:#64748b;">Từ khóa kích hoạt: ${escapeHtml(pb.trigger_keywords)}</div>
+          </div>`).join("");
+      }
+    }
+
+    function closeInsightsModal() {
+      document.getElementById("insightsModal").style.display = "none";
+    }
+
+    async function deleteAntipattern(id) {
+      await fetch(`/api/memory/antipattern/${id}`, { method: "DELETE" });
+      await openInsightsModal();
+    }
+
+    async function dismissDegradedFlag(encodedToolName) {
+      await fetch(`/api/insights/flag/${encodedToolName}`, { method: "DELETE" });
+      await openInsightsModal();
+    }
+
+    async function openDegradedSkillInStudio(pack, moduleName, encodedErrCtx) {
+      const p = decodeURIComponent(pack || "");
+      const m = decodeURIComponent(moduleName || "");
+      switchTab("studio");
+      setStudioMode("rewrite", { skipLoad: true });
+      await loadSkillsList(`${p}::${m}`);
+      document.getElementById("studioErrorCtx").value = decodeURIComponent(encodedErrCtx || "");
+      document.getElementById("studioRequirement").value = "Sửa lỗi gây tỉ lệ fail cao trên skill này, bổ sung fallback an toàn và viết unit test pytest bao phủ trường hợp lỗi.";
+      document.getElementById("studioRequirement").focus();
+    }
+
+    async function openSkillInStudio(pack, moduleName, toolName, encodedArgs, encodedErr = "", encodedTb = "") {
+      const p = decodeURIComponent(pack || "");
+      let m = decodeURIComponent(moduleName || "");
+      const t = decodeURIComponent(toolName || "");
       const argsStr = decodeURIComponent(encodedArgs || "{}");
-      await loadSkillsList(`${pack}::${moduleName}`);
-      document.getElementById("studioErrorCtx").value = `Tool vua goi: ${toolName} voi tham so ${argsStr}`;
+      const errStr = decodeURIComponent(encodedErr || "");
+      const tbStr = decodeURIComponent(encodedTb || "");
+      if (!m && t) {
+        const prefix = t.split("__")[0];
+        m = prefix.startsWith("skill_") ? prefix : `skill_${prefix}`;
+      }
+      switchTab("studio");
+      setStudioMode("rewrite", { skipLoad: true });
+      await loadSkillsList(`${p}::${m}`);
+      let ctx = `Tool vừa gọi: ${t}\nTham số: ${argsStr}`;
+      if (errStr) {
+        ctx += `\nLỗi thực tế: ${errStr}`;
+      }
+      if (tbStr) {
+        ctx += `\nTraceback:\n${tbStr}`;
+      }
+      document.getElementById("studioErrorCtx").value = ctx;
       document.getElementById("studioRequirement").focus();
     }
 
@@ -1071,20 +1837,20 @@
         pack = "auto_skills";
         mod = document.getElementById("newModuleName").value.trim();
         if (!mod) {
-          alert("Vui long nhap ten module moi (vi du: skill_gold_price).");
+          alert("Vui lòng nhập tên module mới (ví dụ: skill_gold_price).");
           return;
         }
       }
 
       const reqText = document.getElementById("studioRequirement").value.trim();
       if (!reqText) {
-        alert("Vui long nhap yeu cau viet lai / tao skill.");
+        alert("Vui lòng nhập yêu cầu viết lại / tạo skill.");
         return;
       }
 
       const btn = document.getElementById("evolveBtn");
       btn.disabled = true;
-      setStudioLog(["[RUNNING] Dang goi Gemini Coder -> AST Check -> Pytest -> Auto-Fixer..."], "");
+      setStudioLog(["[RUNNING] Đang gọi Gemini Coder -> AST Check -> Pytest -> Auto-Fixer..."], "");
 
       try {
         const res = await fetch("/api/skills/evolve", {
@@ -1097,7 +1863,8 @@
             requirement: reqText,
             error_context: document.getElementById("studioErrorCtx").value,
             model: document.getElementById("studioModel").value,
-            max_fix_rounds: parseInt(document.getElementById("studioRounds").value || "3", 10)
+            max_fix_rounds: parseInt(document.getElementById("studioRounds").value || "3", 10),
+            live_smoke_test: document.getElementById("studioLiveSmoke").checked
           })
         });
         const data = await res.json();
@@ -1127,10 +1894,10 @@
       let pack = appState.currentPack || "auto_skills";
       let mod = appState.currentModule || document.getElementById("newModuleName").value.trim();
       if (!mod) {
-        alert("Chua xac dinh ten module skill.");
+        alert("Chưa xác định tên module skill.");
         return;
       }
-      setStudioLog(["[RUNNING] Dang kiem tra AST & chay pytest tren code hien tai..."], "");
+      setStudioLog(["[RUNNING] Đang kiểm tra AST & chạy pytest trên mã nguồn hiện tại..."], "");
       const res = await fetch("/api/skills/test-save", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1176,13 +1943,44 @@
       const res = await fetch("/api/skills/reload", { method: "POST" });
       const data = await res.json();
       await loadSkillsList(`${appState.currentPack}::${appState.currentModule}`);
-      setStudioLog([`[HOT-RELOAD] Reloaded all packs -> ${data.total_tools} tools active.`], "");
+      setStudioLog([`[HOT-RELOAD] Đã nạp lại toàn bộ pack -> ${data.total_tools} tools đang hoạt động.`], "");
+    }
+
+    async function deleteCurrentSkill() {
+      if (appState.studioMode === "create" || !appState.currentModule) {
+        alert("Vui lòng chọn một skill đang có để xóa.");
+        return;
+      }
+      const targetLabel = `${appState.currentPack}/${appState.currentModule}.py`;
+      if (!confirm(`Bạn có chắc muốn xóa skill ${targetLabel}?\n(Hệ thống sẽ tự động lưu bản sao lưu trong data/skill_backups/ trước khi xóa.)`)) {
+        return;
+      }
+      const res = await fetch("/api/skills/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pack: appState.currentPack, module_name: appState.currentModule })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setStudioLog([`[ERROR] ${data.detail || "Xóa skill thất bại"}`], "");
+        return;
+      }
+      updateToolBadge(data.total_tools, data.packs);
+      setStudioLog(data.logs || [], "");
+      await loadSkillsList();
     }
 
     document.getElementById("chatInput").addEventListener("keydown", (e) => {
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
         sendChat();
+      }
+    });
+
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        closeProfileModal();
+        closeInsightsModal();
       }
     });
 

@@ -130,6 +130,22 @@ proj11_AI_use_Skills/
 - [x] **Lưu trữ Version nối tiếp cho Skill (`data/skill_versions/<pack>/<module>/v1, v2, v3...`):** Không xóa hay ghi đè mất code cũ; lần sửa đầu tự lưu bản gốc thành `v1`, các bản cập nhật sau lưu nối tiếp thành `v2`, `v3`, ... kèm `manifest.json`.
 - [x] **Tab 2 UI Version Selector:** Thêm dropdown chọn xem trước bất kỳ version nào (`v1`, `v2`, `v3 [ACTIVE]`) và nút **"Kich hoat Version"** để chuyển đổi nóng mà không xóa các version khác.
 
+### Giai đoạn 11 — Adaptive Tool Telemetry, Phân tầng Ưu tiên, Fail-to-Backup & Playbooks
+- [x] **Adaptive Tool Telemetry Scoring (`tool_metrics` trong SQLite):** Tự động ghi nhận `calls`, `successes`, `avg_ms`, `consecutive_failures` của từng tool. Điểm chấm dùng làm mịn Bayesian (tool mới chưa gọi vẫn có prior cao nên không bị bỏ đói; tool chính lỗi liên tiếp sẽ tự nhường hạng cho tool dự phòng).
+- [x] **Fail-to-Backup Escalation giữa lượt (`_escalate_backups_if_failed`):** Khi một tool hạng cao gọi bị lỗi (`ok=False`) ở Step 1, hệ thống lập tức mở khóa tool dự phòng cùng nhóm (ví dụ `open_meteo` lỗi -> mở khóa `weather_api_client` + `web_search`; `web_reader` lỗi -> mở khóa `browser_reader`) ngay ở Step 2 kèm gợi ý cho LLM.
+- [x] **Quy tắc Phân tầng Ưu tiên (Specialized First, Web Search Last):** Ưu tiên Tầng 1 (Local/Deterministic/PC `0–50ms`) -> Tầng 2 (Structured API `200–1200ms`) -> Tầng 3 (`web_search`/`browser_reader` cuối cùng).
+- [x] **Experiential Playbooks (`tool_playbooks` trong SQLite):** Có sẵn 5 mẫu phối hợp chuẩn và tự động học/củng cố thêm các chuỗi phối hợp 2–4 tool thành công thực tế (xem qua `--playbooks`, `--tool-stats` hoặc `/playbooks`, `/stats`).
+
+### Giai đoạn 12 — Zero-Config Hybrid Router (BM25 + SQLite Embeddings), Missing-Skill Detector & Insights Dashboard
+- [x] **Zero-Config Hybrid Router (`skill_router.py` + bảng `tool_embeddings` trong SQLite):** Tự động đánh chỉ mục BM25 toàn văn (tên hàm, docstring, tên tham số, giá trị `enum`) cho toàn bộ 82+ tool (không cần khai báo từ khóa tay khi thêm skill mới) kết hợp vector embedding cache nền trên SQLite.
+- [x] **Missing-Skill Auto-Detector (`[[SUGGEST_SKILL: ...]]`):** Khi kho tool hiện tại chưa đáp ứng được yêu cầu thực tế của người dùng, Tab 1 tự động hiển thị thẻ `[DE XUAT SKILL MOI]` kèm nút **1-Click "Mo Tab 2 & Tao Skill nay ngay"** điền sẵn tên module và yêu cầu kỹ thuật.
+- [x] **Web UI Insights Dashboard (`/api/insights` + Modal "Thong ke & Playbooks"):** Hiển thị trực tiếp bảng `tool_metrics` (Calls, OK%, Avg Latency, Consec Fail + nút nhảy sang Tab 2 sửa tool lỗi) và danh sách `tool_playbooks` ngay trên Web UI.
+
+### Giai đoạn 13 — Cá nhân hóa & Tự học từ người dùng (`profile_learner.py` + `user_rules` + `pending_facts`)
+- [x] **Feedback-to-Rule Learning (mặc định không góp ý = hài lòng):** Dưới mỗi câu trả lời ở Tab 1 có nút gọn **"Gop y / Sua thoi quen"**; nhập góp ý sẽ lưu thành Quy tắc cá nhân (`user_rules` trong SQLite) và tự động nạp vào `SYSTEM_INSTRUCTION` cho mọi model (Gemini, Groq, Cloudflare).
+- [x] **Auto-Profile Extractor có kiểm duyệt (`agent_runtime/profile_learner.py`):** Trích xuất ngầm (0 API call, <1ms) các thông tin bền vững (tên, thành phố mặc định, tech stack, sở thích phong cách) vào hàng chờ `pending_facts` kèm badge thông báo chờ bạn bấm **Duyet** hoặc **Bo qua**.
+- [x] **Màn hình "Ho so & Quy tac" ngay trên Web UI:** Quản lý trực tiếp 3 mục (Đề xuất AI tự học chờ duyệt, Quy tắc ứng xử cá nhân bật/tắt/xóa, và Hồ sơ `user_facts`).
+
 ---
 
 ## 4. Danh sách đầy đủ 44 Tool đang hoạt động (30 Skill Modules)

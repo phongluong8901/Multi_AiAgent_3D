@@ -63,6 +63,32 @@ def _print_router_status(llm_router: MultiProviderRouter) -> None:
         )
 
 
+def _print_tool_stats(store: SQLiteMemoryStore) -> None:
+    metrics = store.get_tool_metrics_map()
+    if not metrics:
+        print("[INFO] No tool execution telemetry recorded in SQLite yet.")
+        return
+    print(f"{'TOOL':<42} | {'CALLS':>5} | {'OK%':>6} | {'AVG_MS':>7} | {'CONSEC_FAIL':>11}")
+    print("-" * 84)
+    for name, m in metrics.items():
+        calls = max(1, int(m["calls"]))
+        ok_pct = (int(m["successes"]) / calls) * 100.0
+        print(
+            f"{name:<42} | {m['calls']:>5} | {ok_pct:>5.1f}% | {m['avg_ms']:>6.0f}ms | {m['consecutive_failures']:>11}"
+        )
+
+
+def _print_playbooks(store: SQLiteMemoryStore) -> None:
+    playbooks = store.list_playbooks()
+    if not playbooks:
+        print("[INFO] No playbooks stored in SQLite.")
+        return
+    for pb in playbooks:
+        print(f"  - [{pb['playbook_id']}] (used={pb['success_count']}) tools=[{pb['tools_csv']}]")
+        print(f"    triggers: {pb['trigger_keywords']}")
+        print(f"    hint    : {pb['strategy_hint']}")
+
+
 def _print_facts(store: SQLiteMemoryStore) -> None:
     facts = store.get_facts()
     if not facts:
@@ -128,6 +154,10 @@ def _run_chat_loop(session: GeminiSkillSession, registry: SkillRegistry) -> int:
                 session.compact_now(verbose=True)
             elif cmd == "/router":
                 _print_router_status(session.llm_router)
+            elif cmd == "/stats":
+                _print_tool_stats(session.memory_store)
+            elif cmd == "/playbooks":
+                _print_playbooks(session.memory_store)
             elif cmd == "/history":
                 saved_tok = int(session.compactor.total_saved_chars / 3.8)
                 print(
@@ -192,11 +222,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--session", type=str, help="SQLite session ID to resume or create in --chat / --prompt")
     parser.add_argument("--sessions", action="store_true", help="List saved SQLite chat sessions and exit")
     parser.add_argument("--facts", action="store_true", help="List saved SQLite long-term user facts and exit")
+    parser.add_argument("--tool-stats", action="store_true", help="Show adaptive SQLite tool execution telemetry and exit")
+    parser.add_argument("--playbooks", action="store_true", help="List learned & seeded tool cooperation playbooks and exit")
     parser.add_argument("--router-status", action="store_true", help="Show 9Router multi-provider pool status and exit")
     parser.add_argument(
         "--check-providers",
         action="store_true",
         help="Fetch live model lists and ping-check configured Gemini, Groq, and Cloudflare endpoints",
+    )
+    parser.add_argument(
+        "--sync-deps",
+        action="store_true",
+        help="Scan all skills/*/skill_*.py for missing allowlisted libraries and auto-install into .venv",
     )
     parser.add_argument("--no-stream", action="store_true", help="Disable streaming text output")
     parser.add_argument("--no-cache", action="store_true", help="Disable SQLite TTL tool cache")
@@ -261,8 +298,30 @@ def main(argv: list[str] | None = None) -> int:
     if args.facts:
         _print_facts(memory_store)
         return 0
+    if args.tool_stats:
+        _print_tool_stats(memory_store)
+        return 0
+    if args.playbooks:
+        _print_playbooks(memory_store)
+        return 0
     if args.router_status:
         _print_router_status(MultiProviderRouter())
+        return 0
+    if args.sync_deps:
+        from agent_runtime.config import SKILLS_ROOT
+        from agent_runtime.skill_evolver import ensure_skill_dependencies
+
+        all_logs: list[str] = []
+        scanned = 0
+        for p in sorted(SKILLS_ROOT.glob("*/skill_*.py")):
+            scanned += 1
+            code = p.read_text(encoding="utf-8", errors="replace")
+            dep_logs = ensure_skill_dependencies(code, auto_install=True)
+            for line in dep_logs:
+                print(f"[{p.parent.name}/{p.name}] {line}", flush=True)
+                all_logs.append(line)
+        if not all_logs:
+            print(f"[DEPS OK] Scanned {scanned} skill files — all allowlisted dependencies are already installed.")
         return 0
     if args.check_providers:
         import sys

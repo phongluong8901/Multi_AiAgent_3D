@@ -77,29 +77,103 @@ def get_local_time_context(tz_name: str = "Asia/Ho_Chi_Minh") -> str:
     return datetime.now(tz).strftime("%Y-%m-%d %H:%M:%S %Z (UTC+07:00)")
 
 
-def build_system_instruction(user_facts_text: str = "") -> str:
-    """Build dynamic system prompt with Vietnam time, long-term user facts, and citation rules."""
+PERSONA_PRESETS: dict[str, dict[str, str]] = {
+    "expert": {
+        "label": "Chuyên gia kỹ thuật (Mặc định)",
+        "prompt": (
+            "Phong cách trả lời: Chuyên gia kỹ thuật cao cấp (Senior Architect / Staff Engineer). "
+            "Đi thẳng vào trọng tâm, sắc bén, chính xác, ưu tiên số liệu thực tế, bảng so sánh và code sạch. "
+            "Không nói vòng vo, không dùng emoji, chủ động chỉ ra trade-off và điểm cần lưu ý."
+        ),
+    },
+    "concise": {
+        "label": "Siêu ngắn gọn (Tối giản)",
+        "prompt": (
+            "Phong cách trả lời: Tối giản, chỉ gạch đầu dòng kết quả chính, con số và lệnh thực thi. "
+            "Bỏ qua mọi lời mở đầu và kết luận thừa."
+        ),
+    },
+    "mentor": {
+        "label": "Cố vấn / Giải thích bản chất",
+        "prompt": (
+            "Phong cách trả lời: Cố vấn kỹ thuật tận tình. Giải thích rõ bản chất vấn đề, "
+            "lý do chọn giải pháp, ưu/nhược điểm từng phương án để người dùng hiểu sâu và tự chủ."
+        ),
+    },
+    "custom": {
+        "label": "Tùy chỉnh (Tự viết Prompt)",
+        "prompt": "",
+    },
+}
+
+
+def build_system_instruction(
+    user_facts_text: str = "",
+    playbook_hint: str = "",
+    user_rules_text: str = "",
+    persona_prompt: str = "",
+    antipatterns_text: str = "",
+    prospective_text: str = "",
+    updated_tools_text: str = "",
+) -> str:
+    """Build dynamic system prompt with persona, Vietnam time, Memory OS layers, playbook, and citations."""
+    active_persona = (persona_prompt or PERSONA_PRESETS["expert"]["prompt"]).strip()
     facts_block = ""
     if user_facts_text.strip():
         facts_block = (
-            "\nTHONG TIN CA NHAN & SO THICH DA GHI NHO CUA NGUOI DUNG (SQLite Long-Term Memory):\n"
+            "\nHO SO NGUOI DUNG (SQLite Semantic Memory - uu tien theo do quan trong & thoi gian):\n"
             f"{user_facts_text.strip()}\n"
-            "Hay tan dung thong tin nay mot cach tu nhien (vi du thanh pho mac dinh, dinh dang bao cao ua thich). "
-            "Khi nguoi dung chia se thong tin lau dai moi, hay dung `user_memory__remember_fact` de luu lai.\n"
         )
+    rules_block = ""
+    if user_rules_text.strip():
+        rules_block = (
+            "\nQUY TAC UNG XU CA NHAN CUA NGUOI DUNG (BAT BUOC TUAN THU):\n"
+            f"{user_rules_text.strip()}\n"
+        )
+    prospective_block = ""
+    if prospective_text.strip():
+        prospective_block = (
+            "\n[PROSPECTIVE MEMORY - VIEC CAN NHAC / BACKLOG DANG KICH HOAT]:\n"
+            f"{prospective_text.strip()}\n"
+            "(Neu phu hop hoac nguoi dung vua mo phien, hay nhac ngan gon 1 dong.)\n"
+        )
+    updated_block = ""
+    if updated_tools_text.strip():
+        updated_block = (
+            "\n[HOT-RELOAD THONG BAO QUAN TRONG]: "
+            f"Cac tool sau vua duoc nguoi dung sua/nang cap phien ban code moi: {updated_tools_text.strip()}. "
+            "HAY GOI LAI TRUC TIEP cac tool nay neu cau hoi lien quan, TUYET DOI KHONG dung lai ket luan loi tu cac luot chat truoc!\n"
+        )
+    antipatterns_block = ""
+    if antipatterns_text.strip():
+        antipatterns_block = (
+            "\n[FAILURE MEMORY / NE BAY CHO CAC TOOL DANG DUOC CHON]:\n"
+            f"{antipatterns_text.strip()}\n"
+        )
+    playbook_block = ""
+    if playbook_hint.strip():
+        playbook_block = f"\n[PLAYBOOK KINH NGHIEM]: {playbook_hint.strip()}\n"
+
     return (
         "Ban la tro ly AI thuc chien co kha nang goi tool. "
+        f"{active_persona}\n"
         f"Thoi gian he thong tham chieu hien tai (Viet Nam): {get_local_time_context()}. "
         f"{facts_block}"
-        "Khi can du lieu thuc te (ngay gio/mui gio, tinh toan so hoc, tin tuc, web, API, "
-        "gia crypto, ty gia ngoai te, thoi tiet, dia ly, tai lieu PDF/CSV/Excel, package PyPI, "
-        "repo GitHub, bai bao arXiv, file trong workspace, bo nho nguoi dung, xuat bao cao), "
-        "hay uu tien goi tool phu hop thay vi doan. "
-        "Luu y: khi hoi ngay gio hoac doi mui gio, hay dung `datetime_client__get_current_time` "
-        "hoac `datetime_client__convert_timezone` (khong nham gio UTC cua API thoi tiet thanh gio dia phuong). "
-        "Khi can tinh toan so lon hoac phan tram, hay dung `calculator__evaluate` / `calculator__percent_change`. "
-        "QUY TAC TRICH DAN BAT BUOC: Moi khi cau tra loi su dung du lieu tu tool co tra ve URL "
-        "(nhu web_search, web_reader, arxiv, github, pypi, hacker_news, rss_feed_reader, wikipedia, huggingface, document_analyzer), "
-        "ban BAT BUOC phai them muc 'Nguon tham khao:' o cuoi cau tra loi liet ke cac link dang Markdown [Tieu de](URL) "
-        "chi dung chinh xac URL co trong ket qua tool tra ve. Tuyet doi khong tu bia link URL hay con so."
+        f"{rules_block}"
+        f"{prospective_block}"
+        f"{updated_block}"
+        f"{antipatterns_block}"
+        f"{playbook_block}"
+        "QUY TAC PHAN TANG CHON TOOL (Specialized First, Web Search Last):\n"
+        "1. Tang 1 (Uu tien cao nhat - 0ms): Dung `calculator` cho phep tinh/phan tram, `datetime_client` cho ngay gio/mui gio, "
+        "`local_workspace`/`report_exporter`/PC tools cho thao tac file & may tinh.\n"
+        "2. Tang 2 (API chuyen biet - nhanh & chinh xac): Uu tien `binance`, `frankfurter_forex`, `open_meteo`, `arxiv`, "
+        "`pypi`, `github`, `wikipedia`, `hacker_news` thay vi tim web chung chung.\n"
+        "3. Tang 3 (Cuoi cung): CHI dung `web_search` -> `web_reader` -> `browser_reader` khi Tang 1 & 2 khong ho tro hoac bi loi. "
+        "Neu 1 tool chinh bi loi (ERR), hay thu sang tool du phong (backup tool) duoc he thong mo khoa.\n"
+        "PHAT HIEN THIEU SKILL: Neu nguoi dung yeu cau thao tac truc tiep (doc RAM/CPU, chup man hinh, dieu khien he thong, "
+        "API chuyen biet...) ma trong danh sach tool hien tai KHONG CO tool nao dap ung duoc, hay tra loi trung thuc va "
+        "them dung 1 dong o cuoi cung theo cu phap: [[SUGGEST_SKILL: skill_<ten_ngan_khong_dau> | <mo ta chi tiet chuc nang can viet>]].\n"
+        "QUY TAC TRICH DAN BAT BUOC: Moi khi dung du lieu tu tool co tra ve URL, BAT BUOC them muc 'Nguon tham khao:' "
+        "o cuoi cau tra loi voi link Markdown [Tieu de](URL) dung chinh xac URL tu tool, khong tu bia URL hay con so."
     )

@@ -39,11 +39,11 @@ class ProviderModelCheckerClient:
     """List live available models and ping-check specific model IDs on Gemini, Groq, and Cloudflare."""
 
     def list_models(self, provider: str = "all", filter_text: str = "") -> dict[str, Any]:
-        """Fetch live model IDs from provider APIs ('gemini', 'groq', 'cloudflare', 'mistral', or 'all')."""
+        """Fetch live model IDs from provider APIs ('gemini', 'groq', 'cloudflare', or 'all')."""
         _load_env()
         target = (provider or "all").strip().lower()
         flt = (filter_text or "").strip().lower()
-        targets = ["gemini", "groq", "cloudflare", "mistral"] if target == "all" else [target]
+        targets = ["gemini", "groq", "cloudflare"] if target == "all" else [target]
 
         out: dict[str, Any] = {}
         for p in targets:
@@ -53,8 +53,6 @@ class ProviderModelCheckerClient:
                 out["groq"] = self._list_groq(flt)
             elif p == "cloudflare":
                 out["cloudflare"] = self._list_cloudflare(flt)
-            elif p == "mistral":
-                out["mistral"] = self._list_mistral(flt)
             else:
                 out[p] = {"ok": False, "error": f"Unsupported provider: {p}"}
         return out
@@ -105,16 +103,6 @@ class ProviderModelCheckerClient:
                     headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
                     json={"model": mid, "messages": [{"role": "user", "content": "Reply OK"}], "max_tokens": 8},
                     timeout=25.0,
-                )
-            elif p == "mistral":
-                key = os.environ.get("MISTRAL_API_KEY", "").strip()
-                if not key:
-                    return {"ok": False, "provider": p, "model_id": mid, "error": "Missing MISTRAL_API_KEY"}
-                r = httpx.post(
-                    "https://api.mistral.ai/v1/chat/completions",
-                    headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-                    json={"model": mid, "messages": [{"role": "user", "content": "Reply OK"}], "max_tokens": 8},
-                    timeout=20.0,
                 )
             else:
                 return {"ok": False, "provider": p, "model_id": mid, "error": f"Unsupported provider: {p}"}
@@ -200,25 +188,6 @@ class ProviderModelCheckerClient:
             str(m["name"])
             for m in r.json().get("result", [])
             if m.get("name") and (not flt or flt in str(m["name"]).lower())
-        ]
-        models.sort()
-        return {"ok": True, "count": len(models), "models": models}
-
-    def _list_mistral(self, flt: str) -> dict[str, Any]:
-        key = os.environ.get("MISTRAL_API_KEY", "").strip()
-        if not key:
-            return {"ok": False, "error": "Missing MISTRAL_API_KEY"}
-        r = httpx.get(
-            "https://api.mistral.ai/v1/models",
-            headers={"Authorization": f"Bearer {key}"},
-            timeout=15.0,
-        )
-        if r.status_code != 200:
-            return {"ok": False, "error": f"HTTP {r.status_code}: {r.text[:200]}"}
-        models = [
-            str(m["id"])
-            for m in r.json().get("data", [])
-            if m.get("id") and (not flt or flt in str(m["id"]).lower())
         ]
         models.sort()
         return {"ok": True, "count": len(models), "models": models}

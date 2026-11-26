@@ -43,9 +43,11 @@ class RSSFeedReaderClient:
             self.base_url,
             timeout=15.0,
             follow_redirects=True,
-            headers={"User-Agent": "AutoEvolveBot/1.0 (https://example.org)"},
+            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36"},
         )
         if response.status_code != 200:
+            if response.headers.get('Content-Type', '').startswith('text/html'):
+                raise RuntimeError(f"Failed to fetch RSS feed: HTTP {response.status_code}, HTML response received")
             raise RuntimeError(f"Failed to fetch RSS feed: HTTP {response.status_code}, {response.text}")
 
         try:

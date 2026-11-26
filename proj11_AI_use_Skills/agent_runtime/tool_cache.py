@@ -14,6 +14,8 @@ _TOOL_TTL_SECONDS: dict[str, int] = {
     "user_memory": 0,
     "local_workspace": 0,
     "calculator": 0,
+    "system_monitor": 0,
+    "clipboard_manager": 0,
     "binance_crypto_client": 60,
     "frankfurter_forex_client": 300,
     "open_meteo_weather_client": 300,
@@ -45,6 +47,9 @@ class ToolTTLCache:
         self.misses = 0
 
     def ttl_for(self, tool_name: str) -> int:
+        # Never cache local PC automation / stateful action tools ending with '__execute'
+        if (tool_name or "").endswith("__execute"):
+            return 0
         prefix = (tool_name or "").split("__", 1)[0]
         return _TOOL_TTL_SECONDS.get(prefix, 300)
 
