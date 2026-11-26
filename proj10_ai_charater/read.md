@@ -38,3 +38,6 @@ Copy-Item "src-tauri\target\release\ai-desktop-mate.exe" "dist-package\Duck_ai_M
 
 # Bước 4: Nén thư mục thành file .zip để gửi cho máy khác
 Compress-Archive -Path "dist-package\Duck_ai_Manager_v1.0.0\*" -DestinationPath "dist-package\Duck_ai_Manager_v1.0.0.zip" -Force
+
+# --- cloud back end da deploy len render
+da cicd de deploy khi push p11_ad...

@@ -63,3 +63,9 @@ git checkout -b p11_advanced_proj
 git add .
 git commit -m "change: first"
 git push origin p11_advanced_proj
+
+--- 
+git checkout -b p12_proj_useSkillGPU
+git add .
+git commit -m "change: first"
+git push origin p12_proj_useSkillGPU
