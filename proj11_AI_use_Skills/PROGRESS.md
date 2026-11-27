@@ -1,6 +1,6 @@
 # Project Progress & Upgrade Log — `proj11_AI_use_Skills`
 
-Tài liệu tổng hợp toàn bộ kiến trúc, lịch sử nâng cấp qua **19 giai đoạn**, hệ thống **181 tools đang hoạt động qua 5 pack**, Cognitive Memory OS, Chrome CDP chạy ẩn, Encrypted Web Vault (Windows DPAPI) và hướng dẫn vận hành.
+Tài liệu tổng hợp toàn bộ kiến trúc, lịch sử nâng cấp qua **20 giai đoạn**, hệ thống **209 tools đang hoạt động qua 6 pack**, Cognitive Memory OS, Chrome CDP chạy ẩn, Encrypted Web Vault (Windows DPAPI), Linux/Server DevOps Automation và hướng dẫn vận hành.
 
 ---
 
@@ -46,10 +46,11 @@ proj11_AI_use_Skills/
 ├── data/                          # SQLite databases (agent_memory.db, mlflow.db), web_vault.enc.json, skill_versions/ (gitignored)
 ├── outputs/                       # File báo cáo, biểu đồ PNG (.xlsx, .csv, .json, .md, .png)
 ├── PROGRESS.md                    # Tài liệu tiến độ & kiến trúc (file này)
-└── skills/                        # 181 Tools Active across 5 packs
+└── skills/                        # 209 Tools Active across 6 packs
     ├── skill_contract.py          # Helper make_envelope tương thích local
-    ├── auto_skills/               # 15 tools (zingmp3_crawler v5, xskt_scraper v8, chart_visualizer v2, mouse_controller, ...)
-    ├── automationPc_skills/       # 66 tools (browser_cdp_controller, gmail_imap_smtp, zalo_desktop, docker, smart_file_ops, app_window_manager, ...)
+    ├── auto_skills/               # 17 tools (zingmp3_crawler v5, xskt_scraper v8, chart_visualizer v2, mouse_controller, zalo_friend_counter, ...)
+    ├── automationLinux_skills/    # 22 tools (systemd, nginx, ufw, cron, journald, ssh_auth_audit, tailscale/wireguard, chmod/rsync, env_vault, thermal, ...)
+    ├── automationPc_skills/       # 70 tools (browser_cdp_controller, gmail_imap_smtp, zalo_desktop, docker, smart_file_ops, app_window_manager, screen_capture_annotator, ...)
     ├── automationWeb_skills/      # 24 tools (google_workspace_web tạo Sheet/Doc thật, chrome_*, web_*, youtube_web_controller, ...)
     ├── new_skills/                # 11 tools (datetime, calculator, local_workspace, user_memory, provider_model_checker, ...)
     └── search_skills/             # 65 tools (binance, forex, weather, arxiv, github, pypi, web_search, web_reader, browser_reader, document_analyzer, report_exporter, ...)
@@ -123,18 +124,26 @@ proj11_AI_use_Skills/
 - [x] **(#14) Code-Act Micro-Pipeline (`run_tool_pipeline`):** Cho phép thực thi chuỗi 2–5 bước tool nối tiếp ngay trong Python local chỉ trong 1 lượt gọi LLM.
 - [x] **(#15) Adaptive EWMA Latency & Reliability Routing (`llm_router.py`):** Chấm điểm động theo độ trễ EWMA và tỉ lệ lỗi thực tế của từng endpoint trong 9Router.
 
+### Giai đoạn 20 — Tích hợp `automationLinux_skills` (22 Tools), Fuzzy Session Memory, Distillation & Phòng thủ cuối
+- [x] **Tích hợp & Chuẩn hóa gói `automationLinux_skills` (22 tools, 122/122 pytest passed):** Bổ sung đầy đủ quản trị Linux/WSL/Server (`systemd`, `nginx`, `ufw`, `cron`, `journald`, `ssh_auth_audit`, `vpn_tunnel_monitor`, `file_perm_sync`, `env_secret_vault_ops`, `backup_snapshot_ops`, `hardware_bus_inspector`, `thermal_power`, `disk_io_smart`, `process_cgroups_guard`, `remote_worker_ctl`, `service_self_healer`, `alert_webhook_dispatch`, `incident_report_builder`, `worker_telemetry_bus`). Chuẩn hóa UTF-8, `_safe_call`, JSON Schema strict arrays và fallback đường dẫn đa nền tảng Windows/Linux (`outputs/nginx`, `outputs/systemd`, `outputs/cron`).
+- [x] **OS-Affinity Guard trong `SkillRouter`:** Tự động kìm hãm các skill `linux_*` trên máy chủ Windows đối với các câu hỏi hệ thống chung để không bao giờ tranh chấp với `automationPc_skills`, đồng thời bật full ưu tiên ngay khi câu lệnh có ngữ cảnh Linux/Ubuntu/WSL/Nginx/Systemd/UFW/Cron/SSH.
+- [x] **Topic-Clustered Fuzzy Session Memory & Cross-Session Faint Memory (`compactor.py`, `memory_store.py`):** Gom cụm chủ đề bằng Jaccard token trong phiên (phục hồi 100% độ nét cho cụm liên quan, làm mờ cụm lệch chủ đề) và tiêm ~5% ký ức mờ liên phiên suy giảm theo khoảng cách phiên + thời gian.
+- [x] **Trajectory Distillation DB (`distillation_store.py`) & Local Ollama Provider (`llm_router.py`):** Xuất dữ liệu huấn luyện Qwen2.5-1.5B ChatML JSONL kèm cặp DPO và hỗ trợ chạy trực tiếp model nội bộ qua Ollama.
+- [x] **Cơ chế Phòng thủ cuối Web & Desktop:** Tìm kiếm trực tiếp qua Chrome CDP (`cdp_live_search`) khi mọi công cụ search tĩnh bị chặn, và chụp/cuộn cửa sổ kèm tự khôi phục trạng thái cửa sổ ban đầu (`capture_app_window` + `restore_window=True`).
+
 ---
 
-## 4. Tổng quan 181 Tools đang hoạt động (5 Packs)
+## 4. Tổng quan 209 Tools đang hoạt động (6 Packs)
 
 | Pack | Số lượng Tools | Nhóm chức năng tiêu biểu |
 | :--- | :---: | :--- |
-| `automationPc_skills` | **66** | Chrome CDP (`read_gmail_inbox`, `auto_login_site`, `open_and_read_page`), Gmail IMAP/SMTP, Zalo Desktop, Docker Manager, Smart File Ops, App Window Manager, Process/Service/Registry, Office COM Excel/Word/PPT, OCR, Audio, Clipboard, Screen Capture |
+| `automationPc_skills` | **70** | Chrome CDP (`read_gmail_inbox`, `auto_login_site`, `cdp_live_search`), Gmail IMAP/SMTP, Zalo Desktop, Docker Manager, Smart File Ops, App Window Manager, Process/Service/Registry, Office COM Excel/Word/PPT, OCR, Audio, Clipboard, Screen Capture (`capture_app_window`) |
 | `search_skills` | **65** | Web Search, Web Reader, Browser Reader, Binance Crypto, Forex (hỗ trợ VND), Open-Meteo Weather, ArXiv, GitHub, HuggingFace, PyPI, Wikipedia, Hacker News, RSS, Document Analyzer (PDF/Tabular), Report Exporter (XLSX/CSV/JSON/MD) |
 | `automationWeb_skills` | **24** | Google Workspace Web (`create_google_sheet`, `create_google_doc`), Chrome Cookie/Storage, Network Sniffer, Frame/Shadow Piercer, CAPTCHA/HITL Guard, SoM A11y Observer, Selector Calibrator, SEO Auditor, Pagination Scroller, YouTube Controller, E-commerce Tracker, Table Scraper, Zalo/Telegram Web |
-| `auto_skills` | **15** | Các skill tự tiến hóa & tạo mới: `chart_visualizer` (v2), `zingmp3_crawler` (v5), `xskt_scraper` (v8), `mouse_controller`, ... |
+| `automationLinux_skills` | **22** | Systemd Service/Unit Manager, Nginx Reverse Proxy & TLS Check, UFW Firewall Guard, Crontab/Timer Scheduler, Journald Log & OOM Analyzer, SSH Brute-Force/Config Audit, Tailscale/WireGuard Monitor, Chmod/Chown/Rsync, `.env` Secret Vault Audit, Tar Backup & Retention, USB/Serial/I2C/SPI/GPIO Inspector, Thermal Zones, Multi-Node Worker Control, Self-Healer Watchdog |
+| `auto_skills` | **17** | Các skill tự tiến hóa & tạo mới: `chart_visualizer` (v2), `zingmp3_crawler` (v5), `xskt_scraper` (v8), `mouse_controller`, `zalo_friend_counter`, ... |
 | `new_skills` | **11** | `datetime_client`, `calculator` (AST), `local_workspace`, `user_memory`, `provider_model_checker`, ... |
-| **Tổng cộng** | **181** | **Tự động nạp đa gói + Hot-Reload không cần restart** |
+| **Tổng cộng** | **209** | **Tự động nạp đa gói + OS-Affinity Guard + Hot-Reload không cần restart** |
 
 ---
 

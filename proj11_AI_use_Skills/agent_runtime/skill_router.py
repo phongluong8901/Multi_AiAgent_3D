@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import math
+import os
 import re
 import unicodedata
 from collections import Counter
@@ -239,6 +240,54 @@ _DOMAIN_HINTS: dict[str, tuple[str, ...]] = {
         "chuot", "mouse", "con tro", "di chuyen chuot", "chi chuyen chuot",
         "hinh tron", "circle", "zigzag", "zic zac", "click", "toa do chuot",
     ),
+    "linux_systemd_manager": (
+        "systemd", "systemctl", "unit file", ".service", "failed units", "dich vu linux",
+    ),
+    "linux_nginx_proxy_helper": (
+        "nginx", "reverse proxy", "proxy_pass", "sites-available", "tls expiry", "chung chi ssl",
+    ),
+    "linux_firewall_ufw_guard": (
+        "ufw", "tuong lua linux", "allow port", "deny port", "exposed ports",
+    ),
+    "linux_cron_timer_scheduler": (
+        "crontab", "cronjob", "bieu thuc cron", "cron expression", "systemd timer",
+    ),
+    "linux_journald_log_analyzer": (
+        "journalctl", "journald", "oom killer", "log systemd", "log linux",
+    ),
+    "linux_package_update_ops": (
+        "apt", "apt-get", "autoremove", "upgradable", "cap nhat goi linux",
+    ),
+    "linux_ssh_auth_audit": (
+        "sshd", "sshd_config", "auth.log", "authorized_keys", "brute force ssh",
+    ),
+    "linux_vpn_tunnel_monitor": (
+        "tailscale", "wireguard", "tailscaled", "vpn tunnel",
+    ),
+    "linux_file_perm_sync": (
+        "chmod", "chown", "rsync", "quyen 777", "world writable",
+    ),
+    "linux_env_secret_vault_ops": (
+        ".env", "mask secret", "quyen 600", "upsert env", "audit env",
+    ),
+    "linux_backup_snapshot_ops": (
+        "tar.gz", "retention policy", "backup tar", "verify sha256",
+    ),
+    "linux_hardware_bus_inspector": (
+        "lsusb", "ttyusb", "ttyacm", "i2c", "spi", "gpio",
+    ),
+    "linux_thermal_power": (
+        "thermal zone", "orange pi", "cpufreq", "nhiet do soc",
+    ),
+    "linux_disk_io_smart": (
+        "lsblk", "/var/log", "df output", "log bloat",
+    ),
+    "linux_network_socket_audit": (
+        "ss -tulnp", "listening ports linux",
+    ),
+    "linux_process_cgroups_guard": (
+        "ps aux", "lsof", "sigterm", "kill pid linux",
+    ),
     "web_search": (
         "tim kiem", "tim thong tin", "search", "google", "moi nhat", "tin tuc", "web", "link nguon",
     ),
@@ -283,6 +332,29 @@ _TIER_BONUS: dict[str, float] = {
     "web_link_seo_auditor": 1.9,
     "web_pagination_scroller": 1.8,
     "youtube_web_controller": 2.0,
+    # Linux / WSL / Server DevOps Automation (boosted when Linux context is active)
+    "linux_systemd_manager": 2.1,
+    "linux_nginx_proxy_helper": 2.1,
+    "linux_firewall_ufw_guard": 2.1,
+    "linux_cron_timer_scheduler": 2.1,
+    "linux_journald_log_analyzer": 2.1,
+    "linux_package_update_ops": 2.0,
+    "linux_ssh_auth_audit": 2.1,
+    "linux_vpn_tunnel_monitor": 2.0,
+    "linux_file_perm_sync": 2.0,
+    "linux_env_secret_vault_ops": 2.0,
+    "linux_backup_snapshot_ops": 2.0,
+    "linux_hardware_bus_inspector": 2.0,
+    "linux_thermal_power": 2.0,
+    "linux_disk_io_smart": 2.0,
+    "linux_network_socket_audit": 2.0,
+    "linux_process_cgroups_guard": 2.0,
+    "linux_sys_health": 2.0,
+    "linux_remote_worker_ctl": 1.9,
+    "linux_service_self_healer": 1.9,
+    "linux_alert_webhook_dispatch": 1.9,
+    "linux_incident_report_builder": 1.9,
+    "linux_worker_telemetry_bus": 1.9,
     # Tier 2: Fast Structured Domain APIs (~200-1200ms)
     "binance_crypto_client": 1.8,
     "frankfurter_forex_client": 1.8,
@@ -370,6 +442,20 @@ _FORCE_TOOL_SIGNALS = (
     "gmail", "email", "hop thu", "inbox", "doc mail", "gui mail",
     "google sheet", "google sheets", "gg sheet", "google doc", "google docs",
     "dashboard", "dashboad", "desktop", "mo file", "doc file", "file doanh thu",
+    "linux", "ubuntu", "wsl", "systemd", "systemctl", "journalctl", "ufw", "nginx",
+    "crontab", "chmod", "chown", "rsync", "sshd", "auth.log", "tailscale", "wireguard", "lsblk", "lsusb",
+)
+
+# Explicit Linux/Server/DevOps signals used by OS-Affinity Guard so `linux_*` skills never crowd out
+# native Windows `automationPc_skills` on generic queries when running on a Windows host.
+_LINUX_CONTEXT_SIGNALS = (
+    "linux", "ubuntu", "debian", "centos", "fedora", "alpine", "wsl",
+    "systemd", "systemctl", "journald", "journalctl", "ufw", "iptables",
+    "nginx", "reverse proxy", "crontab", "cronjob", "cron ", "cgroup", "apt ", "apt-get",
+    "chmod", "chown", "rsync", "lsblk", "lsusb", "ttyusb", "ttyacm",
+    "i2c", "spi", "gpio", "sshd", "authorized_keys", "auth.log",
+    "tailscale", "wireguard", "orange pi", "raspberry", "tar.gz", ".env",
+    "/etc/", "/var/", "/proc/", "/sys/", "/dev/", "ss -", "lsof", "ps aux",
 )
 
 
@@ -845,12 +931,14 @@ class SkillRouter:
         eff_use_emb = bool(self._embeddings) if use_embeddings is None else bool(use_embeddings)
         q_vec = self._query_embedding(norm_q) if eff_use_emb else None
         sub_clauses = self._split_sub_intents(query)
+        has_linux_intent = (os.name != "nt") or any(sig in norm_q for sig in _LINUX_CONTEXT_SIGNALS)
 
         scored: list[tuple[float, _IndexedTool]] = []
         for item in self._indexed:
             relevance = 0.0
+            is_linux_tool = item.skill_prefix.startswith("linux_")
 
-            # 1. Zero-config BM25 score (works automatically for ALL 82+ tools with zero manual hints!)
+            # 1. Zero-config BM25 score (works automatically for ALL 209+ tools with zero manual hints!)
             bm25 = self._bm25_score(q_list, item)
             relevance += bm25 * 1.8
 
@@ -875,9 +963,14 @@ class SkillRouter:
                 elif item.skill_prefix in ("web_reader", "network_inspector", "browser_reader"):
                     relevance += 3.0
 
+            # OS-Affinity Guard: on Windows hosts, keep `linux_*` tools suppressed unless prompt mentions Linux/WSL/DevOps signals
+            if is_linux_tool and not has_linux_intent:
+                relevance *= 0.15
+
             adaptive = compute_adaptive_telemetry_bonus(m_map.get(item.name))
+            eff_tier = 0.0 if (is_linux_tool and not has_linux_intent) else item.tier_bonus
             if relevance > 0.5:
-                total_score = relevance + item.tier_bonus + adaptive
+                total_score = relevance + eff_tier + adaptive
             else:
                 total_score = adaptive * 0.1
 
@@ -914,6 +1007,8 @@ class SkillRouter:
                 best_sc = 1.2
                 for item in self._indexed:
                     if item.name in seen:
+                        continue
+                    if item.skill_prefix.startswith("linux_") and not has_linux_intent:
                         continue
                     sc = self._bm25_score(c_list, item) * 1.8
                     for hint in item.hints:

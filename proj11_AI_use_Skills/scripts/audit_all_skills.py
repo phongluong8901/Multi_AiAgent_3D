@@ -1,4 +1,4 @@
-"""Automated 4-Layer Audit Suite for all 182+ skills across all 5 packs."""
+"""Automated 4-Layer Audit Suite for all 209+ skills across all 6 packs."""
 from __future__ import annotations
 
 import json
@@ -37,7 +37,14 @@ def audit_layer1_registry() -> tuple[SkillRegistry, list[str]]:
 
 
 def audit_layer2_pytest() -> dict[str, dict]:
-    packs = ["auto_skills", "automationPc_skills", "automationWeb_skills", "new_skills", "search_skills"]
+    packs = [
+        "auto_skills",
+        "automationLinux_skills",
+        "automationPc_skills",
+        "automationWeb_skills",
+        "new_skills",
+        "search_skills",
+    ]
     results = {}
     pytest_exe = str(ROOT / ".venv" / "Scripts" / "pytest.exe")
     for pack in packs:
@@ -139,13 +146,26 @@ def audit_layer4_router_benchmark(r: SkillRegistry) -> list[str]:
         ("bắt request xhr api trên chrome", "chrome_network_sniffer__execute"),
         ("đọc mail gmail qua imap", "gmail_imap_smtp__execute"),
         ("đọc 5 mail gmail, sau đó tạo google sheet bao_cao, rồi gửi zalo", "zalo_desktop__execute"),
+        ("tạo cấu hình nginx reverse proxy cho domain api.test.com", "linux_nginx_proxy_helper__execute"),
+        ("kiểm tra trạng thái dịch vụ systemd nginx trên ubuntu", "linux_systemd_manager__execute"),
+        ("tạo luật tường lửa ufw mở cổng 443 không khóa ssh", "linux_firewall_ufw_guard__execute"),
+        ("kiểm tra cú pháp crontab chạy backup mỗi đêm", "linux_cron_timer_scheduler__execute"),
+        ("phân tích log journalctl tìm lỗi oom killer", "linux_journald_log_analyzer__execute"),
+        ("kiểm tra auth.log phát hiện ip dò mật khẩu ssh brute force", "linux_ssh_auth_audit__execute"),
     ]
     misses: list[str] = []
     for prompt, expected_prefix in cases:
         routed = [d.name for d in rt.route(prompt, top_k=6)]
         if not any(name.startswith(expected_prefix) for name in routed):
             misses.append(f"[ROUTE MISS] '{prompt}' expected '{expected_prefix}*', got {routed}")
-    print(f"[ROUTER] {len(cases) - len(misses)}/{len(cases)} benchmark prompts hit expected tool in Top-6")
+    # Verify OS-Affinity Guard on Windows: generic Windows prompts must NOT pull `linux_*` tools into Top-6
+    if os.name == "nt":
+        for win_prompt in ("kiểm tra các dịch vụ đang chạy trên máy", "vẽ biểu đồ dung lượng ổ C", "mở file doanh thu ở desktop"):
+            win_routed = [d.name for d in rt.route(win_prompt, top_k=6)]
+            leaked = [n for n in win_routed if n.startswith("linux_")]
+            if leaked:
+                misses.append(f"[OS COLLISION] Windows prompt '{win_prompt}' leaked Linux tools: {leaked}")
+    print(f"[ROUTER] {len(cases) - len([m for m in misses if m.startswith('[ROUTE')])}/{len(cases)} benchmark prompts hit expected tool in Top-6 | OS collisions={len([m for m in misses if m.startswith('[OS')])}")
     return misses
 
 
@@ -156,7 +176,7 @@ if __name__ == "__main__":
     for i in l1_issues:
         print(" ", i)
 
-    print("\n=== LAYER 2: FULL PYTEST ACROSS ALL 5 PACKS ===")
+    print("\n=== LAYER 2: FULL PYTEST ACROSS ALL 6 PACKS ===")
     l2 = audit_layer2_pytest()
     for pack, info in l2.items():
         status = "PASS" if info["returncode"] == 0 else "FAIL"
@@ -169,7 +189,7 @@ if __name__ == "__main__":
     for c in l3_crashes:
         print(" ", c)
 
-    print("\n=== LAYER 4: 20-PROMPT ROUTER BENCHMARK ===")
+    print("\n=== LAYER 4: 26-PROMPT ROUTER + OS-AFFINITY BENCHMARK ===")
     l4_misses = audit_layer4_router_benchmark(reg)
     for m in l4_misses:
         print(" ", m)
