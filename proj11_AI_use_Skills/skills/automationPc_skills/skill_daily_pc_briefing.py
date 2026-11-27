@@ -27,7 +27,8 @@ def _list_recent_files(folder, hours, limit):
     try:
         recent_files = []
         cutoff_time = time.time() - (hours * 3600)
-        for root, _, files in os.walk(folder):
+        for root, dirnames, files in os.walk(folder):
+            dirnames[:] = [d for d in dirnames if d.lower() not in {'.git', 'node_modules', '__pycache__', '.venv', 'venv', 'appdata', 'windows', '$recycle.bin', 'programdata'}]
             for file in files:
                 file_path = os.path.join(root, file)
                 file_stat = os.stat(file_path)

@@ -42,6 +42,7 @@ def grep_text(query: str, root: str = ".", glob_pattern: str = "*", is_regex: bo
     limit = max(1, min(int(max_hits or 50), 500))
     hits = []
     for dp, dns, fns in os.walk(base):
+        dns[:] = [d for d in dns if d.lower() not in {'.git', 'node_modules', '__pycache__', '.venv', 'venv', 'appdata', 'windows', '$recycle.bin', 'programdata'}]
         dns[:] = [d for d in dns if d not in SKIP_DIRS]
         for fn in fns:
             if not fnmatch.fnmatch(fn.lower(), (glob_pattern or "*").lower()):

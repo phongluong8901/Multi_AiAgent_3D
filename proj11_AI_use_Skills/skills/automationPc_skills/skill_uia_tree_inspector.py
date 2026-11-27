@@ -37,24 +37,37 @@ def get_active_window_tree(max_depth: int = 3) -> Dict[str, Any]:
         import uiautomation as auto
     except ImportError:
         return {"ok": False, "error": "Missing package uiautomation"}
-    
+
     def inspect_node(node, depth):
-        if depth > max_depth:
+        if node is None or depth > max_depth:
             return None
-        node_info = {
-            "name": node.Name,
-            "control_type": node.ControlTypeName,
-            "bounding_box": node.BoundingRectangle,
-            "children": [inspect_node(child, depth + 1) for child in node.GetChildren()]
+        rect = getattr(node, "BoundingRectangle", None)
+        bbox = (
+            {"left": rect.left, "top": rect.top, "right": rect.right, "bottom": rect.bottom}
+            if rect is not None and hasattr(rect, "left")
+            else None
+        )
+        children = []
+        if depth < max_depth:
+            try:
+                for child in (node.GetChildren() or [])[:25]:
+                    c_info = inspect_node(child, depth + 1)
+                    if c_info is not None:
+                        children.append(c_info)
+            except Exception:
+                pass
+        return {
+            "name": str(getattr(node, "Name", "") or ""),
+            "control_type": str(getattr(node, "ControlTypeName", "") or ""),
+            "bounding_box": bbox,
+            "children": children,
         }
-        node_info["children"] = [child for child in node_info["children"] if child is not None]
-        return node_info
-    
-    active_window = auto.GetForegroundWindow()
-    if not active_window:
-        return {"ok": False, "error": "No active window found"}
-    
-    tree = inspect_node(active_window, 1)
+
+    with auto.UIAutomationInitializerInThread():
+        active_window = auto.GetForegroundControl()
+        if not active_window:
+            return {"ok": False, "error": "No active window found"}
+        tree = inspect_node(active_window, 1)
     return {"ok": True, "tree": tree}
 
 def filter_interactive_nodes(nodes: List[Dict[str, Any]], query: str = "") -> Dict[str, Any]:

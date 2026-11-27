@@ -43,11 +43,11 @@ TOOL_SCHEMA = {
 
 def execute(action: str = "diff_files", **kwargs) -> dict:
     if action == "diff_files":
-        return diff_files(**kwargs)
+        return _safe_call(diff_files, kwargs)
     elif action == "compare_dirs":
-        return compare_dirs(**kwargs)
+        return _safe_call(compare_dirs, kwargs)
     elif action == "sync_backup":
-        return sync_backup(**kwargs)
+        return _safe_call(sync_backup, kwargs)
     else:
         return {"ok": False, "error": f"Unknown action: {action}"}
 
@@ -84,6 +84,7 @@ def sync_backup(src_dir: str, dst_dir: str, dry_run: bool = True) -> dict:
 
         actions = []
         for root, dirs, files in os.walk(src_dir):
+            dirs[:] = [d for d in dirs if d.lower() not in {'.git', 'node_modules', '__pycache__', '.venv', 'venv', 'appdata', 'windows', '$recycle.bin', 'programdata'}]
             for file in files:
                 src_file = os.path.join(root, file)
                 dst_file = os.path.join(dst_dir, os.path.relpath(src_file, src_dir))
@@ -106,3 +107,11 @@ def sync_backup(src_dir: str, dst_dir: str, dry_run: bool = True) -> dict:
         return {"ok": False, "error": str(e)}
     except Exception as e:
         return {"ok": False, "error": str(e)}
+
+def _safe_call(fn, kw):
+    import inspect as _insp
+    sig = _insp.signature(fn)
+    if any(p.kind == _insp.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
+        return fn(**kw)
+    valid = {k: v for k, v in kw.items() if k in sig.parameters}
+    return fn(**valid)

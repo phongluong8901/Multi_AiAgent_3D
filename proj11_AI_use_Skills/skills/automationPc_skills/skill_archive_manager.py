@@ -76,6 +76,7 @@ def create_zip(source_path: str, output_zip: str, dry_run: bool = False) -> Dict
         with zipfile.ZipFile(output_zip, 'w', zipfile.ZIP_DEFLATED) as zip_ref:
             if os.path.isdir(source_path):
                 for foldername, subfolders, filenames in os.walk(source_path):
+                    subfolders[:] = [d for d in subfolders if d.lower() not in {'.git', 'node_modules', '__pycache__', '.venv', 'venv', 'appdata', 'windows', '$recycle.bin', 'programdata'}]
                     for filename in filenames:
                         file_path = os.path.join(foldername, filename)
                         arcname = os.path.relpath(file_path, start=source_path)
@@ -109,10 +110,18 @@ def extract_archive(archive_path: str, dest_dir: str = '.', dry_run: bool = Fals
 
 def execute(action: str = "list_archive", **kwargs) -> Dict[str, Union[bool, str]]:
     if action == "list_archive":
-        return list_archive(**kwargs)
+        return _safe_call(list_archive, kwargs)
     elif action == "create_zip":
-        return create_zip(**kwargs)
+        return _safe_call(create_zip, kwargs)
     elif action == "extract_archive":
-        return extract_archive(**kwargs)
+        return _safe_call(extract_archive, kwargs)
     else:
         return {"ok": False, "error": f"Unknown action: {action}"}
+
+def _safe_call(fn, kw):
+    import inspect as _insp
+    sig = _insp.signature(fn)
+    if any(p.kind == _insp.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
+        return fn(**kw)
+    valid = {k: v for k, v in kw.items() if k in sig.parameters}
+    return fn(**valid)

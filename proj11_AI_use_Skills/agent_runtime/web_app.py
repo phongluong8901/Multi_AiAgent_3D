@@ -1,19 +1,24 @@
 """FastAPI backend powering the 2-Tab Web UI (Chat Workspace + Skill Studio)."""
 from __future__ import annotations
 
+import json
 import os
+import queue
 import re
+import shutil
 import threading
+import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, AsyncIterator
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from agent_runtime.compactor import ContextCompactor
 from agent_runtime.config import (
+    BASE_DIR,
     DEFAULT_MODEL,
     DEFAULT_TOP_K,
     FALLBACK_MODELS,
@@ -38,6 +43,11 @@ class ChatRequest(BaseModel):
     message: str
     model: str | None = None
     top_k: int | None = None
+
+
+class ApprovalRequest(BaseModel):
+    approval_id: str
+    approved: bool
 
 
 class LoadSessionRequest(BaseModel):
@@ -120,21 +130,72 @@ class ConsolidateRequest(BaseModel):
     ttl_days: int = 14
 
 
+class VaultCredentialRequest(BaseModel):
+    site: str
+    username: str
+    password: str = ""
+    login_url: str = ""
+    notes: str = ""
+
+
+class AutoHealRequest(BaseModel):
+    pack: str = ""
+    module_name: str = ""
+    tool_name: str = ""
+    error_text: str = ""
+    traceback_text: str = ""
+    original_prompt: str = ""
+    model: str = DEFAULT_MODEL
+
+
 _SUGGEST_RE = re.compile(
     r"\[\[SUGGEST_SKILL:\s*([a-zA-Z0-9_\-]+)\s*\|\s*(.+?)\s*\]\]",
     flags=re.DOTALL,
 )
 
 
-def extract_suggested_skill(answer: str) -> tuple[str, dict[str, str] | None]:
-    """Extract [[SUGGEST_SKILL: name | requirement]] from answer and return clean text + suggestion."""
+def extract_suggested_skill(
+    answer: str,
+    user_prompt: str = "",
+    trace: list[dict[str, Any]] | None = None,
+) -> tuple[str, dict[str, str] | None]:
+    """Extract [[SUGGEST_SKILL: name | requirement]] or synthesize one when LLM declines due to missing tool/feature."""
     match = _SUGGEST_RE.search(answer or "")
-    if not match:
-        return answer or "", None
-    mod_name = sanitize_module_name(match.group(1))
-    req = match.group(2).strip()
-    cleaned = _SUGGEST_RE.sub("", answer or "").strip()
-    return cleaned, {"module_name": mod_name, "requirement": req}
+    if match:
+        mod_name = sanitize_module_name(match.group(1))
+        req = match.group(2).strip()
+        cleaned = _SUGGEST_RE.sub("", answer or "").strip()
+        return cleaned, {"module_name": mod_name, "requirement": req}
+
+    # Deterministic fallback: if LLM explicitly says it lacks a tool/feature and didn't complete any OK tool call
+    from agent_runtime.skill_router import normalize_text
+
+    norm_ans = normalize_text(answer or "")
+    has_ok_tool = any(t.get("ok") for t in (trace or []))
+    gap_signals = (
+        "khong tich hop san cong cu",
+        "khong co cong cu",
+        "chua co cong cu",
+        "chua tich hop",
+        "chua ho tro",
+        "khong ho tro",
+        "khong co tool",
+        "chua co tool",
+        "khong the doc truc tiep",
+        "chua ho tro api doc",
+    )
+    if (not has_ok_tool) and user_prompt.strip() and any(sig in norm_ans for sig in gap_signals):
+        norm_p = normalize_text(user_prompt)
+        words = [w for w in re.findall(r"[a-z0-9]+", norm_p) if len(w) >= 2 and w not in ("xem", "cho", "co", "khong", "hay", "giup", "toi", "moi", "cua", "nay")]
+        slug = "_".join(words[:3]) if words else "custom_automation"
+        mod_name = sanitize_module_name(f"skill_{slug}")
+        req = (
+            f"Xây dựng / bổ sung skill thực thi yêu cầu: '{user_prompt.strip()}'. "
+            f"(Hệ thống hiện báo thiếu: {(answer or '').strip().splitlines()[0][:180]})"
+        )
+        return answer or "", {"module_name": mod_name, "requirement": req}
+
+    return answer or "", None
 
 
 class WebRuntimeState:
@@ -142,6 +203,8 @@ class WebRuntimeState:
 
     def __init__(self, enable_mlflow: bool = False):
         self.lock = threading.Lock()
+        self.approval_lock = threading.Lock()
+        self.pending_approvals: dict[str, dict[str, Any]] = {}
         self.client = create_client()
         self.memory_store = SQLiteMemoryStore()
         self.tool_cache = ToolTTLCache(self.memory_store, enabled=True)
@@ -157,9 +220,10 @@ class WebRuntimeState:
             client=self.client,
             router=self.router,
             handlers=self.registry.handlers,
+            tool_risk_levels=self.registry.risk_levels,
             model=DEFAULT_MODEL,
             top_k=DEFAULT_TOP_K,
-            stream=False,  # JSON HTTP response for clean UI rendering
+            stream=False,  # Controlled per-request via SSE on_event
             memory_store=self.memory_store,
             tool_cache=self.tool_cache,
             mlflow_tracker=self.mlflow_tracker,
@@ -183,9 +247,73 @@ class WebRuntimeState:
             updated_tools: list[str] = []
             if updated_module:
                 updated_tools = [e.name for e in self.registry.entries if e.module_name == updated_module]
-            self.session.refresh_skills(self.router, self.registry.handlers, updated_tools=updated_tools)
+            self.session.refresh_skills(
+                self.router,
+                self.registry.handlers,
+                updated_tools=updated_tools,
+                tool_risk_levels=self.registry.risk_levels,
+            )
             self._start_embedding_sync_async()
             return count
+
+    def snapshot_output_images(self) -> dict[str, float]:
+        if not OUTPUTS_DIR.exists():
+            return {}
+        img_exts = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
+        snap: dict[str, float] = {}
+        for p in OUTPUTS_DIR.iterdir():
+            if p.is_file() and p.suffix.lower() in img_exts:
+                snap[p.name] = p.stat().st_mtime
+        return snap
+
+    def collect_turn_images(self, trace: list[dict[str, Any]], before_snap: dict[str, float]) -> list[dict[str, str]]:
+        """Detect newly generated screenshots/QR images in outputs/ or referenced in tool results."""
+        OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
+        img_exts = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
+        found_names: list[str] = []
+        seen: set[str] = set()
+
+        # 1. Newly created or modified images in outputs/
+        for p in sorted(OUTPUTS_DIR.iterdir(), key=lambda x: x.stat().st_mtime, reverse=True):
+            if p.is_file() and p.suffix.lower() in img_exts:
+                prev_m = before_snap.get(p.name)
+                if prev_m is None or p.stat().st_mtime > prev_m + 0.01:
+                    if p.name not in seen:
+                        seen.add(p.name)
+                        found_names.append(p.name)
+
+        # 2. Image paths referenced inside trace output_preview / args (safely copy into outputs/ if inside BASE_DIR)
+        path_re = re.compile(r'([A-Za-z]:\\[^"\'\s<>|]+?\.(?:png|jpg|jpeg|webp|gif)|[\w./\\-]+?\.(?:png|jpg|jpeg|webp|gif))', re.IGNORECASE)
+        base_res = BASE_DIR.resolve()
+        out_res = OUTPUTS_DIR.resolve()
+        for tr in trace or []:
+            blob = f"{tr.get('output_preview', '')} {json.dumps(tr.get('args') or {}, ensure_ascii=False)}"
+            for raw_match in path_re.findall(blob):
+                cand = Path(raw_match)
+                if not cand.is_absolute():
+                    cand = BASE_DIR / cand
+                try:
+                    resolved = cand.resolve()
+                    if not resolved.exists() or not resolved.is_file():
+                        continue
+                    if resolved.suffix.lower() not in img_exts:
+                        continue
+                    if out_res in resolved.parents:
+                        fname = resolved.name
+                    elif base_res in resolved.parents:
+                        fname = resolved.name
+                        dest = OUTPUTS_DIR / fname
+                        if not dest.exists() or dest.stat().st_mtime < resolved.stat().st_mtime:
+                            shutil.copy2(resolved, dest)
+                    else:
+                        continue
+                    if fname not in seen:
+                        seen.add(fname)
+                        found_names.append(fname)
+                except OSError:
+                    continue
+
+        return [{"name": fn, "url": f"/api/outputs/{fn}"} for fn in found_names[:6]]
 
     def list_outputs(self) -> list[dict[str, Any]]:
         if not OUTPUTS_DIR.exists():
@@ -229,10 +357,15 @@ def create_web_app(enable_mlflow: bool = False) -> FastAPI:
 
     @app.get("/api/state")
     def get_state() -> dict[str, Any]:
+        ollama_ids = [
+            ep.endpoint_id
+            for ep in state.session.llm_router.endpoints
+            if ep.provider == "ollama"
+        ]
         return {
             "session_id": state.session.session_id,
             "model": state.session.model,
-            "available_models": ["auto", "groq", "cloudflare"] + list(FALLBACK_MODELS),
+            "available_models": ["auto", "groq", "cloudflare"] + ollama_ids + list(FALLBACK_MODELS),
             "top_k": state.session.top_k,
             "total_tools": len(state.registry.entries),
             "packs": state.registry.loaded_packs,
@@ -297,16 +430,21 @@ def create_web_app(enable_mlflow: bool = False) -> FastAPI:
                     state.session.switch_model(req.model, preserve_history=True)
                 if req.top_k is not None:
                     state.session.top_k = max(0, int(req.top_k))
+                before_imgs = state.snapshot_output_images()
                 res = state.session.send(msg, verbose=True)
-                clean_answer, suggested_skill = extract_suggested_skill(res["answer"])
+                clean_answer, suggested_skill = extract_suggested_skill(
+                    res["answer"], user_prompt=msg, trace=res["trace"]
+                )
                 usage = res["usage"]
+                enriched_trace = state.enrich_trace(res["trace"])
                 return {
                     "answer": clean_answer,
                     "suggested_skill": suggested_skill,
+                    "images": state.collect_turn_images(enriched_trace, before_imgs),
                     "model": res["model"],
                     "elapsed_sec": res["elapsed_sec"],
                     "routed_tools": res["routed_tools"],
-                    "trace": state.enrich_trace(res["trace"]),
+                    "trace": enriched_trace,
                     "cache_hits": res.get("cache_hits", 0),
                     "usage": {
                         "input_tokens": usage.input_tokens,
@@ -327,6 +465,117 @@ def create_web_app(enable_mlflow: bool = False) -> FastAPI:
             return await run_in_threadpool(_do_chat)
         except Exception as exc:
             raise HTTPException(status_code=500, detail=f"{type(exc).__name__}: {exc}") from exc
+
+    @app.post("/api/chat/approve")
+    def approve_tool_execution(req: ApprovalRequest) -> dict[str, Any]:
+        with state.approval_lock:
+            entry = state.pending_approvals.get(req.approval_id)
+            if entry is None:
+                raise HTTPException(status_code=404, detail="Yêu cầu xác nhận đã hết hạn hoặc không tồn tại.")
+            entry["approved"] = bool(req.approved)
+            entry["event"].set()
+        return {"ok": True, "approval_id": req.approval_id, "approved": bool(req.approved)}
+
+    @app.post("/api/chat/stream")
+    async def chat_stream_endpoint(req: ChatRequest) -> StreamingResponse:
+        msg = (req.message or "").strip()
+        if not msg:
+            raise HTTPException(status_code=400, detail="Message must not be empty.")
+
+        evt_queue: queue.Queue[dict[str, Any] | None] = queue.Queue()
+
+        def _confirm_cb(tool_name: str, args: dict[str, Any], reason: str) -> bool:
+            approval_id = uuid.uuid4().hex[:10]
+            ev = threading.Event()
+            with state.approval_lock:
+                state.pending_approvals[approval_id] = {"event": ev, "approved": False}
+            evt_queue.put(
+                {
+                    "type": "confirm_request",
+                    "approval_id": approval_id,
+                    "tool": tool_name,
+                    "args": args,
+                    "reason": reason,
+                }
+            )
+            ev.wait(timeout=120.0)
+            with state.approval_lock:
+                entry = state.pending_approvals.pop(approval_id, None)
+            return bool(entry and entry.get("approved"))
+
+        def _worker() -> None:
+            try:
+                with state.lock:
+                    if req.model and req.model != state.session.model:
+                        state.session.switch_model(req.model, preserve_history=True)
+                    if req.top_k is not None:
+                        state.session.top_k = max(0, int(req.top_k))
+                    before_imgs = state.snapshot_output_images()
+                    res = state.session.send(
+                        msg,
+                        verbose=True,
+                        on_event=evt_queue.put,
+                        confirm_callback=_confirm_cb,
+                    )
+                    clean_answer, suggested_skill = extract_suggested_skill(
+                    res["answer"], user_prompt=msg, trace=res["trace"]
+                )
+                    usage = res["usage"]
+                    enriched_trace = state.enrich_trace(res["trace"])
+                    evt_queue.put(
+                        {
+                            "type": "done",
+                            "answer": clean_answer,
+                            "suggested_skill": suggested_skill,
+                            "images": state.collect_turn_images(enriched_trace, before_imgs),
+                            "model": res["model"],
+                            "elapsed_sec": res["elapsed_sec"],
+                            "routed_tools": res["routed_tools"],
+                            "trace": enriched_trace,
+                            "cache_hits": res.get("cache_hits", 0),
+                            "usage": {
+                                "input_tokens": usage.input_tokens,
+                                "output_tokens": usage.output_tokens,
+                                "total_tokens": usage.total_tokens,
+                                "est_cost_usd": round(usage.estimate_cost_usd(res["model"]), 6),
+                            },
+                            "session_id": state.session.session_id,
+                            "sessions": state.memory_store.list_sessions(limit=25),
+                            "outputs": state.list_outputs(),
+                            "router_status": state.session.llm_router.get_status(),
+                            "pending_facts_count": len(state.memory_store.list_pending_facts()),
+                            "prospective_tasks": state.memory_store.list_prospective_tasks(status="pending"),
+                            "degraded_tools_count": len(state.memory_store.get_degraded_tools()),
+                        }
+                    )
+            except Exception as exc:
+                evt_queue.put({"type": "error", "detail": f"{type(exc).__name__}: {exc}"})
+            finally:
+                evt_queue.put(None)
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+        async def _event_gen() -> AsyncIterator[str]:
+            def _next_item() -> Any:
+                try:
+                    return evt_queue.get(timeout=0.35)
+                except queue.Empty:
+                    return "__KEEPALIVE__"
+
+            while True:
+                item = await run_in_threadpool(_next_item)
+                if item == "__KEEPALIVE__":
+                    yield ": keepalive\n\n"
+                    continue
+                if item is None:
+                    break
+                yield f"data: {json.dumps(item, ensure_ascii=False, default=str)}\n\n"
+
+        return StreamingResponse(
+            _event_gen(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
     @app.post("/api/session/new")
     def new_session(req: NewSessionRequest) -> dict[str, Any]:
@@ -684,5 +933,114 @@ def create_web_app(enable_mlflow: bool = False) -> FastAPI:
     @app.delete("/api/memory/prospective/{task_id}")
     def delete_prospective_endpoint(task_id: int) -> dict[str, Any]:
         return {"ok": True, "deleted": state.memory_store.delete_prospective_task(task_id)}
+
+    # ------------------------------------------------------------------
+    # Encrypted Web Credential Vault (Windows DPAPI — Zero Plaintext)
+    # ------------------------------------------------------------------
+    @app.get("/api/vault")
+    def list_vault_credentials() -> dict[str, Any]:
+        from agent_runtime.credential_vault import EncryptedCredentialVault
+
+        vault = EncryptedCredentialVault()
+        return {"ok": True, "accounts": vault.list_credentials()}
+
+    @app.post("/api/vault/save")
+    def save_vault_credential(req: VaultCredentialRequest) -> dict[str, Any]:
+        from agent_runtime.credential_vault import EncryptedCredentialVault
+
+        try:
+            vault = EncryptedCredentialVault()
+            saved = vault.save_credential(
+                site=req.site,
+                username=req.username,
+                password=req.password,
+                login_url=req.login_url,
+                notes=req.notes,
+            )
+            return {"ok": True, "account": saved}
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.delete("/api/vault/{site}")
+    def delete_vault_credential(site: str) -> dict[str, Any]:
+        from agent_runtime.credential_vault import EncryptedCredentialVault
+
+        vault = EncryptedCredentialVault()
+        return {"ok": True, "deleted": vault.delete_credential(site)}
+
+    @app.post("/api/vault/launch-chrome")
+    async def launch_agent_chrome_endpoint() -> dict[str, Any]:
+        from skills.automationPc_skills import skill_browser_cdp_controller as cdp
+
+        return await run_in_threadpool(lambda: cdp.launch_agent_chrome(headless=False))
+
+    # ------------------------------------------------------------------
+    # In-Chat One-Click Autonomous Skill Self-Healing (#10)
+    # ------------------------------------------------------------------
+    @app.post("/api/skills/auto-heal")
+    async def auto_heal_skill_endpoint(req: AutoHealRequest) -> dict[str, Any]:
+        def _do_heal() -> dict[str, Any]:
+            pack = (req.pack or "").strip()
+            mod = (req.module_name or "").strip()
+            if (not pack or not mod) and req.tool_name:
+                entry = state.registry._by_name.get(req.tool_name)
+                if entry is not None:
+                    pack = entry.pack
+                    mod = entry.module_name
+            if not pack or not mod:
+                return {"ok": False, "error": f"Không xác định được skill nguồn cho tool '{req.tool_name}'."}
+
+            err_ctx = f"Tool: {req.tool_name}\nLỗi: {req.error_text}"
+            if req.traceback_text:
+                err_ctx += f"\nTraceback:\n{req.traceback_text[:1200]}"
+            requirement = (
+                f"Tự động sửa lỗi thực tế vừa xảy ra khi gọi `{req.tool_name}` "
+                f"(lỗi: {req.error_text[:200]}). Giữ nguyên tương thích ngược, bổ sung kiểm tra biên an toàn và cập nhật pytest."
+            )
+            res = state.evolver.evolve_skill(
+                requirement=requirement,
+                mode="rewrite",
+                target_pack=pack,
+                module_name=mod,
+                error_context=err_ctx,
+                model=req.model or DEFAULT_MODEL,
+                max_fix_rounds=2,
+                auto_save=True,
+                live_smoke_test=True,
+            )
+            total_tools = len(state.registry.entries)
+            if res.ok:
+                total_tools = state.hot_reload(updated_module=res.module_name)
+            return {
+                "ok": res.ok,
+                "pack": res.pack,
+                "module_name": res.module_name,
+                "total_tools": total_tools,
+                "logs": res.logs,
+                "error": "" if res.ok else (res.logs[-1] if res.logs else "Auto-heal failed."),
+            }
+
+        return await run_in_threadpool(_do_heal)
+
+    # ------------------------------------------------------------------
+    # Trajectory Distillation DB (data/distillation.db -> Colab Qwen2.5-1.5B)
+    # ------------------------------------------------------------------
+    @app.get("/api/distill/stats")
+    def get_distill_stats() -> dict[str, Any]:
+        return {"ok": True, **state.session.distill_store.get_stats()}
+
+    @app.post("/api/distill/export")
+    def export_distill_dataset(
+        min_quality: float = Query(0.65),
+        max_tokens: int = Query(3800),
+        only_tool_turns: bool = Query(False),
+        max_per_tool: int = Query(50),
+    ) -> dict[str, Any]:
+        return state.session.distill_store.export_colab_jsonl(
+            min_quality=min_quality,
+            max_tokens=max_tokens,
+            only_tool_turns=only_tool_turns,
+            max_per_tool=max_per_tool,
+        )
 
     return app

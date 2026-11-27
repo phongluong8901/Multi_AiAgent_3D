@@ -73,3 +73,8 @@ Bạn chỉ cần chạy 1 lệnh này trên PowerShell (trong .venv) để tự
 
 powershell
 python run_gemini_skills.py --sync-deps
+
+# ---
+3. Cách tự chạy lại bất cứ lúc nào sau khi thêm/sửa skill
+powershell
+.venv\Scripts\python.exe scripts\audit_all_skills.py

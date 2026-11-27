@@ -30,7 +30,7 @@ TOOL_SCHEMA = {
 
 def _run_cmd(cmd):
     try:
-        result = subprocess.run(cmd, shell=True, check=True, capture_output=True, text=True)
+        result = subprocess.run(cmd, shell=True, check=True, capture_output=True, text=True, encoding="utf-8", errors="replace")
         return result.stdout.strip()
     except subprocess.CalledProcessError as e:
         return {"ok": False, "error": f"Command failed: {e.stderr}"}

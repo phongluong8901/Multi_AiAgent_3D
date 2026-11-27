@@ -58,9 +58,9 @@ TOOL_SCHEMA = {
 
 def execute(action: str = "request", **kwargs) -> Dict[str, Any]:
     if action == "request":
-        return _request(**kwargs)
+        return _safe_call(_request, kwargs)
     elif action == "health_check":
-        return _health_check(**kwargs)
+        return _safe_call(_health_check, kwargs)
     else:
         return {"ok": False, "error": f"Unknown action: {action}"}
 
@@ -108,3 +108,11 @@ def _health_check(urls: List[str], timeout: int = 10) -> Dict[str, Any]:
         result = _request(url, method="HEAD", timeout=timeout)
         results[url] = result
     return {"ok": True, "results": results}
+
+def _safe_call(fn, kw):
+    import inspect as _insp
+    sig = _insp.signature(fn)
+    if any(p.kind == _insp.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
+        return fn(**kw)
+    valid = {k: v for k, v in kw.items() if k in sig.parameters}
+    return fn(**valid)

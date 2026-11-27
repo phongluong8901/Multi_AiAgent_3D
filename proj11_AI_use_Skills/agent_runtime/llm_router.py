@@ -26,7 +26,48 @@ from agent_runtime.config import DEFAULT_API_TIMEOUT_SEC, ENV_FILE
 from agent_runtime.executor import extract_function_calls, extract_text, run_interruptible
 from agent_runtime.telemetry import TokenUsage, extract_usage
 
-ProviderName = Literal["gemini", "groq", "cloudflare"]
+ProviderName = Literal["gemini", "groq", "cloudflare", "ollama"]
+
+
+def _discover_ollama_models(base_url: str) -> list[str]:
+    """Quick non-blocking probe of local Ollama (/api/tags) to auto-list installed models."""
+    try:
+        resp = httpx.get(f"{base_url.rstrip('/')}/api/tags", timeout=1.2)
+        if resp.status_code == 200:
+            data = resp.json()
+            names = [str(m.get("name") or "").strip() for m in (data.get("models") or [])]
+            return [n for n in names if n]
+    except Exception:
+        pass
+    return []
+
+
+def _parse_qwen_inline_tool_calls(text: str) -> tuple[str, list[UnifiedToolCall]]:
+    """Fallback parser for Qwen2.5 local models that emit <tool_call>{...}</tool_call> inside content."""
+    import re as _re
+
+    if "<tool_call>" not in (text or ""):
+        return text, []
+    found: list[UnifiedToolCall] = []
+    for match in _re.finditer(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", text, flags=_re.DOTALL):
+        try:
+            obj = json.loads(match.group(1))
+            name = str(obj.get("name") or "").strip()
+            args = obj.get("arguments") or obj.get("args") or {}
+            if isinstance(args, str):
+                args = json.loads(args)
+            if name:
+                found.append(
+                    UnifiedToolCall(
+                        id=f"call_{uuid.uuid4().hex[:8]}",
+                        name=name,
+                        args=args if isinstance(args, dict) else {},
+                    )
+                )
+        except Exception:
+            continue
+    cleaned = _re.sub(r"<tool_call>.*?</tool_call>", "", text, flags=_re.DOTALL).strip()
+    return cleaned, found
 
 
 @dataclass
@@ -62,6 +103,15 @@ class ProviderEndpoint:
     errors: int = 0
     last_error: str = ""
     last_latency_ms: int = 0
+    ewma_latency_ms: float = 0.0
+
+    def adaptive_rank_key(self) -> tuple[float, int]:
+        """Adaptive EWMA Latency + Reliability score (lower is better)."""
+        err_rate = self.errors / max(1, self.requests)
+        # Blend base priority with latency penalty (1s = +3 priority points) & error penalty
+        lat_pen = (self.ewma_latency_ms / 1000.0) * 3.0 if self.ewma_latency_ms > 0 else 0.0
+        err_pen = err_rate * 25.0
+        return (self.priority + lat_pen + err_pen, self.priority)
 
     def is_available(self, now: float | None = None) -> bool:
         t = now if now is not None else time.time()
@@ -110,6 +160,8 @@ def _genai_schema_to_json_schema(schema: types.Schema | None) -> dict[str, Any]:
     out: dict[str, Any] = {"type": jtype}
     if schema.description:
         out["description"] = schema.description
+    if schema.enum:
+        out["enum"] = list(schema.enum)
     if jtype == "array":
         out["items"] = _genai_schema_to_json_schema(schema.items) if schema.items else {"type": "string"}
     elif jtype == "object":
@@ -267,6 +319,24 @@ class MultiProviderRouter:
                     ep.last_error = "Missing CLOUDFLARE_ACCOUNT_ID in .env (auto-discovery requires Account:Read permission)"
                 self.endpoints.append(ep)
 
+        # 4. Local Ollama (OpenAI-compatible at http://127.0.0.1:11434, e.g. qwen2.5:1.5b)
+        ollama_base = os.environ.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434").strip().rstrip("/")
+        ollama_default = os.environ.get("OLLAMA_MODEL", "qwen2.5:1.5b").strip()
+        ollama_models = _discover_ollama_models(ollama_base)
+        if ollama_default and ollama_default not in ollama_models:
+            ollama_models.insert(0, ollama_default)
+        for o_idx, o_model in enumerate(ollama_models[:8]):
+            self.endpoints.append(
+                ProviderEndpoint(
+                    endpoint_id=f"ollama:{o_model}",
+                    provider="ollama",
+                    model=o_model,
+                    api_key="ollama",
+                    account_id=ollama_base,
+                    priority=90 + o_idx,
+                )
+            )
+
         self.endpoints.sort(key=lambda e: e.priority)
 
     def get_status(self) -> list[dict[str, Any]]:
@@ -291,6 +361,9 @@ class MultiProviderRouter:
                     or ep.model == preferred_target
                     or ep.provider == preferred_target
                 ]
+                # When explicitly testing local Ollama, do NOT silently fall back to cloud APIs
+                if preferred_target.startswith("ollama:") or preferred_target == "ollama":
+                    return exact
                 rest = [ep for ep in avail if ep not in exact]
                 return exact + rest
 
@@ -299,7 +372,7 @@ class MultiProviderRouter:
                 self._rr_index += 1
                 return avail[idx:] + avail[:idx]
 
-            return sorted(avail, key=lambda e: e.priority)
+            return sorted(avail, key=lambda e: e.adaptive_rank_key())
 
     def _record_failure(self, ep: ProviderEndpoint, exc: Exception) -> None:
         msg = str(exc)
@@ -509,6 +582,9 @@ class MultiProviderRouter:
                     )
                 )
 
+        if not tool_calls and text and "<tool_call>" in text:
+            text, tool_calls = _parse_qwen_inline_tool_calls(text)
+
         u = data.get("usage") or {}
         in_tok = int(u.get("prompt_tokens") or 0)
         out_tok = int(u.get("completion_tokens") or 0)
@@ -567,11 +643,21 @@ class MultiProviderRouter:
                     res = self._call_openai_compat(
                         ep, cf_url, system_instruction, messages, declarations, temperature
                     )
+                elif ep.provider == "ollama":
+                    ollama_base = (ep.account_id or os.environ.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434")).rstrip("/")
+                    ollama_url = f"{ollama_base}/v1/chat/completions"
+                    res = self._call_openai_compat(
+                        ep, ollama_url, system_instruction, messages, declarations, temperature
+                    )
                 else:
                     raise ValueError(f"Unsupported provider: {ep.provider}")
 
                 ep.successes += 1
-                ep.last_latency_ms = int((time.perf_counter() - t0) * 1000)
+                lat_ms = int((time.perf_counter() - t0) * 1000)
+                ep.last_latency_ms = lat_ms
+                ep.ewma_latency_ms = (
+                    float(lat_ms) if ep.ewma_latency_ms <= 0 else (0.7 * ep.ewma_latency_ms + 0.3 * lat_ms)
+                )
                 ep.last_error = ""
                 return res
             except KeyboardInterrupt:

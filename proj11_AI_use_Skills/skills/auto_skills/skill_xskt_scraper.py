@@ -1,155 +1,124 @@
-import httpx
+"""Vietnam Lottery (XSKT) 3-region results client using official xskt.com.vn RSS feeds."""
+from __future__ import annotations
+
 import xml.etree.ElementTree as ET
-from bs4 import BeautifulSoup
+from typing import Any
+
+import httpx
+
 
 class XSKTScraperClient:
-    """Client cho phep lay ket qua xo so thong qua RSS feed chinh thuc tu xskt.com.vn."""
+    """Client lay ket qua xo so kien thiet 3 mien (Bac, Trung, Nam) tu RSS chinh thuc cua xskt.com.vn."""
 
-    def __init__(self, timeout: float = 10.0) -> None:
+    _RSS_URLS: dict[str, str] = {
+        "mien_bac": "https://xskt.com.vn/rss-feed/mien-bac-xsmb.rss",
+        "mien_trung": "https://xskt.com.vn/rss-feed/mien-trung-xsmt.rss",
+        "mien_nam": "https://xskt.com.vn/rss-feed/mien-nam-xsmn.rss",
+    }
+
+    def __init__(self, timeout: float = 12.0) -> None:
         self.timeout = timeout
         self.headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+            ),
+            "Accept": "application/rss+xml, application/xml, text/xml, */*",
         }
 
-    def get_xskt_results(self, region: str, date: str = "") -> dict:
-        """
-        Lay ket qua xo so 3 mien (mien_bac, mien_trung, mien_nam) tu RSS feed cua xskt.com.vn va parse bang xml.etree.ElementTree.
-        
+    @staticmethod
+    def _normalize_region(region: str) -> str:
+        clean = (region or "mien_bac").strip().lower().replace("-", "_").replace(" ", "_")
+        aliases = {
+            "mb": "mien_bac",
+            "xsmb": "mien_bac",
+            "bac": "mien_bac",
+            "mien_bac": "mien_bac",
+            "mt": "mien_trung",
+            "xsmt": "mien_trung",
+            "trung": "mien_trung",
+            "mien_trung": "mien_trung",
+            "mn": "mien_nam",
+            "xsmn": "mien_nam",
+            "nam": "mien_nam",
+            "mien_nam": "mien_nam",
+        }
+        if clean not in aliases:
+            raise ValueError("Region khong hop le. Dung mot trong: mien_bac, mien_trung, mien_nam.")
+        return aliases[clean]
+
+    @staticmethod
+    def _normalize_date_tokens(date_str: str) -> list[str]:
+        raw = (date_str or "").strip()
+        if not raw:
+            return []
+        sep = "-" if "-" in raw else ("/" if "/" in raw else "")
+        if not sep:
+            return [raw]
+        parts = raw.split(sep)
+        if len(parts) != 3:
+            return [raw]
+        if len(parts[0]) == 4:
+            yyyy, mm, dd = parts
+        else:
+            dd, mm, yyyy = parts
+        dd_i, mm_i = dd.lstrip("0") or dd, mm.lstrip("0") or mm
+        return [f"{dd}/{mm}", f"{dd_i}/{mm_i}", f"{dd}-{mm}-{yyyy}", f"{dd}/{mm}/{yyyy}"]
+
+    def get_xskt_results(self, region: str = "mien_bac", date: str = "") -> dict[str, Any]:
+        """Lay ket qua chi tiet cac giai xo so 3 mien (mien_bac, mien_trung, mien_nam) tu RSS xskt.com.vn.
+
         Args:
-            region: Vung mien can lay ("mien_bac", "mien_trung", "mien_nam").
-            date: Ngay can lay dinh dang DD-MM-YYYY hoac YYYY-MM-DD (de trong neu lay moi nhat hoac gan nhat).
-            
+            region: Vung mien ('mien_bac', 'mien_trung', 'mien_nam').
+            date: Ngay can xem dinh dang DD-MM-YYYY hoac YYYY-MM-DD (de trong de lay ngay moi nhat).
+
         Returns:
-            dict: Thong tin tieu de, ngay mo thuong va danh sach cac giai thuong trich xuat duoc.
+            dict: Ket qua chi tiet cac giai thuong, ngay mo thuong va link nguon.
         """
-        region_clean = region.strip().lower()
-        if region_clean not in ["mien_bac", "mien_trung", "mien_nam"]:
-            raise ValueError("Region phai la mot trong cac gia tri: mien_bac, mien_trung, mien_nam")
-
-        formatted_date = date.strip()
-        if formatted_date and "-" in formatted_date:
-            parts = formatted_date.split("-")
-            if len(parts) == 3:
-                if len(parts[0]) == 4:
-                    # YYYY-MM-DD sang DD-MM-YYYY
-                    formatted_date = f"{parts[2]}-{parts[1]}-{parts[0]}"
-
-        rss_urls = {
-            "mien_bac": "https://xskt.com.vn/rss-feed/mien-bac-xsmb.rss",
-            "mien_trung": "https://xskt.com.vn/rss-feed/mien-trung-xsmt.rss",
-            "mien_nam": "https://xskt.com.vn/rss-feed/mien-nam-xsmn.rss"
-        }
-
-        url = rss_urls[region_clean]
+        norm_region = self._normalize_region(region)
+        rss_url = self._RSS_URLS[norm_region]
 
         try:
             with httpx.Client(timeout=self.timeout, headers=self.headers, follow_redirects=True) as client:
-                response = client.get(url)
-                response.raise_for_status()
-        except httpx.HTTPError as e:
-            raise RuntimeError(f"Khong the ket noi den RSS feed cua xskt.com.vn: {str(e)}")
+                resp = client.get(rss_url)
+                resp.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise RuntimeError(f"Loi ket noi RSS xskt.com.vn ({rss_url}): {exc}") from exc
 
         try:
-            root = ET.fromstring(response.text)
-        except ET.ParseError as e:
-            raise RuntimeError(f"Loi parse du lieu XML tu RSS feed: {str(e)}")
+            root = ET.fromstring(resp.text)
+        except ET.ParseError as exc:
+            raise RuntimeError(f"Loi parse XML tu RSS xskt.com.vn: {exc}") from exc
 
-        channel = root.find("channel")
-        if channel is None:
-            raise RuntimeError("RSS feed khong hop le: thieu the channel")
+        items: list[dict[str, str]] = []
+        for item in root.findall(".//item"):
+            title = (item.findtext("title") or "").strip()
+            desc = (item.findtext("description") or "").strip()
+            link = (item.findtext("link") or rss_url).strip()
+            pub_date = (item.findtext("pubDate") or "").strip()
+            if title or desc:
+                items.append({"title": title, "description": desc, "url": link, "pub_date": pub_date})
 
-        items = channel.findall("item")
         if not items:
-            raise RuntimeError("Khong tim thay ban tin ket qua nao trong RSS feed.")
+            raise RuntimeError(f"RSS {rss_url} khong co du lieu ket qua xo so.")
 
-        selected_item = None
-        if formatted_date:
-            for item in items:
-                title_elem = item.find("title")
-                pubdate_elem = item.find("pubDate")
-                item_text = (title_elem.text if title_elem is not None else "") + " " + (pubdate_elem.text if pubdate_elem is not None else "")
-                if formatted_date in item_text:
-                    selected_item = item
+        tokens = self._normalize_date_tokens(date)
+        matched = None
+        if tokens:
+            for it in items:
+                hay = f"{it['title']} {it['description']}"
+                if any(tok in hay for tok in tokens):
+                    matched = it
                     break
-            
-            if selected_item is None:
-                selected_item = items[0]
-        else:
-            selected_item = items[0]
 
-        title_str = ""
-        pub_date_str = ""
-        description_str = ""
-
-        title_node = selected_item.find("title")
-        if title_node is not None and title_node.text:
-            title_str = title_node.text.strip()
-
-        pubdate_node = selected_item.find("pubDate")
-        if pubdate_node is not None and pubdate_node.text:
-            pub_date_str = pubdate_node.text.strip()
-
-        desc_node = selected_item.find("description")
-        if desc_node is not None and desc_node.text:
-            description_str = desc_node.text.strip()
-
-        prizes = self._parse_rss_description(description_str)
-
+        chosen = matched or items[0]
         return {
-            "region": region_clean,
-            "title": title_str,
-            "pub_date": pub_date_str,
-            "date": formatted_date if formatted_date else pub_date_str,
-            "prizes": prizes
+            "region": norm_region,
+            "requested_date": date or "latest",
+            "exact_date_matched": bool(matched) if tokens else True,
+            "title": chosen["title"],
+            "pub_date": chosen["pub_date"],
+            "details": chosen["description"],
+            "url": chosen["url"],
+            "available_recent_titles": [it["title"] for it in items[:5]],
         }
-
-    def _parse_rss_description(self, html_content: str) -> dict:
-        prizes = {}
-        if not html_content:
-            return prizes
-
-        soup = BeautifulSoup(html_content, "html.parser")
-        
-        tables = soup.find_all("table")
-        for table in tables:
-            rows = table.find_all("tr")
-            current_prize = "Giai Khac"
-            for row in rows:
-                cols = row.find_all(["td", "th"])
-                if not cols:
-                    continue
-                if len(cols) >= 2:
-                    p_name = cols[0].get_text(strip=True)
-                    p_val = cols[1].get_text(strip=True)
-                    if p_name:
-                        current_prize = p_name
-                        if current_prize not in prizes:
-                            prizes[current_prize] = []
-                    if p_val:
-                        numbers = [n.strip() for n in p_val.replace("-", " ").split() if n.strip()]
-                        if numbers:
-                            prizes.setdefault(current_prize, []).extend(numbers)
-                elif len(cols) == 1:
-                    val = cols[0].get_text(strip=True)
-                    if val:
-                        if any(kw in val.lower() for kw in ["giai", "dac biet", "db"]):
-                            current_prize = val
-                            if current_prize not in prizes:
-                                prizes[current_prize] = []
-                        else:
-                            prizes.setdefault(current_prize, []).append(val)
-
-        if not prizes:
-            text_clean = soup.get_text(separator="\n")
-            lines = [line.strip() for line in text_clean.split("\n") if line.strip()]
-            curr = "Giai Khac"
-            for line in lines:
-                if ":" in line:
-                    parts = line.split(":", 1)
-                    curr = parts[0].strip()
-                    nums = [n.strip() for n in parts[1].replace("-", " ").split() if n.strip()]
-                    prizes[curr] = nums
-                else:
-                    prizes.setdefault(curr, []).append(line)
-
-        return prizes

@@ -41,11 +41,11 @@ TOOL_SCHEMA = {
 
 def execute(action: str = "", **kwargs) -> Dict[str, Union[bool, str, List[str]]]:
     if action == "create_daily_note":
-        return create_daily_note(**kwargs)
+        return _safe_call(create_daily_note, kwargs)
     elif action == "search_notes":
-        return search_notes(**kwargs)
+        return _safe_call(search_notes, kwargs)
     elif action == "list_recent_notes":
-        return list_recent_notes(**kwargs)
+        return _safe_call(list_recent_notes, kwargs)
     else:
         return {"ok": False, "error": f"Unknown action: {action}"}
 
@@ -100,3 +100,11 @@ def list_recent_notes(vault_dir: str = ".", limit: int = 10, dry_run: bool = Tru
         return {"ok": True, "preview": recent_notes}
     
     return {"ok": True, "recent_notes": recent_notes}
+
+def _safe_call(fn, kw):
+    import inspect as _insp
+    sig = _insp.signature(fn)
+    if any(p.kind == _insp.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
+        return fn(**kw)
+    valid = {k: v for k, v in kw.items() if k in sig.parameters}
+    return fn(**valid)

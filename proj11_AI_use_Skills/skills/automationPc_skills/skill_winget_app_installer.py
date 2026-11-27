@@ -48,7 +48,7 @@ def search_package(query: str, dry_run: bool = True) -> Dict[str, Any]:
         return {"ok": False, "error": "Missing package subprocess"}
     
     try:
-        result = subprocess.run(["winget", "search", query], capture_output=True, text=True, check=True)
+        result = subprocess.run(["winget", "search", query], capture_output=True, text=True, encoding="utf-8", errors="replace", check=True)
         if dry_run:
             return {"ok": True, "preview": result.stdout}
         else:
@@ -63,7 +63,7 @@ def list_upgrades(dry_run: bool = True) -> Dict[str, Any]:
         return {"ok": False, "error": "Missing package subprocess"}
     
     try:
-        result = subprocess.run(["winget", "upgrade", "--list"], capture_output=True, text=True, check=True)
+        result = subprocess.run(["winget", "upgrade", "--list"], capture_output=True, text=True, encoding="utf-8", errors="replace", check=True)
         if dry_run:
             return {"ok": True, "preview": result.stdout}
         else:
@@ -82,7 +82,7 @@ def build_install_cmd(package_id: str, dry_run: bool = True) -> Dict[str, Any]:
         return {"ok": True, "preview": cmd}
     else:
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", check=True)
             return {"ok": True, "result": result.stdout}
         except subprocess.CalledProcessError as e:
             return {"ok": False, "error": str(e)}

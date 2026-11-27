@@ -104,10 +104,18 @@ def get_updates(limit: int=10) -> dict:
 
 def execute(action: str = "send_message", **kwargs) -> dict:
     if action == "send_message":
-        return send_message(**kwargs)
+        return _safe_call(send_message, kwargs)
     elif action == "send_document":
-        return send_document(**kwargs)
+        return _safe_call(send_document, kwargs)
     elif action == "get_updates":
-        return get_updates(**kwargs)
+        return _safe_call(get_updates, kwargs)
     else:
         return {"ok": False, "error": f"Unknown action: {action}"}
+
+def _safe_call(fn, kw):
+    import inspect as _insp
+    sig = _insp.signature(fn)
+    if any(p.kind == _insp.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
+        return fn(**kw)
+    valid = {k: v for k, v in kw.items() if k in sig.parameters}
+    return fn(**valid)

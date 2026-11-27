@@ -118,12 +118,20 @@ def forget(key: str, db_path: str = 'agent_memory.sqlite') -> Dict[str, Any]:
 
 def execute(action: str = "", **kwargs) -> Dict[str, Any]:
     if action == "remember":
-        return remember(**kwargs)
+        return _safe_call(remember, kwargs)
     elif action == "recall":
-        return recall(**kwargs)
+        return _safe_call(recall, kwargs)
     elif action == "search_memory":
-        return search_memory(**kwargs)
+        return _safe_call(search_memory, kwargs)
     elif action == "forget":
-        return forget(**kwargs)
+        return _safe_call(forget, kwargs)
     else:
         return {"ok": False, "error": "Unknown action"}
+
+def _safe_call(fn, kw):
+    import inspect as _insp
+    sig = _insp.signature(fn)
+    if any(p.kind == _insp.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
+        return fn(**kw)
+    valid = {k: v for k, v in kw.items() if k in sig.parameters}
+    return fn(**valid)

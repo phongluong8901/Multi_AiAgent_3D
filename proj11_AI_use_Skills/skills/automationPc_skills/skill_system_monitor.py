@@ -43,7 +43,7 @@ def _ps_json(ps_cmd: str, timeout: int = 15) -> Any:
     proc = subprocess.run(
         ["powershell", "-NoProfile", "-Command", full],
         capture_output=True,
-        text=True,
+        text=True, encoding="utf-8", errors="replace",
         timeout=timeout,
     )
     if proc.returncode != 0:

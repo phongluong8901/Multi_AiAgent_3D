@@ -91,3 +91,58 @@ def extract_profile_candidates(user_message: str) -> list[dict[str, str]]:
             )
 
     return candidates
+
+
+def detect_implicit_correction(
+    prev_user_prompt: str,
+    prev_model_answer: str,
+    curr_user_prompt: str,
+) -> list[dict[str, str]]:
+    """Contrastive Turn Detector (0 API cost): infer durable user habits from follow-up corrections."""
+    curr = (curr_user_prompt or "").strip()
+    prev_u = (prev_user_prompt or "").strip()
+    if not curr or not prev_u or len(curr) > 160:
+        return []
+
+    norm = normalize_text(curr)
+    found: list[dict[str, str]] = []
+
+    patterns = [
+        (
+            ("ve bang", "dang bang", "tao bang", "bang cho de nhin"),
+            "rule_prefer_markdown_table",
+            "Ưu tiên trình bày dữ liệu thống kê/danh sách dưới dạng Bảng Markdown gọn gàng.",
+        ),
+        (
+            ("ve bieu do", "ve do thi", "ve chart", "do thi cho de nhin"),
+            "rule_prefer_visual_chart",
+            "Khi phân tích dung lượng, thống kê hoặc so sánh số liệu, chủ động đề xuất hoặc vẽ biểu đồ trực quan.",
+        ),
+        (
+            ("ngan gon hon", "tom tat lai", "dai qua", "bot dai dong"),
+            "rule_prefer_concise_reply",
+            "Trả lời súc tích, gạch đầu dòng trọng tâm, tránh giải thích dài dòng.",
+        ),
+        (
+            ("tren google sheet", "tao google sheet", "vao google sheet"),
+            "rule_prefer_google_sheets",
+            "Khi người dùng yêu cầu tạo bảng tính Google Sheet, luôn dùng google_workspace_web (create_google_sheet) tạo trực tiếp trên Google Drive thay vì file Excel cục bộ.",
+        ),
+        (
+            ("chay an", "khong bat cua so", "dung bat tab"),
+            "rule_prefer_headless_browser",
+            "Ưu tiên chạy Chrome CDP ở chế độ nền ẩn (--headless=new) sau khi đã đăng nhập, tránh bật cửa sổ che màn hình.",
+        ),
+    ]
+
+    for triggers, key, rule_val in patterns:
+        if any(tr in norm for tr in triggers):
+            found.append(
+                {
+                    "key": key,
+                    "value": rule_val,
+                    "category": "rule",
+                    "evidence": f"Follow-up correction: '{curr[:90]}' after '{prev_u[:60]}'",
+                }
+            )
+    return found

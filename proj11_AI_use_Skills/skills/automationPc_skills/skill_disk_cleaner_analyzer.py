@@ -2,8 +2,11 @@
 import hashlib
 import os
 import tempfile
+import time
 from collections import defaultdict
 from typing import Any
+
+_SKIP_DIRS = frozenset({".git", "node_modules", "__pycache__", ".venv", "venv", "appdata", "windows", "$recycle.bin", "programdata"})
 
 TOOL_SCHEMA: dict[str, Any] = {
     "name": "skill_disk_cleaner_analyzer",
@@ -34,8 +37,14 @@ def find_large_files(root: str = ".", top_n: int = 15, min_mb: float = 10.0) -> 
     if not os.path.isdir(base):
         return {"ok": False, "error": f"Directory not found: {base}"}
     min_bytes = int(float(min_mb or 0) * 1024 * 1024)
+    deadline = time.monotonic() + 5.0
+    timed_out = False
     found = []
-    for dp, _, fns in os.walk(base):
+    for dp, dirnames, fns in os.walk(base):
+        if time.monotonic() >= deadline:
+            timed_out = True
+            break
+        dirnames[:] = [d for d in dirnames if d.lower() not in _SKIP_DIRS and not d.startswith("$")]
         for fn in fns:
             fp = os.path.join(dp, fn)
             try:
@@ -45,7 +54,13 @@ def find_large_files(root: str = ".", top_n: int = 15, min_mb: float = 10.0) -> 
             except OSError:
                 continue
     found.sort(key=lambda x: x["size_bytes"], reverse=True)
-    return {"ok": True, "root": os.path.abspath(base), "count": len(found), "largest_files": found[: max(1, int(top_n or 15))]}
+    return {
+        "ok": True,
+        "root": os.path.abspath(base),
+        "count": len(found),
+        "timed_out": timed_out,
+        "largest_files": found[: max(1, int(top_n or 15))],
+    }
 
 
 def _sha256_file(path: str) -> str:

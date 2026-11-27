@@ -47,10 +47,27 @@ class ToolTTLCache:
         self.misses = 0
 
     def ttl_for(self, tool_name: str) -> int:
-        # Never cache local PC automation / stateful action tools ending with '__execute'
-        if (tool_name or "").endswith("__execute"):
+        # Never cache local PC automation / stateful action tools
+        tname = (tool_name or "").lower()
+        if tname.endswith("__execute"):
             return 0
-        prefix = (tool_name or "").split("__", 1)[0]
+        prefix, _, method = tname.partition("__")
+        if any(
+            k in prefix
+            for k in (
+                "mouse", "keyboard", "gui_", "zalo", "window", "process",
+                "docker", "chart", "screenshot", "audio", "volume", "clipboard", "file",
+            )
+        ):
+            return 0
+        if method.startswith(
+            (
+                "draw_", "move_", "click_", "type_", "press_", "send_", "open_",
+                "close_", "kill_", "stop_", "start_", "delete_", "remove_", "create_",
+                "write_", "set_", "run_", "exec_", "render_", "capture_", "take_", "export_",
+            )
+        ):
+            return 0
         return _TOOL_TTL_SECONDS.get(prefix, 300)
 
     @staticmethod

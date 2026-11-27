@@ -51,7 +51,7 @@ def execute(action: str = "get_battery", **kwargs) -> Dict[str, Any]:
 def get_battery(**kwargs) -> Dict[str, Any]:
     try:
         import subprocess
-        result = subprocess.run(["powershell", "-Command", "Get-WmiObject -Class Win32_Battery"], capture_output=True, text=True)
+        result = subprocess.run(["powershell", "-Command", "Get-WmiObject -Class Win32_Battery"], capture_output=True, text=True, encoding="utf-8", errors="replace")
         if result.returncode != 0:
             return {"ok": False, "error": "Failed to get battery status"}
         battery_info = result.stdout
@@ -67,7 +67,7 @@ def set_brightness(level: int = 70, **kwargs) -> Dict[str, Any]:
         command = f"powershell -Command \"(Get-WmiObject -Namespace root\\wmi -Class WmiMonitorBrightnessMethods).WmiSetBrightness({level}, 0)\""
         if kwargs.get("dry_run", True):
             return {"ok": True, "preview": f"Would set brightness to {level}"}
-        result = subprocess.run(command, capture_output=True, text=True)
+        result = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="replace")
         if result.returncode != 0:
             return {"ok": False, "error": "Failed to set brightness"}
         return {"ok": True, "brightness": level}
@@ -92,7 +92,7 @@ def schedule_shutdown(minutes: int = 30, **kwargs) -> Dict[str, Any]:
         command = f"shutdown -s -t {minutes * 60}"
         if kwargs.get("dry_run", True):
             return {"ok": True, "preview": f"Would schedule shutdown in {minutes} minutes"}
-        subprocess.run(command, capture_output=True, text=True)
+        subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="replace")
         return {"ok": True, "message": f"Shutdown scheduled in {minutes} minutes"}
     except ImportError:
         return {"ok": False, "error": "Missing package subprocess"}
@@ -102,7 +102,7 @@ def cancel_shutdown(**kwargs) -> Dict[str, Any]:
         import subprocess
         if kwargs.get("dry_run", True):
             return {"ok": True, "preview": "Would cancel shutdown"}
-        subprocess.run(["shutdown", "-a"], capture_output=True, text=True)
+        subprocess.run(["shutdown", "-a"], capture_output=True, text=True, encoding="utf-8", errors="replace")
         return {"ok": True, "message": "Shutdown cancelled"}
     except ImportError:
         return {"ok": False, "error": "Missing package subprocess"}

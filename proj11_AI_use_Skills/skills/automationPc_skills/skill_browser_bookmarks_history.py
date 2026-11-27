@@ -116,8 +116,16 @@ def search_history(query: str = '', browser: str = 'chrome', limit: int = 20) ->
 
 def execute(action: str = "", **kwargs) -> dict:
     if action == "search_bookmarks":
-        return search_bookmarks(**kwargs)
+        return _safe_call(search_bookmarks, kwargs)
     elif action == "search_history":
-        return search_history(**kwargs)
+        return _safe_call(search_history, kwargs)
     else:
         return {"ok": False, "error": f"Unknown action: {action}"}
+
+def _safe_call(fn, kw):
+    import inspect as _insp
+    sig = _insp.signature(fn)
+    if any(p.kind == _insp.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
+        return fn(**kw)
+    valid = {k: v for k, v in kw.items() if k in sig.parameters}
+    return fn(**valid)

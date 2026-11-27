@@ -332,6 +332,78 @@
       text-decoration: underline;
     }
 
+    .md-table-wrap {
+      margin: 10px 0;
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .md-table-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 10px;
+      background: var(--panel-alt);
+      border-bottom: 1px solid var(--border);
+      font-size: 11.5px;
+      color: var(--muted);
+    }
+
+    .md-table-scroll {
+      overflow-x: auto;
+    }
+
+    .md-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12.5px;
+    }
+
+    .md-table th,
+    .md-table td {
+      padding: 7px 11px;
+      border-bottom: 1px solid rgba(51, 65, 85, 0.7);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .md-table th {
+      background: rgba(30, 41, 59, 0.9);
+      color: #93c5fd;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .md-table tr:hover td {
+      background: rgba(59, 130, 246, 0.06);
+    }
+
+    .img-preview-card {
+      display: inline-flex;
+      flex-direction: column;
+      gap: 6px;
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px;
+      max-width: 420px;
+    }
+
+    .img-preview-card img {
+      max-width: 100%;
+      max-height: 280px;
+      border-radius: 5px;
+      object-fit: contain;
+      cursor: zoom-in;
+      transition: opacity 0.15s;
+    }
+
+    .img-preview-card img:hover {
+      opacity: 0.92;
+    }
+
     details.trace-box {
       margin-top: 12px;
       background: var(--code-bg);
@@ -691,6 +763,35 @@
           </div>
           <div id="consolidateResultBox" style="margin-top:8px; font-size:12px; color:var(--success);"></div>
         </div>
+
+        <!-- 7. Encrypted Web Credential Vault (Windows DPAPI) -->
+        <div class="modal-card">
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:8px;">
+            <div>
+              <div class="section-title" style="margin-bottom:2px;">7. Kho Tài khoản Web — Encrypted Web Vault (Mã hóa Windows DPAPI)</div>
+              <div style="font-size:11.5px; color:var(--muted);">Mật khẩu được mã hóa AES/DPAPI gắn với tài khoản Windows hiện tại, không bao giờ gửi lên LLM hay lưu dạng chữ thường.</div>
+            </div>
+            <button id="launchAgentChromeBtn" class="btn btn-sm" onclick="launchAgentChromeFromUi()">Mở Chrome Agent (9222)</button>
+          </div>
+          <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px; align-items:center;">
+            <span style="font-size:11.5px; color:var(--muted);">Điền nhanh:</span>
+            <button class="btn btn-sm" onclick="prefillVaultSite('gmail', 'https://mail.google.com/')">Gmail</button>
+            <button class="btn btn-sm" onclick="prefillVaultSite('zalo', 'https://chat.zalo.me/')">Zalo</button>
+            <button class="btn btn-sm" onclick="prefillVaultSite('telegram', 'https://web.telegram.org/')">Telegram</button>
+            <button class="btn btn-sm" onclick="prefillVaultSite('github', 'https://github.com/login')">GitHub</button>
+          </div>
+          <div style="display:grid; grid-template-columns:1fr 1.4fr; gap:8px; margin-bottom:8px;">
+            <input type="text" id="vaultSite" placeholder="Tên web (vd: gmail, zalo, telegram)" />
+            <input type="text" id="vaultUrl" placeholder="URL đăng nhập (vd: https://chat.zalo.me/)" />
+            <input type="text" id="vaultUser" placeholder="Email / SĐT / Username" autocomplete="off" />
+            <input type="password" id="vaultPass" placeholder="Mật khẩu (để trống nếu chỉ đổi user/URL)" autocomplete="new-password" />
+          </div>
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:10px;">
+            <span id="vaultStatusMsg" style="font-size:12px; color:var(--success);"></span>
+            <button class="btn btn-sm btn-primary" onclick="saveVaultAccount()">Lưu mã hóa</button>
+          </div>
+          <div id="vaultAccountsBox" style="display:flex; flex-direction:column; gap:6px;"></div>
+        </div>
       </div>
     </div>
   </div>
@@ -724,6 +825,20 @@
           <div id="insightsPlaybooksBox" style="display:flex; flex-direction:column; gap:8px;"></div>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- ================= LIGHTBOX ZOOM MODAL (IMAGES & TABLES) ================= -->
+  <div id="zoomModal" class="modal-backdrop" onclick="if(event.target===this) closeZoomModal()" style="z-index:1100;">
+    <div class="modal-shell" style="width:min(1180px, 96vw); max-height:92vh;">
+      <div style="display:flex; align-items:center; justify-content:space-between; padding:12px 16px; border-bottom:1px solid var(--border);">
+        <span id="zoomModalTitle" style="font-weight:600; font-size:13.5px;">Xem chi tiết</span>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <a id="zoomDownloadBtn" class="btn btn-sm btn-primary" href="#" download style="display:none; text-decoration:none;">Tải về</a>
+          <button class="btn btn-sm" onclick="closeZoomModal()">Đóng (Esc)</button>
+        </div>
+      </div>
+      <div id="zoomModalBody" style="padding:16px; overflow:auto; display:flex; align-items:flex-start; justify-content:center; background:var(--code-bg);"></div>
     </div>
   </div>
 
@@ -923,6 +1038,17 @@
         .replace(/>/g, "&gt;");
     }
 
+    let renderedTablesStore = {};
+    let renderedTableSeq = 0;
+
+    function _parseTableRow(line) {
+      return line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map(c => c.trim());
+    }
+
+    function _isTableSeparator(line) {
+      return /^\s*\|?(\s*:?-{2,}:?\s*\|)+\s*:?-{2,}:?\s*\|?\s*$/.test(line);
+    }
+
     function renderMarkdownLite(md) {
       let html = escapeHtml(md || "");
       html = html.replace(/```([\s\S]*?)```/g, (_, code) => `<pre><code>${code.trim()}</code></pre>`);
@@ -932,7 +1058,41 @@
       const lines = html.split("\n");
       let out = [];
       let inList = false;
-      for (const line of lines) {
+      let i = 0;
+      while (i < lines.length) {
+        const line = lines[i];
+        // Detect GitHub-Flavored Markdown table (header + separator + rows)
+        if (
+          line.includes("|") &&
+          i + 1 < lines.length &&
+          _isTableSeparator(lines[i + 1])
+        ) {
+          if (inList) { out.push("</ul>"); inList = false; }
+          const headers = _parseTableRow(line);
+          const rows = [];
+          i += 2;
+          while (i < lines.length && lines[i].trim().includes("|") && !_isTableSeparator(lines[i])) {
+            rows.push(_parseTableRow(lines[i]));
+            i++;
+          }
+          const tid = "tbl_" + (++renderedTableSeq);
+          renderedTablesStore[tid] = { headers, rows };
+          const thead = "<thead><tr>" + headers.map(h => `<th>${h}</th>`).join("") + "</tr></thead>";
+          const tbody = "<tbody>" + rows.map(r => "<tr>" + headers.map((_, ci) => `<td>${r[ci] || ""}</td>`).join("") + "</tr>").join("") + "</tbody>";
+          out.push(`
+            <div class="md-table-wrap">
+              <div class="md-table-toolbar">
+                <span>Bảng dữ liệu (${rows.length} dòng x ${headers.length} cột)</span>
+                <div style="display:flex; gap:6px;">
+                  <button class="btn btn-sm" onclick="zoomTable('${tid}')">Phóng to</button>
+                  <button class="btn btn-sm" onclick="downloadTableCsv('${tid}')">Tải CSV</button>
+                  <button class="btn btn-sm" onclick="copyTableTsv('${tid}', this)">Sao chép</button>
+                </div>
+              </div>
+              <div class="md-table-scroll"><table class="md-table">${thead}${tbody}</table></div>
+            </div>`);
+          continue;
+        }
         if (/^\s*[-*]\s+/.test(line)) {
           if (!inList) { out.push("<ul>"); inList = true; }
           out.push("<li>" + line.replace(/^\s*[-*]\s+/, "") + "</li>");
@@ -943,9 +1103,76 @@
           else if (line.trim() === "---") out.push("<hr style='border-color:#334155;margin:10px 0;'/>");
           else if (line.trim() !== "") out.push("<p>" + line + "</p>");
         }
+        i++;
       }
       if (inList) out.push("</ul>");
       return out.join("");
+    }
+
+    function _stripHtmlTags(s) {
+      const tmp = document.createElement("div");
+      tmp.innerHTML = s || "";
+      return (tmp.textContent || tmp.innerText || "").trim();
+    }
+
+    function openImageZoom(url, name) {
+      document.getElementById("zoomModalTitle").textContent = name || "Xem ảnh phóng to";
+      const dl = document.getElementById("zoomDownloadBtn");
+      dl.style.display = "inline-flex";
+      dl.href = url;
+      dl.download = name || "chart.png";
+      document.getElementById("zoomModalBody").innerHTML =
+        `<img src="${escapeHtml(url)}" alt="${escapeHtml(name)}" style="max-width:100%; max-height:80vh; border-radius:6px; object-fit:contain;" />`;
+      document.getElementById("zoomModal").style.display = "flex";
+    }
+
+    function zoomTable(tid) {
+      const tbl = renderedTablesStore[tid];
+      if (!tbl) return;
+      document.getElementById("zoomModalTitle").textContent = `Bảng dữ liệu phóng to (${tbl.rows.length} dòng)`;
+      const dl = document.getElementById("zoomDownloadBtn");
+      dl.style.display = "none";
+      const thead = "<thead><tr>" + tbl.headers.map(h => `<th>${h}</th>`).join("") + "</tr></thead>";
+      const tbody = "<tbody>" + tbl.rows.map(r => "<tr>" + tbl.headers.map((_, ci) => `<td>${r[ci] || ""}</td>`).join("") + "</tr>").join("") + "</tbody>";
+      document.getElementById("zoomModalBody").innerHTML =
+        `<div style="width:100%; overflow:auto;"><table class="md-table" style="font-size:13.5px;">${thead}${tbody}</table></div>`;
+      document.getElementById("zoomModal").style.display = "flex";
+    }
+
+    function closeZoomModal() {
+      document.getElementById("zoomModal").style.display = "none";
+    }
+
+    function downloadTableCsv(tid) {
+      const tbl = renderedTablesStore[tid];
+      if (!tbl) return;
+      const escCsv = (v) => `"${_stripHtmlTags(v).replace(/"/g, '""')}"`;
+      const lines = [
+        tbl.headers.map(escCsv).join(","),
+        ...tbl.rows.map(r => tbl.headers.map((_, ci) => escCsv(r[ci] || "")).join(","))
+      ];
+      const blob = new Blob(["\uFEFF" + lines.join("\r\n")], { type: "text/csv;charset=utf-8;" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `table_${tid}.csv`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }
+
+    function copyTableTsv(tid, btnEl) {
+      const tbl = renderedTablesStore[tid];
+      if (!tbl) return;
+      const lines = [
+        tbl.headers.map(_stripHtmlTags).join("\t"),
+        ...tbl.rows.map(r => tbl.headers.map((_, ci) => _stripHtmlTags(r[ci] || "")).join("\t"))
+      ];
+      navigator.clipboard.writeText(lines.join("\n")).then(() => {
+        if (btnEl) {
+          const old = btnEl.textContent;
+          btnEl.textContent = "Đã chép";
+          setTimeout(() => { btnEl.textContent = old; }, 1400);
+        }
+      });
     }
 
     function switchTab(tab) {
@@ -1023,6 +1250,145 @@
       }
     }
 
+    function buildModelMessageHtml(content, meta) {
+      let imagesHtml = "";
+      if (meta && meta.images && meta.images.length > 0) {
+        const cards = meta.images.map(img => {
+          const safeUrl = escapeHtml(img.url);
+          const safeName = escapeHtml(img.name);
+          const jsUrl = encodeURIComponent(img.url || "").replace(/'/g, "%27");
+          const jsName = encodeURIComponent(img.name || "").replace(/'/g, "%27");
+          return `
+          <div class="img-preview-card">
+            <img src="${safeUrl}?t=${Date.now()}" alt="${safeName}" onclick="openImageZoom(decodeURIComponent('${jsUrl}'), decodeURIComponent('${jsName}'))" title="Bấm để phóng to" />
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+              <span style="font-size:11px; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${safeName}</span>
+              <div style="display:flex; gap:5px; flex-shrink:0;">
+                <button class="btn btn-sm" onclick="openImageZoom(decodeURIComponent('${jsUrl}'), decodeURIComponent('${jsName}'))">Phóng to</button>
+                <a class="btn btn-sm btn-primary" href="${safeUrl}" download="${safeName}" style="text-decoration:none;">Tải về</a>
+              </div>
+            </div>
+          </div>`;
+        }).join("");
+        imagesHtml = `<div style="margin-top:10px; display:flex; flex-wrap:wrap; gap:10px;">${cards}</div>`;
+      }
+
+      let traceHtml = "";
+      if (meta) {
+        const u = meta.usage || {};
+        const summaryTitle = `[TRACE] model=${meta.model} | ${meta.elapsed_sec}s | tools=${(meta.trace || []).length} | tokens=${u.total_tokens || 0} ($${u.est_cost_usd || 0})`;
+        let rows = "";
+        for (const t of meta.trace || []) {
+          const statusCls = t.ok ? "badge-ok" : "badge-err";
+          const statusTxt = t.ok ? `OK (${t.elapsed_ms || 0}ms)${t.cached ? " [CACHE]" : ""}` : `ERROR (${t.elapsed_ms || 0}ms)`;
+          const encodedArgs = encodeURIComponent(JSON.stringify(t.args || {})).replace(/'/g, "%27");
+          const safePack = encodeURIComponent(t.pack || "").replace(/'/g, "%27");
+          const safeMod = encodeURIComponent(t.module_name || "").replace(/'/g, "%27");
+          const safeTool = encodeURIComponent(t.tool || "").replace(/'/g, "%27");
+          const safeErr = encodeURIComponent(t.error || "").replace(/'/g, "%27");
+          const safeTb = encodeURIComponent(t.traceback || "").replace(/'/g, "%27");
+          const errBlock = (!t.ok && t.error)
+            ? `<div style="width:100%; margin-top:6px; padding:7px 9px; background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.3); border-radius:5px; font-family:monospace; font-size:11.5px; color:#fca5a5; white-space:pre-wrap; word-break:break-word;">${escapeHtml(t.error)}${t.traceback ? `<details style="margin-top:4px; color:var(--muted);"><summary style="cursor:pointer; font-size:11px;">Xem Traceback chi tiết</summary><pre style="margin-top:4px; white-space:pre-wrap; font-size:11px; color:#cbd5e1;">${escapeHtml(t.traceback)}</pre></details>` : ""}</div>`
+            : "";
+          const safePromptForHeal = encodeURIComponent(appState.lastUserPrompt || "").replace(/'/g, "%27");
+          const healBtn = (!t.ok && t.tool)
+            ? `<button class="btn btn-sm btn-primary" onclick="autoHealAndRetry(this, '${safePack}', '${safeMod}', '${safeTool}', '${safeErr}', '${safeTb}', '${safePromptForHeal}')">Tự vá & Chạy lại</button>`
+            : "";
+          rows += `
+            <div class="trace-row">
+              <div>
+                <code>${escapeHtml(t.tool)}</code>
+                <span style="color:var(--muted);margin-left:6px;">${escapeHtml(JSON.stringify(t.args || {}))}</span>
+                <span class="${statusCls}" style="margin-left:8px;">${statusTxt}</span>
+              </div>
+              <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+                ${healBtn}
+                <button class="btn btn-sm" onclick="openSkillInStudio('${safePack}', '${safeMod}', '${safeTool}', '${encodedArgs}', '${safeErr}', '${safeTb}')">
+                  Sửa / Nâng cấp Skill này
+                </button>
+              </div>
+              ${errBlock}
+            </div>`;
+        }
+        traceHtml = `
+          <details class="trace-box" ${(meta.trace || []).some(x => !x.ok) ? "open" : ""}>
+            <summary>${escapeHtml(summaryTitle)}</summary>
+            <div style="margin-top:6px;color:var(--muted);">Routed (${(meta.routed_tools || []).length}): ${escapeHtml((meta.routed_tools || []).join(", "))}</div>
+            ${rows}
+          </details>`;
+      }
+      let suggestHtml = "";
+      if (meta && meta.suggested_skill) {
+        const sMod = encodeURIComponent(meta.suggested_skill.module_name || "skill_custom");
+        const sReq = encodeURIComponent(meta.suggested_skill.requirement || "");
+        suggestHtml = `
+          <div style="margin-top:12px; padding:11px 14px; background:rgba(59,130,246,0.1); border:1px solid rgba(59,130,246,0.35); border-radius:8px; display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+            <div style="font-size:12.5px;">
+              <div style="font-weight:600; color:#93c5fd;">[ĐỀ XUẤT SKILL MỚI] <code>${escapeHtml(meta.suggested_skill.module_name)}</code></div>
+              <div style="color:var(--muted); margin-top:3px;">${escapeHtml(meta.suggested_skill.requirement)}</div>
+            </div>
+            <button class="btn btn-sm btn-primary" onclick="openSuggestedSkillInStudio('${sMod}', '${sReq}')">
+              Mở Tab 2 & Tạo Skill này ngay
+            </button>
+          </div>`;
+      }
+      let feedbackHtml = "";
+      if (meta) {
+        const fbId = "fb_" + Math.random().toString(36).slice(2, 9);
+        const safePrompt = encodeURIComponent(appState.lastUserPrompt || "");
+        feedbackHtml = `
+          <div style="margin-top:8px; display:flex; flex-direction:column; gap:6px;">
+            <div style="display:flex; justify-content:flex-end;">
+              <button class="btn btn-sm" style="font-size:11px; color:var(--muted);" onclick="toggleFeedbackBox('${fbId}')">
+                Góp ý / Sửa thói quen
+              </button>
+            </div>
+            <div id="${fbId}" style="display:none; gap:6px; align-items:center;">
+              <input type="text" id="${fbId}_inp" placeholder="Nhận xét / quy tắc cho lần sau (vd: Lần sau luôn kẻ bảng so sánh ngắn)..." />
+              <button class="btn btn-sm btn-primary" style="white-space:nowrap;" onclick="submitFeedbackRule('${fbId}', '${safePrompt}')">Lưu thành Quy tắc</button>
+            </div>
+          </div>`;
+      }
+      return `<div class="msg-content">${renderMarkdownLite(content)}</div>${imagesHtml}${suggestHtml}${traceHtml}${feedbackHtml}`;
+    }
+
+    async function autoHealAndRetry(btn, pack, mod, tool, err, tb, origPrompt) {
+      const oldLabel = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = "Đang tự vá + Pytest...";
+      try {
+        const res = await fetch("/api/skills/auto-heal", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            pack: decodeURIComponent(pack || ""),
+            module_name: decodeURIComponent(mod || ""),
+            tool_name: decodeURIComponent(tool || ""),
+            error_text: decodeURIComponent(err || ""),
+            traceback_text: decodeURIComponent(tb || ""),
+            original_prompt: decodeURIComponent(origPrompt || ""),
+            model: document.getElementById("chatModel").value
+          })
+        });
+        const data = await res.json();
+        if (data.ok) {
+          btn.textContent = "Đã vá! Đang chạy lại...";
+          const promptText = decodeURIComponent(origPrompt || "").trim();
+          if (promptText) {
+            document.getElementById("chatInput").value = promptText;
+            await sendChat();
+          }
+        } else {
+          btn.disabled = false;
+          btn.textContent = "Vá thất bại (Mở Tab 2)";
+          alert("[AUTO-HEAL ERROR] " + (data.error || "Không thể tự vá skill này."));
+        }
+      } catch (e) {
+        btn.disabled = false;
+        btn.textContent = oldLabel;
+      }
+    }
+
     function appendMessage(role, content, meta) {
       const box = document.getElementById("chatMessages");
       const div = document.createElement("div");
@@ -1030,79 +1396,38 @@
       if (role === "user") {
         div.textContent = content;
       } else {
-        let traceHtml = "";
-        if (meta) {
-          const u = meta.usage || {};
-          const summaryTitle = `[TRACE] model=${meta.model} | ${meta.elapsed_sec}s | tools=${(meta.trace || []).length} | tokens=${u.total_tokens || 0} ($${u.est_cost_usd || 0})`;
-          let rows = "";
-          for (const t of meta.trace || []) {
-            const statusCls = t.ok ? "badge-ok" : "badge-err";
-            const statusTxt = t.ok ? `OK (${t.elapsed_ms || 0}ms)${t.cached ? " [CACHE]" : ""}` : `ERROR (${t.elapsed_ms || 0}ms)`;
-            const encodedArgs = encodeURIComponent(JSON.stringify(t.args || {})).replace(/'/g, "%27");
-            const safePack = encodeURIComponent(t.pack || "").replace(/'/g, "%27");
-            const safeMod = encodeURIComponent(t.module_name || "").replace(/'/g, "%27");
-            const safeTool = encodeURIComponent(t.tool || "").replace(/'/g, "%27");
-            const safeErr = encodeURIComponent(t.error || "").replace(/'/g, "%27");
-            const safeTb = encodeURIComponent(t.traceback || "").replace(/'/g, "%27");
-            const errBlock = (!t.ok && t.error)
-              ? `<div style="width:100%; margin-top:6px; padding:7px 9px; background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.3); border-radius:5px; font-family:monospace; font-size:11.5px; color:#fca5a5; white-space:pre-wrap; word-break:break-word;">${escapeHtml(t.error)}${t.traceback ? `<details style="margin-top:4px; color:var(--muted);"><summary style="cursor:pointer; font-size:11px;">Xem Traceback chi tiết</summary><pre style="margin-top:4px; white-space:pre-wrap; font-size:11px; color:#cbd5e1;">${escapeHtml(t.traceback)}</pre></details>` : ""}</div>`
-              : "";
-            rows += `
-              <div class="trace-row">
-                <div>
-                  <code>${escapeHtml(t.tool)}</code>
-                  <span style="color:var(--muted);margin-left:6px;">${escapeHtml(JSON.stringify(t.args || {}))}</span>
-                  <span class="${statusCls}" style="margin-left:8px;">${statusTxt}</span>
-                </div>
-                <button class="btn btn-sm" onclick="openSkillInStudio('${safePack}', '${safeMod}', '${safeTool}', '${encodedArgs}', '${safeErr}', '${safeTb}')">
-                  Sửa / Nâng cấp Skill này
-                </button>
-                ${errBlock}
-              </div>`;
-          }
-          traceHtml = `
-            <details class="trace-box" ${(meta.trace || []).some(x => !x.ok) ? "open" : ""}>
-              <summary>${escapeHtml(summaryTitle)}</summary>
-              <div style="margin-top:6px;color:var(--muted);">Routed (${(meta.routed_tools || []).length}): ${escapeHtml((meta.routed_tools || []).join(", "))}</div>
-              ${rows}
-            </details>`;
-        }
-        let suggestHtml = "";
-        if (meta && meta.suggested_skill) {
-          const sMod = encodeURIComponent(meta.suggested_skill.module_name || "skill_custom");
-          const sReq = encodeURIComponent(meta.suggested_skill.requirement || "");
-          suggestHtml = `
-            <div style="margin-top:12px; padding:11px 14px; background:rgba(59,130,246,0.1); border:1px solid rgba(59,130,246,0.35); border-radius:8px; display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
-              <div style="font-size:12.5px;">
-                <div style="font-weight:600; color:#93c5fd;">[ĐỀ XUẤT SKILL MỚI] <code>${escapeHtml(meta.suggested_skill.module_name)}</code></div>
-                <div style="color:var(--muted); margin-top:3px;">${escapeHtml(meta.suggested_skill.requirement)}</div>
-              </div>
-              <button class="btn btn-sm btn-primary" onclick="openSuggestedSkillInStudio('${sMod}', '${sReq}')">
-                Mở Tab 2 & Tạo Skill này ngay
-              </button>
-            </div>`;
-        }
-        let feedbackHtml = "";
-        if (meta) {
-          const fbId = "fb_" + Math.random().toString(36).slice(2, 9);
-          const safePrompt = encodeURIComponent(appState.lastUserPrompt || "");
-          feedbackHtml = `
-            <div style="margin-top:8px; display:flex; flex-direction:column; gap:6px;">
-              <div style="display:flex; justify-content:flex-end;">
-                <button class="btn btn-sm" style="font-size:11px; color:var(--muted);" onclick="toggleFeedbackBox('${fbId}')">
-                  Góp ý / Sửa thói quen
-                </button>
-              </div>
-              <div id="${fbId}" style="display:none; gap:6px; align-items:center;">
-                <input type="text" id="${fbId}_inp" placeholder="Nhận xét / quy tắc cho lần sau (vd: Lần sau luôn kẻ bảng so sánh ngắn)..." />
-                <button class="btn btn-sm btn-primary" style="white-space:nowrap;" onclick="submitFeedbackRule('${fbId}', '${safePrompt}')">Lưu thành Quy tắc</button>
-              </div>
-            </div>`;
-        }
-        div.innerHTML = `<div class="msg-content">${renderMarkdownLite(content)}</div>${suggestHtml}${traceHtml}${feedbackHtml}`;
+        div.innerHTML = buildModelMessageHtml(content, meta);
       }
       box.appendChild(div);
       box.scrollTop = box.scrollHeight;
+      return div;
+    }
+
+    async function respondToolApproval(approvalId, approved, cardId) {
+      const card = document.getElementById(cardId);
+      if (card) {
+        const btns = card.querySelectorAll("button");
+        btns.forEach(b => b.disabled = true);
+      }
+      try {
+        await fetch("/api/chat/approve", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ approval_id: approvalId, approved })
+        });
+        if (card) {
+          const st = card.querySelector(".confirm-status");
+          if (st) {
+            st.style.color = approved ? "var(--success)" : "var(--danger)";
+            st.textContent = approved ? "[ĐÃ CHO PHÉP] Đang thực thi trên máy..." : "[ĐÃ HỦY] Đã chặn thao tác này.";
+          }
+        }
+      } catch (err) {
+        if (card) {
+          const st = card.querySelector(".confirm-status");
+          if (st) st.textContent = `[ERROR] ${err.message}`;
+        }
+      }
     }
 
     async function initApp() {
@@ -1149,30 +1474,122 @@
       btn.disabled = true;
       btn.querySelector("span").textContent = "Đang xử lý...";
 
+      // Create live streaming assistant bubble
+      const box = document.getElementById("chatMessages");
+      const liveDiv = document.createElement("div");
+      liveDiv.className = "msg model";
+      liveDiv.innerHTML = `
+        <div class="live-status" style="font-size:12px; color:var(--muted); margin-bottom:6px; font-family:monospace;">[ĐANG KẾT NỐI] Đang định tuyến skill...</div>
+        <div class="live-tools" style="display:flex; flex-direction:column; gap:5px; margin-bottom:8px;"></div>
+        <div class="live-confirms" style="display:flex; flex-direction:column; gap:8px; margin-bottom:8px;"></div>
+        <div class="msg-content"></div>`;
+      box.appendChild(liveDiv);
+      box.scrollTop = box.scrollHeight;
+
+      const statusEl = liveDiv.querySelector(".live-status");
+      const toolsEl = liveDiv.querySelector(".live-tools");
+      const confirmsEl = liveDiv.querySelector(".live-confirms");
+      const contentEl = liveDiv.querySelector(".msg-content");
+      let streamedText = "";
+
       try {
-        const res = await fetch("/api/chat", {
+        const res = await fetch("/api/chat/stream", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             message: text,
             model: document.getElementById("chatModel").value,
-            top_k: parseInt(document.getElementById("chatTopK").value || "10", 10)
+            top_k: parseInt(document.getElementById("chatTopK").value || "6", 10)
           })
         });
-        const data = await res.json();
-        if (!res.ok) {
-          appendMessage("model", `[ERROR] ${data.detail || "Yêu cầu thất bại"}`, null);
-        } else {
-          appendMessage("model", data.answer, data);
-          renderSessions(data.sessions, data.session_id);
-          renderOutputs(data.outputs);
-          renderRouterPool(data.router_status);
-          updatePendingBadge(data.pending_facts_count || 0);
-          updateDegradedBadge(data.degraded_tools_count || 0);
-          renderProspectiveSidebar(data.prospective_tasks || []);
+        if (!res.ok || !res.body) {
+          const errData = await res.json().catch(() => ({}));
+          liveDiv.innerHTML = `<div class="msg-content">[ERROR] ${escapeHtml(errData.detail || "Yêu cầu thất bại")}</div>`;
+          return;
+        }
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder("utf-8");
+        let buffer = "";
+        let finalized = false;
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const frames = buffer.split("\n\n");
+          buffer = frames.pop() || "";
+
+          for (const frame of frames) {
+            const line = frame.split("\n").find(l => l.startsWith("data: "));
+            if (!line) continue;
+            let evt = null;
+            try {
+              evt = JSON.parse(line.slice(6));
+            } catch {
+              continue;
+            }
+            if (!evt) continue;
+
+            if (evt.type === "status") {
+              statusEl.textContent = `[TRẠNG THÁI] ${evt.text}`;
+            } else if (evt.type === "tool_start") {
+              statusEl.textContent = `[ĐANG GỌI TOOL] ${evt.tool}...`;
+              const row = document.createElement("div");
+              row.style.cssText = "font-size:11.5px; color:#93c5fd; font-family:monospace; background:var(--code-bg); border:1px solid var(--border); border-radius:5px; padding:5px 8px;";
+              row.textContent = `[RUNNING] ${evt.tool}(${JSON.stringify(evt.args || {})})`;
+              toolsEl.appendChild(row);
+            } else if (evt.type === "tool_end") {
+              const row = document.createElement("div");
+              const col = evt.ok ? "var(--success)" : "var(--danger)";
+              row.style.cssText = `font-size:11.5px; color:${col}; font-family:monospace; background:var(--code-bg); border:1px solid var(--border); border-radius:5px; padding:5px 8px;`;
+              row.textContent = evt.ok
+                ? `[OK] ${evt.tool} (${evt.elapsed_ms || 0}ms)${evt.cached ? " [CACHE]" : ""}`
+                : `[ERR] ${evt.tool}: ${evt.error || "Failed"}`;
+              toolsEl.appendChild(row);
+            } else if (evt.type === "confirm_request") {
+              statusEl.textContent = `[CỔNG AN TOÀN] Đang chờ bạn xác nhận thao tác ${evt.tool}...`;
+              const cardId = "cfm_" + evt.approval_id;
+              const card = document.createElement("div");
+              card.id = cardId;
+              card.style.cssText = "background:rgba(245,158,11,0.1); border:1px solid rgba(245,158,11,0.5); border-radius:8px; padding:11px 13px; font-size:12.5px;";
+              card.innerHTML = `
+                <div style="font-weight:600; color:#fbbf24; margin-bottom:4px;">[XÁC NHẬN THAO TÁC PC] <code>${escapeHtml(evt.tool)}</code></div>
+                <div style="font-size:11.5px; color:var(--muted); margin-bottom:6px;">Lý do: ${escapeHtml(evt.reason || "Thao tác hệ thống cần xác nhận")}</div>
+                <pre style="margin:0 0 8px 0; padding:7px; background:var(--code-bg); border-radius:5px; font-size:11.5px; overflow-x:auto;">${escapeHtml(JSON.stringify(evt.args || {}, null, 2))}</pre>
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap;">
+                  <span class="confirm-status" style="font-size:11.5px; color:var(--muted);">Vui lòng chọn để tiếp tục (tự hủy sau 120s)...</span>
+                  <div style="display:flex; gap:8px;">
+                    <button class="btn btn-sm btn-primary" onclick="respondToolApproval('${escapeHtml(evt.approval_id)}', true, '${cardId}')">Cho phép chạy</button>
+                    <button class="btn btn-sm" style="color:#fca5a5; border-color:rgba(239,68,68,0.45);" onclick="respondToolApproval('${escapeHtml(evt.approval_id)}', false, '${cardId}')">Hủy bỏ</button>
+                  </div>
+                </div>`;
+              confirmsEl.appendChild(card);
+            } else if (evt.type === "token") {
+              statusEl.textContent = "[ĐANG TRẢ LỜI] Đang stream kết quả...";
+              streamedText += evt.text || "";
+              contentEl.innerHTML = renderMarkdownLite(streamedText);
+            } else if (evt.type === "error") {
+              finalized = true;
+              liveDiv.innerHTML = `<div class="msg-content">[ERROR] ${escapeHtml(evt.detail || "Lỗi xử lý")}</div>`;
+            } else if (evt.type === "done") {
+              finalized = true;
+              liveDiv.innerHTML = buildModelMessageHtml(evt.answer || streamedText, evt);
+              renderSessions(evt.sessions, evt.session_id);
+              renderOutputs(evt.outputs);
+              renderRouterPool(evt.router_status);
+              updatePendingBadge(evt.pending_facts_count || 0);
+              updateDegradedBadge(evt.degraded_tools_count || 0);
+              renderProspectiveSidebar(evt.prospective_tasks || []);
+            }
+            box.scrollTop = box.scrollHeight;
+          }
+        }
+        if (!finalized && streamedText) {
+          liveDiv.innerHTML = buildModelMessageHtml(streamedText, null);
         }
       } catch (err) {
-        appendMessage("model", `[ERROR] ${err.message}`, null);
+        liveDiv.innerHTML = `<div class="msg-content">[ERROR] ${escapeHtml(err.message)}</div>`;
       } finally {
         btn.disabled = false;
         btn.querySelector("span").textContent = "Gửi";
@@ -1542,6 +1959,110 @@
       const epTxt = document.getElementById("episodicStatsText");
       if (epTxt) {
         epTxt.textContent = `Episodic tool logs: ${ep.unconsolidated_logs || 0} chưa tổng hợp / ${ep.total_logs || 0} tổng | Lần tổng hợp cuối: ${ep.last_consolidation_at || "Chưa chạy"}`;
+      }
+
+      // Encrypted Web Vault
+      await loadWebVaultList();
+    }
+
+    async function loadWebVaultList() {
+      const box = document.getElementById("vaultAccountsBox");
+      if (!box) return;
+      try {
+        const res = await fetch("/api/vault");
+        const data = await res.json();
+        const accounts = data.accounts || [];
+        if (accounts.length === 0) {
+          box.innerHTML = '<div style="font-size:12px; color:var(--muted);">Chưa lưu tài khoản web nào. Thêm tài khoản ở trên để Chrome CDP tự động đăng nhập khi cần.</div>';
+          return;
+        }
+        box.innerHTML = accounts.map(acc => `
+          <div style="background:var(--code-bg); border:1px solid var(--border); border-radius:6px; padding:8px 10px; display:flex; justify-content:space-between; align-items:center; gap:10px; font-size:12.5px;">
+            <div>
+              <strong style="color:#93c5fd;">${escapeHtml(acc.site)}</strong>
+              <span style="margin-left:6px;">${escapeHtml(acc.username)}</span>
+              <span style="font-size:11px; color:var(--success); margin-left:6px;">[${escapeHtml(acc.encryption || 'DPAPI')}]</span>
+              ${acc.login_url ? `<div style="font-size:11px; color:var(--muted); margin-top:2px;">${escapeHtml(acc.login_url)}</div>` : ""}
+            </div>
+            <div style="display:flex; gap:6px; flex-shrink:0;">
+              <button class="btn btn-sm" onclick="editVaultAccount('${encodeURIComponent(acc.site)}', '${encodeURIComponent(acc.login_url || '')}', '${encodeURIComponent(acc.username || '')}')">Sửa</button>
+              <button class="btn btn-sm" onclick="deleteVaultAccount('${encodeURIComponent(acc.site)}')">Xóa</button>
+            </div>
+          </div>`).join("");
+      } catch (e) {
+        box.innerHTML = '<div style="font-size:12px; color:var(--danger);">Lỗi tải danh sách Web Vault.</div>';
+      }
+    }
+
+    function prefillVaultSite(site, url) {
+      document.getElementById("vaultSite").value = site;
+      document.getElementById("vaultUrl").value = url;
+      document.getElementById("vaultUser").focus();
+    }
+
+    function editVaultAccount(encSite, encUrl, encUser) {
+      document.getElementById("vaultSite").value = decodeURIComponent(encSite || "");
+      document.getElementById("vaultUrl").value = decodeURIComponent(encUrl || "");
+      document.getElementById("vaultUser").value = decodeURIComponent(encUser || "");
+      document.getElementById("vaultPass").value = "";
+      document.getElementById("vaultPass").focus();
+      const msg = document.getElementById("vaultStatusMsg");
+      msg.style.color = "var(--muted)";
+      msg.textContent = "Đang sửa tài khoản — nhập mật khẩu mới hoặc để trống nếu giữ mật khẩu cũ, rồi bấm Lưu mã hóa.";
+    }
+
+    async function saveVaultAccount() {
+      const site = (document.getElementById("vaultSite").value || "").trim();
+      const login_url = (document.getElementById("vaultUrl").value || "").trim();
+      const username = (document.getElementById("vaultUser").value || "").trim();
+      const password = document.getElementById("vaultPass").value || "";
+      const msg = document.getElementById("vaultStatusMsg");
+      if (!site || !username) {
+        msg.style.color = "var(--danger)";
+        msg.textContent = "Vui lòng nhập Tên web và Email/Username.";
+        return;
+      }
+      const res = await fetch("/api/vault/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ site, login_url, username, password })
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        msg.style.color = "var(--danger)";
+        msg.textContent = err.detail || "Lưu thất bại.";
+        return;
+      }
+      document.getElementById("vaultSite").value = "";
+      document.getElementById("vaultUrl").value = "";
+      document.getElementById("vaultUser").value = "";
+      document.getElementById("vaultPass").value = "";
+      msg.style.color = "var(--success)";
+      msg.textContent = `Đã mã hóa & lưu tài khoản '${site}' (Windows DPAPI).`;
+      await loadWebVaultList();
+    }
+
+    async function deleteVaultAccount(encodedSite) {
+      await fetch(`/api/vault/${encodedSite}`, { method: "DELETE" });
+      await loadWebVaultList();
+    }
+
+    async function launchAgentChromeFromUi() {
+      const btn = document.getElementById("launchAgentChromeBtn");
+      const msg = document.getElementById("vaultStatusMsg");
+      btn.disabled = true;
+      btn.textContent = "Đang mở Chrome...";
+      try {
+        const res = await fetch("/api/vault/launch-chrome", { method: "POST" });
+        const data = await res.json();
+        msg.style.color = data.ok ? "var(--success)" : "var(--danger)";
+        msg.textContent = data.message || data.error || "Đã gửi lệnh mở Chrome Agent.";
+      } catch (e) {
+        msg.style.color = "var(--danger)";
+        msg.textContent = "Lỗi khởi chạy Chrome Agent.";
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Mở Chrome Agent (9222)";
       }
     }
 
@@ -1981,6 +2502,7 @@
       if (e.key === "Escape") {
         closeProfileModal();
         closeInsightsModal();
+        closeZoomModal();
       }
     });
 

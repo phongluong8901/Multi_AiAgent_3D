@@ -73,6 +73,14 @@ def execute(action: str = "", **kwargs) -> dict:
     elif action == "build_vcard_payload":
         return {"ok": True, "payload": build_vcard_payload(**kwargs)}
     elif action == "generate_qr_image":
-        return generate_qr_image(**kwargs)
+        return _safe_call(generate_qr_image, kwargs)
     else:
         return {"ok": False, "error": "Unknown action"}
+
+def _safe_call(fn, kw):
+    import inspect as _insp
+    sig = _insp.signature(fn)
+    if any(p.kind == _insp.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
+        return fn(**kw)
+    valid = {k: v for k, v in kw.items() if k in sig.parameters}
+    return fn(**valid)

@@ -65,6 +65,7 @@ class ToolEntry:
     module_name: str
     declaration: types.FunctionDeclaration
     handler: Callable[..., dict[str, Any]]
+    risk_level: str = "safe"
 
 
 def _load_module_from_path(module_key: str, file_path: Path) -> Any:
@@ -228,12 +229,14 @@ class SkillRegistry:
                             description=desc,
                             parameters=params_schema,
                         )
+                        risk_lv = str(tool_schema.get("risk_level") or "safe").strip().lower()
                         entry = ToolEntry(
                             name=tool_fn_name,
                             pack=pack_name,
                             module_name=mod_name,
                             declaration=decl,
                             handler=_make_function_skill_handler(execute_fn),
+                            risk_level=risk_lv,
                         )
                         self.entries.append(entry)
                         self._by_name[tool_fn_name] = entry
@@ -298,12 +301,15 @@ class SkillRegistry:
                             ),
                         )
 
+                        high_risk_prefixes = ("send_", "delete_", "remove_", "kill_", "shutdown_", "restart_", "format_")
+                        risk_lv = "confirm" if m_name.lower().startswith(high_risk_prefixes) else "safe"
                         entry = ToolEntry(
                             name=tool_fn_name,
                             pack=pack_name,
                             module_name=mod_name,
                             declaration=decl,
                             handler=_make_handler(cls_obj, m_name, param_meta),
+                            risk_level=risk_lv,
                         )
                         self.entries.append(entry)
                         self._by_name[tool_fn_name] = entry
@@ -319,6 +325,10 @@ class SkillRegistry:
     @property
     def handlers(self) -> dict[str, Callable[..., dict[str, Any]]]:
         return {e.name: e.handler for e in self.entries}
+
+    @property
+    def risk_levels(self) -> dict[str, str]:
+        return {e.name: e.risk_level for e in self.entries}
 
     @property
     def names(self) -> list[str]:

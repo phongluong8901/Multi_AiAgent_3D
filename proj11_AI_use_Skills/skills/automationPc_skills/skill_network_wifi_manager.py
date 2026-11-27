@@ -31,7 +31,7 @@ TOOL_SCHEMA = {
 
 def _run_cmd(command: str) -> str:
     try:
-        result = subprocess.run(command, shell=True, check=True, text=True, capture_output=True)
+        result = subprocess.run(command, shell=True, check=True, text=True, encoding="utf-8", errors="replace", capture_output=True)
         return result.stdout
     except subprocess.CalledProcessError as e:
         return e.stderr

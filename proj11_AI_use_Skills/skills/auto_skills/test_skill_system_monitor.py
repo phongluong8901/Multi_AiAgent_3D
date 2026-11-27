@@ -1,60 +1,80 @@
+import pytest
 from unittest.mock import patch, MagicMock
-import sys
-
-# Mock psutil globally in sys.modules if it is missing in the environment
-if 'psutil' not in sys.modules:
-    mock_psutil = MagicMock()
-    sys.modules['psutil'] = mock_psutil
-
 from skill_system_monitor import SystemMonitorClient
+import psutil
 
-@patch('psutil.cpu_percent', return_value=15.5)
-@patch('psutil.cpu_count', return_value=8)
-@patch('psutil.virtual_memory')
-def test_get_system_hardware_info(mock_virtual_memory, mock_cpu_count, mock_cpu_percent):
-    mock_mem = MagicMock()
-    mock_mem.total = 16106127360
-    mock_mem.used = 8053063680
-    mock_mem.percent = 50.0
-    mock_virtual_memory.return_value = mock_mem
+@pytest.fixture
+def monitor_client():
+    return SystemMonitorClient()
 
-    client = SystemMonitorClient()
-    info = client.get_system_hardware_info()
-
-    assert info["cpu_usage_percent"] == 15.5
-    assert info["cpu_cores"] == 8
-    assert info["ram_total_gb"] == 15.0
-    assert info["ram_used_gb"] == 7.5
-    assert info["ram_usage_percent"] == 50.0
-
-@patch('psutil.process_iter')
-def test_get_top_resource_processes(mock_process_iter):
-    mock_proc1 = MagicMock()
-    mock_proc1.info = {'pid': 101, 'name': 'python.exe', 'cpu_percent': 12.5, 'memory_percent': 15.2}
+@patch("psutil.net_connections")
+def test_get_network_connections_summary_success(mock_net_conns, monitor_client):
+    mock_conn1 = MagicMock()
+    mock_conn1.status = psutil.CONN_LISTEN
+    mock_conn2 = MagicMock()
+    mock_conn2.status = psutil.CONN_ESTABLISHED
     
-    mock_proc2 = MagicMock()
-    mock_proc2.info = {'pid': 202, 'name': 'chrome.exe', 'cpu_percent': 5.0, 'memory_percent': 35.8}
+    mock_net_conns.return_value = [mock_conn1, mock_conn2]
 
-    mock_process_iter.return_value = [mock_proc1, mock_proc2]
+    summary = monitor_client.get_network_connections_summary()
+    assert summary["total_connections"] == 2
+    assert summary["status_breakdown"][psutil.CONN_LISTEN] == 1
+    assert summary["status_breakdown"][psutil.CONN_ESTABLISHED] == 1
 
-    client = SystemMonitorClient()
-    top_procs = client.get_top_resource_processes(limit=2)
+@patch("psutil.net_connections")
+def test_get_network_connections_summary_error(mock_net_conns, monitor_client):
+    mock_net_conns.side_effect = Exception("Access denied")
+    with pytest.raises(RuntimeError, match="Failed to retrieve network connections"):
+        monitor_client.get_network_connections_summary()
 
-    assert len(top_procs) == 2
-    assert top_procs[0]["name"] == 'chrome.exe'
-    assert top_procs[0]["memory_percent"] == 35.8
-    assert top_procs[1]["name"] == 'python.exe'
-    assert top_procs[1]["memory_percent"] == 15.2
+@patch("skill_system_monitor.SystemMonitorClient._get_process_name")
+@patch("psutil.net_connections")
+def test_get_listening_ports_success(mock_net_conns, mock_get_proc_name, monitor_client):
+    mock_conn = MagicMock()
+    mock_conn.status = psutil.CONN_LISTEN
+    mock_conn.laddr = MagicMock(ip="127.0.0.1", port=8080)
+    mock_conn.family = 2
+    mock_conn.type = 1
+    mock_conn.pid = 1234
 
-@patch('psutil.process_iter')
-def test_get_top_resource_processes_exception_handling(mock_process_iter):
-    mock_proc_faulty = MagicMock()
-    type(mock_proc_faulty).info = property(fget=lambda self: (_ for _ in ()).throw(Exception("Process error")))
+    mock_net_conns.return_value = [mock_conn]
+    mock_get_proc_name.return_value = "python.exe"
 
-    mock_process_iter.return_value = [mock_proc_faulty]
+    ports = monitor_client.get_listening_ports()
+    assert len(ports) == 1
+    assert ports[0]["port"] == 8080
+    assert ports[0]["ip"] == "127.0.0.1"
+    assert ports[0]["pid"] == 1234
+    assert ports[0]["process_name"] == "python.exe"
 
-    client = SystemMonitorClient()
-    top_procs = client.get_top_resource_processes(limit=5)
+@patch("psutil.net_connections")
+def test_get_listening_ports_error(mock_net_conns, monitor_client):
+    mock_net_conns.side_effect = Exception("System error")
+    with pytest.raises(RuntimeError, match="Failed to retrieve listening ports"):
+        monitor_client.get_listening_ports()
 
-    assert isinstance(top_procs, list)
-    assert len(top_procs) == 0
+@patch("skill_system_monitor.SystemMonitorClient._get_process_name")
+@patch("psutil.net_connections")
+def test_get_established_connections_success(mock_net_conns, mock_get_proc_name, monitor_client):
+    mock_conn = MagicMock()
+    mock_conn.status = psutil.CONN_ESTABLISHED
+    mock_conn.laddr = MagicMock(ip="192.168.1.10", port=50000)
+    mock_conn.raddr = MagicMock(ip="93.184.216.34", port=443)
+    mock_conn.pid = 5678
+
+    mock_net_conns.return_value = [mock_conn]
+    mock_get_proc_name.return_value = "chrome.exe"
+
+    conns = monitor_client.get_established_connections()
+    assert len(conns) == 1
+    assert conns[0]["local_port"] == 50000
+    assert conns[0]["remote_ip"] == "93.184.216.34"
+    assert conns[0]["remote_port"] == 443
+    assert conns[0]["pid"] == 5678
+    assert conns[0]["process_name"] == "chrome.exe"
+
+@patch("psutil.net_connections")
+def test_get_established_connections_error(mock_net_conns, monitor_client):
+    mock_net_conns.side_effect = Exception("System error")
+    with pytest.raises(RuntimeError, match="Failed to retrieve established connections"):
+        monitor_client.get_established_connections()

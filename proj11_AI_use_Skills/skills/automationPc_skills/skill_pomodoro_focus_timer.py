@@ -23,11 +23,11 @@ TOOL_SCHEMA = {
 
 def execute(action: str = "", **kwargs) -> dict:
     if action == "start_session":
-        return start_session(**kwargs)
+        return _safe_call(start_session, kwargs)
     elif action == "complete_session":
-        return complete_session(**kwargs)
+        return _safe_call(complete_session, kwargs)
     elif action == "daily_summary":
-        return daily_summary(**kwargs)
+        return _safe_call(daily_summary, kwargs)
     else:
         return {"ok": False, "error": "Unknown action"}
 
@@ -81,3 +81,11 @@ def _load_log(log_path: str) -> list:
 def _save_log(log_path: str, log: list) -> None:
     with open(log_path, 'w') as file:
         json.dump(log, file, indent=4)
+
+def _safe_call(fn, kw):
+    import inspect as _insp
+    sig = _insp.signature(fn)
+    if any(p.kind == _insp.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
+        return fn(**kw)
+    valid = {k: v for k, v in kw.items() if k in sig.parameters}
+    return fn(**valid)

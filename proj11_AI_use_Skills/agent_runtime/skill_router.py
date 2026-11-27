@@ -11,6 +11,56 @@ from typing import Any, Sequence
 
 from google.genai import types
 
+DISCOVER_TOOLS_NAME = "discover_tools"
+DISCOVER_TOOLS_DECLARATION = types.FunctionDeclaration(
+    name=DISCOVER_TOOLS_NAME,
+    description=(
+        "Mo khoa them tool phu hop tu kho 160+ tools ngay trong luot dang chay khi danh sach tool hien tai chua co tool can thiet."
+    ),
+    parameters=types.Schema(
+        type=types.Type.OBJECT,
+        properties={
+            "query": types.Schema(
+                type=types.Type.STRING,
+                description="Mo ta ngan chuc nang tool can tim (vi du: 'gui tin nhan zalo', 've bieu do', 'doc pdf', 'docker').",
+            ),
+            "top_k": types.Schema(
+                type=types.Type.INTEGER,
+                description="So luong tool can mo khoa them (mac dinh: 2).",
+            ),
+        },
+        required=["query"],
+    ),
+)
+
+RUN_PIPELINE_NAME = "run_tool_pipeline"
+RUN_PIPELINE_DECLARATION = types.FunctionDeclaration(
+    name=RUN_PIPELINE_NAME,
+    description=(
+        "Chay 1 chuoi nhieu buoc tool (2-5 buoc) tuan tu ngay trong 1 luot de giam so vong goi LLM. "
+        "Ket qua buoc truoc luu vao $mem_1, $mem_2... co the truyen thang vao tham so buoc sau."
+    ),
+    parameters=types.Schema(
+        type=types.Type.OBJECT,
+        properties={
+            "steps": types.Schema(
+                type=types.Type.ARRAY,
+                items=types.Schema(
+                    type=types.Type.OBJECT,
+                    properties={
+                        "tool": types.Schema(type=types.Type.STRING, description="Ten tool can goi."),
+                        "args_json": types.Schema(type=types.Type.STRING, description="Chuoi JSON tham so (co the dung '$mem_1')."),
+                        "save_as": types.Schema(type=types.Type.STRING, description="Ten bien Working Memory tuy chon (vd: '$mem_emails')."),
+                    },
+                    required=["tool"],
+                ),
+                description="Danh sach 2-5 buoc tool can thuc thi lien tiep.",
+            ),
+        },
+        required=["steps"],
+    ),
+)
+
 # Domain keyword expansion (normalized ASCII Vietnamese + English -> skill prefix)
 _DOMAIN_HINTS: dict[str, tuple[str, ...]] = {
     "datetime_client": (
@@ -86,6 +136,11 @@ _DOMAIN_HINTS: dict[str, tuple[str, ...]] = {
     ),
     "browser_cdp_controller": (
         "chrome", "edge", "cdp", "tab trinh duyet", "9222", "active tab", "list tabs", "debug port",
+        "gmail", "doc gmail", "mo gmail", "hop thu", "inbox", "doc mail", "email", "mail moi nhat",
+        "dang nhap", "login", "tai khoan web", "auto login",
+    ),
+    "gmail_imap_smtp": (
+        "gmail", "imap", "smtp", "hop thu", "inbox", "doc mail", "email", "mail moi nhat", "gui email", "gui mail",
     ),
     "clipboard_manager": (
         "clipboard", "bo nho tam", "copy", "paste", "dan", "lich su copy", "pyperclip",
@@ -98,9 +153,78 @@ _DOMAIN_HINTS: dict[str, tuple[str, ...]] = {
     ),
     "smart_file_ops": (
         "tim file", "sap xep thu muc", "doi ten hang loat", "batch rename", "organize", "glob", "file ops",
+        "mo file", "file doanh thu", "desktop", "o desktop", "tren desktop", "tren may", "o dia",
     ),
     "win_registry_startup": (
         "startup", "khoi dong cung windows", "registry", "hkcu", "bien moi truong", "env vars", "winreg",
+    ),
+    "zalo_desktop": (
+        "zalo", "chat zalo", "nhan tin", "gui tin nhan", "nhan zalo", "mo zalo",
+    ),
+    "chart_visualizer": (
+        "bieu do", "do thi", "chart", "plot", "graph", "ve bieu do", "ve do thi", "ve chart", "truc quan", "matplotlib",
+        "dashboard", "ve dashboard", "ve dashboad",
+    ),
+    "chrome_profile_launcher": (
+        "chrome profile", "mo chrome debug", "cdp 9222", "remote debugging", "ho so chrome",
+    ),
+    "chrome_tab_workspace": (
+        "quan ly tab", "dong tab", "chuyen tab", "tab chrome", "nhom tab",
+    ),
+    "chrome_page_pdf_capture": (
+        "in pdf trang web", "chup toan trang", "full page screenshot", "luu trang pdf",
+    ),
+    "chrome_form_autofiller": (
+        "dien form", "autofill", "tu dong dien", "dien bieu mau",
+    ),
+    "web_table_list_scraper": (
+        "cao bang", "scrape table", "lay bang web", "trich xuat bang",
+    ),
+    "ecommerce_price_tracker": (
+        "theo doi gia", "shopee", "lazada", "tiki", "gia san pham", "price tracker",
+    ),
+    "google_workspace_web": (
+        "google docs", "google doc", "google sheets", "google sheet", "gg sheet", "google drive",
+        "tao google sheet", "tao file google sheet", "tao google doc", "google calendar", "gmail web",
+    ),
+    "telegram_web_automator": (
+        "telegram web", "nhan telegram web", "mo telegram web",
+    ),
+    "zalo_web_automator": (
+        "zalo web", "chat.zalo.me",
+    ),
+    "web_page_change_monitor": (
+        "theo doi thay doi trang", "monitor web", "kiem tra thay doi",
+    ),
+    "web_workflow_runner": (
+        "quy trinh web", "web workflow", "kịch ban web", "kich ban web",
+    ),
+    "chrome_cookie_storage_ops": (
+        "cookie", "cookies", "localstorage", "sessionstorage", "xoa cookie", "export cookie", "luu phien web",
+    ),
+    "chrome_frame_shadow_piercer": (
+        "iframe", "shadow dom", "shadow root", "xuyen iframe", "nested frame",
+    ),
+    "chrome_hitl_captcha_guard": (
+        "captcha", "cloudflare", "2fa", "otp", "xac minh nguoi dung", "hitl", "verify human",
+    ),
+    "chrome_network_sniffer": (
+        "network sniffer", "bat request", "xhr", "fetch api", "har", "bat api web", "inspect network",
+    ),
+    "chrome_selector_calibrator": (
+        "selector", "css selector", "xpath", "hieu chinh selector", "self healing selector", "dom selector",
+    ),
+    "chrome_som_a11y_observer": (
+        "accessibility tree", "a11y", "set of mark", "som", "quan sat giao dien web", "interactive elements",
+    ),
+    "web_link_seo_auditor": (
+        "seo", "broken link", "kiem tra link hong", "audit seo", "meta tag", "open graph", "canonical",
+    ),
+    "web_pagination_scroller": (
+        "infinite scroll", "cuon trang", "phan trang", "pagination", "load more", "tu dong cuon",
+    ),
+    "youtube_web_controller": (
+        "youtube", "video youtube", "phu de youtube", "transcript youtube", "phat nhac youtube", "dieu khien youtube",
     ),
     "browser_reader": (
         "trinh duyet", "playwright", "dynamic", "javascript", "spa", "css selector", "scrape", "render",
@@ -110,6 +234,10 @@ _DOMAIN_HINTS: dict[str, tuple[str, ...]] = {
     ),
     "web_reader": (
         "doc trang", "doc link", "doc url", "noi dung trang", "read url", "http://", "https://",
+    ),
+    "mouse_controller": (
+        "chuot", "mouse", "con tro", "di chuyen chuot", "chi chuyen chuot",
+        "hinh tron", "circle", "zigzag", "zic zac", "click", "toa do chuot",
     ),
     "web_search": (
         "tim kiem", "tim thong tin", "search", "google", "moi nhat", "tin tuc", "web", "link nguon",
@@ -130,7 +258,31 @@ _TIER_BONUS: dict[str, float] = {
     "clipboard_manager": 2.2,
     "office_com_excel": 2.0,
     "win_registry_startup": 2.2,
-    "browser_cdp_controller": 2.0,
+    "zalo_desktop": 2.4,
+    "zalo_web_automator": 1.6,
+    "chart_visualizer": 2.4,
+    "mouse_controller": 2.4,
+    "browser_cdp_controller": 2.6,
+    "gmail_imap_smtp": 1.2,
+    "chrome_profile_launcher": 2.0,
+    "chrome_tab_workspace": 2.0,
+    "chrome_page_pdf_capture": 1.9,
+    "chrome_form_autofiller": 1.9,
+    "web_table_list_scraper": 1.9,
+    "ecommerce_price_tracker": 1.9,
+    "google_workspace_web": 2.5,
+    "telegram_web_automator": 1.8,
+    "web_page_change_monitor": 1.8,
+    "web_workflow_runner": 1.8,
+    "chrome_cookie_storage_ops": 1.9,
+    "chrome_frame_shadow_piercer": 1.8,
+    "chrome_hitl_captcha_guard": 1.9,
+    "chrome_network_sniffer": 1.9,
+    "chrome_selector_calibrator": 1.8,
+    "chrome_som_a11y_observer": 1.9,
+    "web_link_seo_auditor": 1.9,
+    "web_pagination_scroller": 1.8,
+    "youtube_web_controller": 2.0,
     # Tier 2: Fast Structured Domain APIs (~200-1200ms)
     "binance_crypto_client": 1.8,
     "frankfurter_forex_client": 1.8,
@@ -183,6 +335,13 @@ _FALLBACK_CHAINS: dict[str, tuple[str, ...]] = {
     "openstreetmap_api_client__get_coordinates": ("weather_api_client__get_latitude", "web_search__search"),
     "office_com_excel__execute": ("document_analyzer__analyze_tabular", "report_exporter__export_xlsx"),
     "local_workspace__list_files": ("smart_file_ops__execute",),
+    "gmail_imap_smtp__execute": ("browser_cdp_controller__execute",),
+    "browser_cdp_controller__execute": ("gmail_imap_smtp__execute",),
+    "web_search__search": ("browser_cdp_controller__execute", "web_reader__read_url"),
+    "zalo_desktop__execute": ("screen_capture_annotator__execute", "zalo_read_notifications__get_unread_notifications"),
+    "uia_tree_inspector__execute": ("screen_capture_annotator__execute",),
+    "app_window_manager__execute": ("screen_capture_annotator__execute",),
+    "office_com_excel__execute": ("document_analyzer__analyze_tabular", "report_exporter__export_xlsx", "screen_capture_annotator__execute"),
 }
 
 _ALWAYS_INCLUDE_FALLBACKS = (
@@ -205,6 +364,12 @@ _FORCE_TOOL_SIGNALS = (
     "xuat file", "luu file", "tao file", "ghi nho", "nho giup", "quen di",
     "arxiv", "github", "pypi", "huggingface", "hacker news", "wikipedia", "ip ",
     "tinh ", "phan tram", "bao nhieu", "kiem tra", "tra cuu", "tim kiem", "search",
+    "bieu do", "do thi", "chart", "ve bieu do", "ve do thi", "ve chart", "chup man hinh", "zalo", "docker", "thung rac",
+    "chuot", "mouse", "click", "ban phim", "keyboard", "di chuyen", "chi chuyen", "hinh tron", "zigzag", "zic zac",
+    "con tro", "keo tha", "mo app", "mo ung dung", "dong app", "tat app", "gui tin nhan",
+    "gmail", "email", "hop thu", "inbox", "doc mail", "gui mail",
+    "google sheet", "google sheets", "gg sheet", "google doc", "google docs",
+    "dashboard", "dashboad", "desktop", "mo file", "doc file", "file doanh thu",
 )
 
 
@@ -497,9 +662,18 @@ class SkillRouter:
                         unlocked.append(item.declaration)
                         existing.add(item.name)
 
-        # 3. Universal safety-net fallback for custom/auto skills without an explicit chain
+        # 3. Universal Last-Resort Defense fallback:
+        #    - Desktop/PC tool failed -> unlock screen_capture_annotator__execute (Gemini Vision)
+        #    - Web/Search tool failed -> unlock browser_cdp_controller__execute (Live Chrome CDP)
         if not unlocked:
-            for cand_name in ("web_search__search", "web_reader__read_url"):
+            desktop_prefixes = ("zalo", "app_window", "uia_", "office_com", "process_", "mouse_", "gui_", "smart_file", "media_", "audio_")
+            is_desktop_fail = any(fn.lower().startswith(desktop_prefixes) for fn in failed_tool_names)
+            fallback_order = (
+                ("screen_capture_annotator__execute",)
+                if is_desktop_fail
+                else ("browser_cdp_controller__execute", "web_search__search", "web_reader__read_url")
+            )
+            for cand_name in fallback_order:
                 decl = self._by_name.get(cand_name)
                 if decl and cand_name not in existing and cand_name not in failed_set:
                     unlocked.append(decl)
@@ -539,6 +713,115 @@ class SkillRouter:
                     return True
         return False
 
+    @staticmethod
+    def _split_sub_intents(query: str) -> list[str]:
+        """Decompose multi-clause Vietnamese/English prompts into independent sub-goals for balanced routing."""
+        norm = normalize_text(query)
+        parts = re.split(r"\b(?:sau do|roi|tiep theo|dong thoi|va sau do|then|and then)\b|[,;\n]+", norm)
+        cleaned = [p.strip() for p in parts if len(p.strip()) >= 4]
+        return cleaned if len(cleaned) >= 2 else []
+
+    @staticmethod
+    def _slice_mega_tool_declaration(
+        decl: types.FunctionDeclaration,
+        norm_q: str,
+        q_tokens: set[str],
+    ) -> types.FunctionDeclaration:
+        """Intra-Tool Dynamic Schema Slicing: prune irrelevant actions on mega-skills (>=5 actions) to save tokens."""
+        params = getattr(decl, "parameters", None)
+        props = getattr(params, "properties", None) if params else None
+        if not isinstance(props, dict) or "action" not in props:
+            return decl
+        act_schema = props.get("action")
+        enum_vals = list(getattr(act_schema, "enum", None) or [])
+        if len(enum_vals) < 5:
+            return decl
+
+        # Score each action in enum against query tokens
+        scored_acts: list[tuple[float, str]] = []
+        for act in enum_vals:
+            act_norm = normalize_text(act.replace("_", " "))
+            act_toks = _tokenize(act_norm)
+            hits = sum(1 for t in act_toks if t in q_tokens or (len(t) >= 4 and t in norm_q))
+            # Boost direct Vietnamese action intent keywords
+            if ("gmail" in norm_q or "mail" in norm_q) and "gmail" in act_norm:
+                hits += 3
+            if ("dang nhap" in norm_q or "login" in norm_q) and "login" in act_norm:
+                hits += 3
+            if ("google sheet" in norm_q or "gg sheet" in norm_q) and "sheet" in act_norm:
+                hits += 3
+            if ("google doc" in norm_q) and "doc" in act_norm:
+                hits += 3
+            if ("di chuyen" in norm_q or "move" in norm_q) and "move" in act_norm:
+                hits += 3
+            if ("copy" in norm_q or "nhan ban" in norm_q) and "copy" in act_norm:
+                hits += 3
+            if ("stop" in norm_q or "dung" in norm_q or "tat" in norm_q) and ("stop" in act_norm or "kill" in act_norm):
+                hits += 3
+            scored_acts.append((float(hits), act))
+
+        max_hit = max((s for s, _ in scored_acts), default=0.0)
+        if max_hit <= 0.0:
+            return decl  # Keep full enum if query doesn't clearly narrow down actions
+
+        scored_acts.sort(key=lambda x: x[0], reverse=True)
+        keep_actions = [a for _, a in scored_acts[:4]]
+        # Always preserve essential read/search actions if present in enum so slicing never blinds file/mail lookup
+        for essential in ("search_pc", "search_files", "read_gmail_inbox", "list_containers"):
+            if essential in enum_vals and essential not in keep_actions:
+                keep_actions.append(essential)
+        new_act_schema = types.Schema(
+            type=act_schema.type,
+            description=act_schema.description,
+            enum=keep_actions,
+        )
+        new_props = dict(props)
+        new_props["action"] = new_act_schema
+        return types.FunctionDeclaration(
+            name=decl.name,
+            description=decl.description,
+            parameters=types.Schema(
+                type=params.type,
+                properties=new_props,
+                required=list(getattr(params, "required", None) or []),
+            ),
+        )
+
+    def plan_speculative_call(self, query: str) -> tuple[str, dict[str, Any]] | None:
+        """Speculative Step-0 Execution: return (tool_name, args) for deterministic, high-confidence read-only intents."""
+        norm = normalize_text(query)
+        if not norm or len(norm) > 95:
+            return None
+        # Skip multi-step prompts (let LLM orchestrate)
+        if self._split_sub_intents(query):
+            return None
+
+        # 1. Crypto price (e.g. "gia bitcoin hom nay", "gia eth")
+        if ("gia " in norm or "price" in norm) and any(k in norm for k in ("bitcoin", "btc", "ethereum", "eth", "sol", "bnb")):
+            if "binance_crypto_client__get_crypto_price" in self._by_name:
+                sym = "BTCUSDT"
+                if "eth" in norm or "ethereum" in norm:
+                    sym = "ETHUSDT"
+                elif "sol" in norm:
+                    sym = "SOLUSDT"
+                elif "bnb" in norm:
+                    sym = "BNBUSDT"
+                return "binance_crypto_client__get_crypto_price", {"symbol": sym}
+
+        # 2. Docker running containers list
+        if "docker" in norm and any(k in norm for k in ("dang chay", "danh sach", "list", "kiem tra")) and not any(
+            k in norm for k in ("stop", "dung", "tat", "xoa", "kill", "restart")
+        ):
+            if "docker_local_manager__execute" in self._by_name:
+                return "docker_local_manager__execute", {"action": "list_containers"}
+
+        # 3. Current system time
+        if any(k in norm for k in ("may gio", "bay gio la may gio", "hom nay thu may", "ngay may")):
+            if "datetime_client__get_current_time" in self._by_name:
+                return "datetime_client__get_current_time", {}
+
+        return None
+
     def route(
         self,
         query: str,
@@ -547,9 +830,9 @@ class SkillRouter:
         metrics_map: dict[str, dict[str, Any]] | None = None,
         playbook_tools: Sequence[str] = (),
         allow_no_tool_fast_path: bool = True,
-        use_embeddings: bool = False,
+        use_embeddings: bool | None = None,
     ) -> list[types.FunctionDeclaration]:
-        """Select top_k tools via Zero-Config BM25 + Optional Embeddings + Tier + Adaptive Telemetry."""
+        """Select top_k tools via Sub-Goal Multi-Cluster BM25 + Hybrid Embeddings + Tier + Adaptive Telemetry + Schema Slicing."""
         if allow_no_tool_fast_path and top_k > 0 and not playbook_tools and not self.needs_tools(query):
             return []
         if top_k <= 0 or top_k >= len(self._all):
@@ -559,7 +842,9 @@ class SkillRouter:
         q_tokens = _tokenize(norm_q)
         q_list = [t for t in re.findall(r"[a-z0-9]+", norm_q) if len(t) >= 2 and t not in _STOP_WORDS]
         m_map = metrics_map or {}
-        q_vec = self._query_embedding(norm_q) if use_embeddings else None
+        eff_use_emb = bool(self._embeddings) if use_embeddings is None else bool(use_embeddings)
+        q_vec = self._query_embedding(norm_q) if eff_use_emb else None
+        sub_clauses = self._split_sub_intents(query)
 
         scored: list[tuple[float, _IndexedTool]] = []
         for item in self._indexed:
@@ -575,14 +860,14 @@ class SkillRouter:
                 if sim > 0.45:
                     relevance += (sim - 0.45) * 14.0
 
-            # 3. Domain phrase hints (bonus for Vietnamese colloquial phrases)
+            # 3. Domain phrase hints (high-precision Vietnamese colloquial phrases)
             for hint in item.hints:
                 if " " in hint:
                     if hint in norm_q:
-                        relevance += 4.5
+                        relevance += 8.5
                 else:
                     if hint in q_tokens or (len(hint) >= 4 and hint in norm_q):
-                        relevance += 2.8
+                        relevance += 4.0
 
             if "http://" in norm_q or "https://" in norm_q:
                 if ".pdf" in norm_q and item.skill_prefix == "document_analyzer":
@@ -610,20 +895,56 @@ class SkillRouter:
                 selected.append(decl)
                 seen.add(pb_tool)
 
-        # 2. Pinned tools from earlier turns in the session (cap to 2 so they don't crowd out new tools)
+        # 2. Pinned tools from earlier turns ONLY if at least lightly relevant to current prompt (never drag Zalo into Excel!)
+        score_lookup = {it.name: sc for sc, it in scored}
         for pname in list(pinned_names)[-2:]:
             decl = self._by_name.get(pname)
-            if decl and pname not in seen and len(selected) < top_k:
+            if decl and pname not in seen and len(selected) < top_k and score_lookup.get(pname, 0.0) >= 5.0:
                 selected.append(decl)
                 seen.add(pname)
 
+        # 2.5 Sub-Goal Multi-Cluster Routing: guarantee at least 1 top tool per sub-clause in multi-step prompts
+        if sub_clauses:
+            for clause in sub_clauses[:4]:
+                if len(selected) >= top_k:
+                    break
+                c_toks = _tokenize(clause)
+                c_list = [t for t in re.findall(r"[a-z0-9]+", clause) if len(t) >= 2 and t not in _STOP_WORDS]
+                best_item = None
+                best_sc = 1.2
+                for item in self._indexed:
+                    if item.name in seen:
+                        continue
+                    sc = self._bm25_score(c_list, item) * 1.8
+                    for hint in item.hints:
+                        if " " in hint and hint in clause:
+                            sc += 4.5
+                        elif " " not in hint and (hint in c_toks or (len(hint) >= 4 and hint in clause)):
+                            sc += 2.8
+                    if sc > 0.5:
+                        sc += item.tier_bonus
+                    if sc > best_sc:
+                        best_sc = sc
+                        best_item = item
+                if best_item is not None and best_item.name not in seen:
+                    selected.append(best_item.declaration)
+                    seen.add(best_item.name)
+
         # 3. Highest-scoring relevant tools (Specialized Tier + Adaptive Telemetry)
+        # Cap tools per skill prefix (default 2) so multi-method skills like report_exporter (4 tools)
+        # never crowd out other relevant skills in Top-K.
+        prefix_counts: Counter[str] = Counter(name.split("__", 1)[0] for name in seen)
+        explicit_export = any(k in norm_q for k in ("xuat", "export", "luu file", "bao cao", "excel", "xlsx", "csv", "markdown"))
         for score, item in scored:
             if len(selected) >= top_k:
                 break
             if score >= 1.0 and item.name not in seen:
+                cap = 4 if (item.skill_prefix == "report_exporter" and explicit_export) else 2
+                if prefix_counts[item.skill_prefix] >= cap:
+                    continue
                 selected.append(item.declaration)
                 seen.add(item.name)
+                prefix_counts[item.skill_prefix] += 1
 
         # 4. Essential safety-net fallbacks
         for fb_name in _ALWAYS_INCLUDE_FALLBACKS:
@@ -642,4 +963,40 @@ class SkillRouter:
                 selected.append(item.declaration)
                 seen.add(item.name)
 
-        return selected
+        # 6. Apply Intra-Tool Dynamic Schema Slicing to mega-skills to reduce schema tokens
+        sliced: list[types.FunctionDeclaration] = [
+            self._slice_mega_tool_declaration(d, norm_q, q_tokens) for d in selected
+        ]
+
+        # 7. Append lightweight `discover_tools` Meta-Tool when routing a subset of the registry
+        if self.total_tools > len(sliced) and DISCOVER_TOOLS_NAME not in seen:
+            sliced.append(DISCOVER_TOOLS_DECLARATION)
+
+        return sliced
+
+    def discover(
+        self,
+        query: str,
+        exclude_names: Sequence[str] = (),
+        limit: int = 4,
+        metrics_map: dict[str, dict[str, Any]] | None = None,
+    ) -> list[types.FunctionDeclaration]:
+        """Mid-turn dynamic tool discovery across ALL 160+ tools (bypasses no-tool fast path)."""
+        excluded = set(exclude_names or ())
+        excluded.add(DISCOVER_TOOLS_NAME)
+        cap = max(1, min(int(limit or 4), 8))
+        candidates = self.route(
+            query=query,
+            top_k=min(self.total_tools, cap + len(excluded) + 4),
+            metrics_map=metrics_map,
+            allow_no_tool_fast_path=False,
+            use_embeddings=bool(self._embeddings),
+        )
+        unlocked: list[types.FunctionDeclaration] = []
+        for decl in candidates:
+            if decl.name and decl.name not in excluded:
+                unlocked.append(decl)
+                excluded.add(decl.name)
+                if len(unlocked) >= cap:
+                    break
+        return unlocked

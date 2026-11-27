@@ -87,6 +87,7 @@ _SAFE_IMPORT_TO_PYPI: dict[str, str] = {
     "markitdown": "markitdown",
     "trafilatura": "trafilatura",
     "playwright": "playwright",
+    "websocket": "websocket-client",
 }
 
 _CODER_SYSTEM_PROMPT = """Ban la Senior Python Tool Engineer chuyen viet va sua cac module Skill cho Gemini Function Calling.
@@ -97,11 +98,14 @@ QUY TAC BAT BUOC CHO FILE SKILL (`skill_<name>.py`):
    - BAT BUOC co day du Python type annotations cho moi tham so (str, int, float, bool, list[dict], ...) va kieu tra ve (`-> dict` hoac `-> list[dict]`).
    - BAT BUOC co docstring ngan gon mo ta ro chuc nang o dong dau tien.
    - `__init__(self)` KHONG bat buoc tham so nao (tat ca tham so cua `__init__` phai co gia tri mac dinh).
-3. Uu tien dung thu vien co san hoac thu vien pho bien (`httpx`, `psutil`, `pyperclip`, `bs4`, `pandas`, `pypdf`, `openpyxl`, `ddgs`, `qrcode`, `feedparser`, `playwright`).
-   QUAN TRONG: Khong bao gio nuot `ImportError` roi tra ve so 0 gia tao; neu thieu thu vien hay `raise RuntimeError("Missing package ...")`.
-4. CHIEN LUOC CHONG LAP LOI (SPA / API):
+3. Uu tien dung thu vien co san hoac thu vien pho bien (`httpx`, `psutil`, `pyperclip`, `bs4`, `pandas`, `pypdf`, `openpyxl`, `ddgs`, `qrcode`, `feedparser`, `playwright`, `matplotlib`).
+   QUAN TRONG:
+   - Khong bao gio nuot `ImportError` roi tra ve so 0 gia tao; neu thieu thu vien hay `raise RuntimeError("Missing package ...")`.
+   - Neu yeu cau la ve bieu do / hinh anh (chart, plot, graph), BAT BUOC dung `matplotlib` (backend `Agg`) ve anh `.png` luu vao `self.output_dir` (khai bao `__init__(self, output_dir: str = "outputs")`) de Web UI tu dong hien thi anh truc tiep trong khung chat, KHONG chi ve ASCII text!
+4. CHIEN LUOC CHONG LAP LOI (SPA / API / WEB CAN DANG NHAP):
    - Neu `error_context` cho thay `httpx + BeautifulSoup` khong trich xuat duoc du lieu tu trang web (do trang SPA render bang JavaScript nhu ZingMP3, React/Next/Vue, hoac HTTP 403/404): CAM LAP LAI BeautifulSoup tren HTML tinh!
    - Hay chuyen chien luoc: (a) dung `playwright.sync_api` (headless Chromium) de render JS / bat response XHR JSON, HOAC (b) dung nguon API/RSS cong khai on dinh (vi du RSS XML, public JSON endpoint).
+   - VOI CAC TRANG WEB CAN DANG NHAP CA NHAN (Zalo Web `chat.zalo.me`, Gmail, Google Drive, Facebook, Telegram Web, ERP...): UU TIEN ket noi vao phien Chrome CDP da dang nhap san qua `from agent_runtime.cdp_pool import get_cdp_pool` (cong `http://127.0.0.1:9222`, profile `C:\\ChromeAgentProfile`) thay vi mo trinh duyet trang moi, VA luon tra ve `dict` co cau truc (vd: `{"ok": True, "login_required": False, "unread_count": len(items), "items": items}`) thay vi list rong `[]`.
 5. CAM TUYET DOI REWARD HACKING / HARDCODE DU LIEU GIA:
    - KHONG BAO GIO duoc hardcode `fallback_data`, `dummy_data`, `sample_data` hoac tra ve danh sach bai hat/gia ca/ket qua co dinh gia tao de qua mat pytest/Live Smoke Probe.
    - Neu khong lay duoc du lieu that tu mang/API/Playwright, BAT BUOC `raise RuntimeError("...")` kem thong tin chan doan.

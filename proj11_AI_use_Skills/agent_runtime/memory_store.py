@@ -222,6 +222,25 @@ class SQLiteMemoryStore:
                 CREATE INDEX IF NOT EXISTS idx_episodic_created ON episodic_tool_logs(created_at);
                 CREATE INDEX IF NOT EXISTS idx_episodic_consolidated ON episodic_tool_logs(consolidated, id);
 
+                CREATE TABLE IF NOT EXISTS recent_entities (
+                    entity_key TEXT PRIMARY KEY,
+                    entity_type TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    uri_or_path TEXT NOT NULL,
+                    metadata_json TEXT DEFAULT '{}',
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_entities_updated ON recent_entities(updated_at DESC);
+
+                CREATE TABLE IF NOT EXISTS memory_embeddings (
+                    item_key TEXT PRIMARY KEY,
+                    text_hash TEXT NOT NULL,
+                    vector_json TEXT NOT NULL,
+                    model TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+
                 CREATE TABLE IF NOT EXISTS prospective_tasks (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     title TEXT NOT NULL,
@@ -547,22 +566,61 @@ class SQLiteMemoryStore:
             cur = conn.execute("DELETE FROM user_facts WHERE key = ?", (k,))
             return cur.rowcount > 0
 
-    def format_facts_for_prompt(self, max_items: int = 18) -> str:
-        facts = self.get_facts(include_internal=False)[:max_items]
-        if not facts:
+    @staticmethod
+    def _lexical_relevance(query: str, text: str) -> float:
+        """Fast 0ms normalized token overlap score in [0.0, 1.0] for Semantic-Filtered Memory Retrieval."""
+        q_raw = (query or "").strip().lower()
+        t_raw = (text or "").strip().lower()
+        if not q_raw or not t_raw:
+            return 0.0
+        q_toks = {w for w in re.findall(r"[a-zA-Z0-9À-ỹ_]+", q_raw) if len(w) >= 2}
+        if not q_toks:
+            return 0.0
+        hits = sum(1 for w in q_toks if w in t_raw)
+        return min(1.0, hits / max(1, min(len(q_toks), 5)))
+
+    def format_facts_for_prompt(
+        self,
+        max_items: int = 10,
+        query: str = "",
+        query_vector: list[float] | None = None,
+    ) -> str:
+        """Inject core profile facts + top context-relevant semantic facts ranked by (hybrid_relevance * time_decay)."""
+        all_facts = self.get_facts(include_internal=False)
+        if not all_facts:
             return ""
+
+        core = [f for f in all_facts if f["key"] in _CORE_PROFILE_KEYS]
+        others = [f for f in all_facts if f["key"] not in _CORE_PROFILE_KEYS]
+        emb_map = self.get_memory_embeddings_map() if query_vector else {}
+
+        if query.strip() and others:
+            scored_others = []
+            for f in others:
+                rel = self._lexical_relevance(query, f"{f['key']} {f['category']} {f['value']}")
+                if query_vector and f"fact:{f['key']}" in emb_map:
+                    sim = max(0.0, self._cosine_sim(query_vector, emb_map[f"fact:{f['key']}"][1]))
+                    rel = max(rel, sim)
+                decay = float(f.get("effective_score") or 1.0)
+                combined = decay * (1.0 + 3.0 * rel)
+                scored_others.append((combined, rel, f))
+            scored_others.sort(key=lambda x: x[0], reverse=True)
+            rem_slots = max(1, max_items - len(core))
+            selected_others = [f for _, _, f in scored_others[:rem_slots]]
+        else:
+            selected_others = others[: max(1, max_items - len(core))]
+
+        selected = core + selected_others
         now = _utc_now_iso()
-        selected_keys = [f["key"] for f in facts]
         try:
             with self._lock, self._connect() as conn:
                 conn.executemany(
                     "UPDATE user_facts SET access_count = access_count + 1, last_accessed = ? WHERE key = ?",
-                    [(now, k) for k in selected_keys],
+                    [(now, f["key"]) for f in selected],
                 )
         except Exception:
             pass
-        lines = [f"- {f['key']} ({f['category']}): {f['value']}" for f in facts]
-        return "\n".join(lines)
+        return "\n".join(f"- {f['key']} ({f['category']}): {f['value']}" for f in selected)
 
     # ------------------------------------------------------------------
     # SQLite TTL Cache
@@ -718,20 +776,28 @@ class SQLiteMemoryStore:
             ).fetchall()
         return [dict(r) for r in rows]
 
-    def record_successful_workflow(self, prompt_keywords: list[str], ordered_tools: list[str]) -> None:
-        """Auto-learn or reinforce multi-tool cooperation patterns from real successful turns."""
+    def record_successful_workflow(
+        self,
+        prompt_keywords: list[str],
+        ordered_tools: list[str],
+        action_steps: list[str] | None = None,
+    ) -> None:
+        """Auto-learn or reinforce multi-tool & action-level parametric playbooks from real successful turns."""
         distinct: list[str] = []
         for t in ordered_tools:
             if t and t not in distinct:
                 distinct.append(t)
-        if len(distinct) < 2 or len(distinct) > 4:
+        if not distinct or len(distinct) > 5:
+            return
+        if len(distinct) == 1 and not action_steps:
             return
 
         tools_csv = ",".join(distinct)
         pid = "auto_" + "__".join(t.split("__")[0] for t in distinct)[:64]
         now = _utc_now_iso()
         kw_str = ",".join(prompt_keywords[:8])
-        hint = f"Mau phoi hop hieu qua da kiem chung: {' -> '.join(distinct)}."
+        seq_str = " -> ".join(action_steps[:5]) if action_steps else " -> ".join(distinct)
+        hint = f"Cong thuc phoi hop/action da kiem chung: {seq_str}."
 
         with self._lock, self._connect() as conn:
             existing = conn.execute(
@@ -740,8 +806,8 @@ class SQLiteMemoryStore:
             ).fetchone()
             if existing is not None:
                 conn.execute(
-                    "UPDATE tool_playbooks SET success_count = success_count + 1, updated_at = ? WHERE playbook_id = ?",
-                    (now, existing["playbook_id"]),
+                    "UPDATE tool_playbooks SET success_count = success_count + 1, strategy_hint = ?, updated_at = ? WHERE playbook_id = ?",
+                    (hint, now, existing["playbook_id"]),
                 )
             elif kw_str:
                 conn.execute(
@@ -750,10 +816,170 @@ class SQLiteMemoryStore:
                     VALUES (?, ?, ?, ?, 1, ?)
                     ON CONFLICT(playbook_id) DO UPDATE SET
                         success_count = tool_playbooks.success_count + 1,
+                        strategy_hint = excluded.strategy_hint,
                         updated_at = excluded.updated_at
                     """,
                     (pid, kw_str, tools_csv, hint, now),
                 )
+
+    # ------------------------------------------------------------------
+    # Structured Entity / Resource Memory (Sheets, Docs, Files, Containers)
+    # ------------------------------------------------------------------
+    def record_entity(
+        self,
+        entity_type: str,
+        name: str,
+        uri_or_path: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        etype = (entity_type or "resource").strip().lower()[:32]
+        ename = (name or "").strip()[:120]
+        uri = (uri_or_path or "").strip()[:400]
+        if not ename or not uri:
+            return
+        ekey = f"{etype}:{ename.lower()}"
+        now = _utc_now_iso()
+        meta_json = json.dumps(metadata or {}, ensure_ascii=False, default=str)[:500]
+        with self._lock, self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO recent_entities (entity_key, entity_type, name, uri_or_path, metadata_json, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(entity_key) DO UPDATE SET
+                    name = excluded.name,
+                    uri_or_path = excluded.uri_or_path,
+                    metadata_json = excluded.metadata_json,
+                    updated_at = excluded.updated_at
+                """,
+                (ekey, etype, ename, uri, meta_json, now),
+            )
+
+    def get_recent_entities(self, limit: int = 8) -> list[dict[str, Any]]:
+        with self._lock, self._connect() as conn:
+            rows = conn.execute(
+                "SELECT entity_key, entity_type, name, uri_or_path, metadata_json, updated_at "
+                "FROM recent_entities ORDER BY updated_at DESC LIMIT ?",
+                (max(1, int(limit)),),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def format_entities_for_prompt(self, query: str = "", limit: int = 6) -> str:
+        entities = self.get_recent_entities(limit=15)
+        if not entities:
+            return ""
+        if query.strip():
+            scored = []
+            for e in entities:
+                rel = self._lexical_relevance(query, f"{e['entity_type']} {e['name']} {e['uri_or_path']}")
+                scored.append((rel, e))
+            scored.sort(key=lambda x: x[0], reverse=True)
+            selected = [e for _, e in scored[:limit]]
+        else:
+            selected = entities[:limit]
+        return "\n".join(
+            f"- [{e['entity_type']}] {e['name']} -> {e['uri_or_path']}"
+            for e in selected
+        )
+
+    def format_cross_session_faint_memory(
+        self,
+        current_session_id: str,
+        query: str = "",
+        max_sessions: int = 5,
+    ) -> str:
+        """Cross-Session Faint Memory (~5% gist of other recent sessions with dual decay by session distance & age)."""
+        with self._lock, self._connect() as conn:
+            sess_rows = conn.execute(
+                """
+                SELECT session_id, title, updated_at
+                FROM sessions
+                WHERE session_id != ?
+                ORDER BY updated_at DESC
+                LIMIT 12
+                """,
+                (current_session_id or "",),
+            ).fetchall()
+            if not sess_rows:
+                return ""
+
+            scored_items: list[tuple[float, str]] = []
+            for dist_idx, sr in enumerate(sess_rows, start=1):
+                sid = str(sr["session_id"])
+                title = str(sr["title"] or "").strip()
+                updated_at = str(sr["updated_at"] or "")
+                days_old = _days_since_iso(updated_at)
+
+                # Dual decay: fades by both session distance (e^-0.35*i) and elapsed days (e^-0.08*days)
+                retention = math.exp(-0.35 * dist_idx) * math.exp(-0.08 * days_old)
+
+                msgs = conn.execute(
+                    "SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 4",
+                    (sid,),
+                ).fetchall()
+                if not msgs:
+                    continue
+
+                latest_user = next((str(m["content"] or "") for m in msgs if m["role"] == "user"), "")
+                latest_model = next((str(m["content"] or "") for m in msgs if m["role"] == "model"), "")
+                combined_txt = f"{title} {latest_user} {latest_model}"
+
+                # Boost slightly if current query lexically recalls a past session topic
+                rel = self._lexical_relevance(query, combined_txt) if query.strip() else 0.0
+                eff_retention = min(1.0, retention * (1.0 + 1.8 * rel))
+                if eff_retention < 0.05:
+                    continue
+
+                # ~5% faint gist budget scales smoothly with retention (55..150 chars)
+                char_budget = int(55 + 95 * min(1.0, eff_retention))
+                gist_raw = " ".join((latest_model or latest_user or title).split())
+                gist = gist_raw[:char_budget].rstrip() + ("..." if len(gist_raw) > char_budget else "")
+                pct = max(1, min(15, int(round(eff_retention * 10))))
+                line = f"- [Phien -{dist_idx} | nho ~{pct}% | {updated_at[:10]}] {title[:50]}: {gist}"
+                scored_items.append((eff_retention, line))
+
+        if not scored_items:
+            return ""
+        scored_items.sort(key=lambda x: x[0], reverse=True)
+        return "\n".join(line for _, line in scored_items[:max_sessions])
+
+    # ------------------------------------------------------------------
+    # Hybrid Vector Cache for Semantic Memory Facts & Rules
+    # ------------------------------------------------------------------
+    def get_memory_embeddings_map(self) -> dict[str, tuple[str, list[float]]]:
+        with self._lock, self._connect() as conn:
+            rows = conn.execute("SELECT item_key, text_hash, vector_json FROM memory_embeddings").fetchall()
+        out: dict[str, tuple[str, list[float]]] = {}
+        for r in rows:
+            try:
+                out[str(r["item_key"])] = (str(r["text_hash"]), json.loads(r["vector_json"]))
+            except Exception:
+                continue
+        return out
+
+    def upsert_memory_embedding(self, item_key: str, text_hash: str, vector: list[float], model: str) -> None:
+        now = _utc_now_iso()
+        with self._lock, self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO memory_embeddings (item_key, text_hash, vector_json, model, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(item_key) DO UPDATE SET
+                    text_hash = excluded.text_hash,
+                    vector_json = excluded.vector_json,
+                    model = excluded.model,
+                    updated_at = excluded.updated_at
+                """,
+                (item_key, text_hash, json.dumps(vector), model, now),
+            )
+
+    @staticmethod
+    def _cosine_sim(a: list[float], b: list[float]) -> float:
+        if not a or not b or len(a) != len(b):
+            return 0.0
+        dot = sum(x * y for x, y in zip(a, b))
+        na = math.sqrt(sum(x * x for x in a))
+        nb = math.sqrt(sum(y * y for y in b))
+        return dot / (na * nb) if (na > 0 and nb > 0) else 0.0
 
     # ------------------------------------------------------------------
     # Tool Embeddings Cache (SQLite Vector Store for Hybrid Router)
@@ -851,20 +1077,27 @@ class SQLiteMemoryStore:
             cur = conn.execute("DELETE FROM user_rules WHERE rule_id = ?", (int(rule_id),))
             return cur.rowcount > 0
 
-    def format_rules_for_prompt(self, max_items: int = 15) -> str:
-        rules = self.list_rules(active_only=True)[:max_items]
+    def format_rules_for_prompt(self, max_items: int = 12, query: str = "") -> str:
+        rules = self.list_rules(active_only=True)
         if not rules:
             return ""
+        if query.strip() and len(rules) > max_items:
+            rules.sort(
+                key=lambda r: float(r.get("effective_score") or 1.2)
+                * (1.0 + 2.5 * self._lexical_relevance(query, str(r.get("rule_text") or ""))),
+                reverse=True,
+            )
+        selected = rules[:max_items]
         now = _utc_now_iso()
         try:
             with self._lock, self._connect() as conn:
                 conn.executemany(
                     "UPDATE user_rules SET access_count = access_count + 1, last_accessed = ? WHERE rule_id = ?",
-                    [(now, int(r["rule_id"])) for r in rules],
+                    [(now, int(r["rule_id"])) for r in selected],
                 )
         except Exception:
             pass
-        return "\n".join(f"- {r['rule_text']}" for r in rules)
+        return "\n".join(f"- {r['rule_text']}" for r in selected)
 
     def add_pending_fact(self, key: str, value: str, category: str = "auto_learned", evidence: str = "") -> bool:
         k = (key or "").strip()

@@ -31,7 +31,7 @@ TOOL_SCHEMA = {
 
 def _run_cmd(cmd: str) -> str:
     try:
-        result = subprocess.run(cmd, shell=True, check=True, capture_output=True, text=True)
+        result = subprocess.run(cmd, shell=True, check=True, capture_output=True, text=True, encoding="utf-8", errors="replace")
         return result.stdout.strip()
     except subprocess.CalledProcessError as e:
         return e.stderr.strip()
@@ -39,6 +39,7 @@ def _run_cmd(cmd: str) -> str:
 def find_venvs(root: str = '.') -> List[str]:
     venvs = []
     for dirpath, dirnames, _ in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d.lower() not in {'.git', 'node_modules', '__pycache__', '.venv', 'venv', 'appdata', 'windows', '$recycle.bin', 'programdata'}]
         if 'Scripts' in dirnames and 'Lib' in dirnames:
             venvs.append(dirpath)
     return venvs

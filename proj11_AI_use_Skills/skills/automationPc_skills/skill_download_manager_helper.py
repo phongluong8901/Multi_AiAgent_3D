@@ -73,10 +73,18 @@ def download_file(url: str, dest_dir: str = '.', dry_run: bool = True) -> dict:
 
 def execute(action: str = "compute_hash", **kwargs) -> dict:
     if action == "compute_hash":
-        return compute_hash(**kwargs)
+        return _safe_call(compute_hash, kwargs)
     elif action == "verify_checksum":
-        return verify_checksum(**kwargs)
+        return _safe_call(verify_checksum, kwargs)
     elif action == "download_file":
-        return download_file(**kwargs)
+        return _safe_call(download_file, kwargs)
     else:
         return {"ok": False, "error": f"Unknown action: {action}"}
+
+def _safe_call(fn, kw):
+    import inspect as _insp
+    sig = _insp.signature(fn)
+    if any(p.kind == _insp.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
+        return fn(**kw)
+    valid = {k: v for k, v in kw.items() if k in sig.parameters}
+    return fn(**valid)

@@ -99,10 +99,18 @@ def attach_live_excel() -> Dict[str, Any]:
 
 def execute(action: str, **kwargs) -> Dict[str, Any]:
     if action == "read_sheet":
-        return read_sheet(**kwargs)
+        return _safe_call(read_sheet, kwargs)
     elif action == "write_rows":
-        return write_rows(**kwargs)
+        return _safe_call(write_rows, kwargs)
     elif action == "attach_live_excel":
         return attach_live_excel()
     else:
         return {"ok": False, "error": "Invalid action"}
+
+def _safe_call(fn, kw):
+    import inspect as _insp
+    sig = _insp.signature(fn)
+    if any(p.kind == _insp.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
+        return fn(**kw)
+    valid = {k: v for k, v in kw.items() if k in sig.parameters}
+    return fn(**valid)

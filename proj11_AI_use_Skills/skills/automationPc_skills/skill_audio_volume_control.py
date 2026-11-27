@@ -85,9 +85,18 @@ def volume_step(delta: int = 10) -> Dict[str, Any]:
 def list_audio_devices() -> Dict[str, Any]:
     try:
         from pycaw.pycaw import AudioUtilities
-        devices = AudioUtilities.GetSpeakers()
-        device_list = [device.FriendlyName for device in devices]
-        return {"ok": True, "devices": device_list}
+        all_devs = AudioUtilities.GetAllDevices() or []
+        device_list = []
+        for dev in all_devs:
+            name = getattr(dev, "FriendlyName", None)
+            if name:
+                device_list.append(str(name))
+        if not device_list:
+            sp = AudioUtilities.GetSpeakers()
+            sp_name = getattr(sp, "FriendlyName", None) or str(sp)
+            if sp_name:
+                device_list.append(sp_name)
+        return {"ok": True, "count": len(device_list), "devices": device_list[:30]}
     except ImportError:
         return {"ok": False, "error": "Missing package pycaw"}
     except Exception as e:

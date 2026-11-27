@@ -54,11 +54,11 @@ TOOL_SCHEMA = {
 
 def execute(action: str = "", **kwargs) -> Dict[str, Any]:
     if action == "build_schtask_cmd":
-        return build_schtask_cmd(**kwargs)
+        return _safe_call(build_schtask_cmd, kwargs)
     elif action == "list_tasks":
-        return list_tasks(**kwargs)
+        return _safe_call(list_tasks, kwargs)
     elif action == "send_notification":
-        return send_notification(**kwargs)
+        return _safe_call(send_notification, kwargs)
     else:
         return {"ok": False, "error": f"Unknown action: {action}"}
 
@@ -81,7 +81,7 @@ def build_schtask_cmd(task_name: str, script_path: str, schedule: str = 'DAILY',
         result = subprocess.run(
             ["schtasks", "/create", "/tn", task_name, "/tr", script_path, "/sc", schedule, "/st", start_time],
             capture_output=True,
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             check=True
         )
         return {"ok": True, "message": result.stdout}
@@ -89,27 +89,26 @@ def build_schtask_cmd(task_name: str, script_path: str, schedule: str = 'DAILY',
         return {"ok": False, "error": e.stderr}
 
 def list_tasks(query: str = '', dry_run: bool = False) -> Dict[str, Any]:
-    try:
-        import subprocess
-    except ImportError:
-        return {"ok": False, "error": "Missing package subprocess"}
-    
+    q = (query or "").strip()
+    cmd = ["schtasks", "/query", "/fo", "TABLE", "/nh"]
+    if q:
+        cmd.extend(["/tn", q])
     if dry_run:
-        return {
-            "ok": True,
-            "preview": f"schtasks /query /fo LIST /v /tn \"{query}\""
-        }
-    
+        return {"ok": True, "preview": " ".join(cmd)}
+
     try:
         result = subprocess.run(
-            ["schtasks", "/query", "/fo", "LIST", "/v", "/tn", query],
+            cmd,
             capture_output=True,
-            text=True,
-            check=True
+            text=True, encoding="utf-8", errors="replace",
+            timeout=15,
         )
-        return {"ok": True, "tasks": result.stdout}
-    except subprocess.CalledProcessError as e:
-        return {"ok": False, "error": e.stderr}
+        if result.returncode != 0:
+            return {"ok": False, "error": (result.stderr or result.stdout or "").strip()[:300]}
+        lines = [ln.strip() for ln in (result.stdout or "").splitlines() if ln.strip() and not ln.startswith("===")]
+        return {"ok": True, "count": len(lines), "tasks": lines[:40]}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 def send_notification(title: str = 'Notice', message: str = '', dry_run: bool = False) -> Dict[str, Any]:
     try:
@@ -127,9 +126,17 @@ def send_notification(title: str = 'Notice', message: str = '', dry_run: bool = 
         result = subprocess.run(
             ["PowerShell", "-Command", f"[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null; $template = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02); $template.SelectSingleNode('//text[1]').InnerText = '{title}'; $template.SelectSingleNode('//text[2]').InnerText = '{message}'; $toast = [Windows.UI.Notifications.ToastNotification]::new($template); [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier().Show($toast)"],
             capture_output=True,
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             check=True
         )
         return {"ok": True, "message": result.stdout}
     except subprocess.CalledProcessError as e:
         return {"ok": False, "error": e.stderr}
+
+def _safe_call(fn, kw):
+    import inspect as _insp
+    sig = _insp.signature(fn)
+    if any(p.kind == _insp.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
+        return fn(**kw)
+    valid = {k: v for k, v in kw.items() if k in sig.parameters}
+    return fn(**valid)

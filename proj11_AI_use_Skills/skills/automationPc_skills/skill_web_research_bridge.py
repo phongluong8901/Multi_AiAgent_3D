@@ -86,12 +86,20 @@ def fetch_page_summary(url: str, max_chars: int=3000):
 def execute(action: str = "search_news_rss", **kwargs) -> dict:
     try:
         if action == "search_news_rss":
-            return search_news_rss(**kwargs)
+            return _safe_call(search_news_rss, kwargs)
         elif action == "extract_clean_text":
-            return extract_clean_text(**kwargs)
+            return _safe_call(extract_clean_text, kwargs)
         elif action == "fetch_page_summary":
-            return fetch_page_summary(**kwargs)
+            return _safe_call(fetch_page_summary, kwargs)
         else:
             return {"ok": False, "error": "Unknown action"}
     except Exception as e:
         return {"ok": False, "error": str(e)}
+
+def _safe_call(fn, kw):
+    import inspect as _insp
+    sig = _insp.signature(fn)
+    if any(p.kind == _insp.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
+        return fn(**kw)
+    valid = {k: v for k, v in kw.items() if k in sig.parameters}
+    return fn(**valid)
