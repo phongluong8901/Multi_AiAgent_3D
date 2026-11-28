@@ -1,0 +1,30 @@
+{
+  "name": "duck-ai-cloud-hub",
+  "version": "1.0.0",
+  "description": "Online backend API (TypeScript + Google OAuth 2.0 verification + MongoDB) for Duck ai Manager Community Skill Hub",
+  "type": "module",
+  "main": "dist/src/server.js",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/src/server.js",
+    "dev": "tsx watch src/server.ts",
+    "test": "tsc && node --test dist/test/hub.test.js",
+    "seed:vocab": "node scripts/seed_english_vocab.mjs"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1",
+    "mongodb": "^6.10.0"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

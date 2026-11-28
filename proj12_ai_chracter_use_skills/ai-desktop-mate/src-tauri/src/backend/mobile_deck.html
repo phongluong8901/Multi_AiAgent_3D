@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Duck AI - Mobile Remote Deck &amp; Flashcards</title>
+  <style>
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    body {
+      margin: 0;
+      padding: 12px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #070d1a;
+      color: #f8fafc;
+      min-height: 100vh;
+    }
+    .shell { max-width: 500px; margin: 0 auto; display: flex; flex-direction: column; gap: 10px; }
+    .card {
+      background: #0f172a;
+      border: 1px solid rgba(56, 189, 248, 0.28);
+      border-radius: 14px;
+      padding: 12px;
+      box-shadow: 0 4px 0 rgba(2, 6, 23, 0.85), 0 10px 24px rgba(0, 0, 0, 0.45);
+    }
+    .hdr { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .title { display: flex; align-items: center; gap: 7px; font-size: 14px; font-weight: 800; color: #38bdf8; letter-spacing: 0.3px; }
+    .sub { font-size: 11px; color: #94a3b8; margin-top: 3px; }
+    .badge {
+      font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 999px;
+      background: rgba(30, 41, 59, 0.9); border: 1px solid rgba(148, 163, 184, 0.35); color: #cbd5e1;
+    }
+    .badge.ok { background: rgba(16, 185, 129, 0.18); border-color: rgba(52, 211, 153, 0.5); color: #6ee7b7; }
+    .badge.err { background: rgba(239, 68, 68, 0.2); border-color: rgba(248, 113, 113, 0.55); color: #fca5a5; }
+    .tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+    .tab-btn {
+      padding: 9px 6px; border-radius: 10px; border: 1px solid rgba(148, 163, 184, 0.25);
+      background: #131c31; color: #94a3b8; font-size: 11.5px; font-weight: 700; cursor: pointer;
+      box-shadow: 0 2px 0 rgba(2, 6, 23, 0.8);
+    }
+    .tab-btn.active {
+      background: rgba(14, 165, 233, 0.22); border-color: rgba(56, 189, 248, 0.65); color: #e0f2fe;
+    }
+    .sec-lbl { font-size: 10.5px; font-weight: 700; color: #7dd3fc; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 7px; }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+    .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; }
+    .grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+    .deck-btn {
+      min-height: 44px; padding: 8px 10px; border-radius: 10px;
+      border: 1px solid rgba(148, 163, 184, 0.28); background: #1e293b; color: #f1f5f9;
+      font-size: 12px; font-weight: 700; cursor: pointer;
+      display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+      box-shadow: 0 3px 0 rgba(2, 6, 23, 0.85); touch-action: manipulation; user-select: none;
+    }
+    .deck-btn:active { transform: translateY(2px); box-shadow: 0 1px 0 rgba(2, 6, 23, 0.85); }
+    .deck-btn.accent { background: rgba(14, 165, 233, 0.2); border-color: rgba(56, 189, 248, 0.5); color: #bae6fd; }
+    .deck-btn.green { background: rgba(16, 185, 129, 0.18); border-color: rgba(52, 211, 153, 0.5); color: #a7f3d0; }
+    .deck-btn.warn { background: rgba(245, 158, 11, 0.16); border-color: rgba(251, 191, 36, 0.48); color: #fde68a; }
+    .deck-btn.danger { background: rgba(239, 68, 68, 0.18); border-color: rgba(248, 113, 113, 0.5); color: #fecaca; }
+    input, textarea {
+      width: 100%; padding: 9px 11px; border-radius: 9px;
+      background: #090f1d; border: 1px solid rgba(148, 163, 184, 0.32);
+      color: #f8fafc; font-size: 13px; outline: none;
+    }
+    input:focus, textarea:focus { border-color: #38bdf8; }
+    .toast {
+      font-size: 11.5px; color: #bae6fd; min-height: 18px;
+      padding: 6px 9px; border-radius: 8px; background: rgba(14, 165, 233, 0.1);
+      border: 1px solid rgba(56, 189, 248, 0.22);
+    }
+    .fc-box {
+      border-radius: 13px; padding: 16px 14px; background: linear-gradient(155deg, #131d36, #0b1224);
+      border: 1px solid rgba(129, 140, 248, 0.42); min-height: 195px;
+      display: flex; flex-direction: column; justify-content: space-between; cursor: pointer;
+      box-shadow: 0 4px 0 rgba(2, 6, 23, 0.85);
+    }
+    .fc-word { font-size: 26px; font-weight: 800; text-align: center; color: #f8fafc; margin-top: 6px; }
+    .fc-ipa { font-size: 13px; color: #7dd3fc; text-align: center; font-family: ui-monospace, monospace; margin-top: 3px; }
+    .fc-vi { font-size: 15px; font-weight: 700; color: #6ee7b7; text-align: center; margin-top: 8px; }
+    .fc-ex { font-size: 12px; color: #cbd5e1; font-style: italic; text-align: center; margin-top: 6px; line-height: 1.4; }
+    .srs-row {
+      display: flex; justify-content: space-between; align-items: center; gap: 8px;
+      padding: 8px 10px; border-radius: 9px; background: #131c31;
+      border: 1px solid rgba(148, 163, 184, 0.18); font-size: 12px; margin-bottom: 6px;
+    }
+    #shot-img { width: 100%; border-radius: 10px; border: 1px solid rgba(56, 189, 248, 0.35); display: none; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="card">
+      <div class="hdr">
+        <div>
+          <div class="title">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2.2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+            <span>DUCK MOBILE REMOTE DECK</span>
+          </div>
+          <div id="host-sub" class="sub">Kết nối trực tiếp Wi-Fi LAN với máy tính</div>
+        </div>
+        <span id="conn-badge" class="badge">[ĐANG KẾT NỐI]</span>
+      </div>
+      <div id="pin-row" style="display: none; gap: 6px; margin-top: 9px;">
+        <input id="inp-pin" type="tel" inputmode="numeric" maxlength="6" placeholder="Nhập mã PIN 6 số trên bảng Mobile QR..." />
+        <button id="btn-save-pin" class="deck-btn accent" type="button">Kết Nối</button>
+      </div>
+    </div>
+
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="deck" type="button">Stream Deck PC</button>
+      <button class="tab-btn" data-tab="vocab" type="button">Từ Vựng SRS</button>
+      <button class="tab-btn" data-tab="screen" type="button">Màn Hình PC</button>
+    </div>
+
+    <div id="toast-bar" class="toast">[READY] Chạm nút bất kỳ để điều khiển máy tính hoặc học từ vựng.</div>
+
+    <!-- TAB 1: STREAM DECK PC -->
+    <div id="pane-deck" style="display: flex; flex-direction: column; gap: 10px;">
+      <div class="card">
+        <div class="sec-lbl">Âm Lượng &amp; Điều Khiển Nhạc / Video</div>
+        <div class="grid3" style="margin-bottom: 7px;">
+          <button class="deck-btn" data-act="vol_down" type="button">Vol -</button>
+          <button class="deck-btn warn" data-act="mute" type="button">Mute</button>
+          <button class="deck-btn accent" data-act="vol_up" type="button">Vol +</button>
+        </div>
+        <div class="grid3">
+          <button class="deck-btn" data-act="prev" type="button">Bài Trước</button>
+          <button class="deck-btn green" data-act="play_pause" type="button">Play / Pause</button>
+          <button class="deck-btn" data-act="next" type="button">Bài Tiếp</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="sec-lbl">Độ Sáng, Màn Hình, Vịt 3D &amp; Hẹn Giờ</div>
+        <div class="grid2" style="margin-bottom: 7px;">
+          <button class="deck-btn" data-act="brightness_down" type="button">Độ Sáng -</button>
+          <button class="deck-btn" data-act="brightness_up" type="button">Độ Sáng +</button>
+          <button class="deck-btn accent" data-act="beat_dance" type="button">Vịt Nhảy Beat 3D</button>
+          <button class="deck-btn green" data-act="clean_ram" type="button">Dọn RAM Nhanh</button>
+          <button class="deck-btn" data-act="show_desktop" type="button">Hiện Desktop</button>
+          <button class="deck-btn danger" data-act="lock_pc" type="button">Khóa Màn PC</button>
+        </div>
+        <div class="grid4">
+          <button class="deck-btn warn" data-act="shutdown_15m" type="button">Tắt 15p</button>
+          <button class="deck-btn warn" data-act="shutdown_30m" type="button">Tắt 30p</button>
+          <button class="deck-btn warn" data-act="shutdown_60m" type="button">Tắt 60p</button>
+          <button class="deck-btn" data-act="cancel_shutdown" type="button">Hủy Tắt</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="sec-lbl">Bắn Link / Văn Bản &amp; Nhắn Duck AI</div>
+        <textarea id="inp-transfer" rows="2" placeholder="Dán link YouTube/Web, ghi chú hoặc câu hỏi gửi sang máy tính..."></textarea>
+        <div class="grid2" style="margin-top: 7px;">
+          <button id="btn-push-clip" class="deck-btn accent" type="button">Chép Vào PC</button>
+          <button id="btn-open-url" class="deck-btn green" type="button">Mở Link Trên PC</button>
+          <button id="btn-pull-clip" class="deck-btn" type="button">Lấy Clipboard PC</button>
+          <button id="btn-send-ai" class="deck-btn warn" type="button">Hỏi Duck AI</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 2: TỪ VỰNG SRS ĐỒNG BỘ PC -->
+    <div id="pane-vocab" style="display: none; flex-direction: column; gap: 10px;">
+      <div class="card">
+        <div class="hdr" style="margin-bottom: 8px;">
+          <span class="sec-lbl" style="margin: 0;">Flashcard Đồng Bộ Sổ SRS PC</span>
+          <span id="vocab-count-badge" class="badge">0 từ đã lưu</span>
+        </div>
+        <div id="fc-card" class="fc-box">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span id="fc-meta" class="badge">B2 • ielts</span>
+            <span style="font-size: 10px; color: #94a3b8;">Chạm thẻ để lật nghĩa</span>
+          </div>
+          <div>
+            <div id="fc-word" class="fc-word">resilient</div>
+            <div id="fc-ipa" class="fc-ipa">/rɪˈzɪl.i.ənt/</div>
+            <div id="fc-back" style="display: none;">
+              <div id="fc-vi" class="fc-vi">kiên cường, phục hồi nhanh</div>
+              <div id="fc-ex" class="fc-ex"></div>
+            </div>
+          </div>
+          <div class="grid2" style="margin-top: 10px;">
+            <button id="btn-fc-phone-tts" class="deck-btn" type="button">Nghe Trên Phone</button>
+            <button id="btn-fc-pc-tts" class="deck-btn accent" type="button">Vịt PC Đọc To</button>
+          </div>
+        </div>
+
+        <div class="grid4" style="margin-top: 8px;">
+          <button class="deck-btn danger" data-q="1" type="button">Quên (1)</button>
+          <button class="deck-btn warn" data-q="3" type="button">Khó (3)</button>
+          <button class="deck-btn accent" data-q="4" type="button">Nhớ (4)</button>
+          <button class="deck-btn green" data-q="5" type="button">Dễ (5)</button>
+        </div>
+        <button id="btn-fc-next" class="deck-btn accent" type="button" style="width: 100%; margin-top: 7px;">Rút Từ Mới Ngẫu Nhiên</button>
+      </div>
+
+      <div class="card">
+        <div class="sec-lbl">Sổ Từ Đang Lưu Trên PC</div>
+        <div id="srs-list" style="max-height: 230px; overflow-y: auto;"></div>
+      </div>
+    </div>
+
+    <!-- TAB 3: XEM MÀN HÌNH PC -->
+    <div id="pane-screen" style="display: none; flex-direction: column; gap: 10px;">
+      <div class="card">
+        <div class="sec-lbl">Ảnh Chụp Màn Hình Máy Tính Trực Tiếp</div>
+        <div class="grid2">
+          <button id="btn-shot-now" class="deck-btn accent" type="button">Chụp Xem Ngay</button>
+          <button id="btn-shot-auto" class="deck-btn" type="button">Tự Cập Nhật: TẮT</button>
+        </div>
+        <img id="shot-img" alt="PC Live Screen" />
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const qs = new URLSearchParams(location.search);
+    const PIN_KEY = 'duck_mobile_deck_pin';
+    if (qs.get('pin')) {
+      localStorage.setItem(PIN_KEY, qs.get('pin').trim());
+    }
+    let pin = localStorage.getItem(PIN_KEY) || '';
+    const inpPin = document.getElementById('inp-pin');
+    const pinRow = document.getElementById('pin-row');
+    const connBadge = document.getElementById('conn-badge');
+    const hostSub = document.getElementById('host-sub');
+    const toastBar = document.getElementById('toast-bar');
+
+    let vocabDeck = [];
+    let currentVocab = null;
+    let isFlipped = false;
+    let autoShotTimer = null;
+
+    function showToast(msg) {
+      toastBar.textContent = msg;
+    }
+
+    async function deckApi(path, method = 'GET', bodyObj = null) {
+      const sep = path.includes('?') ? '&' : '?';
+      const url = path + sep + 'pin=' + encodeURIComponent(pin);
+      const opts = { method, headers: {} };
+      if (bodyObj) {
+        opts.headers['Content-Type'] = 'application/json';
+        opts.body = JSON.stringify(Object.assign({ pin }, bodyObj));
+      }
+      const res = await fetch(url, opts);
+      const data = await res.json();
+      if (!data.ok && res.status === 401) {
+        pinRow.style.display = 'flex';
+        connBadge.className = 'badge err';
+        connBadge.textContent = '[SAI PIN]';
+      }
+      return data;
+    }
+
+    async function refreshStatus() {
+      try {
+        const st = await deckApi('/api/deck/status');
+        if (!st.ok) return;
+        pinRow.style.display = 'none';
+        connBadge.className = 'badge ok';
+        connBadge.textContent = st.audio_bpm > 0 ? ('[LIVE ' + st.audio_bpm + ' BPM]') : '[ĐÃ KẾT NỐI]';
+        hostSub.textContent = 'Máy chủ: ' + (st.host_name || 'Duck PC') + ' • Âm nhạc: ' + Math.round((st.audio_peak || 0) * 100) + '%';
+      } catch (e) {
+        connBadge.className = 'badge err';
+        connBadge.textContent = '[MẤT MẠNG]';
+      }
+    }
+
+    document.getElementById('btn-save-pin').onclick = () => {
+      pin = (inpPin.value || '').trim();
+      localStorage.setItem(PIN_KEY, pin);
+      refreshStatus();
+      loadVocabDeck();
+    };
+
+    document.querySelectorAll('.tab-btn').forEach((btn) => {
+      btn.onclick = () => {
+        const tab = btn.dataset.tab;
+        document.querySelectorAll('.tab-btn').forEach((b) => b.classList.toggle('active', b === btn));
+        document.getElementById('pane-deck').style.display = tab === 'deck' ? 'flex' : 'none';
+        document.getElementById('pane-vocab').style.display = tab === 'vocab' ? 'flex' : 'none';
+        document.getElementById('pane-screen').style.display = tab === 'screen' ? 'flex' : 'none';
+        if (tab === 'vocab') loadVocabDeck();
+        if (tab !== 'screen' && autoShotTimer) {
+          clearInterval(autoShotTimer);
+          autoShotTimer = null;
+          document.getElementById('btn-shot-auto').textContent = 'Tự Cập Nhật: TẮT';
+        }
+      };
+    });
+
+    document.querySelectorAll('[data-act]').forEach((btn) => {
+      btn.onclick = async () => {
+        const action = btn.dataset.act;
+        const res = await deckApi('/api/deck/action', 'POST', { action });
+        showToast(res.message || res.error || ('[OK] ' + action));
+      };
+    });
+
+    document.getElementById('btn-push-clip').onclick = async () => {
+      const text = document.getElementById('inp-transfer').value.trim();
+      if (!text) return showToast('[WARN] Hãy nhập nội dung cần gửi sang PC.');
+      const res = await deckApi('/api/deck/action', 'POST', { action: 'push_clipboard', text });
+      showToast(res.message || '[CLIPBOARD] Đã chép vào máy tính!');
+    };
+
+    document.getElementById('btn-open-url').onclick = async () => {
+      const text = document.getElementById('inp-transfer').value.trim();
+      if (!text) return showToast('[WARN] Hãy dán URL cần mở trên PC.');
+      const res = await deckApi('/api/deck/action', 'POST', { action: 'open_url', text });
+      showToast(res.message || '[OPEN] Đã mở trên trình duyệt PC!');
+    };
+
+    document.getElementById('btn-pull-clip').onclick = async () => {
+      const res = await deckApi('/api/deck/action', 'POST', { action: 'pull_clipboard' });
+      if (res.ok && typeof res.clipboard === 'string') {
+        document.getElementById('inp-transfer').value = res.clipboard;
+        showToast('[CLIPBOARD PC] Đã lấy nội dung từ máy tính về điện thoại.');
+      } else {
+        showToast(res.error || '[WARN] Clipboard trống.');
+      }
+    };
+
+    document.getElementById('btn-send-ai').onclick = async () => {
+      const text = document.getElementById('inp-transfer').value.trim();
+      if (!text) return showToast('[WARN] Hãy nhập câu hỏi cho Duck AI.');
+      const res = await deckApi('/api/deck/action', 'POST', { action: 'send_chat', text });
+      document.getElementById('inp-transfer').value = '';
+      showToast(res.message || '[AI] Đã gửi câu hỏi tới Duck trên PC!');
+    };
+
+    function renderCurrentCard(item) {
+      if (!item) return;
+      currentVocab = item;
+      isFlipped = false;
+      document.getElementById('fc-back').style.display = 'none';
+      document.getElementById('fc-meta').textContent = (item.level || 'B2') + ' • ' + (item.topic || 'general');
+      document.getElementById('fc-word').textContent = item.word;
+      document.getElementById('fc-ipa').textContent = item.phonetic || '';
+      document.getElementById('fc-vi').textContent = item.meaning_vi || item.definition_en || '';
+      document.getElementById('fc-ex').textContent = item.example_en || '';
+    }
+
+    document.getElementById('fc-card').onclick = (e) => {
+      if (e.target.closest('button')) return;
+      isFlipped = !isFlipped;
+      document.getElementById('fc-back').style.display = isFlipped ? 'block' : 'none';
+    };
+
+    document.getElementById('btn-fc-phone-tts').onclick = (e) => {
+      e.stopPropagation();
+      if (!currentVocab || !window.speechSynthesis) return;
+      window.speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(currentVocab.word);
+      u.lang = 'en-US';
+      u.rate = 0.92;
+      window.speechSynthesis.speak(u);
+    };
+
+    document.getElementById('btn-fc-pc-tts').onclick = async (e) => {
+      e.stopPropagation();
+      if (!currentVocab) return;
+      const res = await deckApi('/api/deck/vocab', 'POST', { action: 'speak_pc', word: currentVocab.word });
+      showToast(res.message || '[TTS] Vịt trên PC đang đọc từ vựng!');
+    };
+
+    document.querySelectorAll('[data-q]').forEach((btn) => {
+      btn.onclick = async () => {
+        if (!currentVocab) return;
+        const quality = Number(btn.dataset.q || '4');
+        const res = await deckApi('/api/deck/vocab', 'POST', {
+          action: 'review',
+          word: currentVocab.word,
+          quality,
+          item: currentVocab
+        });
+        showToast(res.message || '[SRS] Đã lưu kết quả ôn tập!');
+        await loadVocabDeck(true);
+      };
+    });
+
+    document.getElementById('btn-fc-next').onclick = async () => {
+      const res = await deckApi('/api/deck/vocab', 'POST', { action: 'draw' });
+      if (res.ok && res.card) {
+        renderCurrentCard(res.card);
+      }
+    };
+
+    async function loadVocabDeck(drawNext = false) {
+      const res = await deckApi('/api/deck/vocab');
+      if (!res.ok) return;
+      vocabDeck = res.items || [];
+      document.getElementById('vocab-count-badge').textContent = vocabDeck.length + ' từ đã lưu';
+      if ((!currentVocab || drawNext) && res.featured) {
+        renderCurrentCard(res.featured);
+      }
+      const listEl = document.getElementById('srs-list');
+      listEl.innerHTML = '';
+      vocabDeck.slice(0, 30).forEach((w) => {
+        const row = document.createElement('div');
+        row.className = 'srs-row';
+        const left = document.createElement('div');
+        const st = document.createElement('strong');
+        st.textContent = w.word + ' ';
+        const sp = document.createElement('span');
+        sp.style.color = '#6ee7b7';
+        sp.textContent = w.meaning_vi || w.definition_en || '';
+        left.append(st, sp);
+        const btn = document.createElement('button');
+        btn.className = 'deck-btn';
+        btn.style.minHeight = '32px';
+        btn.style.padding = '4px 9px';
+        btn.textContent = 'Ôn';
+        btn.onclick = () => renderCurrentCard(w);
+        row.append(left, btn);
+        listEl.appendChild(row);
+      });
+    }
+
+    async function captureScreenOnce() {
+      showToast('[SCREEN] Đang chụp màn hình máy tính...');
+      const res = await deckApi('/api/deck/screenshot');
+      if (res.ok && res.image_base64) {
+        const img = document.getElementById('shot-img');
+        img.src = 'data:image/jpeg;base64,' + res.image_base64;
+        img.style.display = 'block';
+        showToast('[SCREEN] Đã cập nhật ảnh màn hình PC.');
+      } else {
+        showToast(res.error || '[ERR] Không chụp được màn hình.');
+      }
+    }
+
+    document.getElementById('btn-shot-now').onclick = captureScreenOnce;
+    document.getElementById('btn-shot-auto').onclick = (e) => {
+      if (autoShotTimer) {
+        clearInterval(autoShotTimer);
+        autoShotTimer = null;
+        e.target.textContent = 'Tự Cập Nhật: TẮT';
+      } else {
+        captureScreenOnce();
+        autoShotTimer = setInterval(captureScreenOnce, 3000);
+        e.target.textContent = 'Tự Cập Nhật: 3 GIÂY';
+      }
+    };
+
+    if (!pin) {
+      pinRow.style.display = 'flex';
+      connBadge.textContent = '[CẦN MÃ PIN]';
+    } else {
+      refreshStatus();
+    }
+    setInterval(refreshStatus, 4000);
+  </script>
+</body>
+</html>

@@ -1,0 +1,277 @@
+@baseUrl = http://localhost:4000
+
+### 0. Kiểm tra API Gateway (Health Check)
+GET {{baseUrl}}/
+
+### 0.1. Lấy danh sách các AI Models khả dụng
+GET {{baseUrl}}/api/v1/models
+
+### 1. [User Service] Đăng ký tài khoản mới
+# @name register
+POST {{baseUrl}}/api/v1/users/register
+Content-Type: application/json
+
+{
+  "username": "phongluong",
+  "email": "phongluong@example.com",
+  "password": "Password123@",
+  "role": "admin"
+}
+
+### 2. [User Service] Đăng nhập (Tự động trích xuất token cho các request bên dưới)
+# @name login
+POST {{baseUrl}}/api/v1/users/login
+Content-Type: application/json
+
+{
+  "email": "phongluong@example.com",
+  "password": "Password123@"
+}
+
+### Biến lưu token trích xuất từ phản hồi đăng nhập
+@token = {{login.response.body.data.token}}
+
+### 3. [User Service] Lấy danh sách Users
+GET {{baseUrl}}/api/v1/users
+Authorization: Bearer {{token}}
+
+### 4. [Room Service] Tạo phòng họp mới
+# @name createRoom
+POST {{baseUrl}}/api/v1/rooms/user-user
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "name": "Virtual Office Main Hall",
+  "description": "Phong hop tong quan 3D Multi-Agent",
+  "maxCapacity": 20
+}
+
+### Biến lưu Room ID vừa tạo (hoặc fallback mặc định)
+@roomId = {{createRoom.response.body.data._id}}
+
+### 5. [Room Service] Lấy danh sách phòng họp
+GET {{baseUrl}}/api/v1/rooms/user-user
+Authorization: Bearer {{token}}
+
+### 5.1. [Room Service] Lấy chi tiết phòng họp theo ID
+GET {{baseUrl}}/api/v1/rooms/user-user/{{roomId}}
+Authorization: Bearer {{token}}
+
+### 5.2. [Room Service] Cập nhật Cấu hình Workflow Tuần Tự (Sequential Pipeline)
+PUT {{baseUrl}}/api/v1/rooms/user-user/{{roomId}}/workflow
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "mode": "sequential",
+  "enabled": true,
+  "description": "Quy trinh phan tich va truc quan hoa gia vang",
+  "order": ["agent_manager", "agent_search", "agent_visualize"],
+  "stepTools": {
+    "0": "workflow_planner_tool",
+    "1": "web_search_tool",
+    "2": "data_visualization_tool"
+  },
+  "agentTools": {
+    "agent_manager": ["workflow_planner_tool", "system_control_tool"],
+    "agent_visualize": ["data_visualization_tool", "data_analysis_tool"]
+  }
+}
+
+### 6. [Chat Service] Lấy lịch sử chat của phòng
+GET {{baseUrl}}/api/v1/chats/history/{{roomId}}
+Authorization: Bearer {{token}}
+
+### 7. [Agent Service] Tạo Tool mới
+POST {{baseUrl}}/api/v1/tools
+Content-Type: application/json
+
+{
+  "id": "calculator_tool",
+  "name": "Calculator",
+  "description": "Cong cu tinh toan so hoc co ban"
+}
+
+### 7.1. [Agent Service] Tạo Tool Trực quan hóa Biểu đồ (Data Visualization)
+POST {{baseUrl}}/api/v1/tools
+Content-Type: application/json
+
+{
+  "id": "data_visualization_tool",
+  "name": "Data Visualization",
+  "description": "Ve bieu do truc quan Line, Bar, Pie, Area dua tren so lieu thi truong"
+}
+
+### 8. [Agent Service] Lấy danh sách Tools
+GET {{baseUrl}}/api/v1/tools
+
+### 9. [Agent Service] Tạo Prompt mới
+POST {{baseUrl}}/api/v1/prompts
+Content-Type: application/json
+
+{
+  "id": "assistant_prompt",
+  "title": "Tro ly ao",
+  "content": "Ban la mot tro ly AI trong khong gian 3D chuyen nghiep."
+}
+
+### 10. [Agent Service] Lấy danh sách Prompts
+GET {{baseUrl}}/api/v1/prompts
+
+### 11. [Agent Service] Tạo Agent mới
+POST {{baseUrl}}/api/v1/agents
+Content-Type: application/json
+
+{
+  "id": "agent_alpha",
+  "name": "Agent Alpha 3D",
+  "color": "#3182ce",
+  "status": "idle",
+  "speech": "Xin chao! Toi la Agent Alpha.",
+  "pos_x": 0.0,
+  "pos_y": 1.0,
+  "pos_z": 0.0,
+  "prompt_id": "assistant_prompt",
+  "tool_ids": ["calculator_tool"]
+}
+
+### 12. [Agent Service] Lấy danh sách Agents
+GET {{baseUrl}}/api/v1/agents
+
+### 13. [Room Service] Đồng bộ nhóm Agent vào Room
+POST {{baseUrl}}/api/v1/rooms/agent-agent/{{roomId}}/agents
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "activeAgents": ["agent_manager", "agent_search", "agent_visualize", "agent_analyst"]
+}
+
+### 14. [Chat Service] Lấy danh sách thành viên & Agent Online trong phòng
+GET {{baseUrl}}/api/v1/chats/presence/{{roomId}}
+Authorization: Bearer {{token}}
+
+### 15. [Chat Service] Gửi tin nhắn ra lệnh chéo cho Agent trong phòng
+POST {{baseUrl}}/api/v1/chats/send
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "roomId": "{{roomId}}",
+  "senderId": "user_alice",
+  "senderName": "Alice",
+  "senderType": "user",
+  "message": "@agent_manager tim cho t gia vang hom nay"
+}
+
+### 16. [Chat Service] Báo cáo sự hiện diện của User (Presence)
+POST {{baseUrl}}/api/v1/chats/presence/{{roomId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "user": {
+    "id": "user_bob",
+    "name": "Bob Developer",
+    "avatar": "https://api.dicebear.com/7.x/bottts/svg?seed=bob",
+    "color": "#10b981"
+  }
+}
+
+### 17. [User Service] Lấy thông tin Profile cá nhân
+GET {{baseUrl}}/api/v1/users/me
+Authorization: Bearer {{token}}
+
+### 18. [User Service] Cập nhật Profile cá nhân (name, bio, avatar)
+PUT {{baseUrl}}/api/v1/users/me
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "name": "Phong Luong Senior AI",
+  "bio": "Lead Multi-Agent Architecture & Cloud Systems",
+  "avatar": "https://api.dicebear.com/7.x/bottts/svg?seed=PhongLuong"
+}
+
+### 19. [User Service] Lấy danh sách Agent của riêng User
+GET {{baseUrl}}/api/v1/users/me/agents
+Authorization: Bearer {{token}}
+
+### 20. [User Service] Đăng ký sở hữu Agent
+POST {{baseUrl}}/api/v1/users/me/agents/agent_ml
+Authorization: Bearer {{token}}
+
+### 21. [Room Service] Thêm 1 Agent vào phòng
+POST {{baseUrl}}/api/v1/rooms/agent-agent/{{roomId}}/agents/agent_ml
+Authorization: Bearer {{token}}
+
+### 22. [Room Service] Rút bớt Agent khỏi phòng
+DELETE {{baseUrl}}/api/v1/rooms/agent-agent/{{roomId}}/agents/agent_ml
+Authorization: Bearer {{token}}
+
+### 23. [Room Service] Gán sở hữu Agent cho User trong phòng (User-Agent Binding)
+POST {{baseUrl}}/api/v1/rooms/user-agent/{{roomId}}/user-agents
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "userId": "user_alice",
+  "userName": "Alice Leader",
+  "userColor": "#3b82f6",
+  "agentId": "agent_ml",
+  "agentName": "ML Expert"
+}
+
+### 24. [Room Service] Hủy gán sở hữu Agent trong phòng
+DELETE {{baseUrl}}/api/v1/rooms/user-agent/{{roomId}}/user-agents/agent_ml
+Authorization: Bearer {{token}}
+
+### 25. [Distributed Service (Go)] Health Check
+GET {{baseUrl}}/api/v1/distributed/app/info
+
+### 26. [Distributed Service (Go)] Danh mục Models Hỗ Trợ Chạy Phân Tán
+GET {{baseUrl}}/api/v1/distributed/models/catalog
+
+### 27. [Distributed Service (Go)] Benchmark & Kiểm Tra Điều Kiện Phần Cứng
+POST {{baseUrl}}/api/v1/distributed/benchmark
+Content-Type: application/json
+
+{
+  "cpuCores": 16,
+  "deviceMemoryGB": 32,
+  "hasWebGPU": true,
+  "gpuName": "NVIDIA GeForce RTX 4080",
+  "vramGB": 16,
+  "os": "Windows 11 Pro 64-bit"
+}
+
+### 28. [Distributed Service (Go)] Đăng Ký Đối Tác Mô Hình & Cấu Hình Cho Thuê
+POST {{baseUrl}}/api/v1/distributed/nodes/register
+Content-Type: application/json
+
+{
+  "userId": "usr_test_partner_01",
+  "username": "ComputeNode_Master",
+  "email": "master.node@network.ai",
+  "hardware": {
+    "cpuCores": 16,
+    "deviceMemoryGB": 32,
+    "hasWebGPU": true,
+    "gpuName": "NVIDIA GeForce RTX 4080",
+    "vramGB": 16,
+    "os": "Windows 11 Pro"
+  },
+  "rentConfig": {
+    "allocatedCores": 12,
+    "allocatedRAMGB": 24,
+    "enableGPU": true,
+    "gpuSharePercent": 80,
+    "availabilitySchedule": "24/7",
+    "minPricePerHourCoin": 100
+  }
+}
+
+### 29. [Distributed Service (Go)] Lấy Danh Sách Các Nodes Trong Mạng Lưới
+GET {{baseUrl}}/api/v1/distributed/nodes
+

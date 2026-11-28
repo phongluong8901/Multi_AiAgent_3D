@@ -1,0 +1,6 @@
+# Pyrefly configuration for manage_Compute backend
+search-path = [
+    "."
+]
+python-interpreter-path = ".venv/Scripts/python.exe"
+
