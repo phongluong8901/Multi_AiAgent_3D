@@ -634,6 +634,12 @@
     </div>
 
     <div style="display:flex; align-items:center; gap:8px;">
+      <button class="btn btn-sm" onclick="openApiKeysModal()" title="Thêm nhiều Gemini / Groq API Key và chọn chiến lược xoay vòng">
+        <svg class="icon" viewBox="0 0 24 24">
+          <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
+        </svg>
+        <span>API Keys</span>
+      </button>
       <button class="btn btn-sm" onclick="openProfileModal()" title="Hồ sơ cá nhân, quy tắc ứng xử, bộ nhớ & nhắc việc">
         <svg class="icon" viewBox="0 0 24 24">
           <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
@@ -660,6 +666,56 @@
       </div>
     </div>
   </header>
+
+  <!-- ================= API KEYS POOL MODAL (DPAPI ENCRYPTED) ================= -->
+  <div id="apiKeysModal" class="modal-backdrop" onclick="if(event.target===this) closeApiKeysModal()">
+    <div class="modal-shell" style="width:min(760px, 96vw);">
+      <div style="display:flex; align-items:center; justify-content:space-between; padding:14px 18px; border-bottom:1px solid var(--border);">
+        <div style="display:flex; align-items:center; gap:10px; font-weight:600; font-size:14px;">
+          <svg class="icon" viewBox="0 0 24 24">
+            <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
+          </svg>
+          <span>Quản lý API Key Pool (Gemini / Groq — Mã hóa Windows DPAPI)</span>
+        </div>
+        <button class="btn btn-sm" onclick="closeApiKeysModal()">Đóng</button>
+      </div>
+      <div style="padding:16px 18px; overflow-y:auto; display:flex; flex-direction:column; gap:14px;">
+        <div class="modal-card">
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
+            <div>
+              <div class="section-title" style="margin-bottom:2px;">1. Chiến lược xoay vòng Key (9Router Pool)</div>
+              <div style="font-size:11.5px; color:var(--muted);">Khi 1 key dính lỗi 429 (hết RPM/quota), hệ thống tự cooldown key đó và chuyển tức thì sang key tiếp theo.</div>
+            </div>
+            <select id="apiKeyStrategySelect" onchange="updateApiKeyStrategy()" style="width:240px;">
+              <option value="priority">Ưu tiên lần lượt (Priority)</option>
+              <option value="round_robin">Chia tải đều các key (Round-Robin)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="modal-card">
+          <div class="section-title">2. Thêm API Key mới (Hỗ trợ dán nhiều key cách nhau bằng xuống dòng hoặc dấu phẩy)</div>
+          <div style="display:grid; grid-template-columns:160px 1fr; gap:8px; margin-bottom:8px;">
+            <select id="apiKeyProvider">
+              <option value="gemini">Gemini (Google)</option>
+              <option value="groq">Groq</option>
+            </select>
+            <input type="text" id="apiKeyLabel" placeholder="Nhãn gợi nhớ (vd: Nick 2 - Gmail phụ)" autocomplete="off" />
+          </div>
+          <textarea id="apiKeyInput" rows="3" placeholder="Dán 1 hoặc nhiều API Key (AIzaSy...) vào đây, cách nhau bởi dấu phẩy hoặc xuống dòng..." style="font-family:monospace; font-size:12px; margin-bottom:8px;"></textarea>
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
+            <span id="apiKeyStatusMsg" style="font-size:12px; color:var(--success);"></span>
+            <button id="addApiKeyBtn" class="btn btn-sm btn-primary" onclick="addApiKeysFromUi()">Mã hóa & Áp dụng ngay</button>
+          </div>
+        </div>
+
+        <div class="modal-card">
+          <div class="section-title">3. Danh sách API Keys đang hoạt động trong Pool</div>
+          <div id="apiKeysListBox" style="display:flex; flex-direction:column; gap:6px;"></div>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- ================= PROFILE & MEMORY OS MODAL ================= -->
   <div id="profileModal" class="modal-backdrop" onclick="if(event.target===this) closeProfileModal()">
@@ -2498,8 +2554,126 @@
       }
     });
 
+    async function openApiKeysModal() {
+      const modal = document.getElementById("apiKeysModal");
+      if (!modal) return;
+      modal.style.display = "flex";
+      document.getElementById("apiKeyStatusMsg").textContent = "";
+      await refreshApiKeysModal();
+    }
+
+    function closeApiKeysModal() {
+      const modal = document.getElementById("apiKeysModal");
+      if (modal) modal.style.display = "none";
+    }
+
+    async function refreshApiKeysModal() {
+      const box = document.getElementById("apiKeysListBox");
+      if (!box) return;
+      try {
+        const res = await fetch("/api/llm/keys");
+        const data = await res.json();
+        const sel = document.getElementById("apiKeyStrategySelect");
+        if (sel && data.strategy) sel.value = data.strategy;
+        if (data.router_status) renderRouterPool(data.router_status);
+
+        const rows = [];
+        for (const ek of (data.env_keys || [])) {
+          rows.push(`
+            <div style="background:var(--code-bg); border:1px solid var(--border); border-radius:6px; padding:8px 10px; display:flex; justify-content:space-between; align-items:center; gap:10px; font-size:12.5px;">
+              <div>
+                <strong style="color:#93c5fd;">${escapeHtml(ek.label)}</strong>
+                <code style="margin-left:8px; color:var(--text);">${escapeHtml(ek.masked_key)}</code>
+                <span style="font-size:11px; color:var(--muted); margin-left:6px;">[.env]</span>
+              </div>
+              <span style="font-size:11px; color:var(--success);">Active</span>
+            </div>`);
+        }
+        for (const uk of (data.ui_keys || [])) {
+          rows.push(`
+            <div style="background:var(--code-bg); border:1px solid var(--border); border-radius:6px; padding:8px 10px; display:flex; justify-content:space-between; align-items:center; gap:10px; font-size:12.5px;">
+              <div>
+                <strong style="color:#86efac;">${escapeHtml(uk.label)}</strong>
+                <code style="margin-left:8px; color:var(--text);">${escapeHtml(uk.masked_key)}</code>
+                <span style="font-size:11px; color:var(--success); margin-left:6px;">[UI - ${escapeHtml(uk.encryption || "DPAPI")}]</span>
+              </div>
+              <button class="btn btn-sm" onclick="deleteApiKeyFromUi('${encodeURIComponent(uk.id)}')">Xóa</button>
+            </div>`);
+        }
+        if (rows.length === 0) {
+          box.innerHTML = '<div style="font-size:12px; color:var(--muted);">Chưa có API Key nào. Hãy dán Gemini API Key ở khung trên để kích hoạt ngay.</div>';
+        } else {
+          box.innerHTML = rows.join("");
+        }
+      } catch (e) {
+        box.innerHTML = '<div style="font-size:12px; color:var(--danger);">Lỗi tải danh sách API Keys.</div>';
+      }
+    }
+
+    async function addApiKeysFromUi() {
+      const provider = document.getElementById("apiKeyProvider").value;
+      const label = (document.getElementById("apiKeyLabel").value || "").trim();
+      const api_key = (document.getElementById("apiKeyInput").value || "").trim();
+      const msg = document.getElementById("apiKeyStatusMsg");
+      const btn = document.getElementById("addApiKeyBtn");
+      if (!api_key) {
+        msg.style.color = "var(--danger)";
+        msg.textContent = "Vui lòng dán ít nhất 1 API Key.";
+        return;
+      }
+      btn.disabled = true;
+      try {
+        const res = await fetch("/api/llm/keys", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ provider, label, api_key })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          msg.style.color = "var(--danger)";
+          msg.textContent = data.detail || "Thêm API Key thất bại.";
+          return;
+        }
+        document.getElementById("apiKeyLabel").value = "";
+        document.getElementById("apiKeyInput").value = "";
+        msg.style.color = "var(--success)";
+        msg.textContent = `Đã mã hóa & nạp thêm ${(data.added || []).length} key vào 9Router Pool (không cần khởi động lại).`;
+        await refreshApiKeysModal();
+      } catch (e) {
+        msg.style.color = "var(--danger)";
+        msg.textContent = "Lỗi kết nối khi lưu API Key.";
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    async function deleteApiKeyFromUi(encodedId) {
+      const msg = document.getElementById("apiKeyStatusMsg");
+      await fetch(`/api/llm/keys/${encodedId}`, { method: "DELETE" });
+      msg.style.color = "var(--muted)";
+      msg.textContent = "Đã xóa API Key và cập nhật lại 9Router Pool.";
+      await refreshApiKeysModal();
+    }
+
+    async function updateApiKeyStrategy() {
+      const strategy = document.getElementById("apiKeyStrategySelect").value;
+      const msg = document.getElementById("apiKeyStatusMsg");
+      const res = await fetch("/api/llm/strategy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ strategy })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        if (data.router_status) renderRouterPool(data.router_status);
+        msg.style.color = "var(--success)";
+        msg.textContent = `Đã chuyển chiến lược xoay vòng sang: ${strategy}.`;
+      }
+    }
+
     document.addEventListener("keydown", (e) => {
       if (e.key === "Escape") {
+        closeApiKeysModal();
         closeProfileModal();
         closeInsightsModal();
         closeZoomModal();

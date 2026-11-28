@@ -1,0 +1,15 @@
+{
+  "name": "model-local-cloud",
+  "version": "1.0.0",
+  "description": "TypeScript client & scanner for Google Colab GPU Ollama over Cloudflare Tunnel",
+  "type": "module",
+  "main": "dist/src/client.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "tsc && node --test dist/test/colab_client.test.js"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.2"
+  }
+}

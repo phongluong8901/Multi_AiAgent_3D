@@ -219,3 +219,164 @@ class EncryptedCredentialVault:
                 self._write_raw(data)
                 return True
         return False
+
+
+DEFAULT_API_KEYS_PATH = DATA_DIR / "api_keys.enc.json"
+
+
+def mask_api_key(raw_key: str) -> str:
+    k = (raw_key or "").strip()
+    if len(k) <= 10:
+        return "***"
+    return f"{k[:6]}...{k[-4:]}"
+
+
+class EncryptedApiKeyVault:
+    """Thread-safe Windows DPAPI encrypted vault for LLM API Keys (Gemini / Groq) added from Web UI."""
+
+    def __init__(self, vault_path: Path = DEFAULT_API_KEYS_PATH):
+        self.vault_path = Path(vault_path)
+        self.vault_path.parent.mkdir(parents=True, exist_ok=True)
+        self._lock = threading.Lock()
+
+    def _read_raw(self) -> dict[str, Any]:
+        if not self.vault_path.exists():
+            return {"strategy": "", "keys": []}
+        try:
+            data = json.loads(self.vault_path.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                data.setdefault("strategy", "")
+                data.setdefault("keys", [])
+                return data
+        except Exception:
+            pass
+        return {"strategy": "", "keys": []}
+
+    def _write_raw(self, data: dict[str, Any]) -> None:
+        tmp = self.vault_path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.replace(self.vault_path)
+
+    def get_strategy(self) -> str:
+        with self._lock:
+            val = str(self._read_raw().get("strategy") or "").strip().lower()
+        return val if val in ("priority", "round_robin") else ""
+
+    def set_strategy(self, strategy: str) -> str:
+        st = (strategy or "priority").strip().lower()
+        if st not in ("priority", "round_robin"):
+            raise ValueError("Strategy must be 'priority' or 'round_robin'.")
+        with self._lock:
+            data = self._read_raw()
+            data["strategy"] = st
+            self._write_raw(data)
+        return st
+
+    def add_keys(self, provider: str, raw_keys_text: str, label: str = "") -> list[dict[str, Any]]:
+        import hashlib
+        import re as _re
+        import uuid
+
+        prov = (provider or "gemini").strip().lower()
+        if prov not in ("gemini", "groq"):
+            raise ValueError("Chỉ hỗ trợ provider 'gemini' hoặc 'groq'.")
+
+        parts = [p.strip() for p in _re.split(r"[\r\n,;]+", raw_keys_text or "") if p.strip()]
+        if not parts:
+            raise ValueError("Vui lòng nhập ít nhất 1 API Key hợp lệ.")
+
+        now = datetime.now(timezone.utc).isoformat()
+        added: list[dict[str, Any]] = []
+        with self._lock:
+            data = self._read_raw()
+            items: list[dict[str, Any]] = list(data.get("keys") or [])
+            existing_hashes = {str(it.get("key_hash") or "") for it in items}
+
+            for idx, raw_key in enumerate(parts, start=1):
+                if len(raw_key) < 12:
+                    continue
+                khash = hashlib.sha256(f"{prov}:{raw_key}".encode("utf-8")).hexdigest()[:16]
+                if khash in existing_hashes:
+                    continue
+                item_label = (label or "").strip()
+                if item_label and len(parts) > 1:
+                    item_label = f"{item_label} #{idx}"
+                elif not item_label:
+                    same_prov_count = sum(1 for it in items if it.get("provider") == prov) + 1
+                    item_label = f"{prov.capitalize()} UI #{same_prov_count}"
+
+                rec = {
+                    "id": uuid.uuid4().hex[:10],
+                    "provider": prov,
+                    "label": item_label,
+                    "masked_key": mask_api_key(raw_key),
+                    "key_hash": khash,
+                    "key_enc": _dpapi_encrypt(raw_key),
+                    "created_at": now,
+                }
+                items.append(rec)
+                existing_hashes.add(khash)
+                added.append(
+                    {
+                        "id": rec["id"],
+                        "provider": rec["provider"],
+                        "label": rec["label"],
+                        "masked_key": rec["masked_key"],
+                        "encryption": "Windows DPAPI" if rec["key_enc"].startswith("dpapi:") else "base64",
+                        "created_at": rec["created_at"],
+                    }
+                )
+
+            data["keys"] = items
+            self._write_raw(data)
+        return added
+
+    def list_keys(self, provider: str | None = None) -> list[dict[str, Any]]:
+        with self._lock:
+            items = list(self._read_raw().get("keys") or [])
+        out: list[dict[str, Any]] = []
+        for rec in items:
+            if provider and rec.get("provider") != provider:
+                continue
+            enc = str(rec.get("key_enc") or "")
+            out.append(
+                {
+                    "id": rec.get("id", ""),
+                    "provider": rec.get("provider", "gemini"),
+                    "label": rec.get("label", ""),
+                    "masked_key": rec.get("masked_key", "***"),
+                    "encryption": "Windows DPAPI" if enc.startswith("dpapi:") else "base64",
+                    "created_at": rec.get("created_at", ""),
+                }
+            )
+        return out
+
+    def get_raw_keys(self, provider: str = "gemini") -> list[tuple[str, str]]:
+        """INTERNAL ONLY for MultiProviderRouter. NEVER return raw keys to UI/LLM."""
+        with self._lock:
+            items = list(self._read_raw().get("keys") or [])
+        out: list[tuple[str, str]] = []
+        for rec in items:
+            if rec.get("provider") != provider:
+                continue
+            try:
+                raw = _dpapi_decrypt(str(rec.get("key_enc") or "")).strip()
+                if raw:
+                    out.append((str(rec.get("label") or ""), raw))
+            except Exception:
+                continue
+        return out
+
+    def delete_key(self, key_id: str) -> bool:
+        target = (key_id or "").strip()
+        if not target:
+            return False
+        with self._lock:
+            data = self._read_raw()
+            items = list(data.get("keys") or [])
+            new_items = [it for it in items if it.get("id") != target]
+            if len(new_items) == len(items):
+                return False
+            data["keys"] = new_items
+            self._write_raw(data)
+            return True

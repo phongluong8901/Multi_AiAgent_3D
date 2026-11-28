@@ -148,6 +148,16 @@ class AutoHealRequest(BaseModel):
     model: str = DEFAULT_MODEL
 
 
+class ApiKeyAddRequest(BaseModel):
+    provider: str = "gemini"
+    api_key: str
+    label: str = ""
+
+
+class RouterStrategyRequest(BaseModel):
+    strategy: str = "priority"
+
+
 _SUGGEST_RE = re.compile(
     r"\[\[SUGGEST_SKILL:\s*([a-zA-Z0-9_\-]+)\s*\|\s*(.+?)\s*\]\]",
     flags=re.DOTALL,
@@ -973,6 +983,113 @@ def create_web_app(enable_mlflow: bool = False) -> FastAPI:
         from skills.automationPc_skills import skill_browser_cdp_controller as cdp
 
         return await run_in_threadpool(lambda: cdp.launch_agent_chrome(headless=False))
+
+    # ------------------------------------------------------------------
+    # LLM API Keys Pool Management (Gemini / Groq — DPAPI Encrypted + Live Hot-Reload)
+    # ------------------------------------------------------------------
+    def _collect_env_masked_keys() -> list[dict[str, Any]]:
+        from agent_runtime.credential_vault import mask_api_key
+
+        env_list: list[dict[str, Any]] = []
+        g_seen: set[str] = set()
+        g_idx = 0
+        for var_name in ("GEMINI_API_KEY", "GEMINI_API_KEYS"):
+            raw_val = os.environ.get(var_name, "").strip()
+            for part in [p.strip() for p in raw_val.split(",") if p.strip()]:
+                if part not in g_seen:
+                    g_seen.add(part)
+                    g_idx += 1
+                    env_list.append(
+                        {
+                            "source": ".env",
+                            "provider": "gemini",
+                            "label": f"Gemini .env #{g_idx} ({var_name})",
+                            "masked_key": mask_api_key(part),
+                        }
+                    )
+        gr_seen: set[str] = set()
+        gr_idx = 0
+        for var_name in ("GROQ_API_KEY", "GROQ_API_KEYS"):
+            raw_val = os.environ.get(var_name, "").strip()
+            for part in [p.strip() for p in raw_val.split(",") if p.strip()]:
+                if part not in gr_seen:
+                    gr_seen.add(part)
+                    gr_idx += 1
+                    env_list.append(
+                        {
+                            "source": ".env",
+                            "provider": "groq",
+                            "label": f"Groq .env #{gr_idx} ({var_name})",
+                            "masked_key": mask_api_key(part),
+                        }
+                    )
+        return env_list
+
+    @app.get("/api/llm/keys")
+    def list_llm_api_keys() -> dict[str, Any]:
+        from agent_runtime.credential_vault import EncryptedApiKeyVault
+
+        vault = EncryptedApiKeyVault()
+        return {
+            "ok": True,
+            "strategy": state.session.llm_router.strategy,
+            "env_keys": _collect_env_masked_keys(),
+            "ui_keys": vault.list_keys(),
+            "router_status": state.session.llm_router.get_status(),
+        }
+
+    @app.post("/api/llm/keys")
+    def add_llm_api_keys(req: ApiKeyAddRequest) -> dict[str, Any]:
+        from agent_runtime.credential_vault import EncryptedApiKeyVault
+
+        try:
+            vault = EncryptedApiKeyVault()
+            added = vault.add_keys(provider=req.provider, raw_keys_text=req.api_key, label=req.label)
+            if not added:
+                raise ValueError("API Key này đã tồn tại trong danh sách hoặc không hợp lệ (quá ngắn).")
+            router_status = state.session.llm_router.reload_keys()
+            return {
+                "ok": True,
+                "added": added,
+                "strategy": state.session.llm_router.strategy,
+                "env_keys": _collect_env_masked_keys(),
+                "ui_keys": vault.list_keys(),
+                "router_status": router_status,
+            }
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.delete("/api/llm/keys/{key_id}")
+    def delete_llm_api_key(key_id: str) -> dict[str, Any]:
+        from agent_runtime.credential_vault import EncryptedApiKeyVault
+
+        vault = EncryptedApiKeyVault()
+        deleted = vault.delete_key(key_id)
+        router_status = state.session.llm_router.reload_keys()
+        return {
+            "ok": True,
+            "deleted": deleted,
+            "strategy": state.session.llm_router.strategy,
+            "env_keys": _collect_env_masked_keys(),
+            "ui_keys": vault.list_keys(),
+            "router_status": router_status,
+        }
+
+    @app.post("/api/llm/strategy")
+    def update_llm_strategy(req: RouterStrategyRequest) -> dict[str, Any]:
+        from agent_runtime.credential_vault import EncryptedApiKeyVault
+
+        try:
+            vault = EncryptedApiKeyVault()
+            st = vault.set_strategy(req.strategy)
+            router_status = state.session.llm_router.reload_keys(strategy=st)
+            return {
+                "ok": True,
+                "strategy": st,
+                "router_status": router_status,
+            }
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     # ------------------------------------------------------------------
     # In-Chat One-Click Autonomous Skill Self-Healing (#10)

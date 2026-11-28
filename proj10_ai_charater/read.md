@@ -41,3 +41,9 @@ Compress-Archive -Path "dist-package\Duck_ai_Manager_v1.0.0\*" -DestinationPath 
 
 # --- cloud back end da deploy len render
 da cicd de deploy khi push p11_ad...
+
+
+# ---
+ai-desktop-mate: quan li giao dien, sql lite
+cloud-hub-backend: quan li tools
+model_local_cloud: tinh lay model tren gpu colab

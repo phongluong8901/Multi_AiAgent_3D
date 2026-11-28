@@ -221,13 +221,44 @@ class MultiProviderRouter:
         timeout_sec: int = DEFAULT_API_TIMEOUT_SEC,
     ):
         load_dotenv(ENV_FILE)
-        self.strategy = (strategy or os.environ.get("LLM_ROUTER_STRATEGY", "priority")).strip().lower()
+        vault_strategy = ""
+        try:
+            from agent_runtime.credential_vault import EncryptedApiKeyVault
+
+            vault_strategy = EncryptedApiKeyVault().get_strategy()
+        except Exception:
+            vault_strategy = ""
+        self.strategy = (
+            strategy or vault_strategy or os.environ.get("LLM_ROUTER_STRATEGY", "priority")
+        ).strip().lower()
         self.timeout_sec = timeout_sec
         self._lock = threading.Lock()
         self._rr_index = 0
         self._gemini_clients: dict[str, genai.Client] = {}
         self.endpoints: list[ProviderEndpoint] = []
         self._build_endpoints()
+
+    def reload_keys(self, strategy: str | None = None) -> list[dict[str, Any]]:
+        """Hot-reload API keys (.env + UI EncryptedApiKeyVault) & strategy without restarting server."""
+        load_dotenv(ENV_FILE, override=False)
+        with self._lock:
+            if strategy:
+                st = strategy.strip().lower()
+                if st in ("priority", "round_robin"):
+                    self.strategy = st
+            else:
+                try:
+                    from agent_runtime.credential_vault import EncryptedApiKeyVault
+
+                    vst = EncryptedApiKeyVault().get_strategy()
+                    if vst:
+                        self.strategy = vst
+                except Exception:
+                    pass
+            self._gemini_clients.clear()
+            self.endpoints.clear()
+            self._build_endpoints()
+            return [ep.to_public_dict() for ep in self.endpoints]
 
     def _get_gemini_client(self, api_key: str) -> genai.Client:
         if api_key not in self._gemini_clients:
@@ -242,7 +273,7 @@ class MultiProviderRouter:
         return self._gemini_clients[api_key]
 
     def _build_endpoints(self) -> None:
-        # 1. Collect all Gemini keys (GEMINI_API_KEY + comma-separated GEMINI_API_KEYS)
+        # 1. Collect all Gemini keys (.env GEMINI_API_KEY + GEMINI_API_KEYS + UI EncryptedApiKeyVault)
         gemini_keys: list[str] = []
         primary_g = os.environ.get("GEMINI_API_KEY", "").strip()
         if primary_g:
@@ -251,6 +282,15 @@ class MultiProviderRouter:
         for k in [x.strip() for x in extra_g.split(",") if x.strip()]:
             if k not in gemini_keys:
                 gemini_keys.append(k)
+        try:
+            from agent_runtime.credential_vault import EncryptedApiKeyVault
+
+            vault = EncryptedApiKeyVault()
+            for _, vk in vault.get_raw_keys("gemini"):
+                if vk and vk not in gemini_keys:
+                    gemini_keys.append(vk)
+        except Exception:
+            vault = None
 
         gemini_models = [
             ("gemini-3.5-flash-lite", 10),
@@ -277,6 +317,10 @@ class MultiProviderRouter:
             ).split(",")
             if k.strip()
         ]
+        if vault is not None:
+            for _, vk in vault.get_raw_keys("groq"):
+                if vk and vk not in groq_keys:
+                    groq_keys.append(vk)
         groq_keys = list(dict.fromkeys(groq_keys))
         groq_models = [
             ("openai/gpt-oss-120b", 20),
@@ -364,6 +408,10 @@ class MultiProviderRouter:
                 # When explicitly testing local Ollama, do NOT silently fall back to cloud APIs
                 if preferred_target.startswith("ollama:") or preferred_target == "ollama":
                     return exact
+                if self.strategy == "round_robin" and len(exact) > 1:
+                    idx = self._rr_index % len(exact)
+                    self._rr_index += 1
+                    exact = exact[idx:] + exact[:idx]
                 rest = [ep for ep in avail if ep not in exact]
                 return exact + rest
 
